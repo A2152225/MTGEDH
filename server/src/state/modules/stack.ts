@@ -1,7 +1,7 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue } from "../utils.js";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { 
   getETBTriggersForPermanent, 
@@ -3251,6 +3251,14 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Execute each effect
       for (const effect of effects) {
         executeSpellEffect(ctx, effect, controller, effectiveCard.name || 'spell');
+      }
+      
+      // Check for temporary land play effects (Summer Bloom, Explore, etc.)
+      // These spells grant extra land plays for the current turn only
+      const landBonus = detectSpellLandBonus(effectiveCard.name || '', oracleText);
+      if (landBonus > 0) {
+        applyTemporaryLandBonus(ctx, controller, landBonus);
+        console.log(`[resolveTopOfStack] ${effectiveCard.name} granted ${controller} ${landBonus} additional land play(s) this turn`);
       }
       
       // Handle special spell effects not covered by the base system

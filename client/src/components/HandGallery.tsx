@@ -5,7 +5,19 @@ import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 /**
- * Cost reduction info for a card
+ * Cost adjustment info for a card (includes both reductions and increases)
+ */
+export interface CardCostAdjustment {
+  originalCost: string;
+  adjustedCost: string;
+  adjustment: number;          // positive = increase, negative = reduction
+  genericAdjustment: number;
+  sources: string[];
+  isIncrease?: boolean;        // true if cost is increased (e.g., by Aura of Silence)
+}
+
+/**
+ * @deprecated Use CardCostAdjustment instead
  */
 export interface CardCostReduction {
   originalCost: string;
@@ -32,12 +44,16 @@ export interface HandGalleryProps {
   enableReorder?: boolean;
   onReorder?: (order: string[]) => void;  // changed to card IDs instead of indices
   hidden?: boolean;                 // if true, render facedown placeholders (no leak)
-  // NEW: cost reduction info for displaying modified costs
+  // Cost adjustment info for displaying modified costs (increases and reductions)
+  costAdjustments?: Record<string, CardCostAdjustment>;
+  // @deprecated - use costAdjustments instead
   costReductions?: Record<string, CardCostReduction>;
   // NEW: IDs of cards that are currently playable (for highlighting)
   playableCards?: string[];
   // Appearance settings for custom highlight color
   appearanceSettings?: AppearanceSettings;
+  // Right-click context menu handler for hand cards
+  onContextMenu?: (card: KnownCardRef, x: number, y: number) => void;
 }
 
 function isLand(tl?: string): boolean {
@@ -77,9 +93,11 @@ export function HandGallery(props: HandGalleryProps) {
     enableReorder = false,
     onReorder,
     hidden = false,
+    costAdjustments = {},
     costReductions = {},
     playableCards = [],
     appearanceSettings,
+    onContextMenu,
   } = props;
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -229,6 +247,12 @@ export function HandGallery(props: HandGalleryProps) {
               })
             }
             onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}
+            onContextMenu={(e) => {
+              if (kc && onContextMenu) {
+                e.preventDefault();
+                onContextMenu(kc, e.clientX, e.clientY);
+              }
+            }}
             style={{
               ...baseCardStyle,
               ...cardWidthStyle(),
@@ -274,8 +298,40 @@ export function HandGallery(props: HandGalleryProps) {
               }}>{name}</div>
             )}
 
-            {/* Cost reduction badge - show modified cost when Banneret effects apply */}
-            {kc && !isLand(tl) && costReductions[kc.id] && (
+            {/* Cost adjustment badge - show modified cost when effects apply (Aura of Silence, Medallions, etc.) */}
+            {kc && !isLand(tl) && costAdjustments[kc.id] && (
+              <div 
+                style={{
+                  position: 'absolute', 
+                  bottom: 4, 
+                  left: 4,
+                  // Red background for cost increases, green for reductions
+                  background: costAdjustments[kc.id].isIncrease 
+                    ? 'rgba(239, 68, 68, 0.9)' 
+                    : 'rgba(34, 197, 94, 0.9)', 
+                  color: '#fff',
+                  fontSize: 10, 
+                  padding: '2px 6px', 
+                  borderRadius: 4,
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title={`Cost ${costAdjustments[kc.id].isIncrease ? 'increased' : 'reduced'} by ${costAdjustments[kc.id].sources.join(', ')}`}
+                role="status"
+                aria-label={`Mana cost ${costAdjustments[kc.id].isIncrease ? 'increased' : 'reduced'} from ${costAdjustments[kc.id].originalCost} to ${costAdjustments[kc.id].adjustedCost} by ${costAdjustments[kc.id].sources.join(', ')}`}
+              >
+                <span style={{ textDecoration: 'line-through', opacity: 0.7 }} aria-hidden="true">
+                  {costAdjustments[kc.id].originalCost}
+                </span>
+                <span aria-hidden="true">{costAdjustments[kc.id].isIncrease ? '⬆' : '→'}</span>
+                <span>{costAdjustments[kc.id].adjustedCost}</span>
+              </div>
+            )}
+            
+            {/* Legacy cost reduction badge - for backwards compatibility */}
+            {kc && !isLand(tl) && !costAdjustments[kc.id] && costReductions[kc.id] && (
               <div 
                 style={{
                   position: 'absolute', 
