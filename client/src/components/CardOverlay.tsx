@@ -245,6 +245,98 @@ export function CardOverlay({
         </div>
       )}
 
+      {/* Counter badges - show all counter types on the permanent (except +1/+1 and -1/-1 which are in P/T) */}
+      {(() => {
+        // Build list of displayable counters (excluding +1/+1 and -1/-1 which affect P/T)
+        const counters = perm.counters || {};
+        const displayCounters: Array<{ type: string; count: number; color: string; icon: string }> = [];
+        
+        // Counter type configurations
+        const counterConfig: Record<string, { color: string; icon: string }> = {
+          'charge': { color: '#3b82f6', icon: '⚡' },
+          'level': { color: '#8b5cf6', icon: '📊' },
+          'loyalty': { color: '#c084fc', icon: '❤️' }, // Only show if not planeswalker (PW has separate display)
+          'storage': { color: '#14b8a6', icon: '💎' },
+          'age': { color: '#78716c', icon: '⏳' },
+          'fade': { color: '#6b7280', icon: '💨' },
+          'time': { color: '#60a5fa', icon: '⏰' },
+          'quest': { color: '#fbbf24', icon: '⭐' },
+          'lore': { color: '#a78bfa', icon: '📖' },
+          'verse': { color: '#f472b6', icon: '🎵' },
+          'spore': { color: '#22c55e', icon: '🍄' },
+          'blood': { color: '#dc2626', icon: '🩸' },
+          'oil': { color: '#1f2937', icon: '🛢️' },
+          'energy': { color: '#f59e0b', icon: '⚡' },
+          'poison': { color: '#84cc16', icon: '☠️' },
+          'bounty': { color: '#eab308', icon: '💰' },
+          'doom': { color: '#7c3aed', icon: '💀' },
+          'hatchling': { color: '#f97316', icon: '🥚' },
+          'brick': { color: '#d97706', icon: '🧱' },
+          'pressure': { color: '#ef4444', icon: '💢' },
+          'page': { color: '#e5e7eb', icon: '📄' },
+          'ki': { color: '#06b6d4', icon: '☯️' },
+          'experience': { color: '#10b981', icon: '✨' },
+        };
+        
+        for (const [counterType, count] of Object.entries(counters)) {
+          if (count <= 0) continue;
+          // Skip +1/+1 and -1/-1 (handled in P/T tooltip)
+          if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+          // Skip loyalty for planeswalkers (has separate display)
+          if (counterType === 'loyalty' && isPlaneswalker) continue;
+          
+          const config = counterConfig[counterType.toLowerCase()] || { color: '#6b7280', icon: '●' };
+          displayCounters.push({
+            type: counterType,
+            count: count as number,
+            color: config.color,
+            icon: config.icon,
+          });
+        }
+        
+        if (displayCounters.length === 0) return null;
+        
+        return (
+          <div style={{
+            position: 'absolute',
+            top: abilities.length > 0 ? Math.round(28 * scale) : Math.round(4 * scale),
+            left: Math.round(4 * scale),
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: Math.round(3 * scale),
+            maxWidth: '60%',
+            zIndex: 15,
+          }}>
+            {displayCounters.map(({ type, count, color, icon }) => (
+              <div
+                key={type}
+                title={`${count} ${type} counter${count !== 1 ? 's' : ''}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: Math.round(2 * scale),
+                  background: `linear-gradient(135deg, ${color}dd, ${color}99)`,
+                  padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                  borderRadius: Math.round(4 * scale),
+                  border: `1px solid ${color}`,
+                  boxShadow: `0 2px 6px ${color}40`,
+                }}
+              >
+                <span style={{ fontSize: Math.round(10 * scale) }}>{icon}</span>
+                <span style={{
+                  fontSize: Math.round(10 * scale),
+                  fontWeight: 700,
+                  color: '#fff',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                }}>
+                  {count}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* P/T display for creatures with hover tooltip - positioned in lower right like real MTG cards */}
       {showPT && isCreature && effP !== undefined && effT !== undefined && (
         <div 

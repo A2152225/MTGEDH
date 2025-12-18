@@ -3600,6 +3600,91 @@ export function calculateManaProduction(
     result.colors = ['G'];
   }
   
+  // Joraga Treespeaker - Leveler card (Rule 702.87)
+  // Level 0: No mana ability
+  // Level 1-4: {T}: Add {G}{G}
+  // Level 5+: {T}: Add {G}{G} AND other Elves you control have this ability
+  if (cardName.includes('joraga treespeaker')) {
+    const levelCounters = permanent?.counters?.level || 0;
+    if (levelCounters >= 1) {
+      // At level 1+, produces {G}{G}
+      result.baseAmount = 2;
+      result.colors = ['G'];
+      result.dynamicDescription = `{G}{G} (Level ${levelCounters})`;
+    } else {
+      // Level 0: no mana ability (card just taps for nothing or has no mana ability)
+      result.baseAmount = 0;
+      result.colors = [];
+      result.dynamicDescription = `No mana (Level 0 - needs 1+ level counters)`;
+    }
+  }
+  
+  // Check if this elf is affected by a level 5+ Joraga Treespeaker
+  // At level 5+, Joraga Treespeaker grants "{T}: Add {G}{G}" to all Elves you control
+  if (typeLine.includes('elf') && !cardName.includes('joraga treespeaker')) {
+    // Check if player controls a Joraga Treespeaker with 5+ level counters
+    const joragaLevel5Plus = battlefield.find((p: any) =>
+      p && p.controller === playerId &&
+      (p.card?.name || '').toLowerCase().includes('joraga treespeaker') &&
+      (p.counters?.level || 0) >= 5
+    );
+    
+    if (joragaLevel5Plus) {
+      // This Elf gains "{T}: Add {G}{G}" from the level 5+ Joraga Treespeaker
+      // Override existing mana production if this gives more
+      if (result.baseAmount < 2 || !result.colors.includes('G')) {
+        result.baseAmount = 2;
+        result.colors = ['G'];
+        result.dynamicDescription = `{G}{G} from Joraga Treespeaker (level 5+)`;
+      }
+    }
+  }
+  
+  // Generic leveler card support - check for level-dependent mana abilities
+  // Pattern: "LEVEL N1-N2" ... "{T}: Add {X}" or "LEVEL N3+" ... "{T}: Add {X}"
+  if (oracleText.includes('level up') || oracleText.includes('level ')) {
+    const levelCounters = permanent?.counters?.level || 0;
+    
+    // Look for level ability patterns with mana production
+    // Pattern: LEVEL N-M ... {T}: Add {mana} or LEVEL N+ ... {T}: Add {mana}
+    const levelRangePattern = /level\s+(\d+)-(\d+)[^{]*\{t\}:\s*add\s+((?:\{[wubrgc]\})+)/gi;
+    const levelPlusPattern = /level\s+(\d+)\+[^{]*\{t\}:\s*add\s+((?:\{[wubrgc]\})+)/gi;
+    
+    let match;
+    let foundLevelAbility = false;
+    
+    // Check range patterns first (LEVEL N-M)
+    while ((match = levelRangePattern.exec(oracleText)) !== null) {
+      const minLevel = parseInt(match[1], 10);
+      const maxLevel = parseInt(match[2], 10);
+      const manaSymbols = match[3].match(/\{[wubrgc]\}/gi) || [];
+      
+      if (levelCounters >= minLevel && levelCounters <= maxLevel) {
+        result.baseAmount = manaSymbols.length;
+        result.colors = manaSymbols.map((s: string) => s.replace(/[{}]/g, '').toUpperCase());
+        result.dynamicDescription = `${manaSymbols.join('')} (Level ${levelCounters}, range ${minLevel}-${maxLevel})`;
+        foundLevelAbility = true;
+        break;
+      }
+    }
+    
+    // If no range matched, check plus patterns (LEVEL N+)
+    if (!foundLevelAbility) {
+      while ((match = levelPlusPattern.exec(oracleText)) !== null) {
+        const minLevel = parseInt(match[1], 10);
+        const manaSymbols = match[2].match(/\{[wubrgc]\}/gi) || [];
+        
+        if (levelCounters >= minLevel) {
+          result.baseAmount = manaSymbols.length;
+          result.colors = manaSymbols.map((s: string) => s.replace(/[{}]/g, '').toUpperCase());
+          result.dynamicDescription = `${manaSymbols.join('')} (Level ${levelCounters}, ${minLevel}+)`;
+          foundLevelAbility = true;
+          break;
+        }
+      }
+    }
+  }
+  
   // Wirewood Channeler, Priest of Titania style - "Add {G} for each Elf"
   if (oracleText.includes('for each elf') || 
       (cardName.includes('priest of titania')) ||
