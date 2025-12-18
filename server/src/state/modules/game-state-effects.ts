@@ -43,6 +43,8 @@
  */
 
 import type { GameContext } from "../context.js";
+import type { PlayerID } from "../../../../shared/src/index.js";
+import { grantTelepathyForPlayer, revokeTelepathyForPlayer } from "./telepathy.js";
 
 /**
  * Check if a permanent is an actual Treasure token/artifact (not just a card that creates treasures)
@@ -1537,6 +1539,109 @@ export function getTopCardForPlayer(ctx: GameContext, playerId: string): {
 }
 
 /**
+ * Known cards that reveal opponents' hands
+ * Key: lowercase card name (partial match)
+ * These cards have effects like "Your opponents play with their hands revealed"
+ */
+const HAND_REVEAL_CARDS: string[] = [
+  "telepathy",                    // "Your opponents play with their hands revealed."
+  "gitaxian probe",              // One-shot, but worth noting
+  "glasses of urza",             // "Target player plays with their hand revealed"
+  "revelation",                  // "Each player plays with their hand revealed."
+  "zur's weirding",              // "Players play with their hands revealed."
+  "wandering eye",               // "Each player plays with their hand revealed."
+  "seer's vision",               // "Enchanted player plays with their hand revealed."
+  "lantern of insight",          // Reveals top of libraries, not hands (but keeping for reference)
+  "field of dreams",             // Reveals top of libraries
+  "precognition field",          // Reveals top, can play instant/sorcery from top
+  "jace, mirror mage",           // Creates illusion token that can look at opponent's hand
+  "vendilion clique",            // ETB trigger, one-shot reveal
+  "thoughtseize",                // Sorcery, one-shot
+  "duress",                      // Sorcery, one-shot
+  "thought erasure",             // Sorcery, one-shot
+];
+
+/**
+ * Detect if a permanent grants hand visibility to its controller (sees opponents' hands)
+ * Returns true if the permanent has a static effect that reveals opponents' hands
+ */
+function detectHandRevealEffect(oracleText: string): { revealsOpponentsHands: boolean; revealsAllHands: boolean } {
+  const lowerText = (oracleText || "").toLowerCase();
+  
+  // "Your opponents play with their hands revealed" - Telepathy
+  if (lowerText.includes("your opponents play with their hands revealed") ||
+      lowerText.includes("opponents play with their hands revealed")) {
+    return { revealsOpponentsHands: true, revealsAllHands: false };
+  }
+  
+  // "Each player plays with their hand revealed" - Revelation, Wandering Eye
+  if (lowerText.includes("each player plays with their hand revealed") ||
+      lowerText.includes("players play with their hands revealed")) {
+    return { revealsOpponentsHands: true, revealsAllHands: true };
+  }
+  
+  return { revealsOpponentsHands: false, revealsAllHands: false };
+}
+
+/**
+ * Recalculate hand visibility grants based on battlefield permanents
+ * This handles Telepathy and similar static effects that reveal hands
+ */
+function recalculateHandVisibility(ctx: GameContext): void {
+  const battlefield = getActivePermanents(ctx);
+  const players = (ctx.state?.players as any[]) || [];
+  
+  // Track which players have hand reveal effects active
+  const playersWithHandReveal = new Set<PlayerID>();
+  const playersWithAllHandsRevealed = new Set<PlayerID>();
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = (perm.card?.oracle_text || "");
+    const controller = perm.controller as PlayerID;
+    
+    // Check known cards first
+    let hasRevealEffect = false;
+    for (const knownName of HAND_REVEAL_CARDS) {
+      if (cardName.includes(knownName)) {
+        // Check if this is a static effect (not one-shot spells)
+        const reveal = detectHandRevealEffect(oracleText);
+        if (reveal.revealsOpponentsHands) {
+          playersWithHandReveal.add(controller);
+          if (reveal.revealsAllHands) {
+            playersWithAllHandsRevealed.add(controller);
+          }
+          hasRevealEffect = true;
+          break;
+        }
+      }
+    }
+    
+    // If not in known list, try dynamic detection
+    if (!hasRevealEffect) {
+      const reveal = detectHandRevealEffect(oracleText);
+      if (reveal.revealsOpponentsHands) {
+        playersWithHandReveal.add(controller);
+        if (reveal.revealsAllHands) {
+          playersWithAllHandsRevealed.add(controller);
+        }
+      }
+    }
+  }
+  
+  // Clear all existing hand visibility grants and rebuild from scratch
+  // This ensures we don't have stale grants when permanents leave the battlefield
+  ctx.handVisibilityGrants.clear();
+  
+  // Grant hand visibility for each player with a reveal effect
+  for (const telepath of playersWithHandReveal) {
+    grantTelepathyForPlayer(ctx, telepath);
+  }
+  
+  console.log(`[recalculateHandVisibility] Players with hand reveal effects: ${Array.from(playersWithHandReveal).join(', ') || 'none'}`);
+}
+
+/**
  * Update player's top-of-library effects based on battlefield state
  * This should be called after permanents ETB or leave the battlefield
  */
@@ -1587,6 +1692,10 @@ export function recalculatePlayerEffects(ctx: GameContext, playerId?: string): v
       };
     }
   }
+  
+  // After all per-player effects are calculated, update hand visibility grants
+  // This handles Telepathy and similar effects that reveal opponents' hands
+  recalculateHandVisibility(ctx);
 }
 
 
