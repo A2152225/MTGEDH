@@ -3205,6 +3205,103 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Counter-adding abilities (Gwafa Hazid, Sage of Fables, Gavony Township, Ozolith, etc.)
+    // Pattern: "{Cost}: Put a [counterType] counter on target [anything]"
+    // Examples:
+    // - Gwafa Hazid: "{W}{U}, {T}: Put a bribery counter on target creature you don't control. Its controller draws a card."
+    // - Sage of Fables: "{2}: Put a +1/+1 counter on target creature."
+    // - Gavony Township: "{2}{G}{W}, {T}: Put a +1/+1 counter on each creature you control."
+    // - Ozolith, the Shattered Spire: "{1}, {T}: Put a +1/+1 counter on target creature you control. Activate only as a sorcery."
+    // Works on: creatures, permanents, lands, artifacts, enchantments, planeswalkers, etc.
+    const counterMatch = oracleText.match(/put (?:a|an|one|two|three) ([^\s]+) counters? on target ([^.]+?)(?:\s+you\s+(don't\s+control|control|don't own|own))?(?:\.|,|$)/i);
+    const isCounterAbility = counterMatch && (abilityId.includes("counter") || abilityId.includes("ability"));
+    
+    if (isCounterAbility && counterMatch) {
+      const counterType = counterMatch[1].toLowerCase().replace(/[^a-z0-9+\-]/g, ''); // e.g., "bribery", "+1/+1", "loyalty"
+      const targetType = counterMatch[2].trim(); // e.g., "creature", "permanent", "artifact", "land"
+      const targetRestriction = counterMatch[3] ? counterMatch[3].toLowerCase() : null;
+      
+      // Parse the cost
+      const { requiresTap, manaCost } = parseActivationCost(oracleText, /put (?:a|an|one) [^\s]+ counter/i);
+      
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      if (manaCost) {
+        // Validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
+        
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:counter]');
+      }
+      
+      // Tap the permanent if required
+      if (requiresTap) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Generate activation ID
+      const activationId = `counter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Determine target restrictions
+      let targetController: 'opponent' | 'any' | 'you' = 'any';
+      if (targetRestriction) {
+        if (targetRestriction.includes("don't control") || targetRestriction.includes("do not control")) {
+          targetController = 'opponent';
+        } else if (targetRestriction.includes("you control")) {
+          targetController = 'you';
+        }
+      }
+      
+      // Store pending counter activation
+      if (!game.state.pendingCounterActivations) {
+        game.state.pendingCounterActivations = {};
+      }
+      game.state.pendingCounterActivations[activationId] = {
+        playerId: pid,
+        sourceId: permanentId,
+        sourceName: cardName,
+        counterType,
+        targetController,
+        oracleText, // Store for additional effects (e.g., "Its controller draws a card")
+      };
+      
+      // Emit target selection request to client
+      socket.emit("counterTargetRequest", {
+        gameId,
+        activationId,
+        source: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        counterType,
+        targetFilter: {
+          types: ['creature', 'permanent'],
+          controller: targetController,
+          excludeSource: false, // Allow targeting self in some cases
+        },
+        title: `${cardName} - Add ${counterType} counter`,
+        description: oracleText,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle Tap/Untap abilities (Saryth, Merrow Reejerey, Argothian Elder, etc.)
     // Parse ability text to detect tap/untap abilities
     const tapUntapParams = parseTapUntapAbilityText(oracleText);
@@ -7019,6 +7116,141 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
     
     // Broadcast updated game state
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle counter target selection confirmation
+   * Used for abilities like Gwafa Hazid, Sage of Fables, Ozolith, etc.
+   */
+  socket.on("counterTargetChosen", ({
+    gameId,
+    activationId,
+    targetId,
+  }: {
+    gameId: string;
+    activationId: string;
+    targetId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Retrieve pending counter activation
+    const pendingCounter = game.state.pendingCounterActivations?.[activationId];
+    if (!pendingCounter) {
+      socket.emit("error", {
+        code: "INVALID_ACTIVATION",
+        message: "Counter activation not found or expired",
+      });
+      return;
+    }
+    
+    // Validate player
+    if (pendingCounter.playerId !== pid) {
+      socket.emit("error", {
+        code: "NOT_YOUR_ACTIVATION",
+        message: "This is not your activation",
+      });
+      return;
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    
+    // Find the target permanent
+    const targetPermanent = battlefield.find((p: any) => p?.id === targetId);
+    if (!targetPermanent) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Target permanent not found on battlefield",
+      });
+      delete game.state.pendingCounterActivations[activationId];
+      return;
+    }
+    
+    // Clean up pending state
+    delete game.state.pendingCounterActivations[activationId];
+    
+    // Add the counter to the target
+    if (!targetPermanent.counters) {
+      targetPermanent.counters = {};
+    }
+    
+    const counterType = pendingCounter.counterType;
+    targetPermanent.counters[counterType] = (targetPermanent.counters[counterType] || 0) + 1;
+    
+    const targetName = targetPermanent.card?.name || "permanent";
+    console.log(`[counterTargetChosen] ${pendingCounter.sourceName} put ${counterType} counter on ${targetName}`);
+    
+    // Emit chat message
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated ${pendingCounter.sourceName}: Put a ${counterType} counter on ${targetName}.`,
+      ts: Date.now(),
+    });
+    
+    // Handle additional effects from the ability
+    // Example: Gwafa Hazid - "Its controller draws a card"
+    const oracleText = pendingCounter.oracleText || "";
+    if (oracleText.includes("its controller draws") || oracleText.includes("that player draws")) {
+      const targetController = targetPermanent.controller;
+      if (targetController) {
+        // Use drawCards to handle the draw
+        const { drawCards } = await import("../state/modules/zones.js");
+        const ctx = { 
+          state: game.state, 
+          gameId, 
+          libraries: new Map(),
+          seq: { value: (game as any).seq || 0 }
+        };
+        
+        // Get or create library map
+        const players = game.state?.players || [];
+        for (const player of players) {
+          const zones = game.state?.zones?.[player.id];
+          if (zones?.library) {
+            ctx.libraries.set(player.id, zones.library);
+          }
+        }
+        
+        drawCards(ctx, targetController, 1);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, targetController)} draws a card.`,
+          ts: Date.now(),
+        });
+      }
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, "counterTargetChosen", {
+        playerId: pid,
+        activationId,
+        sourceName: pendingCounter.sourceName,
+        targetId,
+        targetName,
+        counterType,
+      });
+    } catch (e) {
+      console.warn("[interaction] Failed to persist counterTargetChosen event:", e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
     broadcastGame(io, game, gameId);
   });
 
