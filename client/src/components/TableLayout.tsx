@@ -20,6 +20,7 @@ import type {
 import type { ImagePref } from './BattlefieldGrid';
 import { AttachmentLines } from './AttachmentLines';
 import { HandGallery } from './HandGallery';
+import { HandCardContextMenu } from './HandCardContextMenu';
 import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
@@ -270,6 +271,15 @@ export function TableLayout(props: {
   canMulligan?: boolean;
   // Playable cards highlighting (for current priority player)
   playableCards?: string[];
+  // Cost adjustments for cards in hand (Aura of Silence, medallions, etc.)
+  costAdjustments?: Record<string, {
+    originalCost: string;
+    adjustedCost: string;
+    adjustment: number;
+    genericAdjustment: number;
+    sources: string[];
+    isIncrease?: boolean;
+  }>;
   isPreGame?: boolean;
   allPlayersKeptHands?: boolean;
   onKeepHand?: () => void;
@@ -311,6 +321,8 @@ export function TableLayout(props: {
     onKeepHand, onMulligan, onRandomizeStart, onBeginGame,
     // Playable cards highlighting
     playableCards,
+    // Cost adjustments for hand cards
+    costAdjustments,
   } = props;
 
   // Snapshot debug
@@ -402,6 +414,8 @@ export function TableLayout(props: {
   const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
   const [panKey, setPanKey] = useState(false);
   const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
+  // State for hand card context menu
+  const [handContextMenu, setHandContextMenu] = useState<{ card: KnownCardRef; x: number; y: number } | null>(null);
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(true); };
     const ku = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(false); };
@@ -1468,7 +1482,9 @@ export function TableLayout(props: {
                               enableReorder={allowReorderHere}
                               onReorder={onReorderHand}
                               playableCards={playableCards}
+                              costAdjustments={costAdjustments}
                               appearanceSettings={appearanceSettings}
+                              onContextMenu={(card, x, y) => setHandContextMenu({ card, x, y })}
                             />
                           </div>
                         )}
@@ -1934,6 +1950,28 @@ export function TableLayout(props: {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Hand Card Context Menu */}
+      {handContextMenu && (
+        <HandCardContextMenu
+          card={handContextMenu.card}
+          x={handContextMenu.x}
+          y={handContextMenu.y}
+          onClose={() => setHandContextMenu(null)}
+          onCast={(cardId) => onCastFromHand?.(cardId)}
+          onPlayLand={(cardId) => onPlayLandFromHand?.(cardId)}
+          onDiscard={(cardId) => {
+            if (gameId) {
+              socket.emit('discard', { gameId, cardId });
+            }
+          }}
+          canCast={!reasonCannotCast?.(handContextMenu.card)}
+          canPlayLand={!reasonCannotPlayLand?.(handContextMenu.card)}
+          reasonCannotCast={reasonCannotCast?.(handContextMenu.card)}
+          reasonCannotPlayLand={reasonCannotPlayLand?.(handContextMenu.card)}
+          costAdjustment={costAdjustments?.[handContextMenu.card.id]}
+        />
       )}
     </div>
     </>

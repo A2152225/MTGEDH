@@ -19,7 +19,7 @@ import type { GameID, PlayerID } from "../../../shared/src/index.js";
 import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCostAdjustmentInfo } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
@@ -851,6 +851,42 @@ function normalizeViewForEmit(rawView: any, game: any) {
     } catch (e) {
       // non-fatal - don't break the whole view if playable calculation fails
       console.warn("Failed to calculate playable cards:", e);
+    }
+    
+    // Add cost adjustment info for cards in hand
+    // This shows players when their spells cost more or less due to battlefield effects
+    try {
+      if (game && game.state && view.viewer) {
+        const viewerId = view.viewer;
+        const zones = game.state.zones?.[viewerId];
+        
+        if (zones?.hand && Array.isArray(zones.hand)) {
+          const costAdjustments: Record<string, any> = {};
+          
+          for (const card of zones.hand) {
+            if (!card || typeof card === 'string' || !card.id) continue;
+            
+            const adjustmentInfo = getCostAdjustmentInfo(game.state, viewerId, card);
+            if (adjustmentInfo) {
+              costAdjustments[card.id] = {
+                originalCost: adjustmentInfo.originalCost,
+                adjustedCost: adjustmentInfo.adjustedCost,
+                adjustment: adjustmentInfo.adjustment,
+                genericAdjustment: adjustmentInfo.genericAdjustment,
+                sources: adjustmentInfo.sources.map(s => s.name),
+                isIncrease: adjustmentInfo.adjustment > 0,
+              };
+            }
+          }
+          
+          if (Object.keys(costAdjustments).length > 0) {
+            view.costAdjustments = costAdjustments;
+          }
+        }
+      }
+    } catch (e) {
+      // non-fatal - don't break the whole view if cost adjustment calculation fails
+      console.warn("Failed to calculate cost adjustments:", e);
     }
 
     return view;

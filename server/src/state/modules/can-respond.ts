@@ -304,7 +304,115 @@ function applyCostAdjustment(
   return result;
 }
 
+/**
+ * Detailed cost adjustment info for UI display
+ */
+export interface CostAdjustmentInfo {
+  originalCost: string;
+  adjustedCost: string;
+  adjustment: number;       // positive = increase, negative = reduction
+  genericAdjustment: number;
+  sources: Array<{ name: string; amount: number }>;
+}
 
+/**
+ * Get detailed cost adjustment info for a card including source names
+ * This is used for UI display to show what's affecting the cost
+ */
+export function getCostAdjustmentInfo(state: any, playerId: string, card: any): CostAdjustmentInfo | null {
+  if (!state?.battlefield || !card) return null;
+  
+  const typeLine = (card.type_line || "").toLowerCase();
+  const manaCostRaw = card.mana_cost || "";
+  const colors = (card.colors || card.color_identity || []).map((c: string) => c.toUpperCase());
+  const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
+  const isCreatureSpell = typeLine.includes("creature");
+  const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
+  
+  // Skip lands - they don't have mana costs
+  if (typeLine.includes("land")) return null;
+  
+  const sources: Array<{ name: string; amount: number }> = [];
+  let totalAdjustment = 0;
+  
+  // Cost reducers table
+  const redCostReducers = [
+    { nameMatch: "fire crystal", displayName: "Fire Crystal", textMatch: "red spells you cast cost {1} less", applies: () => true, amount: -1 },
+    { nameMatch: "ruby medallion", displayName: "Ruby Medallion", textMatch: "red spells you cast cost {1} less", applies: () => true, amount: -1 },
+    { nameMatch: "hazoret's monument", displayName: "Hazoret's Monument", textMatch: "red creature spells you cast cost {1} less", applies: () => isCreatureSpell, amount: -1 },
+  ];
+  
+  // Tax effects table
+  const taxEffects = [
+    { nameMatch: "aura of silence", displayName: "Aura of Silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: () => isArtifactOrEnchantment, amount: 2 },
+    { nameMatch: "sphere of resistance", displayName: "Sphere of Resistance", textMatch: "spells cost {1} more to cast", applies: () => true, amount: 1 },
+    { nameMatch: "thorn of amethyst", displayName: "Thorn of Amethyst", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
+    { nameMatch: "thalia, guardian of thraben", displayName: "Thalia, Guardian of Thraben", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
+    { nameMatch: "vryn wingmare", displayName: "Vryn Wingmare", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
+    { nameMatch: "lodestone golem", displayName: "Lodestone Golem", textMatch: "nonartifact spells cost {1} more to cast", applies: () => !typeLine.includes("artifact"), amount: 1 },
+    { nameMatch: "trinisphere", displayName: "Trinisphere", textMatch: "spells that would cost less than 3 mana", applies: () => true, amount: 0 }, // Special handling needed
+  ];
+  
+  for (const perm of state.battlefield) {
+    if (!perm?.card) continue;
+    const permName = (perm.card.name || "").toLowerCase();
+    const permOracle = (perm.card.oracle_text || "").toLowerCase();
+    const sameController = perm.controller === playerId;
+    
+    // Check cost reducers (only for cards you control)
+    if (sameController && isRedSpell) {
+      for (const reducer of redCostReducers) {
+        if (reducer.applies() &&
+            (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
+          sources.push({ name: reducer.displayName, amount: reducer.amount });
+          totalAdjustment += reducer.amount;
+        }
+      }
+    }
+    
+    // Check tax effects (from opponents)
+    if (!sameController) {
+      for (const tax of taxEffects) {
+        if (tax.applies() && tax.amount !== 0 &&
+            (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
+          sources.push({ name: tax.displayName, amount: tax.amount });
+          totalAdjustment += tax.amount;
+        }
+      }
+    }
+  }
+  
+  // Only return info if there's an adjustment
+  if (sources.length === 0) return null;
+  
+  // Calculate adjusted mana cost string
+  const parsed = parseManaCost(manaCostRaw);
+  const adjustedGeneric = Math.max(0, parsed.generic + totalAdjustment);
+  
+  // Reconstruct adjusted cost string
+  let adjustedCostParts: string[] = [];
+  if (adjustedGeneric > 0 || (parsed.generic === 0 && totalAdjustment === 0)) {
+    adjustedCostParts.push(`{${adjustedGeneric}}`);
+  }
+  // Add color requirements
+  for (const [color, count] of Object.entries(parsed.colors)) {
+    for (let i = 0; i < (count as number); i++) {
+      adjustedCostParts.push(`{${color}}`);
+    }
+  }
+  if (parsed.hasX) {
+    adjustedCostParts.unshift('{X}');
+  }
+  const adjustedCost = adjustedCostParts.join('');
+  
+  return {
+    originalCost: manaCostRaw,
+    adjustedCost: adjustedCost || manaCostRaw,
+    adjustment: totalAdjustment,
+    genericAdjustment: totalAdjustment,
+    sources,
+  };
+}
 
 /**
  * Check if player can cast any instant or flash spell from hand, graveyard (flashback), 

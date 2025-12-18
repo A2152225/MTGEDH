@@ -17,7 +17,7 @@
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
-import { recalculatePlayerEffects, applyCombatDamageReplacement } from "./game-state-effects.js";
+import { recalculatePlayerEffects, applyCombatDamageReplacement, clearTemporaryLandBonuses } from "./game-state-effects.js";
 import { 
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
@@ -1678,6 +1678,14 @@ export function nextTurn(ctx: GameContext) {
     // Priority will be given when UNTAP advances to UPKEEP.
     // Set priority to null during UNTAP step to indicate no player has priority.
     (ctx as any).state.priority = null;
+    
+    // Clear temporary land bonuses from the previous turn
+    // These are granted by spells like Summer Bloom and expire at end of turn
+    try {
+      clearTemporaryLandBonuses(ctx);
+    } catch (err) {
+      console.warn(`${ts()} [nextTurn] Failed to clear temporary land bonuses:`, err);
+    }
     
     // Immediately advance from UNTAP to UPKEEP (Rule 502.1: untap step has no priority)
     // Untap all permanents controlled by the active player

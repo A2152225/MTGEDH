@@ -4567,6 +4567,7 @@ export function App() {
               onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
               onBeginGame={() => socket.emit("nextStep", { gameId: safeView?.id })}
               playableCards={(safeView as any)?.playableCards}
+              costAdjustments={(safeView as any)?.costAdjustments}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
