@@ -3115,12 +3115,19 @@ export function App() {
     const phase = safeView.phase;
     const landsPlayedThisTurn =
       (safeView as any).landsPlayedThisTurn?.[you] || 0;
+    // Get max lands per turn from game state, default to 1 if not set
+    const maxLandsPerTurn =
+      (safeView as any).maxLandsPerTurn?.[you] || 1;
 
     if (turnPlayer == null || turnPlayer !== you) return "Not your turn";
     if (!phase || !String(phase).toLowerCase().includes("main")) {
       return "Can only play lands during your main phase";
     }
-    if (landsPlayedThisTurn >= 1) return "You have already played a land this turn";
+    if (landsPlayedThisTurn >= maxLandsPerTurn) {
+      return maxLandsPerTurn > 1
+        ? `You have already played ${landsPlayedThisTurn} land(s) this turn (max ${maxLandsPerTurn})`
+        : "You have already played a land this turn";
+    }
 
     return null;
   };
