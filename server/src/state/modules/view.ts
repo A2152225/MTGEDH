@@ -253,5 +253,7 @@ export function viewFor(
     // Set viewer field for playable cards calculation
     // Exclude spectator:judge as they are not players in the game
     viewer: viewer === "spectator:judge" ? undefined : viewer,
+    // Include max lands per turn for client-side validation
+    maxLandsPerTurn: (state as any).maxLandsPerTurn || {},
   } as any;
 }

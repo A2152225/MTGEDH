@@ -1479,6 +1479,17 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
       }
     }
     
+    // Check if this spell requires targets (counterspells, removal, etc.)
+    // and verify there are valid targets before considering it castable
+    const spellSpec = categorizeSpell(cardName, oracleText);
+    if (spellSpec && spellSpec.minTargets > 0) {
+      const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
+      if (validTargets.length < spellSpec.minTargets) {
+        uncostable.push({ name: cardName, manaCost, reason: `no valid targets (needs ${spellSpec.minTargets}, found ${validTargets.length})` });
+        continue;
+      }
+    }
+    
     // Parse cost using shared function
     const parsedCost = parseManaCost(manaCost);
     const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);

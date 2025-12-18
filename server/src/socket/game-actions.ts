@@ -10,7 +10,7 @@ import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "../state/modules/game-state-effects";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 
@@ -1504,7 +1504,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check land-per-turn limit (before rules engine validation)
       // Default max is 1, but effects like Exploration, Azusa, Rites of Flourishing can increase it
       const landsPlayed = (game.state?.landsPlayedThisTurn?.[playerId] || 0);
-      const maxLands = ((game as any).maxLandsPerTurn?.[playerId] ?? (game.state as any)?.maxLandsPerTurn?.[playerId]) || 1;
+      // Dynamically calculate max lands per turn from battlefield effects
+      // This ensures we always have the current value from Exploration, Azusa, Ghirapur Orrery, etc.
+      const maxLands = calculateMaxLandsPerTurn(game as any, playerId);
       console.log(`[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
       if (landsPlayed >= maxLands) {
         socket.emit("error", {
