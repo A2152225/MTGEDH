@@ -76,6 +76,17 @@ function parseActivatedAbilities(card: KnownCardRef): ActivatedAbilityOption[] {
   return parsed.map(convertToMenuOption);
 }
 
+/**
+ * Get the appropriate icon for an ability based on its type
+ */
+function getAbilityIcon(ability: ActivatedAbilityOption): string {
+  if (ability.isCrewAbility) return '🚗';
+  if (ability.isStationAbility) return '🚀';
+  if (ability.isManaAbility) return '💎';
+  if (ability.requiresSacrifice) return '⚡';
+  return '✨';
+}
+
 export function CardContextMenu({
   permanent,
   x,
@@ -288,7 +299,7 @@ export function CardContextMenu({
                 title={ability.description}
               >
                 <span style={{ width: 20, textAlign: 'center' }}>
-                  {ability.isCrewAbility ? '🚗' : ability.isStationAbility ? '🚀' : ability.isManaAbility ? '💎' : ability.requiresSacrifice ? '⚡' : '✨'}
+                  {getAbilityIcon(ability)}
                 </span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{ability.label}</div>
