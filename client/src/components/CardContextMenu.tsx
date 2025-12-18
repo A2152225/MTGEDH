@@ -36,7 +36,7 @@ export interface CardContextMenuProps {
   onSacrifice?: (permanentId: string) => void;
   onRemove?: (permanentId: string) => void;
   onExchangeTextBoxes?: (permanentId: string) => void;
-  onIgnoreForAutoPass?: (permanentId: string, cardName: string) => void;
+  onIgnoreForAutoPass?: (permanentId: string, cardName: string, imageUrl?: string) => void;
   onUnignoreForAutoPass?: (permanentId: string) => void;
   isIgnoredForAutoPass?: boolean;
   canActivate?: boolean;
@@ -442,7 +442,8 @@ export function CardContextMenu({
             <div
               style={menuItemStyle}
               onClick={() => {
-                onIgnoreForAutoPass?.(permanent.id, card?.name || 'Unknown');
+                const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
+                onIgnoreForAutoPass?.(permanent.id, card?.name || 'Unknown', imageUrl);
                 onClose();
               }}
               onMouseEnter={(e) => {

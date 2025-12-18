@@ -88,7 +88,7 @@ export function LandRow(props: {
   canActivate?: boolean;
   playerId?: string;
   // Auto-pass ignore callbacks
-  onIgnoreForAutoPass?: (permanentId: string, cardName: string) => void;
+  onIgnoreForAutoPass?: (permanentId: string, cardName: string, imageUrl?: string) => void;
   onUnignoreForAutoPass?: (permanentId: string) => void;
   ignoredForAutoPassIds?: Set<string>;
   // Game state for ability activation (for double-click feature)
