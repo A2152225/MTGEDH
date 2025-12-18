@@ -3647,14 +3647,14 @@ export function calculateManaProduction(
     
     // Look for level ability patterns with mana production
     // Pattern: LEVEL N-M ... {T}: Add {mana} or LEVEL N+ ... {T}: Add {mana}
+    // Note: Using matchAll for safe iteration of global matches
     const levelRangePattern = /level\s+(\d+)-(\d+)[^{]*\{t\}:\s*add\s+((?:\{[wubrgc]\})+)/gi;
     const levelPlusPattern = /level\s+(\d+)\+[^{]*\{t\}:\s*add\s+((?:\{[wubrgc]\})+)/gi;
     
-    let match;
     let foundLevelAbility = false;
     
     // Check range patterns first (LEVEL N-M)
-    while ((match = levelRangePattern.exec(oracleText)) !== null) {
+    for (const match of oracleText.matchAll(levelRangePattern)) {
       const minLevel = parseInt(match[1], 10);
       const maxLevel = parseInt(match[2], 10);
       const manaSymbols = match[3].match(/\{[wubrgc]\}/gi) || [];
@@ -3670,7 +3670,7 @@ export function calculateManaProduction(
     
     // If no range matched, check plus patterns (LEVEL N+)
     if (!foundLevelAbility) {
-      while ((match = levelPlusPattern.exec(oracleText)) !== null) {
+      for (const match of oracleText.matchAll(levelPlusPattern)) {
         const minLevel = parseInt(match[1], 10);
         const manaSymbols = match[2].match(/\{[wubrgc]\}/gi) || [];
         

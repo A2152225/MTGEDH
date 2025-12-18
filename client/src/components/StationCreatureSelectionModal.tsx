@@ -6,7 +6,7 @@
  * on this permanent equal to the tapped creature's power."
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export interface StationCreature {
   id: string;
@@ -50,7 +50,7 @@ export function StationCreatureSelectionModal({
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Reset selection when modal opens/closes
-  React.useEffect(() => {
+  useEffect(() => {
     if (open) {
       setSelectedId(null);
     }

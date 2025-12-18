@@ -266,7 +266,7 @@ export function CardOverlay({
           'spore': { color: '#22c55e', icon: '🍄' },
           'blood': { color: '#dc2626', icon: '🩸' },
           'oil': { color: '#1f2937', icon: '🛢️' },
-          'energy': { color: '#f59e0b', icon: '⚡' },
+          'energy': { color: '#f59e0b', icon: '🔋' },
           'poison': { color: '#84cc16', icon: '☠️' },
           'bounty': { color: '#eab308', icon: '💰' },
           'doom': { color: '#7c3aed', icon: '💀' },

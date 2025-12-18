@@ -3606,8 +3606,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const levelRangePattern = /level\s+(\d+)-(\d+)/gi;
       const levelPlusPattern = /level\s+(\d+)\+/gi;
       
-      let match;
-      while ((match = levelRangePattern.exec(oracleText)) !== null) {
+      // Use matchAll for safe iteration over global regex matches
+      for (const match of oracleText.matchAll(levelRangePattern)) {
         const minLevel = parseInt(match[1], 10);
         const maxLevel = parseInt(match[2], 10);
         if (newLevel >= minLevel && newLevel <= maxLevel) {
@@ -3616,7 +3616,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
       
-      while ((match = levelPlusPattern.exec(oracleText)) !== null) {
+      for (const match of oracleText.matchAll(levelPlusPattern)) {
         const minLevel = parseInt(match[1], 10);
         if (newLevel >= minLevel) {
           levelBracket = `Level ${minLevel}+`;
@@ -7476,9 +7476,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     (creature as any).tapped = true;
 
     // Add charge counters equal to the creature's power (Rule 702.184a)
+    // Note: While MTG allows negative power, we use Math.max(0, ...) since tapping a
+    // creature with negative power shouldn't remove counters - it just adds 0.
     (station as any).counters = (station as any).counters || {};
     const currentCounters = (station as any).counters.charge || 0;
-    const countersToAdd = Math.max(0, creaturePower); // Can't add negative counters
+    const countersToAdd = Math.max(0, creaturePower); // Negative power = 0 counters added
     (station as any).counters.charge = currentCounters + countersToAdd;
 
     const newCounterCount = (station as any).counters.charge;
