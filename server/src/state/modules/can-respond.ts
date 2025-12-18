@@ -20,6 +20,7 @@ import { parseManaCost, canPayManaCost, getManaPoolFromState, getAvailableMana }
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements } from "../../rules-engine/targeting";
 import { calculateMaxLandsPerTurn } from "./game-state-effects";
+import { creatureHasHaste } from "../../socket/game-actions.js";
 
 /**
  * Check if a card has flash or is an instant
@@ -638,6 +639,26 @@ function hasActivatableAbility(
   if (hasTapAbility) {
     // Can only activate if not tapped
     if (permanent.tapped) return false;
+    
+    // Rule 302.6 / 702.10: Check summoning sickness for creatures with tap abilities
+    // A creature can't use tap/untap abilities unless it has been continuously controlled
+    // since the turn began OR it has haste (from any source).
+    // Lands and non-creature permanents are NOT affected by summoning sickness.
+    const isCreature = /\bcreature\b/.test(typeLine);
+    const isLand = typeLine.includes("land");
+    
+    if (isCreature && !isLand) {
+      // Check if creature has summoning sickness
+      if ((permanent as any).summoningSickness) {
+        // Check if creature has haste from any source
+        const battlefield = state.battlefield || [];
+        const hasHaste = creatureHasHaste(permanent, battlefield, playerId);
+        
+        if (!hasHaste) {
+          return false; // Has summoning sickness and no haste - can't activate
+        }
+      }
+    }
     
     // Match tap abilities with various cost patterns:
     // Pattern 1: "{T}, <additional>: <effect>" - tap first, then additional costs
