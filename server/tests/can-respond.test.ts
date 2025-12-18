@@ -317,6 +317,105 @@ describe('canActivateAnyAbility', () => {
     
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
   });
+
+  it('should return true when controlling untapped Evolving Wilds (fetchland)', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'fetchland1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Evolving Wilds',
+            type_line: 'Land',
+            oracle_text: '{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+    
+    // Fetchlands should be detected - they have tap+sacrifice abilities
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when controlling tapped Evolving Wilds', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'fetchland1',
+          controller: 'p1',
+          tapped: true,
+          card: {
+            name: 'Evolving Wilds',
+            type_line: 'Land',
+            oracle_text: '{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+    
+    // Tapped fetchlands cannot be activated
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when controlling untapped Polluted Delta with enough life', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'fetchland1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Polluted Delta',
+            type_line: 'Land',
+            oracle_text: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      life: {
+        p1: 20,
+      },
+    });
+    
+    // Premium fetchlands should be detected when player has enough life
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when controlling untapped Polluted Delta even with 1 life', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'fetchland1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Polluted Delta',
+            type_line: 'Land',
+            oracle_text: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      life: {
+        p1: 1,
+      },
+    });
+    
+    // Fetchland should be detected because sacrifice cost check happens before life cost check
+    // Note: The permanment itself can always be sacrificed (it's sacrificing itself)
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
 });
 
 describe('canRespond', () => {

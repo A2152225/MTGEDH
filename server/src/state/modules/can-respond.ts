@@ -629,12 +629,15 @@ function hasActivatableAbility(
   const oracleText = permanent.card.oracle_text || "";
   const typeLine = (permanent.card.type_line || "").toLowerCase();
   
-  // Check for tap abilities: "{T}: Effect" or "{Cost}, {T}: Effect"
+  // Check for tap abilities: "{T}: Effect" or "{Cost}, {T}: Effect" or "{T}, Cost: Effect"
   // Common patterns: 
   // - "{T}: Add {G}" (simple tap)
-  // - "{T}, Sacrifice ~: Effect" (tap + additional cost after)
+  // - "{T}, Sacrifice ~: Effect" (tap + additional cost after, like fetchlands)
   // - "{2}{R}, {T}: This creature fights..." (mana + tap, like Brash Taunter)
-  const hasTapAbility = /\{T\}:/i.test(oracleText);
+  // Pattern allows for optional comma and text between {T} and colon
+  // Using [^:]* to match any costs between {T} and : (e.g., ", Pay 1 life, Sacrifice ~")
+  // This is safe because ability patterns always end with a colon before the effect
+  const hasTapAbility = /\{T\}(?:\s*,?\s*[^:]*)?:/i.test(oracleText);
   
   if (hasTapAbility) {
     // Can only activate if not tapped
