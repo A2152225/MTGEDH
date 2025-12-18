@@ -1539,26 +1539,20 @@ export function getTopCardForPlayer(ctx: GameContext, playerId: string): {
 }
 
 /**
- * Known cards that reveal opponents' hands
+ * Known cards that reveal opponents' hands (static effects only)
  * Key: lowercase card name (partial match)
- * These cards have effects like "Your opponents play with their hands revealed"
+ * These cards have permanent effects like "Your opponents play with their hands revealed"
+ * 
+ * NOTE: One-shot effects (Thoughtseize, Duress, etc.) are NOT included here
+ * as they don't provide ongoing hand visibility.
  */
 const HAND_REVEAL_CARDS: string[] = [
   "telepathy",                    // "Your opponents play with their hands revealed."
-  "gitaxian probe",              // One-shot, but worth noting
   "glasses of urza",             // "Target player plays with their hand revealed"
   "revelation",                  // "Each player plays with their hand revealed."
   "zur's weirding",              // "Players play with their hands revealed."
   "wandering eye",               // "Each player plays with their hand revealed."
   "seer's vision",               // "Enchanted player plays with their hand revealed."
-  "lantern of insight",          // Reveals top of libraries, not hands (but keeping for reference)
-  "field of dreams",             // Reveals top of libraries
-  "precognition field",          // Reveals top, can play instant/sorcery from top
-  "jace, mirror mage",           // Creates illusion token that can look at opponent's hand
-  "vendilion clique",            // ETB trigger, one-shot reveal
-  "thoughtseize",                // Sorcery, one-shot
-  "duress",                      // Sorcery, one-shot
-  "thought erasure",             // Sorcery, one-shot
 ];
 
 /**
@@ -1586,14 +1580,16 @@ function detectHandRevealEffect(oracleText: string): { revealsOpponentsHands: bo
 /**
  * Recalculate hand visibility grants based on battlefield permanents
  * This handles Telepathy and similar static effects that reveal hands
+ * 
+ * Note: This function clears and rebuilds all grants on each call.
+ * This is simpler and more reliable than diff-based approaches, and
+ * the performance impact is minimal since battlefield sizes are typically small.
  */
 function recalculateHandVisibility(ctx: GameContext): void {
   const battlefield = getActivePermanents(ctx);
-  const players = (ctx.state?.players as any[]) || [];
   
   // Track which players have hand reveal effects active
   const playersWithHandReveal = new Set<PlayerID>();
-  const playersWithAllHandsRevealed = new Set<PlayerID>();
   
   for (const perm of battlefield) {
     const cardName = (perm.card?.name || "").toLowerCase();
@@ -1608,9 +1604,6 @@ function recalculateHandVisibility(ctx: GameContext): void {
         const reveal = detectHandRevealEffect(oracleText);
         if (reveal.revealsOpponentsHands) {
           playersWithHandReveal.add(controller);
-          if (reveal.revealsAllHands) {
-            playersWithAllHandsRevealed.add(controller);
-          }
           hasRevealEffect = true;
           break;
         }
@@ -1622,9 +1615,6 @@ function recalculateHandVisibility(ctx: GameContext): void {
       const reveal = detectHandRevealEffect(oracleText);
       if (reveal.revealsOpponentsHands) {
         playersWithHandReveal.add(controller);
-        if (reveal.revealsAllHands) {
-          playersWithAllHandsRevealed.add(controller);
-        }
       }
     }
   }
