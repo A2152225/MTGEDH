@@ -434,10 +434,19 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     // Get mana pool (floating + potential from untapped sources)
     const pool = getAvailableMana(state, playerId);
     
+    // Get ignored cards for this player (for auto-pass)
+    const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
+    
     // Check each card in hand
     if (Array.isArray(zones.hand)) {
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
+        
+        // Skip ignored cards - they shouldn't trigger auto-pass prompts
+        if (ignoredCards[card.id]) {
+          console.log(`[canCastAnySpell] Skipping ignored card in hand: ${card.name || card.id}`);
+          continue;
+        }
         
         // Skip non-instant/flash cards
         if (!hasFlashOrInstant(card)) continue;
@@ -470,6 +479,12 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     if (Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
         if (!card || typeof card === "string") continue;
+        
+        // Skip ignored cards in graveyard
+        if (ignoredCards[card.id]) {
+          console.log(`[canCastAnySpell] Skipping ignored card in graveyard: ${card.name || card.id}`);
+          continue;
+        }
         
         // Check if it's an instant with flashback
         const typeLine = (card.type_line || "").toLowerCase();
@@ -508,6 +523,12 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     if (Array.isArray(exileZone)) {
       for (const card of exileZone as any[]) {
         if (!card || typeof card === "string") continue;
+        
+        // Skip ignored cards in exile
+        if (ignoredCards[card.id]) {
+          console.log(`[canCastAnySpell] Skipping ignored card in exile: ${card.name || card.id}`);
+          continue;
+        }
         
         // Check if it's an instant that can be cast from exile
         const typeLine = (card.type_line || "").toLowerCase();
@@ -1713,10 +1734,19 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     // Get mana pool (including potential from untapped sources)
     const pool = getAvailableMana(state, playerId);
     
+    // Get ignored cards for this player (for auto-pass)
+    const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
+    
     // Check each card in hand
     if (Array.isArray(zones.hand)) {
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
+        
+        // Skip ignored cards - they shouldn't trigger auto-pass prompts
+        if (ignoredCards[card.id]) {
+          console.log(`[canCastAnySorcerySpeed] Skipping ignored card in hand: ${card.name || card.id}`);
+          continue;
+        }
         
         const typeLine = (card.type_line || "").toLowerCase();
         
@@ -1769,6 +1799,12 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     if (Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
         if (!card || typeof card === "string") continue;
+        
+        // Skip ignored cards in graveyard
+        if (ignoredCards[card.id]) {
+          console.log(`[canCastAnySorcerySpeed] Skipping ignored card in graveyard: ${card.name || card.id}`);
+          continue;
+        }
         
         const typeLine = (card.type_line || "").toLowerCase();
         
