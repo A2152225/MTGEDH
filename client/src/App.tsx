@@ -28,6 +28,7 @@ import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
 import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
 import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
+import { ProliferateModal, type ProliferateTarget } from "./components/ProliferateModal";
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
 import { MoxDiamondModal } from "./components/MoxDiamondModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
@@ -235,6 +236,15 @@ export function App() {
     bounceLandName: string;
     imageUrl?: string;
     landsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
+  } | null>(null);
+  
+  // Proliferate modal state
+  const [proliferateModalOpen, setProliferateModalOpen] = useState(false);
+  const [proliferateData, setProliferateData] = useState<{
+    proliferateId: string;
+    sourceName: string;
+    imageUrl?: string;
+    validTargets: ProliferateTarget[];
   } | null>(null);
   
   // Sacrifice unless pay modal state (Transguild Promenade, Gateway Plaza, etc.)
@@ -1243,6 +1253,25 @@ export function App() {
     socket.on("bounceLandPrompt", handler);
     return () => {
       socket.off("bounceLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Proliferate prompt listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setProliferateData({
+          proliferateId: payload.proliferateId,
+          sourceName: payload.sourceName,
+          imageUrl: payload.imageUrl,
+          validTargets: payload.validTargets,
+        });
+        setProliferateModalOpen(true);
+      }
+    };
+    socket.on("proliferatePrompt", handler);
+    return () => {
+      socket.off("proliferatePrompt", handler);
     };
   }, [safeView?.id]);
 
@@ -3651,6 +3680,18 @@ export function App() {
     setBounceLandData(null);
   };
 
+  // Proliferate handler - player selects targets to proliferate
+  const handleProliferateConfirm = (selectedIds: string[]) => {
+    if (!safeView || !proliferateData) return;
+    socket.emit("proliferateConfirm", {
+      gameId: safeView.id,
+      proliferateId: proliferateData.proliferateId,
+      selectedTargetIds: selectedIds,
+    });
+    setProliferateModalOpen(false);
+    setProliferateData(null);
+  };
+
   // Sacrifice unless pay handlers (Transguild Promenade, Gateway Plaza, etc.)
   const handleSacrificeUnlessPayMana = () => {
     if (!safeView || !sacrificeUnlessPayData) return;
@@ -5392,6 +5433,15 @@ export function App() {
         bounceLandImageUrl={bounceLandData?.imageUrl}
         landsToChoose={bounceLandData?.landsToChoose || []}
         onSelectLand={handleBounceLandSelect}
+      />
+
+      {/* Proliferate Modal */}
+      <ProliferateModal
+        open={proliferateModalOpen}
+        sourceName={proliferateData?.sourceName || ''}
+        imageUrl={proliferateData?.imageUrl}
+        validTargets={proliferateData?.validTargets || []}
+        onConfirm={handleProliferateConfirm}
       />
 
       {/* Sacrifice Unless Pay Modal (Transguild Promenade, Gateway Plaza, etc.) */}

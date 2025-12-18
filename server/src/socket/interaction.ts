@@ -7587,6 +7587,149 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
   });
 
+  /**
+   * Handle proliferate target selection confirmation
+   */
+  socket.on("proliferateConfirm", async ({
+    gameId,
+    proliferateId,
+    selectedTargetIds,
+  }: {
+    gameId: string;
+    proliferateId: string;
+    selectedTargetIds: string[]; // IDs of permanents and/or players to proliferate
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Find the proliferate effect
+    const pendingProliferate = (game.state as any)?.pendingProliferate || [];
+    const proliferateIndex = pendingProliferate.findIndex((p: any) => p.id === proliferateId);
+    
+    if (proliferateIndex === -1) {
+      socket.emit("error", {
+        code: "INVALID_PROLIFERATE",
+        message: "Proliferate effect not found",
+      });
+      return;
+    }
+    
+    const proliferateEffect = pendingProliferate[proliferateIndex];
+    
+    // Validate player is the controller
+    if (proliferateEffect.controller !== pid) {
+      socket.emit("error", {
+        code: "NOT_YOUR_PROLIFERATE",
+        message: "This is not your proliferate effect",
+      });
+      return;
+    }
+    
+    // Remove this proliferate from pending
+    pendingProliferate.splice(proliferateIndex, 1);
+    
+    // Also clear from prompted set
+    if ((game.state as any)._proliferatePromptedIds) {
+      (game.state as any)._proliferatePromptedIds.delete(proliferateId);
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    const proliferatedTargets: string[] = [];
+    
+    // Process each selected target
+    for (const targetId of selectedTargetIds) {
+      // Check if it's a permanent
+      const permanent = battlefield.find((p: any) => p?.id === targetId);
+      if (permanent && permanent.counters) {
+        // Add one counter of each kind the permanent has
+        const counters = permanent.counters as Record<string, number>;
+        for (const counterType of Object.keys(counters)) {
+          if (counters[counterType] > 0) {
+            (permanent.counters as any)[counterType] = counters[counterType] + 1;
+          }
+        }
+        proliferatedTargets.push(permanent.card?.name || 'permanent');
+        continue;
+      }
+      
+      // Check if it's a player
+      const players = game.state?.players || [];
+      const player = players.find((p: any) => p.id === targetId);
+      if (player) {
+        const playerId = player.id;
+        
+        // Proliferate poison counters
+        if ((game.state as any).poisonCounters?.[playerId]) {
+          (game.state as any).poisonCounters[playerId] += 1;
+        }
+        
+        // Proliferate energy counters
+        if ((game.state as any).energyCounters?.[playerId]) {
+          (game.state as any).energyCounters[playerId] += 1;
+        }
+        
+        // Proliferate experience counters
+        if ((game.state as any).experience?.[playerId]) {
+          (game.state as any).experience[playerId] += 1;
+        }
+        
+        // Proliferate rad counters
+        if ((game.state as any).radCounters?.[playerId]) {
+          (game.state as any).radCounters[playerId] += 1;
+        }
+        
+        proliferatedTargets.push(player.name || playerId);
+      }
+    }
+    
+    console.log(`[proliferateConfirm] ${pid} proliferated ${proliferatedTargets.length} target(s)`);
+    
+    // Emit chat message
+    if (proliferatedTargets.length > 0) {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} proliferated (${proliferateEffect.sourceName}): ${proliferatedTargets.join(', ')}`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} chose not to proliferate any targets (${proliferateEffect.sourceName})`,
+        ts: Date.now(),
+      });
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, "proliferateConfirm", {
+        playerId: pid,
+        proliferateId,
+        sourceName: proliferateEffect.sourceName,
+        selectedTargetIds,
+        targetCount: proliferatedTargets.length,
+      });
+    } catch (e) {
+      console.warn("[interaction] Failed to persist proliferateConfirm event:", e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+  });
+
   // Mana distribution confirmation (for cards like Selvala, Heart of the Wilds)
   socket.on("confirmManaDistribution", ({ gameId, permanentId, distribution }: {
     gameId: string;

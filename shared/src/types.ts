@@ -590,6 +590,16 @@ export interface GameState {
    * Maps playerId to amount of firebending red mana in their pool.
    */
   firebendingMana?: Record<PlayerID, number>;
+  /**
+   * Pending proliferate activations awaiting target selection.
+   * Array of proliferate effects waiting for player to choose permanents/players with counters.
+   */
+  pendingProliferate?: Array<{
+    id: string;
+    controller: PlayerID;
+    sourceName: string;
+    imageUrl?: string;
+  }>;
 }
 
 /* Player protection state for effects like Teferi's Protection */
