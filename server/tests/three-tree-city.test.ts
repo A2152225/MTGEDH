@@ -47,7 +47,7 @@ function requiresColorChoice(card: any): { required: boolean; reason: string } {
   }
   
   // FIXED: More precise pattern that matches ETB color choices
-  const entersChooseColorPattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r[.\n]/i;
+  const entersChooseColorPattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r\.?(?:\n|$)/i;
   if (entersChooseColorPattern.test(oracleText)) {
     return { required: true, reason: "Choose a color" };
   }

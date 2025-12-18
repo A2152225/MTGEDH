@@ -141,11 +141,12 @@ export function requiresColorChoice(card: any): { required: boolean; reason: str
   // Pattern breakdown:
   // - "as .+? enters" matches "as [card name] enters" 
   // - "(?: the battlefield)?" optionally matches " the battlefield" (newer template omits this)
-  // - ",?" optionally matches comma
-  // - "(?:you may )?" optionally matches "you may"
+  // - ",?\s+" matches optional comma and whitespace
+  // - "(?:you may\s+)?" optionally matches "you may "
   // - "choose a colou?r" matches "choose a color" or "choose a colour"
-  // - Must be followed by sentence boundary (. or line end) to avoid matching mid-sentence
-  const entersChooseColorPattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r[.\n]/i;
+  // - "\.?" optionally matches period at end
+  // - Must be followed by sentence boundary (end of string, newline, or next sentence)
+  const entersChooseColorPattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r\.?(?:\n|$)/i;
   if (entersChooseColorPattern.test(oracleText)) {
     return { required: true, reason: "Choose a color" };
   }
