@@ -22,6 +22,10 @@ export interface ActivatedAbilityOption {
   requiresSacrifice?: boolean;
   isManaAbility?: boolean;
   isLoyaltyAbility?: boolean;
+  isCrewAbility?: boolean;
+  isStationAbility?: boolean;
+  crewPower?: number;
+  stationThreshold?: number;
 }
 
 export interface CardContextMenuProps {
@@ -56,6 +60,10 @@ function convertToMenuOption(ability: ParsedActivatedAbility): ActivatedAbilityO
     requiresSacrifice: ability.requiresSacrifice,
     isManaAbility: ability.isManaAbility,
     isLoyaltyAbility: ability.isLoyaltyAbility,
+    isCrewAbility: ability.isCrewAbility,
+    isStationAbility: ability.isStationAbility,
+    crewPower: ability.crewPower,
+    stationThreshold: ability.stationThreshold,
   };
 }
 
@@ -280,7 +288,7 @@ export function CardContextMenu({
                 title={ability.description}
               >
                 <span style={{ width: 20, textAlign: 'center' }}>
-                  {ability.isManaAbility ? '💎' : ability.requiresSacrifice ? '⚡' : '✨'}
+                  {ability.isCrewAbility ? '🚗' : ability.isStationAbility ? '🚀' : ability.isManaAbility ? '💎' : ability.requiresSacrifice ? '⚡' : '✨'}
                 </span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{ability.label}</div>
