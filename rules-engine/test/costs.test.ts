@@ -108,6 +108,99 @@ generic: 2
     });
   });
 
+  describe('Mana Payment Tracking', () => {
+    it('should track exact mana composition for converge', () => {
+      const payment: import('../src/types/costs').ManaPaymentRecord = {
+        white: 1,
+        blue: 1,
+        black: 0,
+        red: 1,
+        green: 0,
+        colorless: 0,
+        generic: 2,
+      };
+
+      const colors = import('../src/types/costs').getColorsSpent(payment);
+      expect(colors).toBe(3); // W, U, R
+    });
+
+    it('should check if specific color was spent', () => {
+      const payment: import('../src/types/costs').ManaPaymentRecord = {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 1,
+        green: 0,
+        colorless: 0,
+        generic: 2,
+      };
+
+      expect(import('../src/types/costs').wasColorSpent(payment, 'red')).toBe(true);
+      expect(import('../src/types/costs').wasColorSpent(payment, 'white')).toBe(false);
+    });
+  });
+
+  describe('Permanent and Card Filters', () => {
+    it('should define PermanentFilter for sacrifice costs', () => {
+      const filter: import('../src/types/costs').PermanentFilter = {
+        cardTypes: ['creature'],
+        minPower: 3, // Casualty 3
+        nonToken: true,
+      };
+
+      expect(filter.cardTypes).toEqual(['creature']);
+      expect(filter.minPower).toBe(3);
+      expect(filter.nonToken).toBe(true);
+    });
+
+    it('should define CardFilter for discard costs', () => {
+      const filter: import('../src/types/costs').CardFilter = {
+        colors: ['blue'], // Force of Will
+      };
+
+      expect(filter.colors).toEqual(['blue']);
+    });
+  });
+
+  describe('Convoke and Affinity', () => {
+    it('should define ConvokeCost', () => {
+      const cost: import('../src/types/costs').ConvokeCost = {
+        type: CostType.CONVOKE,
+        description: 'Tap creatures to help cast',
+        isOptional: true,
+        isMandatory: false,
+        tappedCreatures: ['creature1', 'creature2'],
+      };
+
+      expect(cost.type).toBe(CostType.CONVOKE);
+      expect(cost.tappedCreatures.length).toBe(2);
+    });
+
+    it('should define AffinityCost', () => {
+      const cost: import('../src/types/costs').AffinityCost = {
+        type: CostType.AFFINITY,
+        description: 'Costs less for each artifact',
+        isOptional: false,
+        isMandatory: false,
+        affinityFor: 'artifacts',
+        reduction: 1,
+      };
+
+      expect(cost.type).toBe(CostType.AFFINITY);
+      expect(cost.affinityFor).toBe('artifacts');
+      expect(cost.reduction).toBe(1);
+    });
+  });
+        isOptional: false,
+        isMandatory: true,
+        amount: 0
+      };
+
+      expect(canPayLifeCost(cost, 0).canPay).toBe(true);
+      expect(canPayLifeCost(cost, -5).canPay).toBe(true);
+    });
+  });
+
   describe('Rule 118.5 - Zero costs', () => {
     it('should identify zero mana cost', () => {
       const zeroCost: ManaCostPayment = {
