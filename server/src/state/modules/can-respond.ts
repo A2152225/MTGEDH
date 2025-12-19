@@ -1167,18 +1167,47 @@ function hasPlayFromZoneEffect(ctx: GameContext, playerId: PlayerID, zone: strin
       if (permanent.controller !== playerId) continue;
       
       const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+      const typeLine = (permanent.card?.type_line || "").toLowerCase();
       
       // Check for "you may play" or "you may cast" from the specified zone
       const hasPlayText = oracleText.includes("you may play") || oracleText.includes("you may cast");
       const hasZone = oracleText.includes(zone);
       
       if (hasPlayText && hasZone) {
-        // Additional check for lands specifically
+        // For graveyard casting from Station cards, check charge counter threshold
+        if (zone === "graveyard" && typeLine.includes("spacecraft")) {
+          // Station cards: graveyard casting is threshold-gated
+          // Check if the ability mentions "permanent spell" (Station restriction)
+          if (oracleText.includes("permanent spell") && oracleText.includes("from your graveyard")) {
+            // Parse required threshold - graveyard casting is typically at highest threshold
+            // Pattern: "It's an artifact creature at N+." indicates when it becomes a creature
+            const creatureMatch = oracleText.match(/it's an? (?:artifact )?creature at (\d+)\+/i);
+            if (creatureMatch) {
+              const threshold = parseInt(creatureMatch[1], 10);
+              const chargeCounters = (permanent as any).counters?.charge || 0;
+              
+              // Only allow graveyard casting if threshold is met
+              if (chargeCounters >= threshold) {
+                return true;
+              }
+              // Threshold not met - continue checking other permanents
+              continue;
+            }
+          }
+        }
+        
+        // Additional check for lands specifically (Crucible of Worlds, etc.)
         if (zone === "graveyard" && oracleText.includes("land")) {
           return true;
         }
+        
         // For exile, be more generous as it often comes from impulse draw effects
         if (zone === "exile") {
+          return true;
+        }
+        
+        // Generic graveyard casting (not Station-specific)
+        if (zone === "graveyard" && !typeLine.includes("spacecraft")) {
           return true;
         }
       }
@@ -1795,7 +1824,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
       }
     }
     
-    // Check graveyard for flashback sorceries/creatures/etc
+    // Check graveyard for flashback sorceries/creatures/etc AND Station-enabled permanent casting
     if (Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
         if (!card || typeof card === "string") continue;
@@ -1825,27 +1854,64 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         
         if (!isSorcerySpeed) continue;
         
-        // Check for flashback
+        // Check for flashback (allows any spell type with flashback)
         const flashbackInfo = hasFlashback(card);
-        if (!flashbackInfo.hasIt) continue;
-        
-        // Check if player can pay the flashback cost
-        if (flashbackInfo.cost) {
-          const parsedCost = parseManaCost(flashbackInfo.cost);
-          const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-          if (canPayManaCost(pool, adjustedCost)) {
-            // Also check if the spell has valid targets (if it requires targets)
-            if (hasValidTargetsForSpell(state, playerId, card)) {
-              return true;
+        if (flashbackInfo.hasIt) {
+          // Check if player can pay the flashback cost
+          if (flashbackInfo.cost) {
+            const parsedCost = parseManaCost(flashbackInfo.cost);
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+            if (canPayManaCost(pool, adjustedCost)) {
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
+            }
+          } else {
+            // If we can't parse the cost, be conservative and assume they can pay it
+            if (assumeCanPayUnknownCost(card.name, 'flashback')) {
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           }
-        } else {
-          // If we can't parse the cost, be conservative and assume they can pay it
-          if (assumeCanPayUnknownCost(card.name, 'flashback')) {
-            // Also check if the spell has valid targets (if it requires targets)
-            if (hasValidTargetsForSpell(state, playerId, card)) {
-              return true;
+          continue; // Processed flashback, continue to next card
+        }
+        
+        // Check for Station-enabled graveyard casting (permanent spells only)
+        // Station cards grant: "you may cast a permanent spell from your graveyard"
+        // This requires checking if a Station with 8+ counters is on battlefield
+        const canCastFromGraveyard = hasPlayFromZoneEffect(ctx, playerId, "graveyard");
+        if (canCastFromGraveyard) {
+          // Station abilities restrict to "permanent spell" only
+          // Permanent spell = creature, artifact, enchantment, planeswalker, battle
+          // NOT sorcery or instant
+          const isPermanentSpell = 
+            typeLine.includes("creature") ||
+            typeLine.includes("artifact") ||
+            typeLine.includes("enchantment") ||
+            typeLine.includes("planeswalker") ||
+            typeLine.includes("battle");
+          
+          // Sorceries are NOT permanents, so block them
+          if (typeLine.includes("sorcery") && !isPermanentSpell) {
+            continue; // Skip sorceries when casting via Station ability
+          }
+          
+          if (isPermanentSpell) {
+            // Check if player can pay the normal cost
+            const manaCost = card.mana_cost || "";
+            const parsedCost = parseManaCost(manaCost);
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+            
+            if (canPayManaCost(pool, adjustedCost)) {
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           }
         }
