@@ -475,17 +475,24 @@ export function CastSpellModal({
     let newGeneric = Math.max(0, parsed.generic - costReduction.generic);
     const newColors = { ...parsed.colors };
     
-    for (const color of Object.keys(costReduction.colors)) {
-      if (newColors[color as Color]) {
-        const reduction = costReduction.colors[color];
-        const currentColorCost = newColors[color as Color];
+    // Valid color keys for type safety
+    const validColors: Color[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+    
+    for (const colorKey of Object.keys(costReduction.colors)) {
+      // Type-safe color check
+      if (!validColors.includes(colorKey as Color)) continue;
+      
+      const color = colorKey as Color;
+      if (newColors[color]) {
+        const reduction = costReduction.colors[colorKey];
+        const currentColorCost = newColors[color];
         if (reduction >= currentColorCost) {
           // If reduction exceeds colored cost, reduce colored to 0 and apply excess to generic
           const excess = reduction - currentColorCost;
-          newColors[color as Color] = 0;
+          newColors[color] = 0;
           newGeneric = Math.max(0, newGeneric - excess);
         } else {
-          newColors[color as Color] = currentColorCost - reduction;
+          newColors[color] = currentColorCost - reduction;
         }
       }
     }

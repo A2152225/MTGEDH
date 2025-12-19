@@ -791,9 +791,8 @@ export function calculateCostReduction(
           const landCount = battlefield.filter((p: any) => {
             if (!p || p.controller !== playerId) return false;
             const typeLine = (p.card?.type_line || "").toLowerCase();
-            // Check both basic land type and land subtype
-            return typeLine.includes(landType) || 
-                   (typeLine.includes('land') && typeLine.includes(landType));
+            // Check for land type (works for both basic lands and lands with basic land types)
+            return typeLine.includes('land') && typeLine.includes(landType);
           }).length;
           if (landCount > 0) {
             reduction.generic += landCount;

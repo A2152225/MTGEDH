@@ -289,8 +289,7 @@ generic: 2
     });
   });
 
-  describe('Cost examples from real cards', () => {
-    it('should handle Counterspell {U}{U}', () => {
+  describe('Mana Payment Tracking', () => {
       let pool = createEmptyManaPool();
       pool = addMana(pool, ManaType.BLUE, 2);
 
