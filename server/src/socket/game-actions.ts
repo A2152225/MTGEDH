@@ -3288,7 +3288,17 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Consume mana from pool to pay for the spell
       // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
       const pool = getOrInitManaPool(game.state, playerId);
-      consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+      const manaConsumption = consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+      
+      // Calculate converge value (number of different mana colors spent)
+      // This is used by cards like Bring to Light, Radiant Flames, etc.
+      const convergeValue = Object.entries(manaConsumption.consumed)
+        .filter(([color, amount]) => color !== 'colorless' && amount > 0)
+        .length;
+      
+      if (convergeValue > 0) {
+        console.log(`[castSpellFromHand] Converge: ${convergeValue} different color(s) spent for ${cardInHand.name}`);
+      }
       
       // Bump sequence to ensure state changes are visible
       if (typeof game.bumpSeq === 'function') {
@@ -3369,6 +3379,16 @@ export function registerGameActions(io: Server, socket: Socket) {
               return;
             }
             
+            // Add converge value to the stack item (the top item is the one just added)
+            if (convergeValue > 0 && game.state.stack && game.state.stack.length > 0) {
+              const topStackItem = game.state.stack[game.state.stack.length - 1];
+              (topStackItem as any).convergeValue = convergeValue;
+              (topStackItem as any).manaColorsSpent = Object.entries(manaConsumption.consumed)
+                .filter(([color, amount]) => color !== 'colorless' && amount > 0)
+                .map(([color]) => color);
+              console.log(`[castSpellFromHand] Added converge data to stack item: ${convergeValue} colors (${(topStackItem as any).manaColorsSpent.join(', ')})`);
+            }
+            
             console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
           } else {
           // Fallback for legacy game instances without applyEvent
@@ -3424,6 +3444,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
               xValue,
+              // Converge tracking for cards like Bring to Light
+              convergeValue: convergeValue > 0 ? convergeValue : undefined,
+              manaColorsSpent: convergeValue > 0 ? Object.entries(manaConsumption.consumed)
+                .filter(([color, amount]) => color !== 'colorless' && amount > 0)
+                .map(([color]) => color) : undefined,
               // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
               // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
               // Note: faceIndex is not available in this fallback path
