@@ -236,6 +236,7 @@ export function App() {
     bounceLandName: string;
     imageUrl?: string;
     landsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
+    stackItemId?: string;
   } | null>(null);
   
   // Proliferate modal state
@@ -1246,6 +1247,7 @@ export function App() {
           bounceLandName: payload.bounceLandName,
           imageUrl: payload.imageUrl,
           landsToChoose: payload.landsToChoose || [],
+          stackItemId: payload.stackItemId,
         });
         setBounceLandModalOpen(true);
       }
@@ -3675,6 +3677,7 @@ export function App() {
       gameId: safeView.id,
       bounceLandId: bounceLandData.bounceLandId,
       returnPermanentId: permanentId,
+      stackItemId: bounceLandData.stackItemId,
     });
     setBounceLandModalOpen(false);
     setBounceLandData(null);

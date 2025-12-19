@@ -5336,6 +5336,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 'job_select',               // Equipment: create Hero token and attach
                 'living_weapon',            // Equipment: create Germ token and attach
                 'etb_sacrifice_unless_pay', // ETB sacrifice unless pay
+                'etb_bounce_land',          // Bounce lands: return a land to hand
                 'etb_gain_life',            // Self ETB life gain
                 'etb_draw',                 // Self ETB draw
                 'etb_search',               // Self ETB search library

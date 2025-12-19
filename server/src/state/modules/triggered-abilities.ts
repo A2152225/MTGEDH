@@ -466,6 +466,7 @@ export interface TriggeredAbility {
     | 'creature_attacks'
     | 'etb'
     | 'etb_sacrifice_unless_pay' // Transguild Promenade, Gateway Plaza, Rupture Spire
+    | 'etb_bounce_land' // Bounce lands - return a land you control to hand
     | 'creature_etb'
     | 'opponent_creature_etb' // Suture Priest style - when opponent's creature enters
     | 'equipment_etb'     // Whenever an Equipment enters under your control (Puresteel Paladin)
@@ -909,7 +910,20 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         mandatory: true,
         requiresChoice: true,
       });
-    } else {
+    } 
+    // Check for bounce land pattern - "return a land you control to its owner's hand"
+    else if (/return\s+a\s+land\s+you\s+control\s+to\s+its\s+owner's\s+hand/i.test(effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'etb_bounce_land',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        requiresChoice: true,
+      });
+    }
+    else {
       // Detect if this trigger requires targeting
       const targetType = detectTargetType(effectText);
       const requiresTarget = !!targetType;
