@@ -3413,16 +3413,36 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Each creature pays for {1} or one mana of its color
           const creatureColors = creatureCard.colors || [];
           
-          // For now, we'll add {1} colorless mana per creature
-          // In a more advanced implementation, players could choose which color to use
+          // Initialize mana pool if needed
           if (!game.state.manaPools) game.state.manaPools = {};
           if (!game.state.manaPools[playerId]) {
             game.state.manaPools[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
           }
           
-          game.state.manaPools[playerId].colorless += 1;
+          // Use creature's first color if it has one, otherwise colorless
+          // This is a simple heuristic - in a full implementation, players would choose
+          let manaAdded = 'colorless';
+          if (creatureColors.length > 0) {
+            const colorMap: Record<string, keyof typeof game.state.manaPools[typeof playerId]> = {
+              'W': 'white',
+              'U': 'blue', 
+              'B': 'black',
+              'R': 'red',
+              'G': 'green',
+            };
+            const firstColor = creatureColors[0];
+            if (firstColor in colorMap) {
+              const manaColor = colorMap[firstColor];
+              game.state.manaPools[playerId][manaColor] += 1;
+              manaAdded = manaColor;
+            } else {
+              game.state.manaPools[playerId].colorless += 1;
+            }
+          } else {
+            game.state.manaPools[playerId].colorless += 1;
+          }
           
-          console.log(`[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} to pool`);
+          console.log(`[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} ${manaAdded}`);
         }
         
         io.to(gameId).emit("chat", {
