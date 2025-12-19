@@ -1412,8 +1412,13 @@ function executeTriggerEffect(
     });
     
     // Add steps with APNAP ordering using the ResolutionQueueManager
-    // Use the context's gameId if available
-    const gameId = (ctx as any).gameId || 'unknown';
+    // Try to get gameId from context (ctx.gameId, ctx.id, or triggerItem)
+    const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId || 'unknown';
+    
+    if (gameId === 'unknown') {
+      console.warn(`[executeTriggerEffect] Kynaios: gameId is unknown, resolution steps may not work properly`);
+    }
+    
     ResolutionQueueManager.addStepsWithAPNAP(
       gameId,
       stepConfigs,
@@ -1421,7 +1426,7 @@ function executeTriggerEffect(
       activePlayerId
     );
     
-    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices`);
+    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices (gameId: ${gameId})`);
     return;
   }
   
