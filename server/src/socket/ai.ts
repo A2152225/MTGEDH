@@ -24,6 +24,7 @@ import { hasPendingColorChoices } from "./color-choice.js";
 import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
 import { hasPendingCreatureTypeSelections } from "./creature-type.js";
 import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool } from "../state/modules/mana-check.js";
+import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -5368,6 +5369,15 @@ function hasPendingLibrarySearch(game: any): boolean {
  * Returns an object with a boolean flag and optional reason string.
  */
 function checkPendingModals(game: any, gameId: string): { hasPending: boolean; reason?: string } {
+  // CRITICAL: Check the resolution queue first (new system)
+  // This ensures Join Forces, Tempting Offer, and other resolution steps block phase changes
+  const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
+  if (queueSummary.hasPending) {
+    const pendingTypes = queueSummary.pendingTypes.join(', ');
+    return { hasPending: true, reason: `players have pending resolution steps: ${pendingTypes}` };
+  }
+  
+  // Check legacy pending* fields for backward compatibility
   if (hasPendingLibrarySearch(game)) {
     return { hasPending: true, reason: 'players have pending library searches' };
   }
