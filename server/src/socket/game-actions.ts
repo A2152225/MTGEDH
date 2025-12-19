@@ -7,7 +7,7 @@ import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./c
 import { requiresColorChoice, requestColorChoice } from "./color-choice";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
-import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
@@ -1707,46 +1707,6 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
-      // Check if this is a bounce land and prompt the player to return a land
-      if (isBounceLand(cardName)) {
-        // Find the permanent that was just played by its unique card ID (not by name)
-        // This ensures we find the correct permanent when multiple copies of the same card exist
-        const battlefield = game.state?.battlefield || [];
-        const bounceLandPerm = battlefield.find((p: any) => 
-          p.card?.id === cardId && 
-          p.controller === playerId
-        );
-        
-        if (bounceLandPerm) {
-          // Mark it as tapped (bounce lands always enter tapped)
-          bounceLandPerm.tapped = true;
-          
-          // Find all lands the player controls, INCLUDING the bounce land itself.
-          // Per MTG rules, the bounce land can return itself to hand.
-          // This is important for turn 1 scenarios where it's the only land you control.
-          const availableLands = battlefield.filter((p: any) => {
-            if (p.controller !== playerId) return false;
-            const typeLine = (p.card?.type_line || '').toLowerCase();
-            return typeLine.includes('land');
-          });
-          
-          if (availableLands.length > 0) {
-            // Emit bounce land prompt to the player
-            emitToPlayer(io, playerId as string, "bounceLandPrompt", {
-              gameId,
-              bounceLandId: bounceLandPerm.id,
-              bounceLandName: cardName,
-              imageUrl: cardImageUrl,
-              landsToChoose: availableLands.map((p: any) => ({
-                permanentId: p.id,
-                cardName: p.card?.name || "Land",
-                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-              })),
-            });
-          }
-        }
-      }
-
       // Check for other ETB-tapped lands (temples, gain lands, guildgates, etc.)
       // This detects lands that always enter tapped based on oracle text
       if (!isShockLand(cardName) && !isBounceLand(cardName)) {
@@ -1914,6 +1874,72 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check for enchantment ETB triggers (e.g., Growing Rites of Itlimoc)
       checkEnchantmentETBTriggers(io, game, gameId);
+
+      // ========================================================================
+      // BOUNCE LAND ETB TRIGGERS: Queue bounce land triggers onto the stack
+      // Per MTG rules, bounce lands have a triggered ability that should go on
+      // the stack and allow priority to pass before land selection
+      // ========================================================================
+      try {
+        if (isBounceLand(cardName)) {
+          // Find the permanent that was just played
+          const battlefield = game.state?.battlefield || [];
+          const bounceLandPerm = battlefield.find((p: any) => 
+            p.card?.id === cardId && 
+            p.controller === playerId
+          );
+          
+          if (bounceLandPerm) {
+            // Mark it as tapped (bounce lands always enter tapped)
+            bounceLandPerm.tapped = true;
+            
+            // Detect the ETB trigger from the land's oracle text
+            const etbTriggers = detectETBTriggers(cardInHand, bounceLandPerm);
+            const bounceTrigger = etbTriggers.find(t => t.triggerType === 'etb_bounce_land');
+            
+            if (bounceTrigger) {
+              console.log(`[playLand] Found bounce land ETB trigger for ${cardName}`);
+              
+              // Initialize stack if needed
+              (game.state as any).stack = (game.state as any).stack || [];
+              
+              // Push bounce land trigger onto the stack
+              const triggerId = `bounce_land_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              (game.state as any).stack.push({
+                id: triggerId,
+                type: 'triggered_ability',
+                controller: playerId,
+                source: bounceLandPerm.id,
+                permanentId: bounceLandPerm.id,
+                sourceName: cardName,
+                description: bounceTrigger.effect,
+                triggerType: 'etb_bounce_land',
+                mandatory: true,
+                effect: bounceTrigger.effect,
+                requiresChoice: true,
+              });
+              
+              console.log(`[playLand] ⚡ Pushed bounce land ETB trigger onto stack: ${cardName} - ${bounceTrigger.effect}`);
+              
+              // Emit chat message about the trigger
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `${cardName}'s triggered ability goes on the stack.`,
+                ts: Date.now(),
+              });
+              
+              // Give priority to active player to respond to triggers
+              if ((game.state as any).stack.length > 0) {
+                (game.state as any).priority = (game.state as any).turnPlayer || playerId;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[playLand] Failed to process bounce land ETB trigger:`, err);
+      }
 
       // ========================================================================
       // LANDFALL TRIGGERS: Check for and process landfall triggers
@@ -3851,6 +3877,51 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
           broadcastGame(io, game, gameId);
           return;
+        }
+        
+        // Check for bounce land ETB trigger resolution
+        // When the trigger resolves, prompt the player to select a land to return
+        const isBounceandTrigger = topItem?.type === 'triggered_ability' && topItem?.triggerType === 'etb_bounce_land';
+        if (isBounceandTrigger && resolvedController) {
+          // Find the bounce land permanent
+          const battlefield = game.state?.battlefield || [];
+          const bounceLandPerm = battlefield.find((p: any) => p.id === topItem.permanentId);
+          
+          if (bounceLandPerm) {
+            // Find all lands the player controls, INCLUDING the bounce land itself.
+            // Per MTG rules, the bounce land can return itself to hand.
+            const availableLands = battlefield.filter((p: any) => {
+              if (p.controller !== resolvedController) return false;
+              const typeLine = (p.card?.type_line || '').toLowerCase();
+              return typeLine.includes('land');
+            });
+            
+            if (availableLands.length > 0) {
+              // Emit bounce land prompt to the player
+              emitToPlayer(io, resolvedController as string, "bounceLandPrompt", {
+                gameId,
+                bounceLandId: bounceLandPerm.id,
+                bounceLandName: topItem.sourceName || bounceLandPerm.card?.name || "Bounce Land",
+                imageUrl: bounceLandPerm.card?.image_uris?.small || bounceLandPerm.card?.image_uris?.normal,
+                landsToChoose: availableLands.map((p: any) => ({
+                  permanentId: p.id,
+                  cardName: p.card?.name || "Land",
+                  imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                })),
+                stackItemId: topItem.id,  // Include stack item ID for resolution tracking
+              });
+              
+              console.log(`[passPriority] Bounce land trigger resolving: prompting ${resolvedController} to return a land`);
+              
+              // Don't resolve the stack item yet - wait for bounceLandChoice event
+              // Bump sequence and broadcast to show updated state
+              if (typeof game.bumpSeq === 'function') {
+                game.bumpSeq();
+              }
+              broadcastGame(io, game, gameId);
+              return;
+            }
+          }
         }
         
         // Directly call resolveTopOfStack to ensure the spell resolves

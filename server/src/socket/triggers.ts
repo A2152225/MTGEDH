@@ -338,10 +338,12 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
     gameId,
     bounceLandId,
     returnPermanentId,
+    stackItemId,
   }: {
     gameId: string;
     bounceLandId: string;
     returnPermanentId: string;
+    stackItemId?: string;
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -403,6 +405,16 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         (zones.hand as any[]).push(returnedCard);
         zones.handCount = (zones.hand as any[]).length;
       }
+      
+      // If this was triggered from the stack, remove the stack item
+      if (stackItemId) {
+        const stack = (game.state as any).stack || [];
+        const stackIndex = stack.findIndex((item: any) => item.id === stackItemId);
+        if (stackIndex !== -1) {
+          stack.splice(stackIndex, 1);
+          console.log(`[triggers] Removed bounce land trigger from stack (id: ${stackItemId})`);
+        }
+      }
 
       // Send chat message
       io.to(gameId).emit("chat", {
@@ -421,6 +433,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           returnPermanentId,
           bounceLandName,
           returnedLandName,
+          stackItemId,
         });
       } catch (e) {
         console.warn("[triggers] Failed to persist bounceLandChoice event:", e);
