@@ -748,6 +748,7 @@ export function calculateCostReduction(
       // ============================================
       
       // Check for affinity in the card being cast
+      // Affinity for artifacts
       if (cardOracleText.includes("affinity for artifacts")) {
         const artifactCount = battlefield.filter((p: any) => 
           p && p.controller === playerId && 
@@ -755,7 +756,50 @@ export function calculateCostReduction(
         ).length;
         if (artifactCount > 0) {
           reduction.generic += artifactCount;
-          reduction.messages.push(`Affinity: -{${artifactCount}} (${artifactCount} artifacts)`);
+          reduction.messages.push(`Affinity for artifacts: -{${artifactCount}} (${artifactCount} artifacts)`);
+        }
+      }
+      
+      // Affinity for creatures
+      if (cardOracleText.includes("affinity for creatures")) {
+        const creatureCount = battlefield.filter((p: any) => 
+          p && p.controller === playerId && 
+          (p.card?.type_line || "").toLowerCase().includes("creature")
+        ).length;
+        if (creatureCount > 0) {
+          reduction.generic += creatureCount;
+          reduction.messages.push(`Affinity for creatures: -{${creatureCount}} (${creatureCount} creatures)`);
+        }
+      }
+      
+      // Affinity for equipment
+      if (cardOracleText.includes("affinity for equipment")) {
+        const equipmentCount = battlefield.filter((p: any) => 
+          p && p.controller === playerId && 
+          (p.card?.type_line || "").toLowerCase().includes("equipment")
+        ).length;
+        if (equipmentCount > 0) {
+          reduction.generic += equipmentCount;
+          reduction.messages.push(`Affinity for equipment: -{${equipmentCount}} (${equipmentCount} equipment)`);
+        }
+      }
+      
+      // Affinity for basic land types (Plains, Island, Swamp, Mountain, Forest)
+      const basicLands = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+      for (const landType of basicLands) {
+        if (cardOracleText.includes(`affinity for ${landType}`)) {
+          const landCount = battlefield.filter((p: any) => {
+            if (!p || p.controller !== playerId) return false;
+            const typeLine = (p.card?.type_line || "").toLowerCase();
+            // Check both basic land type and land subtype
+            return typeLine.includes(landType) || 
+                   (typeLine.includes('land') && typeLine.includes(landType));
+          }).length;
+          if (landCount > 0) {
+            reduction.generic += landCount;
+            const capitalizedLand = landType.charAt(0).toUpperCase() + landType.slice(1);
+            reduction.messages.push(`Affinity for ${capitalizedLand}: -{${landCount}} (${landCount} ${capitalizedLand})`);
+          }
         }
       }
       
@@ -858,6 +902,87 @@ export function calculateCostReduction(
   }
   
   return reduction;
+}
+
+/**
+ * Calculate available convoke reduction for a spell
+ * Returns list of creatures that can be tapped for convoke and their contribution
+ * 
+ * Convoke rule: Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.
+ */
+export function calculateConvokeOptions(
+  game: any,
+  playerId: string,
+  card: any
+): {
+  availableCreatures: Array<{
+    id: string;
+    name: string;
+    colors: string[];
+    canTapFor: string[]; // List of mana types this creature can contribute
+  }>;
+  messages: string[];
+} {
+  const options = {
+    availableCreatures: [] as Array<{
+      id: string;
+      name: string;
+      colors: string[];
+      canTapFor: string[];
+    }>,
+    messages: [] as string[],
+  };
+
+  try {
+    const battlefield = game.state?.battlefield || [];
+    const cardOracleText = (card.oracle_text || "").toLowerCase();
+
+    // Check if card has convoke
+    if (!cardOracleText.includes("convoke")) {
+      return options;
+    }
+
+    // Find all untapped creatures controlled by the player
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      if (perm.tapped) continue;
+
+      const permTypeLine = (perm.card?.type_line || "").toLowerCase();
+      if (!permTypeLine.includes("creature")) continue;
+
+      const permColors = perm.card?.colors || [];
+      const canTapFor: string[] = ['generic']; // Can always pay for {1}
+
+      // Add specific colors this creature can contribute
+      if (permColors.includes('W')) canTapFor.push('white');
+      if (permColors.includes('U')) canTapFor.push('blue');
+      if (permColors.includes('B')) canTapFor.push('black');
+      if (permColors.includes('R')) canTapFor.push('red');
+      if (permColors.includes('G')) canTapFor.push('green');
+
+      // Colorless creatures can only pay generic
+      if (permColors.length === 0) {
+        canTapFor.push('colorless');
+      }
+
+      options.availableCreatures.push({
+        id: perm.id,
+        name: perm.card?.name || "Unknown Creature",
+        colors: permColors,
+        canTapFor,
+      });
+    }
+
+    if (options.availableCreatures.length > 0) {
+      options.messages.push(
+        `Convoke available: ${options.availableCreatures.length} untapped creature(s)`
+      );
+    }
+  } catch (error) {
+    console.error("[calculateConvokeOptions] Error:", error);
+  }
+
+  return options;
 }
 
 /**
