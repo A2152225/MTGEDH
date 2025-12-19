@@ -4623,7 +4623,108 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                           !/target/i.test(abilityText);
     
     if (!isManaAbility) {
-      // Put the ability on the stack
+      // Check if this is a tutor effect (searches library)
+      const tutorInfo = detectTutorEffect(abilityText);
+      
+      if (tutorInfo.isTutor) {
+        // This is a tutor effect - handle library search
+        const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
+        const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
+        
+        // Put the ability on the stack first
+        const stackItem = {
+          id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          type: 'ability' as const,
+          controller: pid,
+          source: permanentId,
+          sourceName: cardName,
+          description: abilityText,
+          abilityType: 'tutor',
+          searchParams: {
+            filter,
+            searchCriteria: tutorInfo.searchCriteria,
+            maxSelections: tutorInfo.maxSelections || 1,
+            destination: tutorInfo.destination || 'hand',
+            entersTapped: tutorInfo.entersTapped,
+            splitDestination: tutorInfo.splitDestination,
+            toBattlefield: tutorInfo.toBattlefield,
+            toHand: tutorInfo.toHand,
+          },
+        } as any;
+        
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push(stackItem);
+        
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+        
+        appendEvent(gameId, (game as any).seq ?? 0, "activateTutorAbility", { 
+          playerId: pid, 
+          permanentId, 
+          abilityId,
+          cardName,
+          stackId: stackItem.id,
+        });
+        
+        // Emit stack update
+        io.to(gameId).emit("stackUpdate", {
+          gameId,
+          stack: (game.state.stack || []).map((s: any) => ({
+            id: s.id,
+            type: s.type,
+            name: s.sourceName || s.card?.name || 'Ability',
+            controller: s.controller,
+            targets: s.targets,
+            source: s.source,
+            sourceName: s.sourceName,
+            description: s.description,
+          })),
+        });
+        
+        // Emit library search request
+        if (tutorInfo.splitDestination) {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 2,
+            moveTo: "split",
+            splitDestination: true,
+            toBattlefield: tutorInfo.toBattlefield || 1,
+            toHand: tutorInfo.toHand || 1,
+            entersTapped: tutorInfo.entersTapped,
+            shuffleAfter: true,
+          });
+        } else {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 1,
+            moveTo: tutorInfo.destination || "hand",
+            entersTapped: tutorInfo.entersTapped,
+            shuffleAfter: true,
+          });
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability. Ability on the stack.`,
+          ts: Date.now(),
+        });
+        
+        broadcastGame(io, game, gameId);
+        return; // Early return - library search will handle the rest
+      }
+      
+      // Not a tutor - put the ability on the stack normally
       const stackItem = {
         id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         type: 'ability' as const,

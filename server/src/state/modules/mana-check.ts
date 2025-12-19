@@ -6,6 +6,7 @@
  */
 
 import type { PlayerID } from "../../../../shared/src";
+import { creatureHasHaste } from "../../socket/game-actions.js";
 
 /**
  * Phyrexian mana can be paid with 2 life instead of the colored mana
@@ -311,6 +312,22 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     const oracleText = (permanent.card.oracle_text || "").toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
+    const typeLine = (permanent.card.type_line || "").toLowerCase();
+    
+    // Check for summoning sickness on creatures with tap abilities
+    // Rule 302.6: A creature can't use tap abilities unless it has haste or has been 
+    // continuously controlled since the beginning of the turn
+    const isCreature = typeLine.includes("creature");
+    const isLand = typeLine.includes("land");
+    
+    // Skip creatures with summoning sickness (unless they have haste)
+    if (isCreature && !isLand && permanent.summoningSickness) {
+      const hasHaste = creatureHasHaste(permanent, battlefield, playerId);
+      if (!hasHaste) {
+        // This creature has summoning sickness and no haste - can't tap for mana
+        continue;
+      }
+    }
     
     // Special case: Basic lands (Mountain, Island, etc.)
     // Handle these first since they don't have oracle text with mana abilities
