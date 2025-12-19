@@ -2333,6 +2333,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         console.log(`[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
       } else {
         // No targets needed - go directly to payment
+        // Calculate cost reduction and convoke options
+        const costReduction = calculateCostReduction(game, playerId, cardInHand);
+        const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
+        
         socket.emit("paymentRequired", {
           gameId,
           cardId,
@@ -2340,9 +2344,17 @@ export function registerGameActions(io: Server, socket: Socket) {
           manaCost,
           effectId,
           imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+          convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         });
         
         console.log(`[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
+        if (costReduction.messages.length > 0) {
+          console.log(`[requestCastSpell] Cost reductions: ${costReduction.messages.join(', ')}`);
+        }
+        if (convokeOptions.availableCreatures.length > 0) {
+          console.log(`[requestCastSpell] Convoke available: ${convokeOptions.availableCreatures.length} creatures`);
+        }
         console.log(`[requestCastSpell] ======== REQUEST END (waiting for payment) ========`);
       }
     } catch (err: any) {
@@ -2358,7 +2370,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId }: { 
+  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -2366,6 +2378,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     skipInteractivePrompts?: boolean; // NEW: Flag to skip target/payment requests when completing a previous cast
     xValue?: number;
     alternateCostId?: string;
+    convokeTappedCreatures?: string[];
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -2380,6 +2393,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.log(`[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
       console.log(`[handleCastSpellFromHand] playerId: ${playerId}`);
       if (alternateCostId) console.log(`[handleCastSpellFromHand] alternateCostId: ${alternateCostId}`);
+      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+        console.log(`[handleCastSpellFromHand] convokeTappedCreatures: ${JSON.stringify(convokeTappedCreatures)}`);
+      }
       console.log(`[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
@@ -3340,7 +3356,87 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
+      // ======================================================================
+      // CONVOKE: Tap creatures to help pay for spell
+      // ======================================================================
+      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+        console.log(`[castSpellFromHand] Processing convoke: tapping ${convokeTappedCreatures.length} creature(s)`);
+        
+        const globalBattlefield = game.state?.battlefield || [];
+        
+        for (const creatureId of convokeTappedCreatures) {
+          const creature = globalBattlefield.find((p: any) => p?.id === creatureId && p?.controller === playerId);
+          
+          if (!creature) {
+            socket.emit("error", {
+              code: "CONVOKE_CREATURE_NOT_FOUND",
+              message: `Creature ${creatureId} not found on battlefield`,
+            });
+            return;
+          }
+          
+          if ((creature as any).tapped) {
+            socket.emit("error", {
+              code: "CONVOKE_CREATURE_TAPPED",
+              message: `${(creature as any).card?.name || 'Creature'} is already tapped`,
+            });
+            return;
+          }
+          
+          const creatureCard = (creature as any).card || {};
+          const creatureTypeLine = (creatureCard.type_line || "").toLowerCase();
+          
+          if (!creatureTypeLine.includes("creature")) {
+            socket.emit("error", {
+              code: "CONVOKE_NOT_CREATURE",
+              message: `${creatureCard.name || 'Permanent'} is not a creature`,
+            });
+            return;
+          }
+          
+          // Check summoning sickness
+          const hasHaste = creatureHasHaste(creature, globalBattlefield, playerId);
+          const enteredThisTurn = (creature as any).enteredThisTurn === true;
+          
+          if (!hasHaste && enteredThisTurn) {
+            socket.emit("error", {
+              code: "CONVOKE_SUMMONING_SICKNESS",
+              message: `${creatureCard.name || 'Creature'} has summoning sickness`,
+            });
+            return;
+          }
+          
+          // Tap the creature
+          (creature as any).tapped = true;
+          
+          // Add mana to pool based on creature's colors
+          // Each creature pays for {1} or one mana of its color
+          const creatureColors = creatureCard.colors || [];
+          
+          // For now, we'll add {1} colorless mana per creature
+          // In a more advanced implementation, players could choose which color to use
+          if (!game.state.manaPools) game.state.manaPools = {};
+          if (!game.state.manaPools[playerId]) {
+            game.state.manaPools[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+          }
+          
+          game.state.manaPools[playerId].colorless += 1;
+          
+          console.log(`[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} to pool`);
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} tapped ${convokeTappedCreatures.length} creature(s) for convoke`,
+          ts: Date.now(),
+        });
+      }
+
+      // ======================================================================
       // Handle mana payment: tap permanents to generate mana (adds to pool)
+      // ======================================================================
       if (payment && payment.length > 0) {
         console.log(`[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
@@ -3768,7 +3864,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
   // Called after both target selection and payment are complete
   // =====================================================================
-  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId }: { 
+  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -3776,6 +3872,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     effectId?: string;
     xValue?: number;
     alternateCostId?: string;
+    convokeTappedCreatures?: string[];
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -3787,6 +3884,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.log(`[completeCastSpell] cardId: ${cardId}, effectId: ${effectId}`);
       console.log(`[completeCastSpell] targets from client: ${targets ? JSON.stringify(targets) : 'undefined'}`);
       console.log(`[completeCastSpell] payment from client: ${payment ? JSON.stringify(payment) : 'undefined'}`);
+      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+        console.log(`[completeCastSpell] convokeTappedCreatures:`, convokeTappedCreatures);
+      }
       
       // Check if this is an equip payment completion
       if (effectId && effectId.startsWith('equip_payment_') && (game.state as any).pendingEquipPayments?.[effectId]) {
@@ -3934,7 +4034,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
-      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId });
+      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId, convokeTappedCreatures });
       
     } catch (err: any) {
       console.error(`[completeCastSpell] Error:`, err);

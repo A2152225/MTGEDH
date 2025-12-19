@@ -196,6 +196,20 @@ export function App() {
     isCommander?: boolean;
     targets?: string[];  // Targets selected via requestCastSpell flow
     effectId?: string;   // Effect ID for MTG-compliant flow
+    costReduction?: {
+      generic: number;
+      colors: Record<string, number>;
+      messages: string[];
+    };
+    convokeOptions?: {
+      availableCreatures: Array<{
+        id: string;
+        name: string;
+        colors: string[];
+        canTapFor: string[];
+      }>;
+      messages: string[];
+    };
   } | null>(null);
 
   // Accordion state for Join / Active Games
@@ -1525,6 +1539,8 @@ export function App() {
           manaCost: payload.manaCost,
           targets: payload.targets,
           effectId: payload.effectId,
+          costReduction: payload.costReduction,
+          convokeOptions: payload.convokeOptions,
         });
         setCastSpellModalOpen(true);
       }
@@ -3496,10 +3512,13 @@ export function App() {
   };
 
   // Handle cast spell confirmation from modal - works for both hand and commander spells
-  const handleCastSpellConfirm = (payment: PaymentItem[], _alternateCostId?: string, xValue?: number) => {
+  const handleCastSpellConfirm = (payment: PaymentItem[], _alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => {
     if (!safeView || !spellToCast) return;
     
     console.log(`[Client] Casting ${spellToCast.isCommander ? 'commander' : 'spell'}: ${spellToCast.cardName} with payment:`, payment);
+    if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+      console.log(`[Client] Convoke: tapping ${convokeTappedCreatures.length} creature(s):`, convokeTappedCreatures);
+    }
     
     if (spellToCast.isCommander) {
       // Cast commander from command zone
@@ -3518,6 +3537,7 @@ export function App() {
         payment: payment.length > 0 ? payment : undefined,
         effectId: spellToCast.effectId,
         xValue,
+        convokeTappedCreatures,
       });
     } else {
       // Legacy flow: direct cast from hand (will check targets on server)
@@ -3526,6 +3546,7 @@ export function App() {
         cardId: spellToCast.cardId,
         payment: payment.length > 0 ? payment : undefined,
         xValue,
+        convokeTappedCreatures,
       });
     }
     
@@ -5357,6 +5378,8 @@ export function App() {
             }));
         }, [safeView, you, spellToCast])}
         floatingMana={manaPool || undefined}
+        costReduction={spellToCast?.costReduction}
+        convokeOptions={spellToCast?.convokeOptions}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
       />
