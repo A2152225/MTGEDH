@@ -364,6 +364,36 @@ export function getOmniscienceSource(
 }
 
 /**
+ * Check for Devastating Mastery style alternate cost
+ * "You may pay {2}{W}{W} rather than pay this spell's mana cost.
+ * If the {2}{W}{W} cost was paid, [conditional effect]"
+ */
+export function hasConditionalAlternateCost(card: any): {
+  hasCost: boolean;
+  manaCost?: string;
+  conditionalEffect?: string;
+} {
+  if (!card) return { hasCost: false };
+  
+  const oracleText = card.oracle_text || "";
+  
+  // Pattern: "You may pay X rather than pay this spell's mana cost. If the X cost was paid, [effect]"
+  const match = oracleText.match(
+    /you may pay (\{[^}]+\}(?:\s*\{[^}]+\})*) rather than pay this spell's mana cost\.?\s*if.*?was paid,\s*([^.]+)/i
+  );
+  
+  if (match) {
+    return {
+      hasCost: true,
+      manaCost: match[1],
+      conditionalEffect: match[2].trim(),
+    };
+  }
+  
+  return { hasCost: false };
+}
+
+/**
  * Main function: Check if a spell has any payable alternate cost
  * 
  * @param ctx Game context
@@ -465,6 +495,18 @@ export function getAllAlternateCostOptions(
       name: 'WUBRG Cost',
       description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
       manaCost: '{W}{U}{B}{R}{G}',
+    });
+  }
+  
+  // Conditional alternate cost (Devastating Mastery style)
+  const conditionalAlt = hasConditionalAlternateCost(card);
+  if (conditionalAlt.hasCost) {
+    options.push({
+      type: 'alternate',
+      name: 'Conditional Alternate Cost',
+      description: `Pay ${conditionalAlt.manaCost} for different effect`,
+      manaCost: conditionalAlt.manaCost,
+      additionalEffects: conditionalAlt.conditionalEffect ? [conditionalAlt.conditionalEffect] : undefined,
     });
   }
   

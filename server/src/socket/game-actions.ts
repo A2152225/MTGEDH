@@ -748,6 +748,7 @@ export function calculateCostReduction(
       // ============================================
       
       // Check for affinity in the card being cast
+      // Affinity for artifacts
       if (cardOracleText.includes("affinity for artifacts")) {
         const artifactCount = battlefield.filter((p: any) => 
           p && p.controller === playerId && 
@@ -755,7 +756,49 @@ export function calculateCostReduction(
         ).length;
         if (artifactCount > 0) {
           reduction.generic += artifactCount;
-          reduction.messages.push(`Affinity: -{${artifactCount}} (${artifactCount} artifacts)`);
+          reduction.messages.push(`Affinity for artifacts: -{${artifactCount}} (${artifactCount} artifacts)`);
+        }
+      }
+      
+      // Affinity for creatures
+      if (cardOracleText.includes("affinity for creatures")) {
+        const creatureCount = battlefield.filter((p: any) => 
+          p && p.controller === playerId && 
+          (p.card?.type_line || "").toLowerCase().includes("creature")
+        ).length;
+        if (creatureCount > 0) {
+          reduction.generic += creatureCount;
+          reduction.messages.push(`Affinity for creatures: -{${creatureCount}} (${creatureCount} creatures)`);
+        }
+      }
+      
+      // Affinity for equipment
+      if (cardOracleText.includes("affinity for equipment")) {
+        const equipmentCount = battlefield.filter((p: any) => 
+          p && p.controller === playerId && 
+          (p.card?.type_line || "").toLowerCase().includes("equipment")
+        ).length;
+        if (equipmentCount > 0) {
+          reduction.generic += equipmentCount;
+          reduction.messages.push(`Affinity for equipment: -{${equipmentCount}} (${equipmentCount} equipment)`);
+        }
+      }
+      
+      // Affinity for basic land types (Plains, Island, Swamp, Mountain, Forest)
+      const basicLands = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+      for (const landType of basicLands) {
+        if (cardOracleText.includes(`affinity for ${landType}`)) {
+          const landCount = battlefield.filter((p: any) => {
+            if (!p || p.controller !== playerId) return false;
+            const typeLine = (p.card?.type_line || "").toLowerCase();
+            // Check for land type (works for both basic lands and lands with basic land types)
+            return typeLine.includes('land') && typeLine.includes(landType);
+          }).length;
+          if (landCount > 0) {
+            reduction.generic += landCount;
+            const capitalizedLand = landType.charAt(0).toUpperCase() + landType.slice(1);
+            reduction.messages.push(`Affinity for ${capitalizedLand}: -{${landCount}} (${landCount} ${capitalizedLand})`);
+          }
         }
       }
       
@@ -858,6 +901,87 @@ export function calculateCostReduction(
   }
   
   return reduction;
+}
+
+/**
+ * Calculate available convoke reduction for a spell
+ * Returns list of creatures that can be tapped for convoke and their contribution
+ * 
+ * Convoke rule: Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.
+ */
+export function calculateConvokeOptions(
+  game: any,
+  playerId: string,
+  card: any
+): {
+  availableCreatures: Array<{
+    id: string;
+    name: string;
+    colors: string[];
+    canTapFor: string[]; // List of mana types this creature can contribute
+  }>;
+  messages: string[];
+} {
+  const options = {
+    availableCreatures: [] as Array<{
+      id: string;
+      name: string;
+      colors: string[];
+      canTapFor: string[];
+    }>,
+    messages: [] as string[],
+  };
+
+  try {
+    const battlefield = game.state?.battlefield || [];
+    const cardOracleText = (card.oracle_text || "").toLowerCase();
+
+    // Check if card has convoke
+    if (!cardOracleText.includes("convoke")) {
+      return options;
+    }
+
+    // Find all untapped creatures controlled by the player
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      if (perm.tapped) continue;
+
+      const permTypeLine = (perm.card?.type_line || "").toLowerCase();
+      if (!permTypeLine.includes("creature")) continue;
+
+      const permColors = perm.card?.colors || [];
+      const canTapFor: string[] = ['generic']; // Can always pay for {1}
+
+      // Add specific colors this creature can contribute
+      if (permColors.includes('W')) canTapFor.push('white');
+      if (permColors.includes('U')) canTapFor.push('blue');
+      if (permColors.includes('B')) canTapFor.push('black');
+      if (permColors.includes('R')) canTapFor.push('red');
+      if (permColors.includes('G')) canTapFor.push('green');
+
+      // Colorless creatures can only pay generic
+      if (permColors.length === 0) {
+        canTapFor.push('colorless');
+      }
+
+      options.availableCreatures.push({
+        id: perm.id,
+        name: perm.card?.name || "Unknown Creature",
+        colors: permColors,
+        canTapFor,
+      });
+    }
+
+    if (options.availableCreatures.length > 0) {
+      options.messages.push(
+        `Convoke available: ${options.availableCreatures.length} untapped creature(s)`
+      );
+    }
+  } catch (error) {
+    console.error("[calculateConvokeOptions] Error:", error);
+  }
+
+  return options;
 }
 
 /**
@@ -2209,6 +2333,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         console.log(`[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
       } else {
         // No targets needed - go directly to payment
+        // Calculate cost reduction and convoke options
+        const costReduction = calculateCostReduction(game, playerId, cardInHand);
+        const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
+        
         socket.emit("paymentRequired", {
           gameId,
           cardId,
@@ -2216,9 +2344,17 @@ export function registerGameActions(io: Server, socket: Socket) {
           manaCost,
           effectId,
           imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+          convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         });
         
         console.log(`[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
+        if (costReduction.messages.length > 0) {
+          console.log(`[requestCastSpell] Cost reductions: ${costReduction.messages.join(', ')}`);
+        }
+        if (convokeOptions.availableCreatures.length > 0) {
+          console.log(`[requestCastSpell] Convoke available: ${convokeOptions.availableCreatures.length} creatures`);
+        }
         console.log(`[requestCastSpell] ======== REQUEST END (waiting for payment) ========`);
       }
     } catch (err: any) {
@@ -2234,7 +2370,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId }: { 
+  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -2242,6 +2378,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     skipInteractivePrompts?: boolean; // NEW: Flag to skip target/payment requests when completing a previous cast
     xValue?: number;
     alternateCostId?: string;
+    convokeTappedCreatures?: string[];
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -2256,6 +2393,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.log(`[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
       console.log(`[handleCastSpellFromHand] playerId: ${playerId}`);
       if (alternateCostId) console.log(`[handleCastSpellFromHand] alternateCostId: ${alternateCostId}`);
+      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+        console.log(`[handleCastSpellFromHand] convokeTappedCreatures: ${JSON.stringify(convokeTappedCreatures)}`);
+      }
       console.log(`[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
@@ -3216,7 +3356,107 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
+      // ======================================================================
+      // CONVOKE: Tap creatures to help pay for spell
+      // ======================================================================
+      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+        console.log(`[castSpellFromHand] Processing convoke: tapping ${convokeTappedCreatures.length} creature(s)`);
+        
+        const globalBattlefield = game.state?.battlefield || [];
+        
+        for (const creatureId of convokeTappedCreatures) {
+          const creature = globalBattlefield.find((p: any) => p?.id === creatureId && p?.controller === playerId);
+          
+          if (!creature) {
+            socket.emit("error", {
+              code: "CONVOKE_CREATURE_NOT_FOUND",
+              message: `Creature ${creatureId} not found on battlefield`,
+            });
+            return;
+          }
+          
+          if ((creature as any).tapped) {
+            socket.emit("error", {
+              code: "CONVOKE_CREATURE_TAPPED",
+              message: `${(creature as any).card?.name || 'Creature'} is already tapped`,
+            });
+            return;
+          }
+          
+          const creatureCard = (creature as any).card || {};
+          const creatureTypeLine = (creatureCard.type_line || "").toLowerCase();
+          
+          if (!creatureTypeLine.includes("creature")) {
+            socket.emit("error", {
+              code: "CONVOKE_NOT_CREATURE",
+              message: `${creatureCard.name || 'Permanent'} is not a creature`,
+            });
+            return;
+          }
+          
+          // Check summoning sickness
+          const hasHaste = creatureHasHaste(creature, globalBattlefield, playerId);
+          const enteredThisTurn = (creature as any).enteredThisTurn === true;
+          
+          if (!hasHaste && enteredThisTurn) {
+            socket.emit("error", {
+              code: "CONVOKE_SUMMONING_SICKNESS",
+              message: `${creatureCard.name || 'Creature'} has summoning sickness`,
+            });
+            return;
+          }
+          
+          // Tap the creature
+          (creature as any).tapped = true;
+          
+          // Add mana to pool based on creature's colors
+          // Each creature pays for {1} or one mana of its color
+          const creatureColors = creatureCard.colors || [];
+          
+          // Initialize mana pool if needed
+          if (!game.state.manaPools) game.state.manaPools = {};
+          if (!game.state.manaPools[playerId]) {
+            game.state.manaPools[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+          }
+          
+          // Use creature's first color if it has one, otherwise colorless
+          // This is a simple heuristic - in a full implementation, players would choose
+          let manaAdded = 'colorless';
+          if (creatureColors.length > 0) {
+            const colorMap: Record<string, keyof typeof game.state.manaPools[typeof playerId]> = {
+              'W': 'white',
+              'U': 'blue', 
+              'B': 'black',
+              'R': 'red',
+              'G': 'green',
+            };
+            const firstColor = creatureColors[0];
+            if (firstColor in colorMap) {
+              const manaColor = colorMap[firstColor];
+              game.state.manaPools[playerId][manaColor] += 1;
+              manaAdded = manaColor;
+            } else {
+              game.state.manaPools[playerId].colorless += 1;
+            }
+          } else {
+            game.state.manaPools[playerId].colorless += 1;
+          }
+          
+          console.log(`[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} ${manaAdded}`);
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} tapped ${convokeTappedCreatures.length} creature(s) for convoke`,
+          ts: Date.now(),
+        });
+      }
+
+      // ======================================================================
       // Handle mana payment: tap permanents to generate mana (adds to pool)
+      // ======================================================================
       if (payment && payment.length > 0) {
         console.log(`[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
@@ -3644,7 +3884,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
   // Called after both target selection and payment are complete
   // =====================================================================
-  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId }: { 
+  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -3652,6 +3892,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     effectId?: string;
     xValue?: number;
     alternateCostId?: string;
+    convokeTappedCreatures?: string[];
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -3663,6 +3904,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.log(`[completeCastSpell] cardId: ${cardId}, effectId: ${effectId}`);
       console.log(`[completeCastSpell] targets from client: ${targets ? JSON.stringify(targets) : 'undefined'}`);
       console.log(`[completeCastSpell] payment from client: ${payment ? JSON.stringify(payment) : 'undefined'}`);
+      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+        console.log(`[completeCastSpell] convokeTappedCreatures:`, convokeTappedCreatures);
+      }
       
       // Check if this is an equip payment completion
       if (effectId && effectId.startsWith('equip_payment_') && (game.state as any).pendingEquipPayments?.[effectId]) {
@@ -3810,7 +4054,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
-      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId });
+      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId, convokeTappedCreatures });
       
     } catch (err: any) {
       console.error(`[completeCastSpell] Error:`, err);

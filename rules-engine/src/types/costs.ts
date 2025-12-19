@@ -22,6 +22,8 @@ export enum CostType {
   PAY_ENERGY = 'pay_energy',        // Paying energy counters
   MILL = 'mill',                    // Putting cards from library to graveyard
   REVEAL = 'reveal',                // Revealing card
+  CONVOKE = 'convoke',              // Tap creatures to reduce cost
+  AFFINITY = 'affinity',            // Cost reduction based on permanents
   COMPOSITE = 'composite',          // Composite cost (multiple costs combined)
   OTHER = 'other'                   // Other cost types
 }
@@ -64,13 +66,42 @@ export interface TapCost extends Cost {
 }
 
 /**
+ * Permanent filter for sacrifice/return costs
+ */
+export interface PermanentFilter {
+  readonly cardTypes?: string[];        // E.g., ['creature', 'artifact']
+  readonly subtypes?: string[];         // E.g., ['goblin', 'equipment']
+  readonly colors?: string[];           // E.g., ['red', 'blue']
+  readonly minPower?: number;           // For casualty N - power >= N
+  readonly maxCMC?: number;             // Maximum mana value
+  readonly minCMC?: number;             // Minimum mana value
+  readonly nonToken?: boolean;          // Must be non-token
+  readonly legendary?: boolean;         // Must be legendary (or not)
+  readonly controller?: ControllerID;   // Must be controlled by specific player
+  readonly customFilter?: string;       // Custom filter description (e.g., "non-Human creature you own")
+}
+
+/**
  * Sacrifice cost
  */
 export interface SacrificeCost extends Cost {
   readonly type: CostType.SACRIFICE;
   readonly permanentIds: ObjectID[];  // Specific permanents
   readonly count?: number;            // Or number to sacrifice
-  readonly restrictions?: string[];   // E.g., "sacrifice a creature"
+  readonly restrictions?: string[];   // E.g., "sacrifice a creature" (legacy)
+  readonly filter?: PermanentFilter;  // Structured filter for UI
+}
+
+/**
+ * Card filter for discard/exile costs
+ */
+export interface CardFilter {
+  readonly cardTypes?: string[];        // E.g., ['creature', 'instant']
+  readonly colors?: string[];           // E.g., ['blue'] for Force of Will
+  readonly subtypes?: string[];         // E.g., ['goblin']
+  readonly minCMC?: number;             // Minimum mana value
+  readonly maxCMC?: number;             // Maximum mana value
+  readonly customFilter?: string;       // Custom filter description
 }
 
 /**
@@ -80,7 +111,8 @@ export interface DiscardCost extends Cost {
   readonly type: CostType.DISCARD;
   readonly cardIds?: ObjectID[];      // Specific cards
   readonly count?: number;            // Or number to discard
-  readonly restrictions?: string[];   // E.g., "discard a card"
+  readonly restrictions?: string[];   // E.g., "discard a card" (legacy)
+  readonly filter?: CardFilter;       // Structured filter for UI
 }
 
 /**
@@ -100,6 +132,26 @@ export interface RemoveCounterCost extends Cost {
   readonly counterType: string;       // E.g., "+1/+1", "loyalty"
   readonly count: number;
   readonly fromId?: ObjectID;         // Which permanent
+}
+
+/**
+ * Convoke cost
+ * "Your creatures can help cast this spell. Each creature you tap while casting
+ * this spell pays for {1} or one mana of that creature's color."
+ */
+export interface ConvokeCost extends Cost {
+  readonly type: CostType.CONVOKE;
+  readonly tappedCreatures: ObjectID[]; // Creatures tapped for convoke
+}
+
+/**
+ * Affinity cost reduction
+ * "This spell costs {1} less to cast for each artifact you control"
+ */
+export interface AffinityCost extends Cost {
+  readonly type: CostType.AFFINITY;
+  readonly affinityFor: string;       // E.g., "artifacts", "creatures", "Islands"
+  readonly reduction: number;         // Amount reduced per matching permanent
 }
 
 /**
@@ -273,6 +325,17 @@ export interface AlternativeCost {
   readonly replacesManaCost: boolean;   // Rule 118.9c - Doesn't change mana cost
   readonly source?: string;             // Source of the alternative cost (e.g., "Jodah, Archmage Eternal")
   readonly description?: string;        // Human-readable description
+  readonly conditionMet?: boolean;      // Whether condition for this cost is met (for Devastating Mastery style)
+}
+
+/**
+ * Devastating Mastery style alternative cost
+ * "You may pay {2}{W}{W} rather than pay this spell's mana cost.
+ * If the {2}{W}{W} cost was paid, [effect happens]"
+ */
+export interface ConditionalAlternativeCost extends AlternativeCost {
+  readonly hasConditionalEffect: boolean;  // True if paying this cost has a different effect
+  readonly conditionalDescription?: string; // What happens if this cost is paid
 }
 
 /**
@@ -406,3 +469,51 @@ export interface ConditionalCostPayment {
  * Choice made when proposing spell/ability
  * (HybridManaChoice type defined in mana.ts)
  */
+
+/**
+ * Mana payment record - tracks exact mana composition spent for a spell
+ * Used for converge, sunburst, and conditional effects like Boros Fury-Shield
+ */
+export interface ManaPaymentRecord {
+  readonly white: number;
+  readonly blue: number;
+  readonly black: number;
+  readonly red: number;
+  readonly green: number;
+  readonly colorless: number;
+  readonly generic: number;  // Tracks what was used for generic cost
+}
+
+/**
+ * Calculate colors of mana spent (for converge)
+ */
+export function getColorsSpent(payment: ManaPaymentRecord): number {
+  let count = 0;
+  if (payment.white > 0) count++;
+  if (payment.blue > 0) count++;
+  if (payment.black > 0) count++;
+  if (payment.red > 0) count++;
+  if (payment.green > 0) count++;
+  return count;
+}
+
+/**
+ * Check if specific color was spent (for conditional effects)
+ */
+export function wasColorSpent(payment: ManaPaymentRecord, color: 'white' | 'blue' | 'black' | 'red' | 'green'): boolean {
+  return payment[color] > 0;
+}
+
+/**
+ * Cost payment context - tracks which costs were paid and how
+ */
+export interface CostPaymentContext {
+  readonly spellId: string;
+  readonly manaPayment?: ManaPaymentRecord;
+  readonly additionalCostsPaid: readonly Cost[];
+  readonly alternativeCostUsed?: AlternativeCost;
+  readonly convokeTappedCreatures?: readonly ObjectID[];  // Creatures tapped for convoke
+  readonly affinityReduction?: number;                    // Reduction from affinity
+  readonly improviseArtifacts?: readonly ObjectID[];      // Artifacts tapped for improvise
+  readonly delveCards?: readonly ObjectID[];              // Cards exiled for delve
+}

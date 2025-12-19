@@ -19,6 +19,70 @@ export interface CostReductionConfig {
   readonly affectsOnlyCreatures?: boolean;
   /** Filter: Only spells of these colors get the reduction */
   readonly spellColorFilter?: readonly string[];
+  /** Chosen creature type for Urza's Incubator etc */
+  readonly chosenType?: string;
+}
+
+/**
+ * Affinity configuration for cards with affinity
+ * "This spell costs {1} less to cast for each [permanent type] you control"
+ */
+export interface AffinityConfig {
+  readonly cardName: string;
+  readonly affinityFor: string;  // e.g., "artifacts", "creatures", "Islands", "Plains"
+  readonly reductionPer: number; // Usually 1
+  readonly maxReduction?: number; // Optional cap
+}
+
+/**
+ * Well-known affinity cards
+ */
+export const AFFINITY_CARDS: Record<string, AffinityConfig> = {
+  'thoughtcast': {
+    cardName: 'Thoughtcast',
+    affinityFor: 'artifacts',
+    reductionPer: 1,
+  },
+  'frogmite': {
+    cardName: 'Frogmite',
+    affinityFor: 'artifacts',
+    reductionPer: 1,
+  },
+  'myr enforcer': {
+    cardName: 'Myr Enforcer',
+    affinityFor: 'artifacts',
+    reductionPer: 1,
+  },
+  'sojourner\'s companion': {
+    cardName: 'Sojourner\'s Companion',
+    affinityFor: 'artifacts',
+    reductionPer: 1,
+  },
+};
+
+/**
+ * Check if a card has affinity
+ */
+export function hasAffinity(cardName: string, oracleText?: string): boolean {
+  const lowerName = cardName.toLowerCase();
+  const lowerText = (oracleText || '').toLowerCase();
+  
+  // Check known affinity cards
+  if (lowerName in AFFINITY_CARDS) {
+    return true;
+  }
+  
+  // Check oracle text for affinity keyword
+  return lowerText.includes('affinity for');
+}
+
+/**
+ * Parse affinity type from oracle text
+ * "Affinity for artifacts" -> "artifacts"
+ */
+export function parseAffinityType(oracleText: string): string | undefined {
+  const match = oracleText.match(/affinity for (\w+)/i);
+  return match ? match[1].toLowerCase() : undefined;
 }
 
 export const COST_REDUCTION_CARDS: Record<string, CostReductionConfig> = {
@@ -79,6 +143,7 @@ export const COST_REDUCTION_CARDS: Record<string, CostReductionConfig> = {
     genericReduction: 2,
     requiresTypeSelection: true,
     affectsOnlyCreatures: true,
+    chosenType: undefined, // Set when card enters battlefield
   },
   'morophon, the boundless': {
     cardName: 'Morophon, the Boundless',
@@ -87,6 +152,7 @@ export const COST_REDUCTION_CARDS: Record<string, CostReductionConfig> = {
     colorReduction: { white: 1, blue: 1, black: 1, red: 1, green: 1 },
     requiresTypeSelection: true,
     affectsOnlyCreatures: true,
+    chosenType: undefined, // Set when card enters battlefield
   },
   "herald's horn": {
     cardName: "Herald's Horn",
@@ -94,8 +160,23 @@ export const COST_REDUCTION_CARDS: Record<string, CostReductionConfig> = {
     genericReduction: 1,
     requiresTypeSelection: true,
     affectsOnlyCreatures: true,
+    chosenType: undefined, // Set when card enters battlefield
   },
 };
+
+/**
+ * Update chosen type for a cost reducer card
+ */
+export function setChosenType(
+  config: CostReductionConfig,
+  chosenType: string
+): CostReductionConfig {
+  return {
+    ...config,
+    chosenType,
+    affectedTypes: [chosenType],
+  };
+}
 
 export function hasCostReduction(cardName: string): boolean {
   return cardName.toLowerCase() in COST_REDUCTION_CARDS;

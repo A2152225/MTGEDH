@@ -406,7 +406,21 @@ interface CastSpellModalProps {
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
   castFromZone?: 'hand' | 'graveyard' | 'exile' | 'command';
-  onConfirm: (payment: PaymentItem[], alternateCostId?: string, xValue?: number) => void;
+  costReduction?: {
+    generic: number;
+    colors: Record<string, number>;
+    messages: string[];
+  };
+  convokeOptions?: {
+    availableCreatures: Array<{
+      id: string;
+      name: string;
+      colors: string[];
+      canTapFor: string[];
+    }>;
+    messages: string[];
+  };
+  onConfirm: (payment: PaymentItem[], alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => void;
   onCancel: () => void;
 }
 
@@ -419,12 +433,15 @@ export function CastSpellModal({
   otherCardsInHand = [],
   floatingMana,
   castFromZone = 'hand',
+  costReduction,
+  convokeOptions,
   onConfirm,
   onCancel,
 }: CastSpellModalProps) {
   const [payment, setPayment] = useState<PaymentItem[]>([]);
   const [xValue, setXValue] = useState(0);
   const [selectedCostId, setSelectedCostId] = useState('normal');
+  const [selectedConvokeCreatures, setSelectedConvokeCreatures] = useState<string[]>([]);
 
   // Parse alternate costs from oracle text
   const alternateCosts = useMemo(() => {
@@ -446,6 +463,52 @@ export function CastSpellModal({
     
     return costs;
   }, [oracleText, manaCost, cardName, castFromZone]);
+
+  // Calculate the reduced mana cost if applicable
+  const effectiveManaCost = useMemo(() => {
+    if (!costReduction || !manaCost) return manaCost;
+    
+    // Parse the original cost
+    const parsed = parseManaCost(manaCost);
+    
+    // Apply reductions
+    let newGeneric = Math.max(0, parsed.generic - costReduction.generic);
+    const newColors = { ...parsed.colors };
+    
+    // Valid color keys for type safety
+    const validColors: Color[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+    
+    for (const colorKey of Object.keys(costReduction.colors)) {
+      // Type-safe color check
+      if (!validColors.includes(colorKey as Color)) continue;
+      
+      const color = colorKey as Color;
+      if (newColors[color]) {
+        const reduction = costReduction.colors[colorKey];
+        const currentColorCost = newColors[color];
+        if (reduction >= currentColorCost) {
+          // If reduction exceeds colored cost, reduce colored to 0 and apply excess to generic
+          const excess = reduction - currentColorCost;
+          newColors[color] = 0;
+          newGeneric = Math.max(0, newGeneric - excess);
+        } else {
+          newColors[color] = currentColorCost - reduction;
+        }
+      }
+    }
+    
+    // Reconstruct mana cost string
+    const parts: string[] = [];
+    if (newGeneric > 0) parts.push(`{${newGeneric}}`);
+    if (newColors.white) parts.push('{W}'.repeat(newColors.white));
+    if (newColors.blue) parts.push('{U}'.repeat(newColors.blue));
+    if (newColors.black) parts.push('{B}'.repeat(newColors.black));
+    if (newColors.red) parts.push('{R}'.repeat(newColors.red));
+    if (newColors.green) parts.push('{G}'.repeat(newColors.green));
+    if (newColors.colorless) parts.push('{C}'.repeat(newColors.colorless));
+    
+    return parts.length > 0 ? parts.join('') : '{0}';
+  }, [manaCost, costReduction]);
 
   // Get the currently selected cost
   const currentCost = useMemo(() => {
@@ -496,10 +559,16 @@ export function CastSpellModal({
         count: getManaCountForSource(permanentId),
       }));
     }
-    onConfirm(finalPayment, selectedCostId !== 'normal' ? selectedCostId : undefined, xValue);
+    onConfirm(
+      finalPayment, 
+      selectedCostId !== 'normal' ? selectedCostId : undefined, 
+      xValue,
+      selectedConvokeCreatures.length > 0 ? selectedConvokeCreatures : undefined
+    );
     setPayment([]);
     setXValue(0);
     setSelectedCostId('normal');
+    setSelectedConvokeCreatures([]);
   };
 
   const handleCancel = () => {
@@ -507,6 +576,7 @@ export function CastSpellModal({
     setPayment([]);
     setXValue(0);
     setSelectedCostId('normal');
+    setSelectedConvokeCreatures([]);
   };
 
   // Check if there's floating mana that will be used
@@ -588,6 +658,93 @@ export function CastSpellModal({
           </div>
         )}
 
+        {/* Cost Reduction Display */}
+        {costReduction && costReduction.messages.length > 0 && (
+          <div style={{
+            marginBottom: 12,
+            padding: 10,
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            borderRadius: 8,
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#10b981', marginBottom: 4 }}>
+              💰 Cost Reductions:
+            </div>
+            {manaCost && effectiveManaCost !== manaCost && (
+              <div style={{ fontSize: 13, marginBottom: 6 }}>
+                <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>{manaCost}</span>
+                {' → '}
+                <span style={{ fontWeight: 600, color: '#10b981' }}>{effectiveManaCost}</span>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: '#888' }}>
+              {costReduction.messages.map((msg, i) => (
+                <div key={i}>• {msg}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Convoke Options */}
+        {convokeOptions && convokeOptions.availableCreatures.length > 0 && (
+          <div style={{
+            marginBottom: 12,
+            padding: 10,
+            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+            borderRadius: 8,
+            border: '1px solid rgba(139, 92, 246, 0.3)',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#8b5cf6', marginBottom: 6 }}>
+              ⚡ Convoke: Tap Creatures to Help Pay
+            </div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+              Each creature tapped pays for {'{1}'} or one mana of its color
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 150, overflowY: 'auto' }}>
+              {convokeOptions.availableCreatures.map(creature => (
+                <label
+                  key={creature.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 8px',
+                    backgroundColor: selectedConvokeCreatures.includes(creature.id) ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    border: selectedConvokeCreatures.includes(creature.id) ? '1px solid rgba(139, 92, 246, 0.5)' : '1px solid transparent',
+                    transition: 'all 0.15s',
+                    fontSize: 12,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedConvokeCreatures.includes(creature.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedConvokeCreatures([...selectedConvokeCreatures, creature.id]);
+                      } else {
+                        setSelectedConvokeCreatures(selectedConvokeCreatures.filter(id => id !== creature.id));
+                      }
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 500 }}>{creature.name}</span>
+                    <span style={{ color: '#888', marginLeft: 8, fontSize: 11 }}>
+                      (pays: {creature.canTapFor.slice(0, 3).join(', ')}{creature.canTapFor.length > 3 ? '...' : ''})
+                    </span>
+                  </div>
+                </label>
+              ))}
+            </div>
+            {selectedConvokeCreatures.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 11, color: '#8b5cf6' }}>
+                ✓ Tapping {selectedConvokeCreatures.length} creature{selectedConvokeCreatures.length !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Show floating mana pool if available */}
         {floatingMana && (
           <div style={{ marginBottom: 12 }}>
@@ -613,8 +770,8 @@ export function CastSpellModal({
         )}
 
         <PaymentPicker
-          manaCost={currentCost?.manaCost || manaCost}
-          manaCostDisplay={currentCost?.manaCost || manaCost}
+          manaCost={currentCost?.manaCost || effectiveManaCost || manaCost}
+          manaCostDisplay={currentCost?.manaCost || effectiveManaCost || manaCost}
           sources={availableSources}
           chosen={payment}
           xValue={xValue}
