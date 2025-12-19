@@ -912,7 +912,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       });
     } 
     // Check for bounce land pattern - "return a land you control to its owner's hand"
-    else if (/return\s+a\s+land\s+you\s+control\s+to\s+its\s+owner'?s\s+hand/i.test(effectText)) {
+    else if (/return\s+a\s+land\s+you\s+control\s+to\s+its\s+owner's\s+hand/i.test(effectText)) {
       triggers.push({
         permanentId,
         cardName,

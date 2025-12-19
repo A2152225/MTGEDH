@@ -3881,8 +3881,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Check for bounce land ETB trigger resolution
         // When the trigger resolves, prompt the player to select a land to return
-        const isBounceandTrigger = topItem?.type === 'triggered_ability' && (topItem as any)?.triggerType === 'etb_bounce_land';
-        if (isBounceandTrigger && resolvedController) {
+        const isBounceLandTrigger = topItem?.type === 'triggered_ability' && (topItem as any)?.triggerType === 'etb_bounce_land';
+        if (isBounceLandTrigger && resolvedController) {
           // Find the bounce land permanent
           const battlefield = game.state?.battlefield || [];
           const bounceLandPerm = battlefield.find((p: any) => p.id === (topItem as any).permanentId);
