@@ -3066,20 +3066,40 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             // Draw cards if applicable
             if (pending.drawCards && pending.drawCards > 0) {
-              const zones = (game.state as any)?.zones?.[pid];
-              if (zones && zones.library) {
-                const drawnCards = zones.library.splice(0, Math.min(pending.drawCards, zones.library.length));
-                zones.libraryCount = zones.library.length;
-                
-                zones.hand = zones.hand || [];
-                zones.hand.push(...drawnCards);
-                zones.handCount = zones.hand.length;
+              // Try using the game's drawCards function first
+              if (typeof (game as any).drawCards === 'function') {
+                (game as any).drawCards(pid, pending.drawCards);
                 
                 io.to(gameId).emit("chat", {
                   id: `m_${Date.now()}`,
                   gameId,
                   from: "system",
-                  message: `🤖 ${getPlayerName(game, pid)} draws ${drawnCards.length} card${drawnCards.length !== 1 ? 's' : ''}.`,
+                  message: `🤖 ${getPlayerName(game, pid)} draws ${pending.drawCards} card${pending.drawCards !== 1 ? 's' : ''}.`,
+                  ts: Date.now(),
+                });
+              } else {
+                // Fallback: manually draw from libraries Map
+                const lib = (game as any).libraries?.get(pid) || [];
+                const zones = (game.state as any).zones || {};
+                const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+                z.hand = z.hand || [];
+                
+                let drawnCount = 0;
+                for (let i = 0; i < pending.drawCards && lib.length > 0; i++) {
+                  const drawn = lib.shift();
+                  if (drawn) {
+                    (z.hand as any[]).push({ ...drawn, zone: 'hand' });
+                    drawnCount++;
+                  }
+                }
+                z.handCount = z.hand.length;
+                z.libraryCount = lib.length;
+                
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `🤖 ${getPlayerName(game, pid)} draws ${drawnCount} card${drawnCount !== 1 ? 's' : ''}.`,
                   ts: Date.now(),
                 });
               }
@@ -8787,21 +8807,40 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     // Draw cards if applicable (Humble Defector draws 2 cards)
     if (pending.drawCards && pending.drawCards > 0) {
-      const zones = (game.state as any)?.zones?.[pid];
-      if (zones && zones.library) {
-        const drawnCards = zones.library.splice(0, Math.min(pending.drawCards, zones.library.length));
-        zones.libraryCount = zones.library.length;
-        
-        // Add to hand
-        zones.hand = zones.hand || [];
-        zones.hand.push(...drawnCards);
-        zones.handCount = zones.hand.length;
+      // Try using the game's drawCards function first
+      if (typeof (game as any).drawCards === 'function') {
+        const drawn = (game as any).drawCards(pid, pending.drawCards);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${getPlayerName(game, pid)} draws ${drawnCards.length} card${drawnCards.length !== 1 ? 's' : ''}.`,
+          message: `${getPlayerName(game, pid)} draws ${pending.drawCards} card${pending.drawCards !== 1 ? 's' : ''}.`,
+          ts: Date.now(),
+        });
+      } else {
+        // Fallback: manually draw from libraries Map
+        const lib = (game as any).libraries?.get(pid) || [];
+        const zones = (game.state as any).zones || {};
+        const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+        z.hand = z.hand || [];
+        
+        let drawnCount = 0;
+        for (let i = 0; i < pending.drawCards && lib.length > 0; i++) {
+          const drawn = lib.shift();
+          if (drawn) {
+            (z.hand as any[]).push({ ...drawn, zone: 'hand' });
+            drawnCount++;
+          }
+        }
+        z.handCount = z.hand.length;
+        z.libraryCount = lib.length;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} draws ${drawnCount} card${drawnCount !== 1 ? 's' : ''}.`,
           ts: Date.now(),
         });
       }

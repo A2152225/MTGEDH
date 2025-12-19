@@ -484,13 +484,24 @@ function processAIJoinForcesResponses(
   game: any
 ): void {
   let aiPlayerCount = 0;
+  let nonAIPlayerCount = 0;
+  
+  // First pass: count AI and non-AI players
+  for (const playerId of pending.players) {
+    if (pending.responded.has(playerId)) continue;
+    if (isAIPlayer(pending.gameId, playerId)) {
+      aiPlayerCount++;
+    } else {
+      nonAIPlayerCount++;
+    }
+  }
+  
+  console.log(`[joinForces] Processing AI responses for ${pending.cardName}: ${aiPlayerCount} AI players, ${nonAIPlayerCount} non-AI players remaining`);
   
   for (const playerId of pending.players) {
     // Skip if already responded or not an AI
     if (pending.responded.has(playerId)) continue;
     if (!isAIPlayer(pending.gameId, playerId)) continue;
-    
-    aiPlayerCount++;
     
     // Calculate AI contribution
     const contribution = calculateAIJoinForcesContribution(game, playerId, pending.cardName);
@@ -547,6 +558,12 @@ function processAIJoinForcesResponses(
   }
   
   console.log(`[joinForces] Scheduled ${aiPlayerCount} AI responses for effect ${pending.id}`);
+  
+  // If all remaining players are AI and we scheduled responses, we're good
+  // If no AI players were found but there are players, log a warning
+  if (aiPlayerCount === 0 && nonAIPlayerCount > 0 && pending.players.length > pending.responded.size) {
+    console.warn(`[joinForces] Warning: No AI players detected for effect ${pending.id}, but ${nonAIPlayerCount} players haven't responded yet. Waiting for human responses.`);
+  }
 }
 
 /**
