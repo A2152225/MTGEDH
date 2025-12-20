@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { socket } from "../socket";
-import { debug, debugWarn, debugError } from "./utils/debug";
+import { debug, debugWarn, debugError } from "../utils/debug";
 
 
 /** Delay before fallback refresh after socket-based game deletion (ms) */
