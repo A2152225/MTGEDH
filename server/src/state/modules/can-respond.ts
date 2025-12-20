@@ -183,6 +183,22 @@ function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boo
   // Check for instants/sorceries that require targets
   const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
   if (isInstantOrSorcery) {
+    // Check for counterspells - they need items on the stack to target
+    // Pattern: "counter target spell" or similar
+    const isCounterspell = /counter\s+target\s+(?:\w+\s+)?spell/i.test(oracleText) ||
+                           /counter\s+target\s+(?:instant|sorcery)/i.test(oracleText) ||
+                           /counter\s+target\s+(?:activated|triggered)\s+ability/i.test(oracleText);
+    
+    if (isCounterspell) {
+      // Counterspells require items on the stack to target
+      const stack = (state as any).stack || [];
+      if (stack.length === 0) {
+        // No spells/abilities on stack to counter
+        return false;
+      }
+      // Continue to normal targeting check below to validate specific targets
+    }
+    
     // Try to categorize the spell to see if it needs targets
     const spellSpec = categorizeSpell(cardName, oracleText);
     if (spellSpec && spellSpec.minTargets > 0) {
