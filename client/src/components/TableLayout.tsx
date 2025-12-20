@@ -1603,8 +1603,17 @@ export function TableLayout(props: {
                                       background: '#000',
                                       cursor: 'pointer',
                                     }}
-                                    // Let CardPreviewLayer hook this via dataset, same as other cards
-                                    data-preview-card={previewPayload}
+                                    // Show card preview on hover
+                                    onMouseEnter={(e) => {
+                                      import('./CardPreviewLayer').then(({ showCardPreview }) => {
+                                        showCardPreview(e.currentTarget as HTMLElement, card as any, { prefer: 'above', anchorPadding: 0 });
+                                      });
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      import('./CardPreviewLayer').then(({ hideCardPreview }) => {
+                                        hideCardPreview(e.currentTarget as HTMLElement);
+                                      });
+                                    }}
                                   >
                                     {art ? (
                                       <img
