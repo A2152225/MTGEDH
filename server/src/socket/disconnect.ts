@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { games, priorityTimers } from "./socket";
 import { broadcastGame } from "./util";
 import { appendEvent } from "../db";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Register disconnect / leave handlers.
@@ -30,7 +31,7 @@ export function registerDisconnectHandlers(io: Server, socket: Socket) {
         try { broadcastGame(io, game, gameId); } catch (e) { /* non-fatal */ }
       }
     } catch (e) {
-      console.warn("leaveGame handler failed:", e);
+      debugWarn(1, "leaveGame handler failed:", e);
     }
   });
 
@@ -48,7 +49,7 @@ export function registerDisconnectHandlers(io: Server, socket: Socket) {
         try {
           (game as any).disconnect(socket.id);
         } catch (e) {
-          console.warn("game.disconnect threw:", e);
+          debugWarn(1, "game.disconnect threw:", e);
         }
       } else {
         // Fallback: remove participant entries and attempt to mark player as left/disconnected
@@ -93,7 +94,7 @@ export function registerDisconnectHandlers(io: Server, socket: Socket) {
               } catch {}
             }
           } catch (e) {
-            console.warn("disconnect fallback handling failed:", e);
+            debugWarn(1, "disconnect fallback handling failed:", e);
           }
         }
       }
@@ -111,7 +112,7 @@ export function registerDisconnectHandlers(io: Server, socket: Socket) {
         // ignore
       }
     } catch (err) {
-      console.warn("disconnect handler unexpected error:", err);
+      debugWarn(1, "disconnect handler unexpected error:", err);
     }
   });
 }

@@ -36,6 +36,7 @@ import type { GameContext } from "../context.js";
 import { calculateVariablePT, getActualPowerToughness } from "../utils.js";
 
 // Import card data tables from modularized submodule
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import {
   KNOWN_DEATH_TRIGGERS,
   KNOWN_ATTACK_TRIGGERS,
@@ -386,7 +387,7 @@ export function registerPermanentTriggers(ctx: GameContext, permanent: any): voi
   }
   
   if (triggers.length > 0) {
-    console.log(`[registerPermanentTriggers] Registered ${triggers.length} trigger(s) for ${card.name}`);
+    debug(2, `[registerPermanentTriggers] Registered ${triggers.length} trigger(s) for ${card.name}`);
   }
 }
 
@@ -1621,7 +1622,7 @@ export function executeUntapTrigger(
 ): void {
   const battlefield = ctx.state?.battlefield || [];
   
-  console.log(`[executeUntapTrigger] ${trigger.cardName}: ${trigger.effect}`);
+  debug(2, `[executeUntapTrigger] ${trigger.cardName}: ${trigger.effect}`);
   
   switch (trigger.untapType) {
     case 'lands':
@@ -1631,7 +1632,7 @@ export function executeUntapTrigger(
         const typeLine = (permanent.card?.type_line || '').toLowerCase();
         if (typeLine.includes('land') && permanent.tapped) {
           permanent.tapped = false;
-          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+          debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
       break;
@@ -1643,7 +1644,7 @@ export function executeUntapTrigger(
         const typeLine = (permanent.card?.type_line || '').toLowerCase();
         if (typeLine.includes('creature') && permanent.tapped) {
           permanent.tapped = false;
-          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+          debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
       break;
@@ -1654,7 +1655,7 @@ export function executeUntapTrigger(
         if (!permanent || permanent.controller !== trigger.controllerId) continue;
         if (permanent.tapped) {
           permanent.tapped = false;
-          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+          debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
       break;
@@ -1907,7 +1908,7 @@ export function getBeginningOfCombatTriggers(
     
     // Safety check: Don't process more than MAX_TRIGGERS to prevent infinite loops
     if (triggerCount >= MAX_TRIGGERS_PER_STEP) {
-      console.error(`[getBeginningOfCombatTriggers] SAFETY LIMIT: Stopped after ${MAX_TRIGGERS_PER_STEP} triggers to prevent infinite loop`);
+      debugError(1, `[getBeginningOfCombatTriggers] SAFETY LIMIT: Stopped after ${MAX_TRIGGERS_PER_STEP} triggers to prevent infinite loop`);
       break;
     }
     
@@ -1932,29 +1933,29 @@ export function getBeginningOfCombatTriggers(
         if (permanent.controller === activePlayerId) {
           triggers.push(trigger);
           triggerCount++;
-          console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on YOUR turn (controller=${permanent.controller}, active=${activePlayerId})`);
+          debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on YOUR turn (controller=${permanent.controller}, active=${activePlayerId})`);
         } else {
-          console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - not controller's turn (controller=${permanent.controller}, active=${activePlayerId})`);
+          debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - not controller's turn (controller=${permanent.controller}, active=${activePlayerId})`);
         }
       }
       // "At the beginning of each combat" - triggers regardless of whose combat
       else if (hasEachCombat) {
         triggers.push(trigger);
         triggerCount++;
-        console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on EACH combat`);
+        debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on EACH combat`);
       }
       // Default: if no explicit timing is specified, assume "on your turn"
       else if (permanent.controller === activePlayerId) {
         triggers.push(trigger);
         triggerCount++;
-        console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers (default - controller's turn)`);
+        debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers (default - controller's turn)`);
       } else {
-        console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - default assumes 'on your turn' (controller=${permanent.controller}, active=${activePlayerId})`);
+        debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - default assumes 'on your turn' (controller=${permanent.controller}, active=${activePlayerId})`);
       }
     }
   }
   
-  console.log(`[getBeginningOfCombatTriggers] Total triggers for activePlayer=${activePlayerId}: ${triggers.length}`);
+  debug(2, `[getBeginningOfCombatTriggers] Total triggers for activePlayer=${activePlayerId}: ${triggers.length}`);
   return triggers;
 }
 
@@ -6434,5 +6435,6 @@ export function getAvailableLoyaltyAbilities(
 
 // NOTE: Linked Exile System has been moved to ./triggers/linked-exile.ts
 // Re-exports are at the top of this file
+
 
 

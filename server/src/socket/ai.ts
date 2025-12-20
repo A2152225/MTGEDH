@@ -25,6 +25,7 @@ import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
 import { hasPendingCreatureTypeSelections } from "./creature-type.js";
 import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -251,13 +252,13 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
   const candidates = cards.filter(isValidCommander);
   
   if (candidates.length === 0) {
-    console.warn('[AI] No valid commander candidates found in deck');
+    debugWarn(2, '[AI] No valid commander candidates found in deck');
     return { commanders: [], colorIdentity: [], exactMatch: false };
   }
   
   // Calculate the deck's overall color identity
   const deckColors = calculateDeckColorIdentity(cards);
-  console.info('[AI] Deck color identity:', Array.from(deckColors).join(''));
+  debug(1, '[AI] Deck color identity:', Array.from(deckColors).join(''));
   
   // Find partner candidates and background candidates
   const partnerCandidates = candidates.filter(hasPartner);
@@ -279,12 +280,12 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
       if (identityMatches) {
         // Perfect match - use these commanders
         selectedCommanders = firstTwoCandidates;
-        console.info('[AI] Selected partner commanders from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
+        debug(1, '[AI] Selected partner commanders from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
       } else {
         // Partners' identity doesn't match deck - look for better options
         const commanderColors = new Set<string>();
         firstTwoCandidates.forEach(c => extractColorIdentity(c).forEach(col => commanderColors.add(col)));
-        console.warn('[AI] First 2 partner commanders identity', Array.from(commanderColors).join(''), 'does not match deck identity', Array.from(deckColors).join(''));
+        debugWarn(1, '[AI] First 2 partner commanders identity', Array.from(commanderColors).join(''), 'does not match deck identity', Array.from(deckColors).join(''));
         // Fall through to Priority 2 to find better partners
       }
     }
@@ -299,9 +300,9 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
         const identityMatches = commanderIdentityMatchesDeck([firstCard, secondCard], deckColors);
         if (identityMatches) {
           selectedCommanders = [firstCard, secondCard];
-          console.info('[AI] Selected commander + background from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
+          debug(1, '[AI] Selected commander + background from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
         } else {
-          console.warn('[AI] First 2 cards (commander + background) identity does not match deck identity');
+          debugWarn(2, '[AI] First 2 cards (commander + background) identity does not match deck identity');
         }
       } else if (secondCard && isValidCommander(secondCard) &&
                  (secondCard.type_line || '').toLowerCase().includes('background') && 
@@ -310,9 +311,9 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
         const identityMatches = commanderIdentityMatchesDeck([firstCard, secondCard], deckColors);
         if (identityMatches) {
           selectedCommanders = [firstCard, secondCard];
-          console.info('[AI] Selected commander + background from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
+          debug(1, '[AI] Selected commander + background from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
         } else {
-          console.warn('[AI] First 2 cards (background + commander) identity does not match deck identity');
+          debugWarn(2, '[AI] First 2 cards (background + commander) identity does not match deck identity');
         }
       } else {
         // Validate that the first card's identity exactly matches the deck's color identity
@@ -321,12 +322,12 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
         if (identityMatches) {
           // First card's identity matches deck - use it
           selectedCommanders = [firstCard];
-          console.info(`[AI] Selected single commander from first card (exact identity match): ${firstCard.name}`);
+          debug(1, `[AI] Selected single commander from first card (exact identity match): ${firstCard.name}`);
         } else {
           // First card's identity doesn't match deck
           // Continue searching for better options: partner pairs OR single commanders with exact match
           const firstCardColors = extractColorIdentity(firstCard);
-          console.warn(`[AI] First commander identity [${firstCardColors.join('')}] does not match deck identity [${Array.from(deckColors).join('')}] - searching for better options`);
+          debugWarn(1, `[AI] First commander identity [${firstCardColors.join('')}] does not match deck identity [${Array.from(deckColors).join('')}] - searching for better options`);
           // Fall through to Priority 2 (partners), Priority 3 (backgrounds), or Priority 4 (single with exact match)
         }
       }
@@ -364,16 +365,16 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     
     if (exactMatchPair.length === 2) {
       selectedCommanders = exactMatchPair;
-      console.info(`[AI] Selected partner commanders with exact identity match:`, selectedCommanders.map(c => c.name));
+      debug(1, `[AI] Selected partner commanders with exact identity match:`, selectedCommanders.map(c => c.name));
     } else if (bestPair.length === 2) {
       // Use best match even if not exact (in case of 1 wrong card in deck)
       selectedCommanders = bestPair;
       const matchInfo = calculateColorMatchScore(bestPair, deckColors);
       const pairColors = new Set<string>();
       bestPair.forEach(c => extractColorIdentity(c).forEach(col => pairColors.add(col)));
-      console.warn(`[AI] Selected partner commanders with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}):`, selectedCommanders.map(c => c.name), `- Commander identity [${Array.from(pairColors).join('')}] vs Deck identity [${Array.from(deckColors).join('')}]`);
+      debugWarn(1, `[AI] Selected partner commanders with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}):`, selectedCommanders.map(c => c.name), `- Commander identity [${Array.from(pairColors).join('')}] vs Deck identity [${Array.from(deckColors).join('')}]`);
     } else {
-      console.warn(`[AI] No partner pair found for deck colors [${Array.from(deckColors).join('')}]`);
+      debugWarn(1, `[AI] No partner pair found for deck colors [${Array.from(deckColors).join('')}]`);
     }
   }
   
@@ -405,15 +406,15 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     
     if (exactMatchPair.length === 2) {
       selectedCommanders = exactMatchPair;
-      console.info('[AI] Selected commander + background with exact identity match:', selectedCommanders.map(c => c.name));
+      debug(1, '[AI] Selected commander + background with exact identity match:', selectedCommanders.map(c => c.name));
     } else if (bestPair.length === 2) {
       selectedCommanders = bestPair;
       const matchInfo = calculateColorMatchScore(bestPair, deckColors);
       const pairColors = new Set<string>();
       bestPair.forEach(c => extractColorIdentity(c).forEach(col => pairColors.add(col)));
-      console.warn(`[AI] Selected commander + background with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}):`, selectedCommanders.map(c => c.name), `- Identity [${Array.from(pairColors).join('')}] vs Deck [${Array.from(deckColors).join('')}]`);
+      debugWarn(1, `[AI] Selected commander + background with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}):`, selectedCommanders.map(c => c.name), `- Identity [${Array.from(pairColors).join('')}] vs Deck [${Array.from(deckColors).join('')}]`);
     } else {
-      console.warn(`[AI] No background pair found for deck colors [${Array.from(deckColors).join('')}]`);
+      debugWarn(1, `[AI] No background pair found for deck colors [${Array.from(deckColors).join('')}]`);
     }
   }
   
@@ -442,18 +443,18 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     if (exactMatchCommander) {
       selectedCommanders = [exactMatchCommander];
       const commanderColors = extractColorIdentity(exactMatchCommander);
-      console.info(`[AI] Selected single commander with exact identity match [${commanderColors.join('')}]: ${exactMatchCommander.name}`);
+      debug(1, `[AI] Selected single commander with exact identity match [${commanderColors.join('')}]: ${exactMatchCommander.name}`);
     } else if (bestCommander) {
       selectedCommanders = [bestCommander];
       const matchInfo = calculateColorMatchScore([bestCommander], deckColors);
       const commanderColors = extractColorIdentity(bestCommander);
-      console.warn(`[AI] Selected single commander with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}) [${commanderColors.join('')}]: ${bestCommander.name} - Deck identity [${Array.from(deckColors).join('')}]`);
+      debugWarn(1, `[AI] Selected single commander with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}) [${commanderColors.join('')}]: ${bestCommander.name} - Deck identity [${Array.from(deckColors).join('')}]`);
     } else {
       // Ultimate fallback - shouldn't happen if there are any candidates
       if (candidates.length > 0) {
         selectedCommanders = [candidates[0]];
         const fallbackColors = extractColorIdentity(candidates[0]);
-        console.error(`[AI] Using fallback commander (no valid candidates) [${fallbackColors.join('')}]: ${candidates[0]?.name} - Deck identity [${Array.from(deckColors).join('')}]`);
+        debugError(1, `[AI] Using fallback commander (no valid candidates) [${fallbackColors.join('')}]: ${candidates[0]?.name} - Deck identity [${Array.from(deckColors).join('')}]`);
       }
     }
   }
@@ -493,7 +494,7 @@ export async function autoSelectAICommander(
   try {
     const game = ensureGame(gameId);
     if (!game || !game.state) {
-      console.warn('[AI] autoSelectAICommander: game not found', { gameId, playerId });
+      debugWarn(2, '[AI] autoSelectAICommander: game not found', { gameId, playerId });
       return false;
     }
     
@@ -501,7 +502,7 @@ export async function autoSelectAICommander(
     const commanderInfo = game.state.commandZone?.[playerId];
     const hasCommander = commanderInfo?.commanderIds?.length > 0;
     if (hasCommander) {
-      console.info('[AI] autoSelectAICommander: player already has commander, skipping', { 
+      debug(1, '[AI] autoSelectAICommander: player already has commander, skipping', { 
         gameId, 
         playerId,
         commanderIds: commanderInfo?.commanderIds 
@@ -523,14 +524,14 @@ export async function autoSelectAICommander(
     }
     
     if (library.length === 0) {
-      console.warn('[AI] autoSelectAICommander: no cards in library', { gameId, playerId });
+      debugWarn(2, '[AI] autoSelectAICommander: no cards in library', { gameId, playerId });
       return false;
     }
     
     // Validate that library cards have required data (name, type_line, etc.)
     const cardsForSelection = library.filter((c: any) => c && c.name && c.type_line);
     if (cardsForSelection.length === 0) {
-      console.error('[AI] autoSelectAICommander: library has cards but they lack required data', {
+      debugError(1, '[AI] autoSelectAICommander: library has cards but they lack required data', {
         gameId,
         playerId,
         totalCards: library.length,
@@ -540,7 +541,7 @@ export async function autoSelectAICommander(
     }
     
     if (cardsForSelection.length < library.length) {
-      console.warn('[AI] autoSelectAICommander: filtered out cards lacking required data', {
+      debugWarn(1, '[AI] autoSelectAICommander: filtered out cards lacking required data', {
         gameId,
         playerId,
         totalCards: library.length,
@@ -548,7 +549,7 @@ export async function autoSelectAICommander(
       });
     }
     
-    console.info('[AI] autoSelectAICommander: found library with', cardsForSelection.length, 'cards');
+    debug(1, '[AI] autoSelectAICommander: found library with', cardsForSelection.length, 'cards');
     
     // Log the first few cards to help debug commander selection
     if (cardsForSelection.length > 0) {
@@ -557,14 +558,14 @@ export async function autoSelectAICommander(
         type: c.type_line,
         colors: c.color_identity || [],
       }));
-      console.info('[AI] First cards in library:', JSON.stringify(firstCards));
+      debug(1, '[AI] First cards in library:', JSON.stringify(firstCards));
     }
     
     // Find the best commander(s) from the deck (uses original unshuffled order)
     let { commanders, colorIdentity, exactMatch } = findBestCommanders(cardsForSelection);
     
     if (commanders.length === 0) {
-      console.warn('[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
+      debugWarn(2, '[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
       
       // Send alert to all players
       io.to(gameId).emit('error', {
@@ -595,7 +596,7 @@ export async function autoSelectAICommander(
       const deckIdentityStr = Array.from(deckColors).join('');
       const commanderIdentityStr = Array.from(commanderColors).join('');
       
-      console.warn('[AI] Commander identity mismatch:', {
+      debugWarn(1, '[AI] Commander identity mismatch:', {
         gameId,
         playerId,
         commanders: commanderNames,
@@ -628,7 +629,7 @@ export async function autoSelectAICommander(
     const commanderNames = commanders.map((c: any) => c.name);
     const commanderIds = commanders.map((c: any) => c.id);
     
-    console.info('[AI] Auto-selecting commander for AI:', {
+    debug(1, '[AI] Auto-selecting commander for AI:', {
       gameId,
       playerId,
       commanderNames,
@@ -661,25 +662,25 @@ export async function autoSelectAICommander(
       const zonesAfter = game.state.zones?.[playerId];
       const handCount = zonesAfter?.handCount ?? (Array.isArray(zonesAfter?.hand) ? zonesAfter.hand.length : 0);
       
-      console.info('[AI] After setCommander - hand count:', handCount);
+      debug(1, '[AI] After setCommander - hand count:', handCount);
       
       // If hand is empty, manually trigger shuffle and draw
       // (This is a fallback if the pendingInitialDraw didn't work)
       let didManualDraw = false;
       if (handCount === 0) {
-        console.info('[AI] Hand is empty after setCommander, manually triggering shuffle and draw');
+        debug(1, '[AI] Hand is empty after setCommander, manually triggering shuffle and draw');
         didManualDraw = true;
         
         // Shuffle the library
         if (typeof (game as any).shuffleLibrary === 'function') {
           (game as any).shuffleLibrary(playerId);
-          console.info('[AI] Library shuffled');
+          debug(1, '[AI] Library shuffled');
         }
         
         // Draw initial hand
         if (typeof (game as any).drawCards === 'function') {
           const drawn = (game as any).drawCards(playerId, INITIAL_HAND_SIZE);
-          console.info('[AI] Drew', drawn?.length || 0, 'cards');
+          debug(1, '[AI] Drew', drawn?.length || 0, 'cards');
         }
       }
       
@@ -698,16 +699,16 @@ export async function autoSelectAICommander(
         if (doingOpeningDraw || didManualDraw) {
           await appendEvent(gameId, (game as any).seq || 0, 'shuffleLibrary', { playerId });
           await appendEvent(gameId, (game as any).seq || 0, 'drawCards', { playerId, count: INITIAL_HAND_SIZE });
-          console.info('[AI] Persisted opening draw events (shuffle + draw) for player', playerId);
+          debug(1, '[AI] Persisted opening draw events (shuffle + draw) for player', playerId);
         }
       } catch (e) {
-        console.warn('[AI] Failed to persist setCommander event:', e);
+        debugWarn(1, '[AI] Failed to persist setCommander event:', e);
       }
       
       // Broadcast updated state to all players
       broadcastGame(io, game, gameId);
       
-      console.info('[AI] Commander set for AI player:', {
+      debug(1, '[AI] Commander set for AI player:', {
         gameId,
         playerId,
         commanderNames,
@@ -716,12 +717,12 @@ export async function autoSelectAICommander(
       
       return true;
     } else {
-      console.error('[AI] game.setCommander not available');
+      debugError(1, '[AI] game.setCommander not available');
       return false;
     }
     
   } catch (error) {
-    console.error('[AI] Error auto-selecting commander:', error);
+    debugError(1, '[AI] Error auto-selecting commander:', error);
     return false;
   }
 }
@@ -748,7 +749,7 @@ export async function handleAIGameFlow(
   const players = game.state.players || [];
   const aiPlayer = players.find((p: any) => p.id === playerId);
   if (aiPlayer?.hasLost) {
-    console.info('[AI] handleAIGameFlow: AI player has lost the game, skipping:', { gameId, playerId });
+    debug(1, '[AI] handleAIGameFlow: AI player has lost the game, skipping:', { gameId, playerId });
     return;
   }
   
@@ -756,7 +757,7 @@ export async function handleAIGameFlow(
   const ctx = (game as any).ctx || game;
   const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
   if (inactiveSet.has(playerId)) {
-    console.info('[AI] handleAIGameFlow: AI player is inactive, skipping:', { gameId, playerId });
+    debug(1, '[AI] handleAIGameFlow: AI player is inactive, skipping:', { gameId, playerId });
     return;
   }
   
@@ -772,7 +773,7 @@ export async function handleAIGameFlow(
   // Leyline resolution delay - time to allow human players to play/skip Leylines before advancing
   const LEYLINE_RESOLUTION_DELAY_MS = AI_THINK_TIME_MS * 2;
   
-  console.info('[AI] handleAIGameFlow:', {
+  debug(1, '[AI] handleAIGameFlow:', {
     gameId,
     playerId,
     phase: phaseStr,
@@ -787,13 +788,13 @@ export async function handleAIGameFlow(
   // Pre-game phase: select commander if not done
   if (phaseStr === '' || phaseStr === 'PRE_GAME') {
     if (!hasCommander) {
-      console.info('[AI] AI needs to select commander');
+      debug(1, '[AI] AI needs to select commander');
       
       // Small delay to allow deck to be fully set up
       setTimeout(async () => {
         const success = await autoSelectAICommander(io, gameId, playerId);
         if (success) {
-          console.info('[AI] Commander selection complete, continuing game flow');
+          debug(1, '[AI] Commander selection complete, continuing game flow');
           // Re-trigger game flow after commander selection
           setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
         }
@@ -810,13 +811,13 @@ export async function handleAIGameFlow(
       
       if (!aiMulliganState || !aiMulliganState.hasKeptHand) {
         // AI needs to decide whether to keep or mulligan
-        console.info('[AI] AI evaluating hand for mulligan decision');
+        debug(1, '[AI] AI evaluating hand for mulligan decision');
         
         const keepHand = await handleAIMulligan(io, gameId, playerId);
         
         if (keepHand) {
           // Keep the hand
-          console.info('[AI] AI keeping hand');
+          debug(1, '[AI] AI keeping hand');
           
           (game.state as any).mulliganState = (game.state as any).mulliganState || {};
           (game.state as any).mulliganState[playerId] = {
@@ -829,7 +830,7 @@ export async function handleAIGameFlow(
             (game as any).bumpSeq();
           }
           
-          console.info('[AI] AI is ready to start game (hand kept)');
+          debug(1, '[AI] AI is ready to start game (hand kept)');
           
           // Broadcast updated state so human players see AI has kept hand
           broadcastGame(io, game, gameId);
@@ -839,14 +840,14 @@ export async function handleAIGameFlow(
           return;
         } else {
           // Take a mulligan
-          console.info('[AI] AI taking mulligan');
+          debug(1, '[AI] AI taking mulligan');
           
           const currentMulligans = aiMulliganState?.mulligansTaken || 0;
           const newMulliganCount = currentMulligans + 1;
           
           // Check if player can still mulligan (max 7 mulligans = 0 cards)
           if (newMulliganCount > 7) {
-            console.warn('[AI] AI cannot mulligan further - would have 0 cards');
+            debugWarn(1, '[AI] AI cannot mulligan further - would have 0 cards');
             // Force keep the hand
             (game.state as any).mulliganState = (game.state as any).mulliganState || {};
             (game.state as any).mulliganState[playerId] = {
@@ -868,30 +869,30 @@ export async function handleAIGameFlow(
           // Execute the mulligan by moving hand to library, shuffling, and drawing new hand
           // This matches the logic in game-actions.ts socket handler
           try {
-            console.info(`[AI] Executing mulligan #${newMulliganCount} for AI player`);
+            debug(1, `[AI] Executing mulligan #${newMulliganCount} for AI player`);
             
             // Move hand back to library
             if (typeof (game as any).moveHandToLibrary === 'function') {
               (game as any).moveHandToLibrary(playerId);
-              console.info('[AI] Moved hand to library');
+              debug(1, '[AI] Moved hand to library');
             } else {
-              console.warn('[AI] game.moveHandToLibrary not available');
+              debugWarn(2, '[AI] game.moveHandToLibrary not available');
             }
             
             // Shuffle library
             if (typeof (game as any).shuffleLibrary === 'function') {
               (game as any).shuffleLibrary(playerId);
-              console.info('[AI] Shuffled library');
+              debug(1, '[AI] Shuffled library');
             } else {
-              console.warn('[AI] game.shuffleLibrary not available');
+              debugWarn(2, '[AI] game.shuffleLibrary not available');
             }
             
             // Draw new 7-card hand (London mulligan - put cards back later when keeping)
             if (typeof (game as any).drawCards === 'function') {
               const drawn = (game as any).drawCards(playerId, 7);
-              console.info('[AI] Drew new 7-card hand, actual drawn:', drawn?.length || 0);
+              debug(1, '[AI] Drew new 7-card hand, actual drawn:', drawn?.length || 0);
             } else {
-              console.warn('[AI] game.drawCards not available');
+              debugWarn(2, '[AI] game.drawCards not available');
             }
             
             // Bump sequence
@@ -899,9 +900,9 @@ export async function handleAIGameFlow(
               (game as any).bumpSeq();
             }
             
-            console.info('[AI] Mulligan executed successfully');
+            debug(1, '[AI] Mulligan executed successfully');
           } catch (e) {
-            console.error('[AI] Error executing mulligan:', e);
+            debugError(1, '[AI] Error executing mulligan:', e);
           }
           
           // Persist the mulligan event
@@ -912,7 +913,7 @@ export async function handleAIGameFlow(
               isAI: true,
             });
           } catch (e) {
-            console.warn('[AI] Failed to persist mulligan event:', e);
+            debugWarn(1, '[AI] Failed to persist mulligan event:', e);
           }
           
           // Broadcast updated state
@@ -930,7 +931,7 @@ export async function handleAIGameFlow(
       // 2. All players have kept their hands
       // 3. All pending Leyline/opening hand actions are resolved
       if (isAITurn) {
-        console.info('[AI] AI is active player in pre_game, checking if ready to advance');
+        debug(1, '[AI] AI is active player in pre_game, checking if ready to advance');
         
         // Get mulligan state for checking hand keeping status
         const mulliganState = (game.state as any).mulliganState || {};
@@ -943,7 +944,7 @@ export async function handleAIGameFlow(
         });
         
         if (!allKeptHands) {
-          console.info('[AI] Waiting for other players to keep their hands');
+          debug(1, '[AI] Waiting for other players to keep their hands');
           return;
         }
         
@@ -978,7 +979,7 @@ export async function handleAIGameFlow(
               // if the game has broadcast since they kept their hand)
               // For safety, give them a brief window to act
               hasPendingLeylineActions = true;
-              console.info(`[AI] Player ${pid} has Leyline cards, waiting for resolution`);
+              debug(1, `[AI] Player ${pid} has Leyline cards, waiting for resolution`);
             }
           }
         }
@@ -993,7 +994,7 @@ export async function handleAIGameFlow(
         }
         
         // All conditions met - advance from pre_game to beginning phase
-        console.info('[AI] All players ready, AI advancing from pre_game to beginning phase');
+        debug(1, '[AI] All players ready, AI advancing from pre_game to beginning phase');
         
         try {
           // Use nextTurn to advance from pre_game to the first turn
@@ -1002,12 +1003,12 @@ export async function handleAIGameFlow(
           // Note: nextStep() explicitly blocks during pre_game phase, so we must use nextTurn()
           if (typeof (game as any).nextTurn === 'function') {
             (game as any).nextTurn();
-            console.info('[AI] Advanced game from pre_game to beginning phase via nextTurn');
+            debug(1, '[AI] Advanced game from pre_game to beginning phase via nextTurn');
             
             // Persist the event
             const gameSeq = (game as any).seq;
             if (typeof gameSeq !== 'number') {
-              console.error('[AI] game.seq is not a number, cannot persist event');
+              debugError(1, '[AI] game.seq is not a number, cannot persist event');
             } else {
               try {
                 await appendEvent(gameId, gameSeq, 'nextTurn', {
@@ -1016,7 +1017,7 @@ export async function handleAIGameFlow(
                   isAI: true,
                 });
               } catch (e) {
-                console.warn('[AI] Failed to persist nextTurn event:', e);
+                debugWarn(1, '[AI] Failed to persist nextTurn event:', e);
               }
             }
             
@@ -1026,15 +1027,15 @@ export async function handleAIGameFlow(
             // Re-trigger AI game flow to handle the new phase
             setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
           } else {
-            console.error('[AI] game.nextTurn not available');
+            debugError(1, '[AI] game.nextTurn not available');
           }
         } catch (err) {
-          console.error('[AI] Error advancing from pre_game:', err);
+          debugError(1, '[AI] Error advancing from pre_game:', err);
         }
         
         return;
       } else {
-        console.info('[AI] AI has kept hand but is not active player, waiting');
+        debug(1, '[AI] AI has kept hand but is not active player, waiting');
       }
     }
     return;
@@ -1093,10 +1094,10 @@ export function registerAIPlayer(
       stateAny.autoPassPlayers = new Set();
     }
     stateAny.autoPassPlayers.add(playerId);
-    console.info('[AI] Added AI player to auto-pass set:', { gameId, playerId });
+    debug(1, '[AI] Added AI player to auto-pass set:', { gameId, playerId });
   }
   
-  console.info('[AI] Registered AI player:', { gameId, playerId, name, strategy, difficulty });
+  debug(1, '[AI] Registered AI player:', { gameId, playerId, name, strategy, difficulty });
 }
 
 /**
@@ -1119,11 +1120,11 @@ export function unregisterAIPlayer(gameId: string, playerId: PlayerID): void {
     const stateAny = game.state as any;
     if (stateAny.autoPassPlayers && stateAny.autoPassPlayers instanceof Set) {
       stateAny.autoPassPlayers.delete(playerId);
-      console.info('[AI] Removed AI player from auto-pass set:', { gameId, playerId });
+      debug(1, '[AI] Removed AI player from auto-pass set:', { gameId, playerId });
     }
   }
   
-  console.info('[AI] Unregistered AI player:', { gameId, playerId });
+  debug(1, '[AI] Unregistered AI player:', { gameId, playerId });
 }
 
 /**
@@ -1434,17 +1435,17 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
   
   // Debug: Log the hand contents to help diagnose issues
   if (hand.length === 0) {
-    console.info('[AI] findCastableSpells: Hand is empty');
+    debug(1, '[AI] findCastableSpells: Hand is empty');
     return [];
   }
   
-  console.info(`[AI] findCastableSpells: Checking ${hand.length} cards in hand`);
+  debug(1, `[AI] findCastableSpells: Checking ${hand.length} cards in hand`);
   
   // Use shared mana calculation
   const manaPool = getAvailableMana(game.state, playerId);
   const totalMana = getTotalManaFromPool(manaPool);
   
-  console.info('[AI] Available mana pool:', { 
+  debug(1, '[AI] Available mana pool:', { 
     total: totalMana, 
     colors: manaPool 
   });
@@ -1516,13 +1517,13 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
   
   // Log summary
   if (castable.length > 0) {
-    console.info(`[AI] findCastableSpells: Found ${castable.length} castable spell(s):`, 
+    debug(1, `[AI] findCastableSpells: Found ${castable.length} castable spell(s):`, 
       castable.map(s => `${s.card.name} (CMC ${s.cmc}, priority ${s.priority})`));
   } else if (uncostable.length > 0) {
-    console.info(`[AI] findCastableSpells: No castable spells. Reasons:`,
+    debug(1, `[AI] findCastableSpells: No castable spells. Reasons:`,
       uncostable.slice(0, 5).map(s => `${s.name}: ${s.reason}`));
     if (uncostable.length > 5) {
-      console.info(`[AI] ... and ${uncostable.length - 5} more cards not castable`);
+      debug(1, `[AI] ... and ${uncostable.length - 5} more cards not castable`);
     }
   }
   
@@ -1741,7 +1742,7 @@ function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost
       const isBackground = typeLine.includes('background');
       const cmc = totalCost.generic + Object.values(totalCost.colors).reduce((a, b) => a + b, 0);
       
-      console.info('[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', cmc);
+      debug(1, '[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', cmc);
       return { card, cost: totalCost, isBackground };
     }
   }
@@ -2122,7 +2123,7 @@ export async function handleAIPriority(
   
   const game = ensureGame(gameId);
   if (!game || !game.state) {
-    console.warn('[AI] handleAIPriority: game not found', { gameId, playerId });
+    debugWarn(2, '[AI] handleAIPriority: game not found', { gameId, playerId });
     return;
   }
   
@@ -2130,7 +2131,7 @@ export async function handleAIPriority(
   const players = game.state.players || [];
   const aiPlayer = players.find((p: any) => p.id === playerId);
   if (aiPlayer?.hasLost) {
-    console.info('[AI] AI player has lost the game, skipping priority handling:', { gameId, playerId });
+    debug(1, '[AI] AI player has lost the game, skipping priority handling:', { gameId, playerId });
     return;
   }
   
@@ -2138,7 +2139,7 @@ export async function handleAIPriority(
   const ctx = (game as any).ctx || game;
   const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
   if (inactiveSet.has(playerId)) {
-    console.info('[AI] AI player is inactive, skipping priority handling:', { gameId, playerId });
+    debug(1, '[AI] AI player is inactive, skipping priority handling:', { gameId, playerId });
     return;
   }
   
@@ -2148,7 +2149,7 @@ export async function handleAIPriority(
   const stackEmpty = !game.state.stack || game.state.stack.length === 0;
   const hasPriority = game.state.priority === playerId;
   
-  console.info('[AI] AI player checking priority:', { 
+  debug(1, '[AI] AI player checking priority:', { 
     gameId, 
     playerId, 
     phase, 
@@ -2163,7 +2164,7 @@ export async function handleAIPriority(
   // Cleanup happens automatically: discard to hand size, remove damage, end "until end of turn" effects
   // AI only acts during cleanup on its own turn to handle automatic actions
   if (step.includes('cleanup') || step === 'cleanup') {
-    console.info('[AI] Cleanup step - handling automatic cleanup actions (Rule 514.1)');
+    debug(1, '[AI] Cleanup step - handling automatic cleanup actions (Rule 514.1)');
     
     // Only handle cleanup if it's the AI's turn
     // (Cleanup doesn't grant priority per Rule 514.1, so we only act if we're the turn player)
@@ -2171,7 +2172,7 @@ export async function handleAIPriority(
       // Check if we're already processing cleanup for this AI to prevent double-execution
       const processingCleanup = (game.state as any)._aiProcessingCleanup?.[playerId];
       if (processingCleanup) {
-        console.info('[AI] Cleanup step - already processing cleanup for this AI, skipping to prevent double-execution');
+        debug(1, '[AI] Cleanup step - already processing cleanup for this AI, skipping to prevent double-execution');
         return;
       }
       
@@ -2185,13 +2186,13 @@ export async function handleAIPriority(
       let discardCount = 0;
       
       if (pendingDiscard && pendingDiscard.count > 0) {
-        console.info('[AI] Cleanup step - AI has pending discard selection:', pendingDiscard.count, 'cards');
+        debug(1, '[AI] Cleanup step - AI has pending discard selection:', pendingDiscard.count, 'cards');
         discardCount = pendingDiscard.count;
       } else {
         // Fallback: calculate discard need independently (in case pendingDiscardSelection wasn't set)
         const { needsDiscard, discardCount: calculatedCount } = needsToDiscard(game, playerId);
         if (needsDiscard) {
-          console.info('[AI] Cleanup step - AI needs to discard', calculatedCount, 'cards (calculated independently)');
+          debug(1, '[AI] Cleanup step - AI needs to discard', calculatedCount, 'cards (calculated independently)');
           discardCount = calculatedCount;
         }
       }
@@ -2206,7 +2207,7 @@ export async function handleAIPriority(
       }
       
       // No discard needed - cleanup is complete, auto-advance
-      console.info('[AI] Cleanup step - no discard needed, auto-advancing');
+      debug(1, '[AI] Cleanup step - no discard needed, auto-advancing');
       await executeAdvanceStep(io, gameId, playerId);
       
       // Clear the processing flag after advancing
@@ -2216,7 +2217,7 @@ export async function handleAIPriority(
       return;
     } else {
       // Not AI's turn - don't act during cleanup (per Rule 514.1, cleanup doesn't grant priority)
-      console.info('[AI] Cleanup step - not AI turn, skipping');
+      debug(1, '[AI] Cleanup step - not AI turn, skipping');
       return;
     }
   }
@@ -2225,11 +2226,11 @@ export async function handleAIPriority(
   // This prevents the AI from getting into an infinite loop of passing priority
   // and prevents the AI from advancing during opponent's turn
   if (!hasPriority) {
-    console.info('[AI] AI does not have priority, skipping action');
+    debug(1, '[AI] AI does not have priority, skipping action');
     return;
   }
   
-  console.info('[AI] AI has priority, proceeding with action');
+  debug(1, '[AI] AI has priority, proceeding with action');
   
   try {
     // CRITICAL: Check for pending trigger ordering BEFORE any other action
@@ -2237,7 +2238,7 @@ export async function handleAIPriority(
     // while trigger ordering is pending
     const pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering?.[playerId];
     if (pendingTriggerOrdering) {
-      console.info('[AI] AI has pending trigger ordering, auto-ordering triggers');
+      debug(1, '[AI] AI has pending trigger ordering, auto-ordering triggers');
       await executeAITriggerOrdering(io, gameId, playerId);
       return; // After ordering triggers, we'll get called again via broadcastGame
     }
@@ -2248,7 +2249,7 @@ export async function handleAIPriority(
       t.controllerId === playerId && t.type === 'order'
     );
     if (aiTriggers.length >= 2) {
-      console.info(`[AI] AI has ${aiTriggers.length} triggers to order in queue`);
+      debug(1, `[AI] AI has ${aiTriggers.length} triggers to order in queue`);
       await executeAITriggerOrdering(io, gameId, playerId);
       return;
     }
@@ -2270,7 +2271,7 @@ export async function handleAIPriority(
             !playersWhoPlayedLand.includes(playerId) &&
             !playersWhoDeclined.includes(playerId)) {
           
-          console.info(`[AI] AI ${playerId} has pending Kynaios choice, making decision`);
+          debug(1, `[AI] AI ${playerId} has pending Kynaios choice, making decision`);
           await executeAIKynaiosChoice(io, gameId, playerId, controllerId, choice);
           return;
         }
@@ -2285,10 +2286,10 @@ export async function handleAIPriority(
       pendingSpellCasts[effectId]?.playerId === playerId
     );
     if (aiPendingCasts.length > 0) {
-      console.warn(`[AI] Cleaning up ${aiPendingCasts.length} stuck pending spell cast(s) to prevent infinite loop`);
+      debugWarn(2, `[AI] Cleaning up ${aiPendingCasts.length} stuck pending spell cast(s) to prevent infinite loop`);
       for (const effectId of aiPendingCasts) {
         const castInfo = pendingSpellCasts[effectId];
-        console.warn(`[AI] Removing stuck spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
+        debugWarn(2, `[AI] Removing stuck spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
         delete pendingSpellCasts[effectId];
       }
       // After cleanup, broadcast state and return - next AI action will proceed normally
@@ -2303,7 +2304,7 @@ export async function handleAIPriority(
     if (!isAITurn) {
       // DECLARE_BLOCKERS step: The defending player (non-turn player) needs to declare blockers
       if (phase === 'combat' && (step.includes('blockers') || step === 'declare_blockers')) {
-        console.info('[AI] Not AI turn, but it\'s DECLARE_BLOCKERS step - AI needs to decide on blockers');
+        debug(1, '[AI] Not AI turn, but it\'s DECLARE_BLOCKERS step - AI needs to decide on blockers');
         
         // Check if blockers have already been declared this step
         const battlefield = game.state?.battlefield || [];
@@ -2339,14 +2340,14 @@ export async function handleAIPriority(
       }
       
       // Default behavior for non-turn player: pass priority
-      console.info('[AI] Not AI turn, passing priority');
+      debug(1, '[AI] Not AI turn, passing priority');
       await executePassPriority(io, gameId, playerId);
       return;
     }
     
     // If there's something on the stack, let it resolve
     if (!stackEmpty) {
-      console.info('[AI] Stack not empty, passing priority to let it resolve');
+      debug(1, '[AI] Stack not empty, passing priority to let it resolve');
       await executePassPriority(io, gameId, playerId);
       return;
     }
@@ -2365,28 +2366,28 @@ export async function handleAIPriority(
       const willNeedToDiscard = handSize > maxHandSize;
       
       if (willNeedToDiscard) {
-        console.info(`[AI] Hand size ${handSize} exceeds max ${maxHandSize} - will prioritize casting spells to avoid discarding`);
+        debug(1, `[AI] Hand size ${handSize} exceeds max ${maxHandSize} - will prioritize casting spells to avoid discarding`);
       }
       
       // Try to play a land first
       if (canAIPlayLand(game, playerId)) {
         const landCard = findPlayableLand(game, playerId);
         if (landCard) {
-          console.info('[AI] Playing land:', landCard.name);
+          debug(1, '[AI] Playing land:', landCard.name);
           await executeAIPlayLand(io, gameId, playerId, landCard.id);
           // After playing land, continue with more actions
           setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch(console.error);
+            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
           }, AI_THINK_TIME_MS);
           return;
         } else {
-          console.info('[AI] No land found in hand to play');
+          debug(1, '[AI] No land found in hand to play');
         }
       } else {
         // Debug why we can't play a land
         const landsPlayed = game.state?.landsPlayedThisTurn?.[playerId] || 0;
         const maxLands = ((game as any).maxLandsPerTurn?.[playerId] ?? (game.state as any)?.maxLandsPerTurn?.[playerId]) || 1;
-        console.info('[AI] Cannot play land:', { 
+        debug(1, '[AI] Cannot play land:', { 
           isMainPhase, 
           isAITurn, 
           landsPlayed, 
@@ -2407,11 +2408,11 @@ export async function handleAIPriority(
         });
         
         if (abilityDecision.action?.activate) {
-          console.info('[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
+          debug(1, '[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
           await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
           // After activating ability, continue with more actions
           setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch(console.error);
+            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
           }, AI_THINK_TIME_MS);
           return;
         }
@@ -2420,11 +2421,11 @@ export async function handleAIPriority(
       // Try to cast commanders from command zone
       const commanderCastResult = findCastableCommander(game, playerId);
       if (commanderCastResult) {
-        console.info('[AI] Casting commander from command zone:', commanderCastResult.card.name);
+        debug(1, '[AI] Casting commander from command zone:', commanderCastResult.card.name);
         await executeAICastCommander(io, gameId, playerId, commanderCastResult.card, commanderCastResult.cost);
         // After casting, continue with more actions
         setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(console.error);
+          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
         }, AI_THINK_TIME_MS);
         return;
       }
@@ -2437,15 +2438,15 @@ export async function handleAIPriority(
         
         // If we will need to discard, log the urgency
         if (willNeedToDiscard) {
-          console.info(`[AI] Casting spell to avoid discard: ${bestSpell.card.name} (hand: ${handSize}/${maxHandSize})`);
+          debug(1, `[AI] Casting spell to avoid discard: ${bestSpell.card.name} (hand: ${handSize}/${maxHandSize})`);
         } else {
-          console.info('[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
+          debug(1, '[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
         }
         
         await executeAICastSpell(io, gameId, playerId, bestSpell.card, bestSpell.cost);
         // After casting, continue with more actions
         setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(console.error);
+          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
         }, AI_THINK_TIME_MS);
         return;
       }
@@ -2461,10 +2462,10 @@ export async function handleAIPriority(
         });
         
         if (abilityDecision.action?.activate) {
-          console.info('[AI] Activating ability (after spell attempts):', abilityDecision.action.cardName);
+          debug(1, '[AI] Activating ability (after spell attempts):', abilityDecision.action.cardName);
           await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
           setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch(console.error);
+            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
           }, AI_THINK_TIME_MS);
           return;
         }
@@ -2473,7 +2474,7 @@ export async function handleAIPriority(
       // No more actions, pass priority (don't advance step directly - let priority system handle it)
       // This allows other players to get priority and potentially take actions
       // The step will advance automatically when all players pass priority
-      console.info('[AI] Main phase, no more actions, passing priority');
+      debug(1, '[AI] Main phase, no more actions, passing priority');
       await executePassPriority(io, gameId, playerId);
       return;
     }
@@ -2490,7 +2491,7 @@ export async function handleAIPriority(
         
         if (alreadyDeclaredAttackers) {
           // Attackers already declared, just pass priority to allow responses
-          console.info('[AI] Attackers already declared, passing priority for responses');
+          debug(1, '[AI] Attackers already declared, passing priority for responses');
           await executePassPriority(io, gameId, playerId);
           return;
         }
@@ -2509,7 +2510,7 @@ export async function handleAIPriority(
           await executeDeclareAttackers(io, gameId, playerId, decision.action.attackers);
         } else {
           // No attackers, pass priority (step will advance when all players pass)
-          console.info('[AI] No attackers to declare, passing priority');
+          debug(1, '[AI] No attackers to declare, passing priority');
           await executePassPriority(io, gameId, playerId);
         }
         return;
@@ -2525,7 +2526,7 @@ export async function handleAIPriority(
         
         if (alreadyDeclaredBlockers) {
           // Blockers already declared, just pass priority to allow responses
-          console.info('[AI] Blockers already declared, passing priority for responses');
+          debug(1, '[AI] Blockers already declared, passing priority for responses');
           await executePassPriority(io, gameId, playerId);
           return;
         }
@@ -2551,38 +2552,38 @@ export async function handleAIPriority(
           await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
         } else {
           // No blockers, pass priority (step will advance when all players pass)
-          console.info('[AI] No blockers to declare, passing priority');
+          debug(1, '[AI] No blockers to declare, passing priority');
           await executePassPriority(io, gameId, playerId);
         }
         return;
       }
       
       // Other combat steps - just pass priority (only active player can advance combat)
-      console.info('[AI] Combat step', step, '- passing priority');
+      debug(1, '[AI] Combat step', step, '- passing priority');
       await executePassPriority(io, gameId, playerId);
       return;
     }
     
     // BEGINNING PHASES (Untap, Upkeep, Draw) - only active player can advance
     if (phase === 'beginning' || phase.includes('begin')) {
-      console.info('[AI] Beginning phase, step:', step, '- passing priority');
+      debug(1, '[AI] Beginning phase, step:', step, '- passing priority');
       await executePassPriority(io, gameId, playerId);
       return;
     }
     
     // ENDING PHASE (End step) - only active player can advance
     if (phase === 'ending' || phase === 'end') {
-      console.info('[AI] Ending phase, step:', step, '- passing priority');
+      debug(1, '[AI] Ending phase, step:', step, '- passing priority');
       await executePassPriority(io, gameId, playerId);
       return;
     }
     
     // Default: pass priority instead of advancing (let the game engine handle step advancement)
-    console.info('[AI] Unknown phase/step, passing priority');
+    debug(1, '[AI] Unknown phase/step, passing priority');
     await executePassPriority(io, gameId, playerId);
     
   } catch (error) {
-    console.error('[AI] Error handling AI priority:', error);
+    debugError(1, '[AI] Error handling AI priority:', error);
     // Fallback: try to advance step or pass priority
     try {
       if (isAITurn && stackEmpty) {
@@ -2591,7 +2592,7 @@ export async function handleAIPriority(
         await executePassPriority(io, gameId, playerId);
       }
     } catch (e) {
-      console.error('[AI] Failed fallback action:', e);
+      debugError(1, '[AI] Failed fallback action:', e);
     }
   }
 }
@@ -2699,7 +2700,7 @@ async function executeAIPlayLand(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Playing land:', { gameId, playerId, cardId });
+  debug(1, '[AI] Playing land:', { gameId, playerId, cardId });
   
   try {
     // Find the card in hand to check its properties
@@ -2727,7 +2728,7 @@ async function executeAIPlayLand(
           if (player && player.life >= 4) {
             player.life -= 2;
             paidLife = true;
-            console.info('[AI] Paid 2 life for shock land to enter untapped:', cardName);
+            debug(1, '[AI] Paid 2 life for shock land to enter untapped:', cardName);
           } else {
             // Life too low, enters tapped to preserve life buffer
             entersTapped = true;
@@ -2735,12 +2736,12 @@ async function executeAIPlayLand(
         } else {
           // Choose not to pay, enters tapped
           entersTapped = true;
-          console.info('[AI] Shock land enters tapped (chose not to pay):', cardName);
+          debug(1, '[AI] Shock land enters tapped (chose not to pay):', cardName);
         }
       } else if (landEntersTapped(cardToPlay)) {
         // This land always enters tapped
         entersTapped = true;
-        console.info('[AI] Land enters tapped:', cardName);
+        debug(1, '[AI] Land enters tapped:', cardName);
       }
     }
     
@@ -2805,7 +2806,7 @@ async function executeAIPlayLand(
         isBounceLand: cardToPlay ? isBounceLand((cardToPlay.name || '').toLowerCase()) : false,
       });
     } catch (e) {
-      console.warn('[AI] Failed to persist playLand event:', e);
+      debugWarn(1, '[AI] Failed to persist playLand event:', e);
     }
     
     // Bump sequence
@@ -2817,7 +2818,7 @@ async function executeAIPlayLand(
     broadcastGame(io, game, gameId);
     
   } catch (error) {
-    console.error('[AI] Error playing land:', error);
+    debugError(1, '[AI] Error playing land:', error);
   }
 }
 
@@ -2850,7 +2851,7 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
   
   if (controlledLands.length === 0) {
     // No lands at all - shouldn't happen normally, but handle gracefully
-    console.info('[AI] No lands to return for bounce land');
+    debug(1, '[AI] No lands to return for bounce land');
     return;
   }
   
@@ -2937,7 +2938,7 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
       zones.handCount = (zones.hand as any[]).length;
     }
     
-    console.info('[AI] Bounce land returned to hand:', landToReturn.card?.name, hasLandfallSynergy ? '(landfall synergy detected)' : '');
+    debug(1, '[AI] Bounce land returned to hand:', landToReturn.card?.name, hasLandfallSynergy ? '(landfall synergy detected)' : '');
   }
 }
 
@@ -2954,7 +2955,7 @@ async function executeAICastSpell(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Casting spell:', { gameId, playerId, cardName: card.name, cost });
+  debug(1, '[AI] Casting spell:', { gameId, playerId, cardName: card.name, cost });
   
   try {
     // Get mana sources to tap for payment (lands, artifacts, creatures)
@@ -2998,12 +2999,12 @@ async function executeAICastSpell(
       const auraTarget = findAuraTarget(game.state, playerId, card);
       if (auraTarget) {
         targets = [{ kind: 'permanent', id: auraTarget.id }];
-        console.info('[AI] Selected Aura target:', { 
+        debug(1, '[AI] Selected Aura target:', { 
           cardName: card.name, 
           targetName: auraTarget.card?.name || auraTarget.id
         });
       } else {
-        console.warn('[AI] Cannot cast Aura - no valid targets:', card.name);
+        debugWarn(2, '[AI] Cannot cast Aura - no valid targets:', card.name);
         return;
       }
     } else {
@@ -3040,7 +3041,7 @@ async function executeAICastSpell(
             targets = validTargets.slice(0, spellSpec.maxTargets);
           }
           
-          console.info('[AI] Selected targets for spell:', { 
+          debug(1, '[AI] Selected targets for spell:', { 
             cardName: card.name, 
             targetCount: targets.length,
             targets: targets.map((t: TargetRef) => {
@@ -3050,7 +3051,7 @@ async function executeAICastSpell(
           });
         } else {
           // No valid targets available - cannot cast this spell
-          console.warn('[AI] Cannot cast spell - no valid targets:', card.name);
+          debugWarn(2, '[AI] Cannot cast spell - no valid targets:', card.name);
           return;
         }
       }
@@ -3075,7 +3076,7 @@ async function executeAICastSpell(
         };
         game.state.stack.push(stackItem as any);
         
-        console.info('[AI] Spell added to stack:', card.name, 'with', targets.length, 'target(s)');
+        debug(1, '[AI] Spell added to stack:', card.name, 'with', targets.length, 'target(s)');
       }
     }
     
@@ -3118,7 +3119,7 @@ async function executeAICastSpell(
         isAI: true 
       });
     } catch (e) {
-      console.warn('[AI] Failed to persist castSpell event:', e);
+      debugWarn(1, '[AI] Failed to persist castSpell event:', e);
     }
     
     // Bump sequence
@@ -3137,7 +3138,7 @@ async function executeAICastSpell(
     }, AI_REACTION_DELAY_MS);
     
   } catch (error) {
-    console.error('[AI] Error casting spell:', error);
+    debugError(1, '[AI] Error casting spell:', error);
   }
 }
 
@@ -3155,7 +3156,7 @@ async function executeAICastCommander(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Casting commander from command zone:', { gameId, playerId, cardName: card.name, cost });
+  debug(1, '[AI] Casting commander from command zone:', { gameId, playerId, cardName: card.name, cost });
   
   try {
     // Get mana sources to tap for payment
@@ -3202,7 +3203,7 @@ async function executeAICastCommander(
       };
       game.state.stack.push(stackItem as any);
       
-      console.info('[AI] Commander added to stack:', card.name);
+      debug(1, '[AI] Commander added to stack:', card.name);
     }
     
     // Consume mana from pool to pay for commander
@@ -3242,7 +3243,7 @@ async function executeAICastCommander(
         isAI: true 
       });
     } catch (e) {
-      console.warn('[AI] Failed to persist castCommander event:', e);
+      debugWarn(1, '[AI] Failed to persist castCommander event:', e);
     }
     
     // Bump sequence
@@ -3259,7 +3260,7 @@ async function executeAICastCommander(
     }, AI_REACTION_DELAY_MS);
     
   } catch (error) {
-    console.error('[AI] Error casting commander:', error);
+    debugError(1, '[AI] Error casting commander:', error);
   }
 }
 
@@ -3276,7 +3277,7 @@ async function executeAIActivateAbility(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Activating ability:', { 
+  debug(1, '[AI] Activating ability:', { 
     gameId, 
     playerId, 
     cardName: action.cardName,
@@ -3289,7 +3290,7 @@ async function executeAIActivateAbility(
     const permanent = battlefield.find((p: any) => p.id === action.permanentId);
     
     if (!permanent) {
-      console.warn('[AI] Permanent not found for ability activation:', action.permanentId);
+      debugWarn(2, '[AI] Permanent not found for ability activation:', action.permanentId);
       return;
     }
     
@@ -3302,19 +3303,19 @@ async function executeAIActivateAbility(
     // Tap the permanent if it's a tap ability
     if (isTapAbility && !permanent.tapped) {
       permanent.tapped = true;
-      console.info('[AI] Tapped permanent for ability:', card.name);
+      debug(1, '[AI] Tapped permanent for ability:', card.name);
     }
     
     // Handle specific abilities based on oracle text
     
     // HUMBLE DEFECTOR: Draw two cards, give control to opponent
     if (abilityText.includes('draw two cards') && abilityText.includes('opponent') && abilityText.includes('control')) {
-      console.info('[AI] Activating Humble Defector ability');
+      debug(1, '[AI] Activating Humble Defector ability');
       
       // Draw two cards
       if (typeof (game as any).drawCards === 'function') {
         const drawn = (game as any).drawCards(playerId, 2);
-        console.info('[AI] Drew', drawn?.length || 0, 'cards from Humble Defector');
+        debug(1, '[AI] Drew', drawn?.length || 0, 'cards from Humble Defector');
       }
       
       // Give control to a random opponent
@@ -3329,7 +3330,7 @@ async function executeAIActivateAbility(
         // Reset summoning sickness for the new controller
         permanent.summoningSickness = true;
         
-        console.info('[AI] Gave control of', card.name, 'to', randomOpponent);
+        debug(1, '[AI] Gave control of', card.name, 'to', randomOpponent);
         
         // Send chat message
         io.to(gameId).emit('chat', {
@@ -3358,12 +3359,12 @@ async function executeAIActivateAbility(
         // Mana abilities resolve immediately - don't put on stack
         // The mana will be added to the mana pool by the game engine
         // For now, we just log that the AI tapped for mana
-        console.info('[AI] Tapped for mana ability (resolves immediately, not on stack):', card.name);
+        debug(1, '[AI] Tapped for mana ability (resolves immediately, not on stack):', card.name);
         // Mana abilities don't pass priority - they resolve instantly
         // Continue AI turn after instant resolution
         setTimeout(() => {
           handleAIPriority(io, gameId, playerId).catch((err) => {
-            console.error('[AI] Error continuing after mana ability:', { gameId, playerId, cardName: card.name, error: err });
+            debugError(1, '[AI] Error continuing after mana ability:', { gameId, playerId, cardName: card.name, error: err });
           });
         }, AI_REACTION_DELAY_MS);
         return;
@@ -3443,7 +3444,7 @@ async function executeAIActivateAbility(
           };
           
           game.state.stack.push(stackItem as any);
-          console.info('[AI] Added FETCH LAND ability to stack:', card.name);
+          debug(1, '[AI] Added FETCH LAND ability to stack:', card.name);
         } else {
           // Regular non-mana ability
           const stackItem = {
@@ -3463,7 +3464,7 @@ async function executeAIActivateAbility(
           };
           
           game.state.stack.push(stackItem as any);
-          console.info('[AI] Added activated ability to stack:', card.name);
+          debug(1, '[AI] Added activated ability to stack:', card.name);
         }
       }
     }
@@ -3477,7 +3478,7 @@ async function executeAIActivateAbility(
         isAI: true,
       });
     } catch (e) {
-      console.warn('[AI] Failed to persist activateAbility event:', e);
+      debugWarn(1, '[AI] Failed to persist activateAbility event:', e);
     }
     
     // Bump sequence
@@ -3494,7 +3495,7 @@ async function executeAIActivateAbility(
     }, AI_REACTION_DELAY_MS);
     
   } catch (error) {
-    console.error('[AI] Error activating ability:', error);
+    debugError(1, '[AI] Error activating ability:', error);
   }
 }
 
@@ -3521,7 +3522,7 @@ async function resolveAISpell(
   const topItem = stack[stack.length - 1] as any;
   if (!topItem || topItem.controller !== playerId) return;
   
-  console.info('[AI] Resolving spell:', topItem.card?.name);
+  debug(1, '[AI] Resolving spell:', topItem.card?.name);
   
   try {
     // Remove from stack
@@ -3548,7 +3549,7 @@ async function resolveAISpell(
         summoningSickness: typeLine.includes('creature'),
       };
       game.state.battlefield.push(permanent as any);
-      console.info('[AI] Permanent entered battlefield:', card.name);
+      debug(1, '[AI] Permanent entered battlefield:', card.name);
     } else {
       // Instants and sorceries go to graveyard
       const zones = game.state?.zones?.[playerId];
@@ -3557,7 +3558,7 @@ async function resolveAISpell(
         (zones.graveyard as any[]).push({ ...card, zone: 'graveyard' });
         zones.graveyardCount = (zones.graveyard as any[]).length;
       }
-      console.info('[AI] Spell resolved to graveyard:', card.name);
+      debug(1, '[AI] Spell resolved to graveyard:', card.name);
     }
     
     // Bump sequence
@@ -3569,7 +3570,7 @@ async function resolveAISpell(
     broadcastGame(io, game, gameId);
     
   } catch (error) {
-    console.error('[AI] Error resolving spell:', error);
+    debugError(1, '[AI] Error resolving spell:', error);
   }
 }
 
@@ -3585,7 +3586,7 @@ async function executeAIDiscard(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Discarding', discardCount, 'cards');
+  debug(1, '[AI] Discarding', discardCount, 'cards');
   
   try {
     const cardsToDiscard = chooseCardsToDiscard(game, playerId, discardCount);
@@ -3593,7 +3594,7 @@ async function executeAIDiscard(
     // Get zones
     const zones = game.state?.zones?.[playerId];
     if (!zones || !Array.isArray(zones.hand)) {
-      console.warn('[AI] No hand found for discard');
+      debugWarn(2, '[AI] No hand found for discard');
       return;
     }
     
@@ -3631,7 +3632,7 @@ async function executeAIDiscard(
         isAI: true,
       });
     } catch (e) {
-      console.warn('[AI] Failed to persist discard event:', e);
+      debugWarn(1, '[AI] Failed to persist discard event:', e);
     }
     
     // Bump sequence
@@ -3644,11 +3645,11 @@ async function executeAIDiscard(
     
     // After discarding, advance to next turn
     setTimeout(() => {
-      executeAdvanceStep(io, gameId, playerId).catch(console.error);
+      executeAdvanceStep(io, gameId, playerId).catch(err => debugError(1, err));
     }, AI_REACTION_DELAY_MS);
     
   } catch (error) {
-    console.error('[AI] Error discarding:', error);
+    debugError(1, '[AI] Error discarding:', error);
   }
 }
 
@@ -3667,7 +3668,7 @@ async function executeAdvanceStep(
   // Non-turn players should pass priority instead
   const turnPlayer = game.state?.turnPlayer;
   if (playerId !== turnPlayer) {
-    console.warn('[AI] Cannot advance step - not the turn player:', { 
+    debugWarn(1, '[AI] Cannot advance step - not the turn player:', { 
       gameId, 
       playerId, 
       turnPlayer,
@@ -3684,31 +3685,31 @@ async function executeAdvanceStep(
   // Check if there are any pending modal interactions before advancing
   const pendingCheck = checkPendingModals(game, gameId);
   if (pendingCheck.hasPending) {
-    console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
+    debug(1, `[AI] Cannot advance step - ${pendingCheck.reason}`);
     return;
   }
   
-  console.info('[AI] Advancing step:', { gameId, playerId, currentPhase, currentStep });
+  debug(1, '[AI] Advancing step:', { gameId, playerId, currentPhase, currentStep });
   
   try {
     // Use game's nextStep method if available
     if (typeof (game as any).nextStep === 'function') {
       (game as any).nextStep();
     } else {
-      console.warn('[AI] game.nextStep not available');
+      debugWarn(2, '[AI] game.nextStep not available');
       return;
     }
     
     const newStep = String((game.state as any).step || '');
     const newPhase = String(game.state.phase || '');
     
-    console.info('[AI] Step advanced:', { newPhase, newStep });
+    debug(1, '[AI] Step advanced:', { newPhase, newStep });
     
     // Clear cleanup processing flag when advancing from cleanup step
     // This ensures the flag doesn't persist if we re-enter cleanup later
     if (currentStep.toLowerCase().includes('cleanup') && newStep.toLowerCase() !== currentStep.toLowerCase()) {
       if ((game.state as any)._aiProcessingCleanup) {
-        console.info('[AI] Clearing cleanup processing flags after advancing from cleanup');
+        debug(1, '[AI] Clearing cleanup processing flags after advancing from cleanup');
         delete (game.state as any)._aiProcessingCleanup;
       }
     }
@@ -3717,7 +3718,7 @@ async function executeAdvanceStep(
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, isAI: true });
     } catch (e) {
-      console.warn('[AI] Failed to persist nextStep event:', e);
+      debugWarn(1, '[AI] Failed to persist nextStep event:', e);
     }
     
     // Broadcast
@@ -3732,12 +3733,12 @@ async function executeAdvanceStep(
     
     if (newPriority === playerId && isAIPlayer(gameId, playerId) && isStillAITurn && !isCleanupStep) {
       setTimeout(() => {
-        handleAIPriority(io, gameId, playerId).catch(console.error);
+        handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
       }, AI_THINK_TIME_MS);
     }
     
   } catch (error) {
-    console.error('[AI] Error advancing step:', error);
+    debugError(1, '[AI] Error advancing step:', error);
   }
 }
 
@@ -3790,7 +3791,7 @@ async function executeAITriggerOrdering(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Executing trigger ordering:', { gameId, playerId });
+  debug(1, '[AI] Executing trigger ordering:', { gameId, playerId });
   
   try {
     // Get triggers from the trigger queue that belong to this player
@@ -3800,7 +3801,7 @@ async function executeAITriggerOrdering(
     );
     
     if (aiTriggers.length === 0) {
-      console.info('[AI] No triggers to order, clearing pending state');
+      debug(1, '[AI] No triggers to order, clearing pending state');
       // Clear the pending trigger ordering state
       if ((game.state as any).pendingTriggerOrdering) {
         delete (game.state as any).pendingTriggerOrdering[playerId];
@@ -3812,7 +3813,7 @@ async function executeAITriggerOrdering(
       return;
     }
     
-    console.info(`[AI] Found ${aiTriggers.length} triggers to order`);
+    debug(1, `[AI] Found ${aiTriggers.length} triggers to order`);
     
     // Remove triggers from the queue
     (game.state as any).triggerQueue = triggerQueue.filter((t: any) => 
@@ -3841,7 +3842,7 @@ async function executeAITriggerOrdering(
       
       game.state.stack.push(stackItem as any);
       orderedTriggerIds.push(trigger.id);
-      console.info(`[AI] ⚡ Pushed trigger to stack: ${trigger.sourceName} - ${trigger.effect}`);
+      debug(1, `[AI] ⚡ Pushed trigger to stack: ${trigger.sourceName} - ${trigger.effect}`);
     }
     
     // Clear the pending trigger ordering state - CRITICAL to break the loop
@@ -3879,7 +3880,7 @@ async function executeAITriggerOrdering(
         isAI: true,
       });
     } catch (e) {
-      console.warn('[AI] Failed to persist orderTriggers event:', e);
+      debugWarn(1, '[AI] Failed to persist orderTriggers event:', e);
     }
     
     // Bump sequence and broadcast
@@ -3889,10 +3890,10 @@ async function executeAITriggerOrdering(
     
     broadcastGame(io, game, gameId);
     
-    console.info(`[AI] Successfully ordered ${aiTriggers.length} triggers onto stack`);
+    debug(1, `[AI] Successfully ordered ${aiTriggers.length} triggers onto stack`);
     
   } catch (error) {
-    console.error('[AI] Error ordering triggers:', error);
+    debugError(1, '[AI] Error ordering triggers:', error);
     // On error, still try to clear the pending state to prevent infinite loop
     if ((game.state as any).pendingTriggerOrdering) {
       delete (game.state as any).pendingTriggerOrdering[playerId];
@@ -3918,7 +3919,7 @@ async function executeAIKynaiosChoice(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Executing Kynaios choice:', { gameId, playerId, sourceController });
+  debug(1, '[AI] Executing Kynaios choice:', { gameId, playerId, sourceController });
   
   try {
     // Initialize tracking arrays if needed
@@ -3977,7 +3978,7 @@ async function executeAIKynaiosChoice(
         ts: Date.now(),
       });
       
-      console.info(`[AI] AI ${playerId} played land ${cardName} via Kynaios choice`);
+      debug(1, `[AI] AI ${playerId} played land ${cardName} via Kynaios choice`);
       
     } else {
       // No lands - decline (controller will just skip, opponent will draw later)
@@ -3992,7 +3993,7 @@ async function executeAIKynaiosChoice(
         ts: Date.now(),
       });
       
-      console.info(`[AI] AI ${playerId} ${action} via Kynaios choice`);
+      debug(1, `[AI] AI ${playerId} ${action} via Kynaios choice`);
     }
     
     // Persist event
@@ -4005,7 +4006,7 @@ async function executeAIKynaiosChoice(
         isAI: true,
       });
     } catch (e) {
-      console.warn('[AI] Failed to persist kynaiosChoice event:', e);
+      debugWarn(1, '[AI] Failed to persist kynaiosChoice event:', e);
     }
     
     // Bump sequence and broadcast
@@ -4015,10 +4016,10 @@ async function executeAIKynaiosChoice(
     
     broadcastGame(io, game, gameId);
     
-    console.info(`[AI] Successfully made Kynaios choice`);
+    debug(1, `[AI] Successfully made Kynaios choice`);
     
   } catch (error) {
-    console.error('[AI] Error making Kynaios choice:', error);
+    debugError(1, '[AI] Error making Kynaios choice:', error);
     // On error, mark as declined to prevent infinite loop
     choiceData.playersWhoDeclined = choiceData.playersWhoDeclined || [];
     if (!choiceData.playersWhoDeclined.includes(playerId)) {
@@ -4039,7 +4040,7 @@ async function executePassPriority(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Passing priority:', { gameId, playerId });
+  debug(1, '[AI] Passing priority:', { gameId, playerId });
   
   try {
     let resolvedNow = false;
@@ -4068,15 +4069,15 @@ async function executePassPriority(
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'passPriority', { playerId });
     } catch (e) {
-      console.warn('[AI] Failed to persist passPriority event:', e);
+      debugWarn(1, '[AI] Failed to persist passPriority event:', e);
     }
     
     // If all players passed priority in succession, resolve the top of the stack
     if (resolvedNow) {
-      console.info('[AI] All players passed priority, resolving top of stack');
+      debug(1, '[AI] All players passed priority, resolving top of stack');
       if (typeof (game as any).resolveTopOfStack === 'function') {
         (game as any).resolveTopOfStack();
-        console.log(`[AI] Stack resolved for game ${gameId}`);
+        debug(2, `[AI] Stack resolved for game ${gameId}`);
       }
       
       // Check for pending control change activations (Vislor Turlough, Xantcha, etc.)
@@ -4103,7 +4104,7 @@ async function executePassPriority(
       try {
         await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
       } catch (e) {
-        console.warn('[AI] Failed to persist resolveTopOfStack event:', e);
+        debugWarn(1, '[AI] Failed to persist resolveTopOfStack event:', e);
       }
     }
     
@@ -4113,12 +4114,12 @@ async function executePassPriority(
     if (advanceStep) {
       const pendingCheck = checkPendingModals(game, gameId);
       if (pendingCheck.hasPending) {
-        console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
+        debug(1, `[AI] Cannot advance step - ${pendingCheck.reason}`);
       } else {
-        console.info('[AI] All players passed priority with empty stack, advancing step');
+        debug(1, '[AI] All players passed priority with empty stack, advancing step');
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
-          console.log(`[AI] Advanced to next step for game ${gameId}`);
+          debug(2, `[AI] Advanced to next step for game ${gameId}`);
           
           // Check if the new step triggered auto-pass that wants to advance again
           let autoPassLoopCount = 0;
@@ -4133,19 +4134,19 @@ async function executePassPriority(
             if (currentPriority) {
               const priorityPlayer = (game.state as any)?.players?.find((p: any) => p?.id === currentPriority);
               if (priorityPlayer && !priorityPlayer.isAI) {
-                console.log(`[AI] Auto-pass loop stopping - human player ${currentPriority} has priority`);
+                debug(2, `[AI] Auto-pass loop stopping - human player ${currentPriority} has priority`);
                 break;
               }
             }
             
             if (autoPassResult?.allPassed && autoPassResult?.advanceStep) {
-              console.log(`[AI] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
+              debug(2, `[AI] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
               
               delete (game.state as any)._autoPassResult;
               (game as any).nextStep();
               
               const newStep = (game.state as any)?.step || 'unknown';
-              console.log(`[AI] Auto-advanced to ${newStep}`);
+              debug(2, `[AI] Auto-advanced to ${newStep}`);
               
               autoPassLoopCount++;
             } else {
@@ -4154,7 +4155,7 @@ async function executePassPriority(
           }
           
           if (autoPassLoopCount >= MAX_AUTO_PASS_LOOPS) {
-            console.warn(`[AI] Auto-pass loop limit reached, stopping`);
+            debugWarn(2, `[AI] Auto-pass loop limit reached, stopping`);
           }
           
           delete (game.state as any)._autoPassResult;
@@ -4164,7 +4165,7 @@ async function executePassPriority(
         try {
           await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, reason: 'allPlayersPassed' });
         } catch (e) {
-          console.warn('[AI] Failed to persist nextStep event:', e);
+          debugWarn(1, '[AI] Failed to persist nextStep event:', e);
         }
       }
     }
@@ -4177,12 +4178,12 @@ async function executePassPriority(
     if (nextPriority && isAIPlayer(gameId, nextPriority)) {
       // Small delay before AI acts
       setTimeout(() => {
-        handleAIPriority(io, gameId, nextPriority).catch(console.error);
+        handleAIPriority(io, gameId, nextPriority).catch(err => debugError(1, err));
       }, AI_REACTION_DELAY_MS);
     }
     
   } catch (error) {
-    console.error('[AI] Error passing priority:', error);
+    debugError(1, '[AI] Error passing priority:', error);
   }
 }
 
@@ -4198,7 +4199,7 @@ async function executeDeclareAttackers(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Declaring attackers:', { gameId, playerId, attackerIds });
+  debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackerIds });
   
   try {
     if (typeof (game as any).declareAttackers === 'function') {
@@ -4214,7 +4215,7 @@ async function executeDeclareAttackers(
     await executePassPriority(io, gameId, playerId);
     
   } catch (error) {
-    console.error('[AI] Error declaring attackers:', error);
+    debugError(1, '[AI] Error declaring attackers:', error);
     await executePassPriority(io, gameId, playerId);
   }
 }
@@ -4231,7 +4232,7 @@ async function executeDeclareBlockers(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  console.info('[AI] Declaring blockers:', { gameId, playerId, blockers });
+  debug(1, '[AI] Declaring blockers:', { gameId, playerId, blockers });
   
   try {
     if (typeof (game as any).declareBlockers === 'function') {
@@ -4247,7 +4248,7 @@ async function executeDeclareBlockers(
     await executePassPriority(io, gameId, playerId);
     
   } catch (error) {
-    console.error('[AI] Error declaring blockers:', error);
+    debugError(1, '[AI] Error declaring blockers:', error);
     await executePassPriority(io, gameId, playerId);
   }
 }
@@ -4352,7 +4353,7 @@ export async function handleAIMulligan(
     return false;
   }
   
-  console.info('[AI] AI making mulligan decision:', { gameId, playerId });
+  debug(1, '[AI] AI making mulligan decision:', { gameId, playerId });
   
   try {
     // Get the AI's current hand and mulligan state
@@ -4360,7 +4361,7 @@ export async function handleAIMulligan(
     const hand = Array.isArray(zones?.hand) ? zones.hand : [];
     
     if (hand.length === 0) {
-      console.info('[AI] Empty hand, keeping by default');
+      debug(1, '[AI] Empty hand, keeping by default');
       return true; // Empty hand, nothing to mulligan
     }
     
@@ -4409,7 +4410,7 @@ export async function handleAIMulligan(
     const nonLandCount = hand.length - landCount;
     const totalManaProduction = landCount + manaSourceCount; // Effective mana sources
     
-    console.info('[AI] Mulligan analysis:', {
+    debug(1, '[AI] Mulligan analysis:', {
       gameId,
       playerId,
       handSize,
@@ -4426,33 +4427,33 @@ export async function handleAIMulligan(
     // Rule 1: If next mulligan would leave us with 4 or fewer cards, be very conservative
     // Only mulligan truly unplayable hands (0 lands or all lands)
     if (effectiveHandSizeAfterMulligan <= MIN_HAND_SIZE_TO_MULLIGAN) {
-      console.info(`[AI] Next mulligan would result in ${effectiveHandSizeAfterMulligan} cards - being conservative`);
+      debug(1, `[AI] Next mulligan would result in ${effectiveHandSizeAfterMulligan} cards - being conservative`);
       
       // Only mulligan if truly unplayable
       if (landCount === 0) {
-        console.info('[AI] Zero lands with small hand after mulligan - still mulliganing (unplayable)');
+        debug(1, '[AI] Zero lands with small hand after mulligan - still mulliganing (unplayable)');
         return false;
       }
       
       if (nonLandCount === 0) {
-        console.info('[AI] All lands with small hand after mulligan - still mulliganing (no spells)');
+        debug(1, '[AI] All lands with small hand after mulligan - still mulliganing (no spells)');
         return false;
       }
       
       // Otherwise keep - even 1 land is better than going to 4 cards
-      console.info('[AI] Hand is playable, keeping to avoid going to 4 or fewer cards');
+      debug(1, '[AI] Hand is playable, keeping to avoid going to 4 or fewer cards');
       return true;
     }
     
     // Rule 2: Mulligan if zero lands (unplayable hand)
     if (landCount === 0) {
-      console.info('[AI] Zero lands in hand, mulliganing');
+      debug(1, '[AI] Zero lands in hand, mulliganing');
       return false; // Mulligan
     }
     
     // Rule 3: Mulligan if all lands and no spells (unlikely to win)
     if (nonLandCount === 0) {
-      console.info('[AI] All lands in hand, mulliganing');
+      debug(1, '[AI] All lands in hand, mulliganing');
       return false; // Mulligan
     }
     
@@ -4463,15 +4464,15 @@ export async function handleAIMulligan(
       if (manaSourceCount >= 1 && lowCostSpellCount >= 1) {
         // Check if we'd still have a reasonable hand size after mulligan
         if (effectiveHandSizeAfterMulligan >= 6) {
-          console.info('[AI] 1 land but has mana acceleration and low-cost spells, and mulligan cost is low, keeping');
+          debug(1, '[AI] 1 land but has mana acceleration and low-cost spells, and mulligan cost is low, keeping');
           return true; // Keep - can play mana rock/dork turn 1-2
         } else {
           // Hand size after mulligan would be 5 or less - 1 land is risky
-          console.info('[AI] 1 land with acceleration but mulligan cost is high - still too risky, mulliganing');
+          debug(1, '[AI] 1 land with acceleration but mulligan cost is high - still too risky, mulliganing');
           return false;
         }
       }
-      console.info('[AI] Only 1 land without sufficient mana acceleration, mulliganing');
+      debug(1, '[AI] Only 1 land without sufficient mana acceleration, mulliganing');
       return false; // Mulligan
     }
     
@@ -4481,7 +4482,7 @@ export async function handleAIMulligan(
       
       // If effective hand size after mulligan would be 5 or less, be conservative
       if (effectiveHandSizeAfterMulligan <= 5) {
-        console.info('[AI] 2 lands with high mulligan cost (would go to 5 or fewer), keeping');
+        debug(1, '[AI] 2 lands with high mulligan cost (would go to 5 or fewer), keeping');
         return true;
       }
       
@@ -4491,52 +4492,52 @@ export async function handleAIMulligan(
       // - Multiple low-cost spells we can cast
       
       if (manaSourceCount >= 1) {
-        console.info('[AI] 2 lands with mana acceleration, keeping');
+        debug(1, '[AI] 2 lands with mana acceleration, keeping');
         return true; // Keep - 2 lands + rock/dork is playable
       }
       
       if (lowCostSpellCount >= 2) {
-        console.info('[AI] 2 lands with multiple low-cost spells, keeping');
+        debug(1, '[AI] 2 lands with multiple low-cost spells, keeping');
         return true; // Keep - can play early spells
       }
       
       // 2 lands with mostly high-cost spells is risky in a 7-card hand with low mulligan cost
       if (handSize === OPENING_HAND_SIZE && effectiveHandSizeAfterMulligan >= 6 && 
           highCostSpellCount >= 3 && lowCostSpellCount === 0) {
-        console.info('[AI] 2 lands with mostly high-cost spells in opening hand, mulliganing');
+        debug(1, '[AI] 2 lands with mostly high-cost spells in opening hand, mulliganing');
         return false; // Mulligan - hand is too slow
       }
       
       // Otherwise keep 2 lands
-      console.info('[AI] 2 lands, keeping');
+      debug(1, '[AI] 2 lands, keeping');
       return true;
     }
     
     // Rule 6: Keep hands with 3-5 lands (good mana ratio)
     if (landCount >= 3 && landCount <= 5) {
-      console.info('[AI] Hand has good land count (3-5 lands), keeping');
+      debug(1, '[AI] Hand has good land count (3-5 lands), keeping');
       return true;
     }
     
     // Rule 7: Mulligan hands with 6+ lands in opening hand (too flooded)
     // BUT: Only if the mulligan cost is reasonable (would still have 6+ cards)
     if (landCount >= 6 && handSize === OPENING_HAND_SIZE && effectiveHandSizeAfterMulligan >= 6) {
-      console.info('[AI] 6+ lands in opening hand with reasonable mulligan cost, mulliganing');
+      debug(1, '[AI] 6+ lands in opening hand with reasonable mulligan cost, mulliganing');
       return false; // Mulligan
     }
     
     // If we have 6+ lands but mulligan cost is high, keep it
     if (landCount >= 6) {
-      console.info('[AI] 6+ lands but mulligan cost too high, keeping');
+      debug(1, '[AI] 6+ lands but mulligan cost too high, keeping');
       return true;
     }
     
     // Default: keep hand
-    console.info('[AI] Hand evaluation complete, keeping');
+    debug(1, '[AI] Hand evaluation complete, keeping');
     return true;
     
   } catch (error) {
-    console.error('[AI] Error making mulligan decision:', error);
+    debugError(1, '[AI] Error making mulligan decision:', error);
     return true; // Default to keeping hand on error
   }
 }
@@ -4556,23 +4557,23 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     startingLife?: number;
   }) => {
     try {
-      console.info('[Game] Creating game without AI:', { gameId, format, startingLife });
+      debug(1, '[Game] Creating game without AI:', { gameId, format, startingLife });
       
       // Create a NEW game using GameManager.createGame() which handles DB persistence
       let game = GameManager.getGame(gameId);
       if (!game) {
         try {
           game = GameManager.createGame({ id: gameId });
-          console.info('[Game] Created new game via GameManager:', gameId);
+          debug(1, '[Game] Created new game via GameManager:', gameId);
         } catch (createErr: any) {
           // Game might already exist (race condition), try to get it again
           game = GameManager.getGame(gameId);
           if (!game) {
-            console.error('[Game] Failed to create or get game:', createErr);
+            debugError(1, '[Game] Failed to create or get game:', createErr);
             socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
             return;
           }
-          console.info('[Game] Game was created by another request, reusing:', gameId);
+          debug(1, '[Game] Game was created by another request, reusing:', gameId);
         }
       }
       
@@ -4581,9 +4582,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       (game.state as any).format = format || 'commander';
       (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
       
-      console.info('[Game] Game created successfully:', { gameId, format: (game.state as any).format, startingLife: (game.state as any).startingLife });
+      debug(1, '[Game] Game created successfully:', { gameId, format: (game.state as any).format, startingLife: (game.state as any).startingLife });
     } catch (err) {
-      console.error('[Game] Error creating game:', err);
+      debugError(1, '[Game] Error creating game:', err);
       socket.emit('error', { 
         code: 'GAME_CREATE_FAILED', 
         message: err instanceof Error ? err.message : 'Failed to create game' 
@@ -4616,7 +4617,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     aiDeckName?: string;
   }) => {
     try {
-      console.info('[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, aiDifficulty, hasText: !!aiDeckText });
+      debug(1, '[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, aiDifficulty, hasText: !!aiDeckText });
       
       // Create a NEW game using GameManager.createGame() which handles DB persistence
       // This is critical - ensureGame() checks if the game exists in DB first,
@@ -4625,16 +4626,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       if (!game) {
         try {
           game = GameManager.createGame({ id: gameId });
-          console.info('[AI] Created new game via GameManager:', gameId);
+          debug(1, '[AI] Created new game via GameManager:', gameId);
         } catch (createErr: any) {
           // Game might already exist (race condition), try to get it again
           game = GameManager.getGame(gameId);
           if (!game) {
-            console.error('[AI] Failed to create or get game:', createErr);
+            debugError(1, '[AI] Failed to create or get game:', createErr);
             socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
             return;
           }
-          console.info('[AI] Game was created by another request, reusing:', gameId);
+          debug(1, '[AI] Game was created by another request, reusing:', gameId);
         }
       }
       
@@ -4657,9 +4658,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           const aiSocketId = `ai_socket_${Date.now().toString(36)}`;
           joinResult = (game as any).join(aiSocketId, aiPlayerName, false);
           aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}`;
-          console.info('[AI] AI player joined game via game.join():', { aiPlayerId, aiPlayerName });
+          debug(1, '[AI] AI player joined game via game.join():', { aiPlayerId, aiPlayerName });
         } catch (err) {
-          console.warn('[AI] game.join failed for AI, using fallback:', err);
+          debugWarn(1, '[AI] game.join failed for AI, using fallback:', err);
           aiPlayerId = `ai_${Date.now().toString(36)}`;
         }
       } else {
@@ -4687,9 +4688,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         try {
           deckEntries = parseDecklist(aiDeckText);
           finalDeckName = aiDeckName || 'Imported Deck';
-          console.info('[AI] Using imported deck text:', { deckName: finalDeckName, entryCount: deckEntries.length });
+          debug(1, '[AI] Using imported deck text:', { deckName: finalDeckName, entryCount: deckEntries.length });
         } catch (e) {
-          console.warn('[AI] Failed to parse deck text:', e);
+          debugWarn(1, '[AI] Failed to parse deck text:', e);
           deckLoadError = 'Failed to parse deck text';
         }
       }
@@ -4700,14 +4701,14 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           if (deck && deck.entries && deck.entries.length > 0) {
             deckEntries = deck.entries;
             finalDeckName = deck.name;
-            console.info('[AI] Loading deck for AI:', { deckId: aiDeckId, deckName: deck.name, cardCount: deck.card_count });
+            debug(1, '[AI] Loading deck for AI:', { deckId: aiDeckId, deckName: deck.name, cardCount: deck.card_count });
           } else {
             deckLoadError = `Deck with ID "${aiDeckId}" not found or is empty`;
-            console.warn('[AI] Deck not found:', { deckId: aiDeckId, error: deckLoadError });
+            debugWarn(1, '[AI] Deck not found:', { deckId: aiDeckId, error: deckLoadError });
           }
         } catch (e) {
           deckLoadError = `Failed to load deck "${aiDeckId}": ${e instanceof Error ? e.message : String(e)}`;
-          console.error('[AI] Error loading deck for AI:', { deckId: aiDeckId, error: e });
+          debugError(1, '[AI] Error loading deck for AI:', { deckId: aiDeckId, error: e });
         }
       }
       
@@ -4719,7 +4720,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         try {
           byName = await fetchCardsByExactNamesBatch(requestedNames);
         } catch (e) {
-          console.warn('[AI] Failed to fetch cards from Scryfall:', e);
+          debugWarn(1, '[AI] Failed to fetch cards from Scryfall:', e);
         }
         
         const resolvedCards: any[] = [];
@@ -4762,7 +4763,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           // This is critical for shuffle/draw operations to work correctly
           if (typeof (game as any).importDeckResolved === 'function') {
             (game as any).importDeckResolved(aiPlayerId, resolvedCards);
-            console.info('[AI] Deck imported via importDeckResolved for AI:', { 
+            debug(1, '[AI] Deck imported via importDeckResolved for AI:', { 
               aiPlayerId, 
               deckName: finalDeckName, 
               resolvedCount: resolvedCards.length,
@@ -4774,13 +4775,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 playerId: aiPlayerId,
                 cards: resolvedCards,
               });
-              console.info('[AI] Persisted deckImportResolved event for AI:', { aiPlayerId, cardCount: resolvedCards.length });
+              debug(1, '[AI] Persisted deckImportResolved event for AI:', { aiPlayerId, cardCount: resolvedCards.length });
             } catch (e) {
-              console.warn('[AI] Failed to persist deckImportResolved event:', e);
+              debugWarn(1, '[AI] Failed to persist deckImportResolved event:', e);
             }
           } else {
             // Fallback: manually initialize zones (this may cause issues with shuffle/draw)
-            console.warn('[AI] importDeckResolved not available, using fallback zone initialization');
+            debugWarn(2, '[AI] importDeckResolved not available, using fallback zone initialization');
             game.state.zones = game.state.zones || {};
             (game.state.zones as any)[aiPlayerId] = {
               hand: [],
@@ -4799,7 +4800,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             playerInState.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
           }
           
-          console.info('[AI] Deck resolved for AI:', { 
+          debug(1, '[AI] Deck resolved for AI:', { 
             aiPlayerId, 
             deckName: finalDeckName, 
             resolvedCount: resolvedCards.length,
@@ -4807,11 +4808,11 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           });
           
           if (missing.length > 0) {
-            console.warn('[AI] Missing cards in AI deck:', missing.slice(0, 10));
+            debugWarn(2, '[AI] Missing cards in AI deck:', missing.slice(0, 10));
           }
         } else {
           deckLoadError = `No cards could be resolved from deck "${finalDeckName}"`;
-          console.warn('[AI] No cards resolved:', { error: deckLoadError });
+          debugWarn(1, '[AI] No cards resolved:', { error: deckLoadError });
         }
       }
       
@@ -4833,7 +4834,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           deckLoaded,
         });
       } catch (e) {
-        console.warn('[AI] Failed to persist AI join event:', e);
+        debugWarn(1, '[AI] Failed to persist AI join event:', e);
       }
       
       // Emit success
@@ -4851,20 +4852,20 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       // If deck was loaded, trigger auto-commander selection
       if (deckLoaded) {
-        console.info('[AI] Triggering auto-commander selection for AI:', { gameId, aiPlayerId });
+        debug(1, '[AI] Triggering auto-commander selection for AI:', { gameId, aiPlayerId });
         
         // Small delay to ensure state is propagated
         setTimeout(async () => {
           try {
             await handleAIGameFlow(io, gameId, aiPlayerId);
           } catch (e) {
-            console.error('[AI] Error in AI game flow after deck load:', e);
+            debugError(1, '[AI] Error in AI game flow after deck load:', e);
           }
         }, AI_THINK_TIME_MS);
       }
       
     } catch (error) {
-      console.error('[AI] Error creating game with AI:', error);
+      debugError(1, '[AI] Error creating game with AI:', error);
       socket.emit('error', { code: 'AI_CREATE_FAILED', message: 'Failed to create AI opponent' });
     }
   });
@@ -4891,7 +4892,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     }>;
   }) => {
     try {
-      console.info('[AI] Creating game with multiple AI opponents:', { 
+      debug(1, '[AI] Creating game with multiple AI opponents:', { 
         gameId, 
         playerName, 
         aiCount: aiOpponents.length,
@@ -4906,16 +4907,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       if (!game) {
         try {
           game = GameManager.createGame({ id: gameId });
-          console.info('[AI] Created new game via GameManager:', gameId);
+          debug(1, '[AI] Created new game via GameManager:', gameId);
         } catch (createErr: any) {
           // Game might already exist (race condition), try to get it again
           game = GameManager.getGame(gameId);
           if (!game) {
-            console.error('[AI] Failed to create or get game:', createErr);
+            debugError(1, '[AI] Failed to create or get game:', createErr);
             socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
             return;
           }
-          console.info('[AI] Game was created by another request, reusing:', gameId);
+          debug(1, '[AI] Game was created by another request, reusing:', gameId);
         }
       }
       
@@ -4945,9 +4946,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             const aiSocketId = `ai_socket_${Date.now().toString(36)}_${i}`;
             joinResult = (game as any).join(aiSocketId, aiName, false);
             aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}_${i}`;
-            console.info(`[AI] AI player joined game via game.join():`, { aiPlayerId, aiName });
+            debug(1, `[AI] AI player joined game via game.join():`, { aiPlayerId, aiName });
           } catch (err) {
-            console.warn(`[AI] game.join failed for ${aiName}, using fallback:`, err);
+            debugWarn(1, `[AI] game.join failed for ${aiName}, using fallback:`, err);
             aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
           }
         } else {
@@ -4973,9 +4974,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           try {
             deckEntries = parseDecklist(aiConfig.deckText);
             finalDeckName = aiConfig.deckName || 'Imported Deck';
-            console.info(`[AI] Using imported deck text for ${aiName}:`, { deckName: finalDeckName, entryCount: deckEntries.length });
+            debug(1, `[AI] Using imported deck text for ${aiName}:`, { deckName: finalDeckName, entryCount: deckEntries.length });
           } catch (e) {
-            console.warn(`[AI] Failed to parse deck text for ${aiName}:`, e);
+            debugWarn(1, `[AI] Failed to parse deck text for ${aiName}:`, e);
           }
         }
         // Priority 2: Use deckId if provided (select mode)
@@ -4985,12 +4986,12 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             if (deck && deck.entries && deck.entries.length > 0) {
               deckEntries = deck.entries;
               finalDeckName = deck.name;
-              console.info(`[AI] Loading deck for ${aiName}:`, { deckId: aiConfig.deckId, deckName: deck.name });
+              debug(1, `[AI] Loading deck for ${aiName}:`, { deckId: aiConfig.deckId, deckName: deck.name });
             } else {
-              console.warn(`[AI] Deck not found for ${aiName}:`, { deckId: aiConfig.deckId });
+              debugWarn(2, `[AI] Deck not found for ${aiName}:`, { deckId: aiConfig.deckId });
             }
           } catch (e) {
-            console.error(`[AI] Error loading deck for ${aiName}:`, { deckId: aiConfig.deckId, error: e });
+            debugError(1, `[AI] Error loading deck for ${aiName}:`, { deckId: aiConfig.deckId, error: e });
           }
         }
         
@@ -5002,7 +5003,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           try {
             byName = await fetchCardsByExactNamesBatch(requestedNames);
           } catch (e) {
-            console.warn(`[AI] Failed to fetch cards from Scryfall for ${aiName}:`, e);
+            debugWarn(1, `[AI] Failed to fetch cards from Scryfall for ${aiName}:`, e);
           }
           
           const resolvedCards: any[] = [];
@@ -5034,7 +5035,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             
             if (typeof (game as any).importDeckResolved === 'function') {
               (game as any).importDeckResolved(aiPlayerId, resolvedCards);
-              console.info(`[AI] Deck imported for ${aiName}:`, { 
+              debug(1, `[AI] Deck imported for ${aiName}:`, { 
                 aiPlayerId, 
                 deckName: finalDeckName, 
                 resolvedCount: resolvedCards.length,
@@ -5046,12 +5047,12 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                   playerId: aiPlayerId,
                   cards: resolvedCards,
                 });
-                console.info(`[AI] Persisted deckImportResolved event for ${aiName}:`, { aiPlayerId, cardCount: resolvedCards.length });
+                debug(1, `[AI] Persisted deckImportResolved event for ${aiName}:`, { aiPlayerId, cardCount: resolvedCards.length });
               } catch (e) {
-                console.warn(`[AI] Failed to persist deckImportResolved event for ${aiName}:`, e);
+                debugWarn(1, `[AI] Failed to persist deckImportResolved event for ${aiName}:`, e);
               }
             } else {
-              console.warn(`[AI] importDeckResolved not available for ${aiName}, using fallback`);
+              debugWarn(2, `[AI] importDeckResolved not available for ${aiName}, using fallback`);
               game.state.zones = game.state.zones || {};
               (game.state.zones as any)[aiPlayerId] = {
                 hand: [],
@@ -5096,7 +5097,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             deckLoaded,
           });
         } catch (e) {
-          console.warn(`[AI] Failed to persist AI join event for ${aiName}:`, e);
+          debugWarn(1, `[AI] Failed to persist AI join event for ${aiName}:`, e);
         }
       }
       
@@ -5114,20 +5115,20 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // Trigger auto-commander selection for all AI players with decks
       createdAIPlayers.forEach((aiPlayer, index) => {
         if (aiPlayer.deckLoaded) {
-          console.info('[AI] Triggering auto-commander selection for:', { gameId, aiPlayerId: aiPlayer.playerId });
+          debug(1, '[AI] Triggering auto-commander selection for:', { gameId, aiPlayerId: aiPlayer.playerId });
           
           setTimeout(async () => {
             try {
               await handleAIGameFlow(io, gameId, aiPlayer.playerId);
             } catch (e) {
-              console.error(`[AI] Error in AI game flow for ${aiPlayer.name}:`, e);
+              debugError(1, `[AI] Error in AI game flow for ${aiPlayer.name}:`, e);
             }
           }, AI_THINK_TIME_MS * (index + 1)); // Stagger delays
         }
       });
       
     } catch (error) {
-      console.error('[AI] Error creating game with multiple AI opponents:', error);
+      debugError(1, '[AI] Error creating game with multiple AI opponents:', error);
       socket.emit('error', { code: 'AI_CREATE_FAILED', message: 'Failed to create AI opponents' });
     }
   });
@@ -5176,7 +5177,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (error) {
-      console.error('[AI] Error adding AI to game:', error);
+      debugError(1, '[AI] Error adding AI to game:', error);
       socket.emit('error', { code: 'AI_ADD_FAILED', message: 'Failed to add AI opponent' });
     }
   });
@@ -5187,7 +5188,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const decks = listDecks();
       socket.emit('decksForAI', { decks });
     } catch (error) {
-      console.error('[AI] Error listing decks for AI:', error);
+      debugError(1, '[AI] Error listing decks for AI:', error);
       socket.emit('decksForAI', { decks: [], error: 'Failed to list decks' });
     }
   });
@@ -5219,7 +5220,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (error) {
-      console.error('[AI] Error removing AI from game:', error);
+      debugError(1, '[AI] Error removing AI from game:', error);
       socket.emit('error', { code: 'AI_REMOVE_FAILED', message: 'Failed to remove AI opponent' });
     }
   });
@@ -5272,7 +5273,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         (playerInGame as any).aiStrategy = aiStrategy;
         (playerInGame as any).aiDifficulty = aiDifficulty;
         
-        console.info('[AI] AI control enabled for player:', { gameId, playerId, strategy: aiStrategy, difficulty: aiDifficulty });
+        debug(1, '[AI] AI control enabled for player:', { gameId, playerId, strategy: aiStrategy, difficulty: aiDifficulty });
         
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -5298,7 +5299,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         delete (playerInGame as any).aiStrategy;
         delete (playerInGame as any).aiDifficulty;
         
-        console.info('[AI] AI control disabled for player:', { gameId, playerId });
+        debug(1, '[AI] AI control disabled for player:', { gameId, playerId });
         
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -5326,7 +5327,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (error) {
-      console.error('[AI] Error toggling AI control:', error);
+      debugError(1, '[AI] Error toggling AI control:', error);
       socket.emit('error', { code: 'AI_TOGGLE_FAILED', message: 'Failed to toggle AI control' });
     }
   });
@@ -5356,7 +5357,7 @@ export function cleanupGameAI(gameId: string): void {
       aiEngine.unregisterAI(playerId);
     }
     aiPlayers.delete(gameId);
-    console.info('[AI] Cleaned up AI players for game:', gameId);
+    debug(1, '[AI] Cleaned up AI players for game:', gameId);
   }
 }
 
@@ -5425,7 +5426,7 @@ async function handlePendingLibrarySearchAfterResolution(
       
       if (isAIPlayer(gameId, playerId)) {
         // AI player: auto-select the best card based on criteria
-        console.log(`[AI] Auto-selecting card from library for tutor: ${info.source || 'tutor'}`);
+        debug(2, `[AI] Auto-selecting card from library for tutor: ${info.source || 'tutor'}`);
         
         // Filter library based on search criteria
         let validCards = library;
@@ -5521,10 +5522,10 @@ async function handlePendingLibrarySearchAfterResolution(
             }
             
             const cardNames = selectedCards.map((c: any) => c.name || c.id).join(', ');
-            console.log(`[AI] Selected ${selectedCards.length} card(s) from library: ${cardNames} (${info.source || 'tutor'})`);
+            debug(2, `[AI] Selected ${selectedCards.length} card(s) from library: ${cardNames} (${info.source || 'tutor'})`);
           }
         } else {
-          console.log(`[AI] No valid cards found in library for ${info.source || 'tutor'}`);
+          debug(2, `[AI] No valid cards found in library for ${info.source || 'tutor'}`);
           
           // Even if no cards found, still shuffle if requested
           if (info.shuffleAfter && typeof game.shuffleLibrary === 'function') {
@@ -5561,7 +5562,7 @@ async function handlePendingLibrarySearchAfterResolution(
           io.to(gameId).emit("librarySearchRequest", searchRequest);
         }
         
-        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}`);
+        debug(2, `[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}`);
       }
     }
     
@@ -5570,7 +5571,7 @@ async function handlePendingLibrarySearchAfterResolution(
     // Human player entries are cleared when they respond via librarySearchSelect/Cancel handlers.
     
   } catch (err) {
-    console.warn('[handlePendingLibrarySearchAfterResolution] Error:', err);
+    debugWarn(1, '[handlePendingLibrarySearchAfterResolution] Error:', err);
   }
 }
 
@@ -5600,7 +5601,7 @@ async function handlePendingControlChangesAfterResolution(
       // Only handle AI players
       if (!isAIPlayer(gameId, playerId)) continue;
       
-      console.log(`[AI] Handling pending control change for ${pending.cardName} (activation: ${activationId})`);
+      debug(2, `[AI] Handling pending control change for ${pending.cardName} (activation: ${activationId})`);
       
       // Find the permanent on battlefield
       const permanent = game.state.battlefield?.find((p: any) => p?.id === pending.permanentId);
@@ -5630,7 +5631,7 @@ async function handlePendingControlChangesAfterResolution(
         if (!shouldGiveControl) {
           // AI declines to give control
           delete pendingActivations[activationId];
-          console.log(`[AI] Declined to give control of ${pending.cardName}`);
+          debug(2, `[AI] Declined to give control of ${pending.cardName}`);
           continue;
         }
       }
@@ -5670,7 +5671,7 @@ async function handlePendingControlChangesAfterResolution(
         ts: Date.now(),
       });
       
-      console.log(`[AI] Auto-gave control of ${pending.cardName} to ${randomOpponent.name || randomOpponent.id}`);
+      debug(2, `[AI] Auto-gave control of ${pending.cardName} to ${randomOpponent.name || randomOpponent.id}`);
       
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
@@ -5679,7 +5680,7 @@ async function handlePendingControlChangesAfterResolution(
     
     broadcastGame(io, game, gameId);
   } catch (err) {
-    console.warn('[handlePendingControlChangesAfterResolution] Error:', err);
+    debugWarn(1, '[handlePendingControlChangesAfterResolution] Error:', err);
   }
 }
 
@@ -5690,3 +5691,5 @@ function getPlayerName(game: any, playerId: string): string {
   const player = game.state?.players?.find((p: any) => p?.id === playerId);
   return player?.name || playerId;
 }
+
+

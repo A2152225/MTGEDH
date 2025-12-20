@@ -15,6 +15,7 @@ import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
+import { debug, debugWarn, debugError } from "./utils/debug.js";
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
 
@@ -396,7 +397,7 @@ class GameManagerClass {
       }
       return count;
     } catch (e) {
-      console.warn(`[GameManager] getActiveConnectionsCount failed for ${gameId}:`, e);
+      debugWarn(1, `[GameManager] getActiveConnectionsCount failed for ${gameId}:`, e);
       return 0;
     }
   }
@@ -452,11 +453,11 @@ class GameManagerClass {
     // Always prefer createInitialGameState for commander games to get full engine support
     try {
       game = createInitialGameState(id);
-      console.log(
+      debug(2, 
         `[GameManager] Created game ${id} using full rules engine (createInitialGameState)`
       );
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         `[GameManager] createInitialGameState failed for ${id}, falling back to MinimalGameAdapter:`,
         e
       );
@@ -481,7 +482,7 @@ class GameManagerClass {
           : 40;
       createGameIfNotExists(id, fmt, life);
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         "[GameManager] createGame: createGameIfNotExists failed (non-fatal)",
         e
       );
@@ -520,7 +521,7 @@ class GameManagerClass {
     // This prevents re-creating games that were previously deleted.
     // If the game doesn't exist in the database, don't create a new one.
     if (!gameExistsInDb(gameId)) {
-      console.info(
+      debug(1, 
         `[GameManager] ensureGame: game ${gameId} does not exist in database, not recreating (may have been deleted)`
       );
       return undefined;
@@ -531,11 +532,11 @@ class GameManagerClass {
     // Always use createInitialGameState for commander games to get full engine support
     try {
       game = createInitialGameState(gameId);
-      console.log(
+      debug(2, 
         `[GameManager] Ensured game ${gameId} using full rules engine (createInitialGameState)`
       );
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         `[GameManager] createInitialGameState failed for ${gameId}, falling back to MinimalGameAdapter:`,
         e
       );
@@ -560,7 +561,7 @@ class GameManagerClass {
           );
           try {
             game.replay(replayEvents as any);
-            console.info(
+            debug(1, 
               "[GameManager] ensureGame: replayed persisted events",
               {
                 gameId,
@@ -568,20 +569,20 @@ class GameManagerClass {
               }
             );
           } catch (replayErr) {
-            console.warn(
+            debugWarn(1, 
               "[GameManager] ensureGame: replay failed (non-fatal)",
               replayErr
             );
           }
         } else {
-          console.warn(
+          debugWarn(1, 
             "[GameManager] ensureGame: game.replay is not a function; skipping event replay",
             { gameId }
           );
         }
       }
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         "[GameManager] ensureGame: getEvents/replay failed (non-fatal)",
         e
       );
@@ -595,9 +596,9 @@ class GameManagerClass {
         const bridge = createRulesBridge(gameId, this.ioServer);
         bridge.initialize(game.state);
         this.rulesBridges.set(gameId, bridge);
-        console.log(`[GameManager] RulesBridge initialized for game ${gameId}`);
+        debug(2, `[GameManager] RulesBridge initialized for game ${gameId}`);
       } catch (e) {
-        console.warn(`[GameManager] RulesBridge initialization failed for ${gameId}:`, e);
+        debugWarn(1, `[GameManager] RulesBridge initialization failed for ${gameId}:`, e);
       }
     }
 
@@ -631,7 +632,7 @@ class GameManagerClass {
         }
       }
     } catch (e) {
-      console.warn("GameManager.resetGame: underlying reset failed", e);
+      debugWarn(1, "GameManager.resetGame: underlying reset failed", e);
       game.state = game.state || {};
     }
     try {
@@ -659,3 +660,4 @@ class GameManagerClass {
 
 export const GameManager = new GameManagerClass();
 export default GameManager;
+

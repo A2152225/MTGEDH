@@ -15,6 +15,7 @@ import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from ".
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 
 // Import land-related helpers from modularized module
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 import {
   SHOCK_LANDS,
   BOUNCE_LANDS,
@@ -103,7 +104,7 @@ function getMaxHandSizeForPlayer(gameState: any, playerId: string): number {
     // Default maximum hand size
     return 7;
   } catch (err) {
-    console.warn("[getMaxHandSizeForPlayer] Error:", err);
+    debugWarn(1, "[getMaxHandSizeForPlayer] Error:", err);
     return 7;
   }
 }
@@ -153,7 +154,7 @@ function checkAllHumanPlayersMulliganed(game: any): boolean {
     
     return true;
   } catch (err) {
-    console.warn("checkAllHumanPlayersMulliganed failed:", err);
+    debugWarn(1, "checkAllHumanPlayersMulliganed failed:", err);
     return false;
   }
 }
@@ -188,13 +189,13 @@ function calculateEffectiveMulliganCount(
   // The house rule flag is kept for backward compatibility but is no longer required
   if (isMultiplayer && actualMulligans >= 1) {
     effectiveCount = Math.max(0, actualMulligans - 1);
-    console.log(`[mulligan] Free first mulligan applied for ${playerId} (multiplayer baseline): ${actualMulligans} -> ${effectiveCount}`);
+    debug(1, `[mulligan] Free first mulligan applied for ${playerId} (multiplayer baseline): ${actualMulligans} -> ${effectiveCount}`);
   }
   
   // Group mulligan discount: if enabled and all human players mulliganed, reduce by 1
   if (houseRules.groupMulliganDiscount && checkAllHumanPlayersMulliganed(game)) {
     effectiveCount = Math.max(0, effectiveCount - 1);
-    console.log(`[mulligan] Group mulligan discount applied for ${playerId}: effective count now ${effectiveCount}`);
+    debug(1, `[mulligan] Group mulligan discount applied for ${playerId}: effective count now ${effectiveCount}`);
   }
   
   return effectiveCount;
@@ -247,7 +248,7 @@ function checkAllPlayersKeptHands(game: any): { allKept: boolean; waitingPlayers
       waitingPlayers,
     };
   } catch (err) {
-    console.warn("checkAllPlayersKeptHands failed:", err);
+    debugWarn(1, "checkAllPlayersKeptHands failed:", err);
     return { allKept: false, waitingPlayers: [] };
   }
 }
@@ -286,7 +287,7 @@ function checkAllPlayersHaveDecks(game: any): { allHaveDecks: boolean; waitingPl
       waitingPlayers,
     };
   } catch (err) {
-    console.warn("checkAllPlayersHaveDecks failed:", err);
+    debugWarn(1, "checkAllPlayersHaveDecks failed:", err);
     return { allHaveDecks: false, waitingPlayers: [] };
   }
 }
@@ -326,7 +327,7 @@ function checkCreatureTypeSelectionForNewPermanents(
         reason
       );
       
-      console.log(`[game-actions] Requesting creature type selection for ${cardName} (${permanentId}) from ${controller}`);
+      debug(2, `[game-actions] Requesting creature type selection for ${cardName} (${permanentId}) from ${controller}`);
     }
   }
 }
@@ -366,7 +367,7 @@ function checkColorChoiceForNewPermanents(
         permanentId
       );
       
-      console.log(`[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
+      debug(2, `[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
     }
   }
 }
@@ -419,7 +420,7 @@ function checkEnchantmentETBTriggers(
           putRestOnBottom: true,
         });
         
-        console.log(`[game-actions] Growing Rites of Itlimoc ETB trigger for ${controller}`);
+        debug(2, `[game-actions] Growing Rites of Itlimoc ETB trigger for ${controller}`);
       }
     }
     
@@ -446,7 +447,7 @@ function checkEnchantmentETBTriggers(
           shuffleAfter: true,
         });
         
-        console.log(`[game-actions] Casal, Lurkwood Pathfinder ETB trigger for ${controller}`);
+        debug(2, `[game-actions] Casal, Lurkwood Pathfinder ETB trigger for ${controller}`);
       }
     }
   }
@@ -893,11 +894,11 @@ export function calculateCostReduction(
     
     // Log total reduction
     if (reduction.messages.length > 0) {
-      console.log(`[costReduction] ${cardName}: ${reduction.messages.join(", ")}`);
+      debug(1, `[costReduction] ${cardName}: ${reduction.messages.join(", ")}`);
     }
     
   } catch (err) {
-    console.warn("[costReduction] Error calculating cost reduction:", err);
+    debugWarn(1, "[costReduction] Error calculating cost reduction:", err);
   }
   
   return reduction;
@@ -978,7 +979,7 @@ export function calculateConvokeOptions(
       );
     }
   } catch (error) {
-    console.error("[calculateConvokeOptions] Error:", error);
+    debugError(1, "[calculateConvokeOptions] Error:", error);
   }
 
   return options;
@@ -1411,7 +1412,7 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
     
     return false;
   } catch (err) {
-    console.warn('[creatureHasHaste] Error checking haste:', err);
+    debugWarn(1, '[creatureHasHaste] Error checking haste:', err);
     return false;
   }
 }
@@ -1537,7 +1538,7 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
     
     return false;
   } catch (err) {
-    console.warn(`[permanentHasKeyword] Error checking ${keyword}:`, err);
+    debugWarn(1, `[permanentHasKeyword] Error checking ${keyword}:`, err);
     return false;
   }
 }
@@ -1605,7 +1606,7 @@ function checkAndPromptMiracle(
   const cardName = firstCard.name || "Unknown Card";
   const cardImageUrl = firstCard.image_uris?.small || firstCard.image_uris?.normal;
   
-  console.log(`[miracle] ${cardName} was drawn as first card this turn - prompting for miracle cost ${miracleCost}`);
+  debug(2, `[miracle] ${cardName} was drawn as first card this turn - prompting for miracle cost ${miracleCost}`);
   
   emitToPlayer(io, playerId, "miraclePrompt", {
     gameId,
@@ -1631,7 +1632,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Dynamically calculate max lands per turn from battlefield effects
       // This ensures we always have the current value from Exploration, Azusa, Ghirapur Orrery, etc.
       const maxLands = calculateMaxLandsPerTurn(game as any, playerId);
-      console.log(`[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
+      debug(2, `[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
       if (landsPlayed >= maxLands) {
         socket.emit("error", {
           code: "LAND_LIMIT_REACHED",
@@ -1649,7 +1650,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const cardName = (cardInHand as any)?.name || "";
       const cardImageUrl = (cardInHand as any)?.image_uris?.small || (cardInHand as any)?.image_uris?.normal;
       if (!cardInHand) {
-        console.warn(`[playLand] Card ${cardId} not found in hand for player ${playerId}`);
+        debugWarn(2, `[playLand] Card ${cardId} not found in hand for player ${playerId}`);
         socket.emit("error", {
           code: "CARD_NOT_IN_HAND",
           message: "Card not found in hand. It may have already been played or moved.",
@@ -1706,7 +1707,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId: `mdfc_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[playLand] Requesting MDFC face selection for ${cardName}`);
+          debug(2, `[playLand] Requesting MDFC face selection for ${cardName}`);
           return; // Wait for face selection
         } else {
           // Neither face is a land - shouldn't happen in playLand flow
@@ -1731,7 +1732,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             (cardInHand as any).image_uris = selectedCardFace.image_uris;
           }
           (cardInHand as any).selectedMDFCFace = selectedFace;
-          console.log(`[playLand] Playing MDFC ${cardName} as ${selectedCardFace.name} (face ${selectedFace})`);
+          debug(2, `[playLand] Playing MDFC ${cardName} as ${selectedCardFace.name} (face ${selectedFace})`);
         }
       }
       
@@ -1739,7 +1740,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const typeLine = (cardInHand as any)?.type_line || "";
       const isLand = /\bland\b/i.test(typeLine);
       if (!isLand) {
-        console.warn(`[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
+        debugWarn(2, `[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
         socket.emit("error", {
           code: "NOT_A_LAND",
           message: `${cardName || "This card"} is not a land and cannot be played with playLand.`,
@@ -1788,7 +1789,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           game.playLand(playerId, cardId);
         }
       } catch (e) {
-        console.warn('Legacy playLand failed:', e);
+        debugWarn(1, 'Legacy playLand failed:', e);
       }
       
       // Persist the event to DB with full card data for reliable replay after server restart
@@ -1802,7 +1803,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: cardInHand
         });
       } catch (e) {
-        console.warn('appendEvent(playLand) failed:', e);
+        debugWarn(1, 'appendEvent(playLand) failed:', e);
       }
 
       // Check if this is a shock land and prompt the player
@@ -1846,7 +1847,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         if (etbPattern === 'always' && permanent && !permanent.tapped) {
           permanent.tapped = true;
-          console.log(`[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
+          debug(2, `[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
         } else if (etbPattern === 'conditional' && permanent) {
           // Evaluate the conditional ETB tapped pattern
           // Count OTHER lands (not including this one)
@@ -1913,7 +1914,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             );
           }
           
-          console.log(`[playLand] ${cardName} conditional ETB: ${evaluation.reason}`);
+          debug(2, `[playLand] ${cardName} conditional ETB: ${evaluation.reason}`);
           
           if (evaluation.requiresRevealPrompt && evaluation.canReveal) {
             // Land can be revealed - prompt the player
@@ -1946,7 +1947,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const scryAmount = detectScryOnETB(oracleText);
       if (scryAmount && scryAmount > 0) {
         // Emit scry prompt to the player
-        console.log(`[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
+        debug(2, `[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -1986,7 +1987,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             sacrificeCost,
             cardImageUrl
           );
-          console.log(`[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
+          debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
         }
       }
 
@@ -2005,9 +2006,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // the stack and allow priority to pass before land selection
       // ========================================================================
       try {
-        console.log(`[playLand] Checking if ${cardName} is a bounce land: ${isBounceLand(cardName)}`);
+        debug(2, `[playLand] Checking if ${cardName} is a bounce land: ${isBounceLand(cardName)}`);
         if (isBounceLand(cardName)) {
-          console.log(`[playLand] ${cardName} IS a bounce land, looking for permanent on battlefield`);
+          debug(2, `[playLand] ${cardName} IS a bounce land, looking for permanent on battlefield`);
           // Find the permanent that was just played
           const battlefield = game.state?.battlefield || [];
           const bounceLandPerm = battlefield.find((p: any) => 
@@ -2015,7 +2016,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             p.controller === playerId
           );
           
-          console.log(`[playLand] Found bounce land permanent: ${!!bounceLandPerm}, permanentId: ${bounceLandPerm?.id}`);
+          debug(2, `[playLand] Found bounce land permanent: ${!!bounceLandPerm}, permanentId: ${bounceLandPerm?.id}`);
           
           if (bounceLandPerm) {
             // Mark it as tapped (bounce lands always enter tapped)
@@ -2023,12 +2024,12 @@ export function registerGameActions(io: Server, socket: Socket) {
             
             // Detect the ETB trigger from the land's oracle text
             const etbTriggers = detectETBTriggers(cardInHand, bounceLandPerm);
-            console.log(`[playLand] detectETBTriggers returned ${etbTriggers.length} triggers for ${cardName}`);
+            debug(2, `[playLand] detectETBTriggers returned ${etbTriggers.length} triggers for ${cardName}`);
             const bounceTrigger = etbTriggers.find(t => t.triggerType === 'etb_bounce_land');
-            console.log(`[playLand] Found bounce trigger: ${!!bounceTrigger}, trigger: ${JSON.stringify(bounceTrigger)}`);
+            debug(2, `[playLand] Found bounce trigger: ${!!bounceTrigger}, trigger: ${JSON.stringify(bounceTrigger)}`);
             
             if (bounceTrigger) {
-              console.log(`[playLand] Found bounce land ETB trigger for ${cardName}`);
+              debug(2, `[playLand] Found bounce land ETB trigger for ${cardName}`);
               
               // Initialize stack if needed
               (game.state as any).stack = (game.state as any).stack || [];
@@ -2049,7 +2050,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 requiresChoice: true,
               });
               
-              console.log(`[playLand] ⚡ Pushed bounce land ETB trigger onto stack: ${cardName} - ${bounceTrigger.effect}`);
+              debug(2, `[playLand] ⚡ Pushed bounce land ETB trigger onto stack: ${cardName} - ${bounceTrigger.effect}`);
               
               // Emit chat message about the trigger
               io.to(gameId).emit("chat", {
@@ -2065,14 +2066,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                 (game.state as any).priority = (game.state as any).turnPlayer || playerId;
               }
             } else {
-              console.warn(`[playLand] No bounce trigger found for ${cardName} despite being a bounce land!`);
+              debugWarn(2, `[playLand] No bounce trigger found for ${cardName} despite being a bounce land!`);
             }
           } else {
-            console.warn(`[playLand] Could not find bounce land permanent on battlefield for ${cardName}`);
+            debugWarn(2, `[playLand] Could not find bounce land permanent on battlefield for ${cardName}`);
           }
         }
       } catch (err) {
-        console.warn(`[playLand] Failed to process bounce land ETB trigger:`, err);
+        debugWarn(1, `[playLand] Failed to process bounce land ETB trigger:`, err);
       }
 
       // ========================================================================
@@ -2082,7 +2083,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         const landfallTriggers = getLandfallTriggers(game as any, playerId as string);
         if (landfallTriggers.length > 0) {
-          console.log(`[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
+          debug(2, `[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
           
           // Initialize stack if needed
           (game.state as any).stack = (game.state as any).stack || [];
@@ -2108,7 +2109,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               isModal: trigger.isModal,
               modalOptions: trigger.modalOptions,
             });
-            console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
+            debug(2, `[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
             
             // Emit chat message about the trigger
             io.to(gameId).emit("chat", {
@@ -2126,12 +2127,12 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
       } catch (err) {
-        console.warn(`[playLand] Failed to process landfall triggers:`, err);
+        debugWarn(1, `[playLand] Failed to process landfall triggers:`, err);
       }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`playLand error for game ${gameId}:`, err);
+      debugError(1, `playLand error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "PLAY_LAND_ERROR",
         message: err?.message ?? String(err),
@@ -2147,17 +2148,17 @@ export function registerGameActions(io: Server, socket: Socket) {
   // =====================================================================
   socket.on("requestCastSpell", ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
     try {
-      console.log(`[requestCastSpell] ======== REQUEST START ========`);
-      console.log(`[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
+      debug(2, `[requestCastSpell] ======== REQUEST START ========`);
+      debug(2, `[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
       
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) {
-        console.log(`[requestCastSpell] ERROR: game or playerId not found`);
+        debug(1, `[requestCastSpell] ERROR: game or playerId not found`);
         return;
       }
       
-      console.log(`[requestCastSpell] playerId: ${playerId}, priority: ${game.state.priority}`);
+      debug(2, `[requestCastSpell] playerId: ${playerId}, priority: ${game.state.priority}`);
 
       // Basic validation (same as castSpellFromHand)
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
@@ -2339,8 +2340,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           effectId,
         });
         
-        console.log(`[requestCastSpell] Emitted targetSelectionRequest for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
-        console.log(`[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
+        debug(2, `[requestCastSpell] Emitted targetSelectionRequest for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
+        debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
       } else {
         // No targets needed - go directly to payment
         // Calculate cost reduction and convoke options
@@ -2358,17 +2359,17 @@ export function registerGameActions(io: Server, socket: Socket) {
           convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         });
         
-        console.log(`[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
+        debug(2, `[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
         if (costReduction.messages.length > 0) {
-          console.log(`[requestCastSpell] Cost reductions: ${costReduction.messages.join(', ')}`);
+          debug(1, `[requestCastSpell] Cost reductions: ${costReduction.messages.join(', ')}`);
         }
         if (convokeOptions.availableCreatures.length > 0) {
-          console.log(`[requestCastSpell] Convoke available: ${convokeOptions.availableCreatures.length} creatures`);
+          debug(2, `[requestCastSpell] Convoke available: ${convokeOptions.availableCreatures.length} creatures`);
         }
-        console.log(`[requestCastSpell] ======== REQUEST END (waiting for payment) ========`);
+        debug(2, `[requestCastSpell] ======== REQUEST END (waiting for payment) ========`);
       }
     } catch (err: any) {
-      console.error(`[requestCastSpell] Error:`, err);
+      debugError(1, `[requestCastSpell] Error:`, err);
       socket.emit("error", {
         code: "REQUEST_CAST_ERROR",
         message: err?.message ?? String(err),
@@ -2396,17 +2397,17 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!game || !playerId) return;
 
       // DEBUG: Log incoming parameters to trace targeting loop
-      console.log(`[handleCastSpellFromHand] ======== DEBUG START ========`);
-      console.log(`[handleCastSpellFromHand] cardId: ${cardId}`);
-      console.log(`[handleCastSpellFromHand] targets: ${targets ? JSON.stringify(targets) : 'undefined'}`);
-      console.log(`[handleCastSpellFromHand] payment: ${payment ? JSON.stringify(payment) : 'undefined'}`);
-      console.log(`[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
-      console.log(`[handleCastSpellFromHand] playerId: ${playerId}`);
-      if (alternateCostId) console.log(`[handleCastSpellFromHand] alternateCostId: ${alternateCostId}`);
+      debug(2, `[handleCastSpellFromHand] ======== DEBUG START ========`);
+      debug(2, `[handleCastSpellFromHand] cardId: ${cardId}`);
+      debug(2, `[handleCastSpellFromHand] targets: ${targets ? JSON.stringify(targets) : 'undefined'}`);
+      debug(2, `[handleCastSpellFromHand] payment: ${payment ? JSON.stringify(payment) : 'undefined'}`);
+      debug(2, `[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
+      debug(2, `[handleCastSpellFromHand] playerId: ${playerId}`);
+      if (alternateCostId) debug(2, `[handleCastSpellFromHand] alternateCostId: ${alternateCostId}`);
       if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
-        console.log(`[handleCastSpellFromHand] convokeTappedCreatures: ${JSON.stringify(convokeTappedCreatures)}`);
+        debug(2, `[handleCastSpellFromHand] convokeTappedCreatures: ${JSON.stringify(convokeTappedCreatures)}`);
       }
-      console.log(`[handleCastSpellFromHand] priority: ${game.state.priority}`);
+      debug(2, `[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
@@ -2492,28 +2493,28 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Use exact match to avoid false positives
           if ((permName === 'yeva, nature\'s herald' || permName.startsWith('yeva, nature')) && isGreenCard && isCreature) {
             hasFlash = true;
-            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Yeva, Nature's Herald`);
+            debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via Yeva, Nature's Herald`);
             break;
           }
           
           // Vivien, Champion of the Wilds - creature spells have flash
           if ((permName === 'vivien, champion of the wilds' || permName.startsWith('vivien, champion')) && isCreature) {
             hasFlash = true;
-            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Vivien, Champion of the Wilds`);
+            debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via Vivien, Champion of the Wilds`);
             break;
           }
           
           // Vedalken Orrery, Leyline of Anticipation - all spells have flash
           if (permName === 'vedalken orrery' || permName === 'leyline of anticipation') {
             hasFlash = true;
-            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+            debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
             break;
           }
           
           // Emergence Zone (activated ability, check if active this turn)
           if (permName.includes('emergence zone') && (perm as any).flashGrantedThisTurn) {
             hasFlash = true;
-            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Emergence Zone`);
+            debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via Emergence Zone`);
             break;
           }
           
@@ -2522,18 +2523,18 @@ export function registerGameActions(io: Server, socket: Socket) {
             // Check if it applies to this card type
             if (permOracle.includes('creature') && isCreature) {
               hasFlash = true;
-              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
               break;
             }
             if (permOracle.includes('green') && isGreenCard && isCreature) {
               hasFlash = true;
-              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
               break;
             }
             if (permOracle.includes('spells') && !permOracle.includes('creature')) {
               // "You may cast spells as though they had flash" - applies to all
               hasFlash = true;
-              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
               break;
             }
           }
@@ -2608,7 +2609,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           selectionType: 'abundantChoice', // Custom type for handling
         });
         
-        console.log(`[castSpellFromHand] Requesting land/nonland choice for ${cardInHand.name} (Abundant Harvest style)`);
+        debug(2, `[castSpellFromHand] Requesting land/nonland choice for ${cardInHand.name} (Abundant Harvest style)`);
         return; // Wait for choice selection
       }
       
@@ -2662,7 +2663,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId: `spree_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[castSpellFromHand] Requesting Spree mode selection for ${cardInHand.name}`);
+          debug(2, `[castSpellFromHand] Requesting Spree mode selection for ${cardInHand.name}`);
           return; // Wait for mode selection
         }
       }
@@ -2708,7 +2709,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId: `modal_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[castSpellFromHand] Requesting modal selection (choose ${modeCount}) for ${cardInHand.name}`);
+          debug(2, `[castSpellFromHand] Requesting modal selection (choose ${modeCount}) for ${cardInHand.name}`);
           return; // Wait for mode selection
         }
       }
@@ -2751,7 +2752,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           effectId: `mode_${cardId}_${Date.now()}`,
         });
         
-        console.log(`[castSpellFromHand] Requesting overload mode selection for ${cardInHand.name}`);
+        debug(2, `[castSpellFromHand] Requesting overload mode selection for ${cardInHand.name}`);
         return; // Wait for mode selection
       }
 
@@ -2784,7 +2785,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           effectId: `lifepay_${cardId}_${Date.now()}`,
         });
         
-        console.log(`[castSpellFromHand] Requesting life payment (${minPayment}-${maxPayable}) for ${cardInHand.name}`);
+        debug(2, `[castSpellFromHand] Requesting life payment (${minPayment}-${maxPayable}) for ${cardInHand.name}`);
         return; // Wait for life payment selection
       }
       
@@ -2806,7 +2807,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Store the life payment on the card for later resolution
         (cardInHand as any).lifePaymentAmount = lifePayment;
-        console.log(`[castSpellFromHand] Life payment of ${lifePayment} validated for ${cardInHand.name}`);
+        debug(2, `[castSpellFromHand] Life payment of ${lifePayment} validated for ${cardInHand.name}`);
       }
       
       // Check for additional costs (discard a card, sacrifice, etc.)
@@ -2846,7 +2847,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId: `addcost_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[castSpellFromHand] Requesting discard of ${additionalCost.amount} card(s) for ${cardInHand.name}`);
+          debug(2, `[castSpellFromHand] Requesting discard of ${additionalCost.amount} card(s) for ${cardInHand.name}`);
           return; // Wait for discard selection
         } else if (additionalCost.type === 'sacrifice') {
           // Find valid sacrifice targets
@@ -2884,7 +2885,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId: `addcost_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[castSpellFromHand] Requesting sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
+          debug(2, `[castSpellFromHand] Requesting sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
           return; // Wait for sacrifice selection
         } else if (additionalCost.type === 'squad') {
           // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times"
@@ -2898,7 +2899,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId: `squad_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[castSpellFromHand] Requesting squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
+          debug(2, `[castSpellFromHand] Requesting squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
           return; // Wait for squad payment selection
         }
       }
@@ -2952,7 +2953,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                                    (targetReqs && targetReqs.needsTargets && (!targets || targets.length === 0));
       
       // DEBUG: Log targeting logic to debug infinite loop
-      console.log(`[handleCastSpellFromHand] ${cardInHand.name}: spellSpec=${!!spellSpec}, targetReqs=${!!targetReqs}, needsTargetSelection=${needsTargetSelection}, hasTargets=${!!(targets && targets.length > 0)}`);
+      debug(2, `[handleCastSpellFromHand] ${cardInHand.name}: spellSpec=${!!spellSpec}, targetReqs=${!!targetReqs}, needsTargetSelection=${needsTargetSelection}, hasTargets=${!!(targets && targets.length > 0)}`);
       
       // Handle Aura targeting separately from spell targeting
       // CRITICAL FIX: Skip Aura target request if we're completing a previous cast
@@ -3073,7 +3074,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           effectId,
         });
         
-        console.log(`[castSpellFromHand] Requesting Aura target (enchant ${auraTargetType}) for ${cardInHand.name}`);
+        debug(2, `[castSpellFromHand] Requesting Aura target (enchant ${auraTargetType}) for ${cardInHand.name}`);
         return; // Wait for target selection
       }
       
@@ -3090,7 +3091,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           Object.values((game.state as any).pendingSpellCasts).find((pc: any) => pc.cardId === cardId) : null;
         
         if (existingPendingCast) {
-          console.error(`[castSpellFromHand] LOOP PREVENTION: Pending cast already exists for ${cardInHand.name}. This should not happen!`);
+          debugError(1, `[castSpellFromHand] LOOP PREVENTION: Pending cast already exists for ${cardInHand.name}. This should not happen!`);
           socket.emit("error", {
             code: "TARGETING_LOOP_DETECTED",
             message: `Targeting error for ${cardInHand.name}. Please try casting again.`,
@@ -3099,10 +3100,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         
         // CRITICAL FIX: Skip target request if we're completing a previous cast (prevents infinite loop)
-        console.log(`[handleCastSpellFromHand] Checking if need to request targets: skipInteractivePrompts=${skipInteractivePrompts}, hasTargets=${!!(targets && targets.length > 0)}, minRequired=${requiredMinTargets}`);
+        debug(2, `[handleCastSpellFromHand] Checking if need to request targets: skipInteractivePrompts=${skipInteractivePrompts}, hasTargets=${!!(targets && targets.length > 0)}, minRequired=${requiredMinTargets}`);
         
         if (!skipInteractivePrompts && (!targets || targets.length < requiredMinTargets)) {
-          console.log(`[handleCastSpellFromHand] Requesting targets for ${cardInHand.name} (minTargets: ${requiredMinTargets}, maxTargets: ${requiredMaxTargets})`);
+          debug(2, `[handleCastSpellFromHand] Requesting targets for ${cardInHand.name} (minTargets: ${requiredMinTargets}, maxTargets: ${requiredMaxTargets})`);
           // Need to request targets from the player
           // Build valid targets based on what the spell can target
           let validTargetList: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string }[] = [];
@@ -3255,22 +3256,22 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId,
           });
           
-          console.log(`[castSpellFromHand] Requesting ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
+          debug(2, `[castSpellFromHand] Requesting ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
           return; // Wait for target selection
         } else {
-          console.log(`[handleCastSpellFromHand] Skipping target request - already have ${targets?.length || 0} target(s) or skipInteractivePrompts=${skipInteractivePrompts}`);
+          debug(2, `[handleCastSpellFromHand] Skipping target request - already have ${targets?.length || 0} target(s) or skipInteractivePrompts=${skipInteractivePrompts}`);
         }
         
         // Validate provided targets if we have a spellSpec
         if (spellSpec && targets && targets.length > 0) {
-          console.log(`[handleCastSpellFromHand] Validating ${targets.length} target(s) for ${cardInHand.name}`);
+          debug(2, `[handleCastSpellFromHand] Validating ${targets.length} target(s) for ${cardInHand.name}`);
           const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
           const validTargetIds = new Set(validRefs.map((t: any) => t.id));
           
           for (const target of targets) {
             const targetId = typeof target === 'string' ? target : target.id;
             if (!validTargetIds.has(targetId)) {
-              console.error(`[handleCastSpellFromHand] INVALID TARGET: ${targetId} not in valid set`);
+              debugError(1, `[handleCastSpellFromHand] INVALID TARGET: ${targetId} not in valid set`);
               socket.emit("error", {
                 code: "INVALID_TARGET",
                 message: `Invalid target for ${cardInHand.name}`,
@@ -3278,11 +3279,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               return;
             }
           }
-          console.log(`[handleCastSpellFromHand] All targets validated successfully`);
+          debug(2, `[handleCastSpellFromHand] All targets validated successfully`);
         }
       } // Close if (needsTargetSelection)
       
-      console.log(`[handleCastSpellFromHand] ======== DEBUG END ========`);
+      debug(2, `[handleCastSpellFromHand] ======== DEBUG END ========`);
 
       // Parse the mana cost to validate payment
       const manaCost = cardInHand.mana_cost || "";
@@ -3296,8 +3297,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Log cost reduction if any
       if (costReduction.messages.length > 0) {
-        console.log(`[castSpellFromHand] Cost reduction for ${cardInHand.name}: ${costReduction.messages.join(", ")}`);
-        console.log(`[castSpellFromHand] Original cost: ${manaCost}, Reduced generic: ${parsedCost.generic} -> ${reducedCost.generic}`);
+        debug(1, `[castSpellFromHand] Cost reduction for ${cardInHand.name}: ${costReduction.messages.join(", ")}`);
+        debug(2, `[castSpellFromHand] Original cost: ${manaCost}, Reduced generic: ${parsedCost.generic} -> ${reducedCost.generic}`);
       }
       
       // Calculate total mana cost for spell from hand (using reduced cost)
@@ -3347,7 +3348,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Log floating mana if any
       const floatingMana = Object.entries(existingPool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
       if (floatingMana) {
-        console.log(`[castSpellFromHand] Floating mana available in pool: ${floatingMana}`);
+        debug(2, `[castSpellFromHand] Floating mana available in pool: ${floatingMana}`);
       }
       
       // Calculate total required cost
@@ -3370,7 +3371,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // CONVOKE: Tap creatures to help pay for spell
       // ======================================================================
       if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
-        console.log(`[castSpellFromHand] Processing convoke: tapping ${convokeTappedCreatures.length} creature(s)`);
+        debug(2, `[castSpellFromHand] Processing convoke: tapping ${convokeTappedCreatures.length} creature(s)`);
         
         const globalBattlefield = game.state?.battlefield || [];
         
@@ -3452,7 +3453,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             game.state.manaPool[playerId].colorless += 1;
           }
           
-          console.log(`[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} ${manaAdded}`);
+          debug(1, `[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} ${manaAdded}`);
         }
         
         io.to(gameId).emit("chat", {
@@ -3468,7 +3469,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       // ======================================================================
       if (payment && payment.length > 0) {
-        console.log(`[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
+        debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
         // Get global battlefield (not zones.battlefield which may not exist)
         const globalBattlefield = game.state?.battlefield || [];
@@ -3547,7 +3548,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 const bonusPoolKey = manaColorMap[bonus.color];
                 if (bonusPoolKey) {
                   (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
-                  console.log(`[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
+                  debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
                 }
               }
             }
@@ -3556,7 +3557,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const poolKey = manaColorMap[mana];
           if (poolKey && manaAmount > 0) {
             (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
-            console.log(`[castSpellFromHand] Added ${manaAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
+            debug(2, `[castSpellFromHand] Added ${manaAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
         }
       }
@@ -3573,7 +3574,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         .length;
       
       if (convergeValue > 0) {
-        console.log(`[castSpellFromHand] Converge: ${convergeValue} different color(s) spent for ${cardInHand.name}`);
+        debug(2, `[castSpellFromHand] Converge: ${convergeValue} different color(s) spent for ${cardInHand.name}`);
       }
       
       // Bump sequence to ensure state changes are visible
@@ -3626,9 +3627,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           // RulesBridge validation passed - log it but still apply to real game state below
           // The RulesBridge only validates and updates its internal state copy, NOT the actual game.state
           // We MUST call applyEvent to update the real game state (remove from hand, add to stack)
-          console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) - RulesBridge validated`);
+          debug(2, `[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) - RulesBridge validated`);
         } catch (bridgeErr) {
-          console.warn('Rules engine validation failed, falling back to legacy:', bridgeErr);
+          debugWarn(1, 'Rules engine validation failed, falling back to legacy:', bridgeErr);
           // Continue with legacy logic below
         }
       }
@@ -3647,7 +3648,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             const stackLengthAfter = game.state.stack?.length || 0;
             if (stackLengthAfter <= stackLengthBefore) {
               // The spell wasn't added to the stack - something went wrong
-              console.error(`[castSpellFromHand] applyEvent did not add spell to stack. Stack: ${stackLengthBefore} -> ${stackLengthAfter}`);
+              debugError(1, `[castSpellFromHand] applyEvent did not add spell to stack. Stack: ${stackLengthBefore} -> ${stackLengthAfter}`);
               socket.emit("error", {
                 code: "CAST_FAILED",
                 message: `Failed to cast ${cardInHand.name}. The card may have been removed or an internal error occurred.`,
@@ -3662,10 +3663,10 @@ export function registerGameActions(io: Server, socket: Socket) {
               (topStackItem as any).manaColorsSpent = Object.entries(manaConsumption.consumed)
                 .filter(([color, amount]) => color !== 'colorless' && amount > 0)
                 .map(([color]) => color);
-              console.log(`[castSpellFromHand] Added converge data to stack item: ${convergeValue} colors (${(topStackItem as any).manaColorsSpent.join(', ')})`);
+              debug(1, `[castSpellFromHand] Added converge data to stack item: ${convergeValue} colors (${(topStackItem as any).manaColorsSpent.join(', ')})`);
             }
             
-            console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
+            debug(2, `[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
           } else {
           // Fallback for legacy game instances without applyEvent
           // Remove from hand
@@ -3744,11 +3745,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               game.bumpSeq();
             }
             
-            console.log(`[castSpellFromHand] Player ${playerId} cast ${removedCard.name} (${cardId}) via fallback`);
+            debug(2, `[castSpellFromHand] Player ${playerId} cast ${removedCard.name} (${cardId}) via fallback`);
           }
         }
       } catch (e) {
-        console.error('Failed to cast spell:', e);
+        debugError(1, 'Failed to cast spell:', e);
         socket.emit("error", {
           code: "CAST_FAILED",
           message: String(e),
@@ -3767,14 +3768,14 @@ export function registerGameActions(io: Server, socket: Socket) {
           xValue,
         });
       } catch (e) {
-        console.warn('appendEvent(castSpell) failed:', e);
+        debugWarn(1, 'appendEvent(castSpell) failed:', e);
       }
       
       // Check for spell-cast triggers (Jeskai Ascendancy, Beast Whisperer, etc.)
       try {
         const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand);
         for (const trigger of spellCastTriggers) {
-          console.log(`[castSpellFromHand] Triggered: ${trigger.cardName} - ${trigger.description}`);
+          debug(2, `[castSpellFromHand] Triggered: ${trigger.cardName} - ${trigger.description}`);
           
           // Handle different trigger effects
           const effectLower = trigger.effect.toLowerCase();
@@ -3853,7 +3854,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
       } catch (err) {
-        console.warn('[castSpellFromHand] Failed to process spell-cast triggers:', err);
+        debugWarn(1, '[castSpellFromHand] Failed to process spell-cast triggers:', err);
       }
       
       // Check for heroic triggers on targeted creatures
@@ -3863,12 +3864,12 @@ export function registerGameActions(io: Server, socket: Socket) {
           const targetIds = targets.map((t: any) => typeof t === 'string' ? t : t.id);
           const heroicTriggers = getHeroicTriggers(game, playerId, targetIds);
           for (const trigger of heroicTriggers) {
-            console.log(`[castSpellFromHand] Heroic triggered: ${trigger.cardName} - ${trigger.description}`);
+            debug(2, `[castSpellFromHand] Heroic triggered: ${trigger.cardName} - ${trigger.description}`);
             applyHeroicTrigger(game, trigger, io, gameId);
           }
         }
       } catch (err) {
-        console.warn('[castSpellFromHand] Failed to process heroic triggers:', err);
+        debugWarn(1, '[castSpellFromHand] Failed to process heroic triggers:', err);
       }
       
       io.to(gameId).emit("chat", {
@@ -3882,7 +3883,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       handlePendingCascade(io, game, gameId);
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`castSpell error for game ${gameId}:`, err);
+      debugError(1, `castSpell error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CAST_SPELL_ERROR",
         message: err?.message ?? String(err),
@@ -3910,18 +3911,18 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!game || !playerId) return;
 
       // DEBUG: Log incoming parameters
-      console.log(`[completeCastSpell] DEBUG START ========================================`);
-      console.log(`[completeCastSpell] cardId: ${cardId}, effectId: ${effectId}`);
-      console.log(`[completeCastSpell] targets from client: ${targets ? JSON.stringify(targets) : 'undefined'}`);
-      console.log(`[completeCastSpell] payment from client: ${payment ? JSON.stringify(payment) : 'undefined'}`);
+      debug(2, `[completeCastSpell] DEBUG START ========================================`);
+      debug(2, `[completeCastSpell] cardId: ${cardId}, effectId: ${effectId}`);
+      debug(2, `[completeCastSpell] targets from client: ${targets ? JSON.stringify(targets) : 'undefined'}`);
+      debug(2, `[completeCastSpell] payment from client: ${payment ? JSON.stringify(payment) : 'undefined'}`);
       if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
-        console.log(`[completeCastSpell] convokeTappedCreatures:`, convokeTappedCreatures);
+        debug(2, `[completeCastSpell] convokeTappedCreatures:`, convokeTappedCreatures);
       }
       
       // Check if this is an equip payment completion
       if (effectId && effectId.startsWith('equip_payment_') && (game.state as any).pendingEquipPayments?.[effectId]) {
         const pendingEquip = (game.state as any).pendingEquipPayments[effectId];
-        console.log(`[completeCastSpell] Handling equip payment for: ${pendingEquip.equipmentName}`);
+        debug(2, `[completeCastSpell] Handling equip payment for: ${pendingEquip.equipmentName}`);
         
         // Clean up pending state
         delete (game.state as any).pendingEquipPayments[effectId];
@@ -4004,7 +4005,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         
-        console.log(`[completeCastSpell] Equip ability on stack: ${pendingEquip.equipmentName} → ${pendingEquip.targetCreatureName}`);
+        debug(2, `[completeCastSpell] Equip ability on stack: ${pendingEquip.equipmentName} → ${pendingEquip.targetCreatureName}`);
         broadcastGame(io, game, gameId);
         return;
       }
@@ -4014,27 +4015,27 @@ export function registerGameActions(io: Server, socket: Socket) {
       let finalTargets = targets;
       if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
         const pendingCast = (game.state as any).pendingSpellCasts[effectId];
-        console.log(`[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
+        debug(2, `[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
         
         // CRITICAL FIX: Always prefer pending targets over client-sent targets
         // This prevents the infinite targeting loop when client doesn't send targets back
         if (pendingCast.targets && pendingCast.targets.length > 0) {
           finalTargets = pendingCast.targets;
-          console.log(`[completeCastSpell] Using pending targets from server: ${finalTargets.join(',')}`);
+          debug(1, `[completeCastSpell] Using pending targets from server: ${finalTargets.join(',')}`);
         } else if (!finalTargets || finalTargets.length === 0) {
           // Fallback: use client-sent targets if no pending targets
           finalTargets = targets || [];
-          console.log(`[completeCastSpell] Using client-sent targets: ${finalTargets?.join(',') || 'none'}`);
+          debug(1, `[completeCastSpell] Using client-sent targets: ${finalTargets?.join(',') || 'none'}`);
         }
         
         // CRITICAL FIX: Validate that spell has required targets before allowing cast
         // Check if this spell requires targets based on validTargetIds
         const requiredTargets = pendingCast.validTargetIds && pendingCast.validTargetIds.length > 0;
         if (requiredTargets && (!finalTargets || finalTargets.length === 0)) {
-          console.error(`[completeCastSpell] ERROR: Spell ${pendingCast.cardName} requires targets but none provided!`);
-          console.error(`[completeCastSpell] validTargetIds: ${JSON.stringify(pendingCast.validTargetIds)}`);
-          console.error(`[completeCastSpell] pendingCast.targets: ${JSON.stringify(pendingCast.targets)}`);
-          console.error(`[completeCastSpell] client targets: ${JSON.stringify(targets)}`);
+          debugError(1, `[completeCastSpell] ERROR: Spell ${pendingCast.cardName} requires targets but none provided!`);
+          debugError(1, `[completeCastSpell] validTargetIds: ${JSON.stringify(pendingCast.validTargetIds)}`);
+          debugError(1, `[completeCastSpell] pendingCast.targets: ${JSON.stringify(pendingCast.targets)}`);
+          debugError(1, `[completeCastSpell] client targets: ${JSON.stringify(targets)}`);
           
           // Clean up the pending cast
           delete (game.state as any).pendingSpellCasts[effectId];
@@ -4048,26 +4049,26 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         delete (game.state as any).pendingSpellCasts[effectId];
       } else {
-        console.log(`[completeCastSpell] No pendingCast found for effectId: ${effectId}`);
+        debug(2, `[completeCastSpell] No pendingCast found for effectId: ${effectId}`);
       }
       
       // CRITICAL FIX: Clean up pendingTargets to prevent game from being blocked
       // pendingTargets is set by targetSelectionConfirm but never cleaned up
       if (effectId && game.state.pendingTargets?.[effectId]) {
-        console.log(`[completeCastSpell] Cleaning up pendingTargets for effectId: ${effectId}`);
+        debug(2, `[completeCastSpell] Cleaning up pendingTargets for effectId: ${effectId}`);
         delete game.state.pendingTargets[effectId];
       }
 
-      console.log(`[completeCastSpell] Final targets to use: ${finalTargets?.join(',') || 'none'}`);
-      console.log(`[completeCastSpell] Calling handleCastSpellFromHand with skipInteractivePrompts=true`);
-      console.log(`[completeCastSpell] DEBUG END ==========================================`);
+      debug(1, `[completeCastSpell] Final targets to use: ${finalTargets?.join(',') || 'none'}`);
+      debug(2, `[completeCastSpell] Calling handleCastSpellFromHand with skipInteractivePrompts=true`);
+      debug(2, `[completeCastSpell] DEBUG END ==========================================`);
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
       handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId, convokeTappedCreatures });
       
     } catch (err: any) {
-      console.error(`[completeCastSpell] Error:`, err);
+      debugError(1, `[completeCastSpell] Error:`, err);
       socket.emit("error", {
         code: "COMPLETE_CAST_ERROR",
         message: err?.message ?? String(err),
@@ -4122,7 +4123,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             landCardsInHand,
           });
           
-          console.log(`[passPriority] Mox Diamond replacement effect: prompting ${resolvedController} to discard a land or put in graveyard`);
+          debug(2, `[passPriority] Mox Diamond replacement effect: prompting ${resolvedController} to discard a land or put in graveyard`);
           
           // Don't resolve the stack item yet - wait for moxDiamondChoice event
           // Bump sequence and broadcast to show updated state
@@ -4165,15 +4166,15 @@ export function registerGameActions(io: Server, socket: Socket) {
                 stackItemId: topItem.id,  // Include stack item ID for resolution tracking
               });
               
-              console.log(`[passPriority] Bounce land trigger resolving: prompting ${resolvedController} to return a land`);
+              debug(2, `[passPriority] Bounce land trigger resolving: prompting ${resolvedController} to return a land`);
               
               // Check if the player is AI and handle automatically
               const resolvedPlayer = (game.state?.players || []).find((p: any) => p.id === resolvedController);
               const isAIPlayer = resolvedPlayer && (resolvedPlayer as any).isAI;
-              console.log(`[passPriority] Bounce land - player ${resolvedController} isAI: ${isAIPlayer}`);
+              debug(2, `[passPriority] Bounce land - player ${resolvedController} isAI: ${isAIPlayer}`);
               
               if (isAIPlayer) {
-                console.log(`[passPriority] Player ${resolvedController} is AI, triggering automatic bounce land choice`);
+                debug(2, `[passPriority] Player ${resolvedController} is AI, triggering automatic bounce land choice`);
                 // Dynamically import AI handler to avoid circular dependency
                 setTimeout(async () => {
                   try {
@@ -4188,7 +4189,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                       const stackIndex = stack.findIndex((item: any) => item.id === topItem.id);
                       if (stackIndex !== -1) {
                         stack.splice(stackIndex, 1);
-                        console.log(`[passPriority] Removed bounce land trigger from stack after AI choice`);
+                        debug(2, `[passPriority] Removed bounce land trigger from stack after AI choice`);
                       }
                       
                       // Bump sequence and broadcast
@@ -4200,12 +4201,12 @@ export function registerGameActions(io: Server, socket: Socket) {
                       // Continue with AI priority handling
                       if (typeof aiModule.handleAIGameFlow === 'function') {
                         setTimeout(() => {
-                          aiModule.handleAIGameFlow(io, gameId, resolvedController as PlayerID).catch(console.error);
+                          aiModule.handleAIGameFlow(io, gameId, resolvedController as PlayerID).catch(err => debugError(1, err));
                         }, 150);
                       }
                     }
                   } catch (err) {
-                    console.error('[passPriority] Failed to handle AI bounce land choice:', err);
+                    debugError(1, '[passPriority] Failed to handle AI bounce land choice:', err);
                   }
                 }, 150);
                 return;
@@ -4226,7 +4227,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // (appendGameEvent may fail silently if applyEvent has issues)
         if (typeof (game as any).resolveTopOfStack === 'function') {
           (game as any).resolveTopOfStack();
-          console.log(`[passPriority] Stack resolved for game ${gameId}`);
+          debug(2, `[passPriority] Stack resolved for game ${gameId}`);
           
           // Check for creature type selection requirements on newly entered permanents
           // (e.g., Morophon, Cavern of Souls, Kindred Discovery)
@@ -4296,7 +4297,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                   }
                 }
                 
-                console.log(`[passPriority] Triggered library search for ${cardName} by ${resolvedController} (destination: ${tutorInfo.splitDestination ? 'split' : tutorInfo.destination})`);
+                debug(2, `[passPriority] Triggered library search for ${cardName} by ${resolvedController} (destination: ${tutorInfo.splitDestination ? 'split' : tutorInfo.destination})`);
               }
             }
           }
@@ -4337,7 +4338,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                                     Object.keys((game.state as any).pendingTriggerOrdering).length === 0;
           
           if (noTriggerQueue && noPendingOrdering) {
-            console.log(`[passPriority] Continuing pending phase skip from BEGIN_COMBAT to ${pendingSkip.targetStep}`);
+            debug(2, `[passPriority] Continuing pending phase skip from BEGIN_COMBAT to ${pendingSkip.targetStep}`);
             
             // Update phase and step to the originally requested target
             (game.state as any).phase = pendingSkip.targetPhase;
@@ -4356,7 +4357,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 reason: 'combat_triggers_resolved',
               });
             } catch (e) {
-              console.warn("appendEvent(skipToPhase auto) failed:", e);
+              debugWarn(1, "appendEvent(skipToPhase auto) failed:", e);
             }
             
             io.to(gameId).emit("chat", {
@@ -4379,7 +4380,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (advanceStep) {
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
-          console.log(`[passPriority] All players passed priority - advanced to next step for game ${gameId}`);
+          debug(2, `[passPriority] All players passed priority - advanced to next step for game ${gameId}`);
           
           appendGameEvent(game, gameId, "nextStep", { reason: 'allPlayersPassed' });
           
@@ -4396,7 +4397,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`passPriority error for game ${gameId}:`, err);
+      debugError(1, `passPriority error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "PASS_PRIORITY_ERROR",
         message: err?.message ?? String(err),
@@ -4442,7 +4443,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[resolveAllTriggers] Batch resolving ${stack.length} triggers for ${playerId}`);
+      debug(2, `[resolveAllTriggers] Batch resolving ${stack.length} triggers for ${playerId}`);
 
       // Resolve all triggers in sequence (top to bottom)
       let resolvedCount = 0;
@@ -4478,7 +4479,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`resolveAllTriggers error for game ${gameId}:`, err);
+      debugError(1, `resolveAllTriggers error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "RESOLVE_ALL_ERROR",
         message: err?.message ?? String(err),
@@ -4528,14 +4529,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         broadcastGame(io, game, gameId);
       } catch (e) {
-        console.error("claimMyTurn: failed to set turnPlayer", e);
+        debugError(1, "claimMyTurn: failed to set turnPlayer", e);
         socket.emit("error", {
           code: "CLAIM_TURN_FAILED",
           message: String(e),
         });
       }
     } catch (err) {
-      console.error("claimMyTurn handler failed:", err);
+      debugError(1, "claimMyTurn handler failed:", err);
     }
   });
 
@@ -4587,14 +4588,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         broadcastGame(io, game, gameId);
       } catch (e) {
-        console.error("randomizeStartingPlayer: failed to set turnPlayer", e);
+        debugError(1, "randomizeStartingPlayer: failed to set turnPlayer", e);
         socket.emit("error", {
           code: "RANDOMIZE_FAILED",
           message: String(e),
         });
       }
     } catch (err) {
-      console.error("randomizeStartingPlayer handler failed:", err);
+      debugError(1, "randomizeStartingPlayer handler failed:", err);
     }
   });
 
@@ -4607,7 +4608,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Debug logging
       try {
-        console.info(
+        debug(1, 
           `[nextTurn] request from player=${playerId} game=${gameId} turnPlayer=${
             game.state?.turnPlayer
           } stack=${(game.state?.stack || []).length} phase=${String(
@@ -4632,7 +4633,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             code: "PREGAME_DECKS_NOT_LOADED",
             message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
           });
-          console.info(
+          debug(1, 
             `[nextTurn] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
           );
           return;
@@ -4645,7 +4646,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             code: "PREGAME_HANDS_NOT_KEPT",
             message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
           });
-          console.info(
+          debug(1, 
             `[nextTurn] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
           );
           return;
@@ -4664,7 +4665,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             code: "NEXT_TURN",
             message: "Only the active player can advance the turn.",
           });
-          console.info(
+          debug(1, 
             `[nextTurn] rejected - not active player (player=${playerId} turnPlayer=${game.state.turnPlayer})`
           );
           return;
@@ -4675,11 +4676,11 @@ export function registerGameActions(io: Server, socket: Socket) {
           try {
             game.state.turnPlayer = playerId;
             appendGameEvent(game, gameId, "autoAssignTurn", { playerId });
-            console.info(
+            debug(1, 
               `[nextTurn] auto-assigned turnPlayer to single player ${playerId}`
             );
           } catch (e) {
-            console.warn("nextTurn: auto-assign failed", e);
+            debugWarn(1, "nextTurn: auto-assign failed", e);
           }
         } else {
           if (!pregame) {
@@ -4687,7 +4688,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               code: "NEXT_TURN",
               message: "No active player set; cannot advance turn.",
             });
-            console.info(
+            debug(1, 
               `[nextTurn] rejected - no turnPlayer and not pregame (phase=${phaseStr})`
             );
             return;
@@ -4698,7 +4699,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 message:
                   "No active player set. Use 'Claim Turn' to set first player.",
               });
-              console.info(
+              debug(1, 
                 `[nextTurn] rejected - no turnPlayer; ask user to claim (player=${playerId})`
               );
               return;
@@ -4712,7 +4713,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           code: "NEXT_TURN",
           message: "Cannot advance turn while the stack is not empty.",
         });
-        console.info(
+        debug(1, 
           `[nextTurn] rejected - stack not empty (len=${game.state.stack.length})`
         );
         return;
@@ -4722,11 +4723,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         if (typeof (game as any).nextTurn === "function") {
           await (game as any).nextTurn();
-          console.log(
+          debug(2, 
             `[nextTurn] Successfully advanced turn for game ${gameId}`
           );
         } else {
-          console.error(
+          debugError(1, 
             `[nextTurn] CRITICAL: game.nextTurn not available on game ${gameId} - this should not happen with full engine`
           );
           socket.emit("error", {
@@ -4737,7 +4738,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
       } catch (e) {
-        console.error("nextTurn: game.nextTurn invocation failed:", e);
+        debugError(1, "nextTurn: game.nextTurn invocation failed:", e);
         socket.emit("error", {
           code: "NEXT_TURN_IMPL_ERROR",
           message: String(e),
@@ -4777,7 +4778,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Remove from battlefield
           game.state.battlefield = battlefield.filter((p: any) => p.controller !== newTurnPlayer);
           
-          console.log(`[nextTurn] Removed ${concededPermanents.length} permanents from conceded player ${concededPlayerName}`);
+          debug(2, `[nextTurn] Removed ${concededPermanents.length} permanents from conceded player ${concededPlayerName}`);
         }
         
         // Mark player as fully eliminated now
@@ -4797,7 +4798,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Skip to next player's turn
         if (typeof (game as any).nextTurn === "function") {
           await (game as any).nextTurn();
-          console.log(`[nextTurn] Skipped conceded player ${concededPlayerName}, advancing to next player`);
+          debug(2, `[nextTurn] Skipped conceded player ${concededPlayerName}, advancing to next player`);
         }
       }
 
@@ -4810,7 +4811,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           { by: playerId }
         );
       } catch (e) {
-        console.warn("appendEvent(nextTurn) failed", e);
+        debugWarn(1, "appendEvent(nextTurn) failed", e);
       }
 
       // Optional: bump seq if your ctx.bumpSeq isn't already doing it inside nextTurn
@@ -4832,7 +4833,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`nextTurn error for game ${gameId}:`, err);
+      debugError(1, `nextTurn error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "NEXT_TURN_ERROR",
         message: err?.message ?? String(err),
@@ -4851,7 +4852,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Debug logging
       try {
-        console.info(
+        debug(1, 
           `[nextStep] request from player=${playerId} game=${gameId} turnPlayer=${
             game.state?.turnPlayer
           } step=${String(game.state?.step)} stack=${
@@ -4876,7 +4877,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             code: "PREGAME_DECKS_NOT_LOADED",
             message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
           });
-          console.info(
+          debug(1, 
             `[nextStep] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
           );
           return;
@@ -4889,7 +4890,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             code: "PREGAME_HANDS_NOT_KEPT",
             message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
           });
-          console.info(
+          debug(1, 
             `[nextStep] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
           );
           return;
@@ -4900,12 +4901,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         try {
           if (typeof (game as any).nextStep === "function") {
             await (game as any).nextStep();
-            console.log(
+            debug(2, 
               `[nextStep] Pre-game: advanced step for game ${gameId}`
             );
           }
         } catch (e) {
-          console.error("nextStep: game.nextStep invocation failed:", e);
+          debugError(1, "nextStep: game.nextStep invocation failed:", e);
           socket.emit("error", {
             code: "NEXT_STEP_IMPL_ERROR",
             message: String(e),
@@ -4921,7 +4922,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             { by: playerId, pregame: true }
           );
         } catch (e) {
-          console.warn("appendEvent(nextStep) failed", e);
+          debugWarn(1, "appendEvent(nextStep) failed", e);
         }
         
         broadcastGame(io, game, gameId);
@@ -4951,19 +4952,19 @@ export function registerGameActions(io: Server, socket: Socket) {
         try {
           if (typeof (game as any).nextStep === "function") {
             await (game as any).nextStep();
-            console.log(
+            debug(2, 
               `[nextStep] Single-player: advanced step for game ${gameId}`
             );
           }
         } catch (e) {
-          console.error("nextStep: game.nextStep invocation failed:", e);
+          debugError(1, "nextStep: game.nextStep invocation failed:", e);
           return;
         }
         
         try {
           appendEvent(gameId, (game as any).seq || 0, "nextStep", { by: playerId });
         } catch (e) {
-          console.warn("appendEvent(nextStep) failed", e);
+          debugWarn(1, "appendEvent(nextStep) failed", e);
         }
         
         broadcastGame(io, game, gameId);
@@ -4979,7 +4980,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           code: "NOT_YOUR_PRIORITY",
           message: "You don't have priority. Wait for your turn to pass.",
         });
-        console.info(
+        debug(1, 
           `[nextStep] rejected - not player's priority (player=${playerId} priority=${game.state.priority})`
         );
         return;
@@ -4998,7 +4999,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         if (typeof (game as any).resolveTopOfStack === 'function') {
           (game as any).resolveTopOfStack();
-          console.log(`[nextStep] Stack resolved for game ${gameId}`);
+          debug(2, `[nextStep] Stack resolved for game ${gameId}`);
           
           checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
           checkColorChoiceForNewPermanents(io, game, gameId);
@@ -5018,7 +5019,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (advanceStep) {
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
-          console.log(`[nextStep] All players passed priority - advanced to next step for game ${gameId}`);
+          debug(2, `[nextStep] All players passed priority - advanced to next step for game ${gameId}`);
           
           appendGameEvent(game, gameId, "nextStep", { reason: 'allPlayersPassed' });
           
@@ -5040,7 +5041,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             const autoPassResult = (game.state as any)?._autoPassResult;
             
             if (autoPassResult?.allPassed && autoPassResult?.advanceStep) {
-              console.log(`[nextStep] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
+              debug(2, `[nextStep] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
               
               // Clear the flag before calling nextStep
               delete (game.state as any)._autoPassResult;
@@ -5049,7 +5050,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               (game as any).nextStep();
               
               const newStep2 = (game.state as any)?.step || 'unknown';
-              console.log(`[nextStep] Auto-advanced to ${newStep2}`);
+              debug(2, `[nextStep] Auto-advanced to ${newStep2}`);
               
               autoPassLoopCount++;
             } else {
@@ -5059,7 +5060,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
           
           if (autoPassLoopCount >= MAX_AUTO_PASS_LOOPS) {
-            console.warn(`[nextStep] Auto-pass loop limit reached (${MAX_AUTO_PASS_LOOPS}), stopping to prevent infinite loop`);
+            debugWarn(2, `[nextStep] Auto-pass loop limit reached (${MAX_AUTO_PASS_LOOPS}), stopping to prevent infinite loop`);
           }
           
           // Clear any remaining auto-pass flag
@@ -5069,7 +5070,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`nextStep error for game ${gameId}:`, err);
+      debugError(1, `nextStep error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "NEXT_STEP_ERROR",
         message: err?.message ?? String(err),
@@ -5098,7 +5099,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Debug logging
       try {
-        console.info(
+        debug(1, 
           `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${turnPlayer} currentPhase=${currentPhase} currentStep=${currentStep} targetPhase=${targetPhase} targetStep=${targetStep}`
         );
       } catch {
@@ -5152,7 +5153,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         triggers: any[],
         triggerType: string
       ) => {
-        console.log(`[skipToPhase] STOPPING at ${stopStep}: Found ${triggers.length} trigger(s) that must resolve first`);
+        debug(2, `[skipToPhase] STOPPING at ${stopStep}: Found ${triggers.length} trigger(s) that must resolve first`);
         
         // Stop at this phase instead of going directly to target
         (game.state as any).phase = stopPhase;
@@ -5232,7 +5233,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Give priority to active player
         (game.state as any).priority = turnPlayer;
         
-        console.log(`[skipToPhase] Set phase to ${stopStep} with ${triggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
+        debug(2, `[skipToPhase] Set phase to ${stopStep} with ${triggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
         
         // Broadcast the updated game state
         broadcastGame(io, game, gameId);
@@ -5246,7 +5247,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             finalTarget: targetStep,
           });
         } catch (e) {
-          console.warn("appendEvent(skipToPhase) failed:", e);
+          debugWarn(1, "appendEvent(skipToPhase) failed:", e);
         }
       };
       
@@ -5281,7 +5282,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             return; // Exit early - triggers must be resolved before continuing
           }
         } catch (err) {
-          console.warn(`[skipToPhase] Failed to check upkeep triggers:`, err);
+          debugWarn(1, `[skipToPhase] Failed to check upkeep triggers:`, err);
         }
       }
       
@@ -5299,7 +5300,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             return; // Exit early - triggers must be resolved before continuing
           }
         } catch (err) {
-          console.warn(`[skipToPhase] Failed to check combat triggers:`, err);
+          debugWarn(1, `[skipToPhase] Failed to check combat triggers:`, err);
         }
       }
       
@@ -5365,7 +5366,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             
             // Found a goaded creature that CAN and MUST attack
             const creatureName = permanent.card?.name || "A creature";
-            console.log(`[skipToPhase] BLOCKED: ${creatureName} is goaded and must attack (Rule 701.15b)`);
+            debug(2, `[skipToPhase] BLOCKED: ${creatureName} is goaded and must attack (Rule 701.15b)`);
             socket.emit("error", {
               code: "SKIP_TO_PHASE",
               message: `${creatureName} is goaded and must attack this combat. You cannot skip past the declare attackers step.`,
@@ -5373,7 +5374,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             return; // Exit early - cannot skip past combat with goaded creatures
           }
         } catch (err) {
-          console.warn(`[skipToPhase] Failed to check goaded creatures:`, err);
+          debugWarn(1, `[skipToPhase] Failed to check goaded creatures:`, err);
         }
       }
       
@@ -5391,7 +5392,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             return; // Exit early - triggers must be resolved before continuing
           }
         } catch (err) {
-          console.warn(`[skipToPhase] Failed to check end step triggers:`, err);
+          debugWarn(1, `[skipToPhase] Failed to check end step triggers:`, err);
         }
       }
 
@@ -5448,10 +5449,10 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           }
           if (untappedCount > 0) {
-            console.log(`[skipToPhase] Untapped ${untappedCount} permanent(s) for ${turnPlayer}`);
+            debug(2, `[skipToPhase] Untapped ${untappedCount} permanent(s) for ${turnPlayer}`);
           }
         } catch (err) {
-          console.warn(`[skipToPhase] Failed to untap permanents:`, err);
+          debugWarn(1, `[skipToPhase] Failed to untap permanents:`, err);
         }
       }
 
@@ -5464,7 +5465,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             try {
               recalculatePlayerEffects(game as any, turnPlayer);
             } catch (recalcErr) {
-              console.warn(`[skipToPhase] Failed to recalculate player effects:`, recalcErr);
+              debugWarn(1, `[skipToPhase] Failed to recalculate player effects:`, recalcErr);
             }
             
             // Calculate total cards to draw: 1 (base) + any additional draws from effects
@@ -5472,7 +5473,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             const totalDraws = 1 + additionalDraws;
             
             const drawn = (game as any).drawCards(turnPlayer, totalDraws);
-            console.log(
+            debug(2, 
               `[skipToPhase] Drew ${drawn?.length || totalDraws} card(s) for ${turnPlayer} (skipped from ${currentStep} to ${targetStep}, additional: ${additionalDraws})`
             );
             
@@ -5489,11 +5490,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 reason: "skipToPhase"
               });
             } catch (e) {
-              console.warn("appendEvent(drawCards) failed:", e);
+              debugWarn(1, "appendEvent(drawCards) failed:", e);
             }
           }
         } catch (err) {
-          console.warn(`[skipToPhase] Failed to draw card:`, err);
+          debugWarn(1, `[skipToPhase] Failed to draw card:`, err);
         }
       }
 
@@ -5522,7 +5523,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
       } catch (err) {
-        console.warn(`[skipToPhase] Failed to clear combat state:`, err);
+        debugWarn(1, `[skipToPhase] Failed to clear combat state:`, err);
       }
 
       // CRITICAL: Reset priority tracking after skipping to a new phase
@@ -5543,9 +5544,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           (game.state as any).priority = turnPlayer;
         }
         
-        console.log(`[skipToPhase] Reset priority tracking, priority set to ${turnPlayer}`);
+        debug(2, `[skipToPhase] Reset priority tracking, priority set to ${turnPlayer}`);
       } catch (err) {
-        console.warn(`[skipToPhase] Failed to reset priority tracking:`, err);
+        debugWarn(1, `[skipToPhase] Failed to reset priority tracking:`, err);
       }
 
       // Handle CLEANUP phase specially - need to check for discard and auto-advance to next turn
@@ -5563,7 +5564,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // If max hand size is Infinity, no discard needed
           if (maxHandSize === Infinity) {
-            console.log(`[skipToPhase] Player ${turnPlayer} has no maximum hand size effect`);
+            debug(2, `[skipToPhase] Player ${turnPlayer} has no maximum hand size effect`);
           } else {
             const discardCount = Math.max(0, hand.length - maxHandSize);
 
@@ -5575,11 +5576,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 maxHandSize: maxHandSize,
               };
               needsDiscardSelection = true;
-              console.log(`[skipToPhase] Player ${turnPlayer} needs to discard ${discardCount} cards during cleanup`);
+              debug(2, `[skipToPhase] Player ${turnPlayer} needs to discard ${discardCount} cards during cleanup`);
             }
           }
         } catch (err) {
-          console.warn(`[skipToPhase] Failed to check discard during cleanup:`, err);
+          debugWarn(1, `[skipToPhase] Failed to check discard during cleanup:`, err);
         }
 
         // If no discard needed, clear damage from permanents and end temporary effects
@@ -5594,19 +5595,19 @@ export function registerGameActions(io: Server, socket: Socket) {
                 }
               }
             }
-            console.log(`[skipToPhase] Cleared damage from permanents during cleanup`);
+            debug(2, `[skipToPhase] Cleared damage from permanents during cleanup`);
           } catch (err) {
-            console.warn(`[skipToPhase] Failed to clear damage during cleanup:`, err);
+            debugWarn(1, `[skipToPhase] Failed to clear damage during cleanup:`, err);
           }
 
           // Auto-advance to next turn since no discard is needed
           try {
             if (typeof (game as any).nextTurn === "function") {
               (game as any).nextTurn();
-              console.log(`[skipToPhase] Cleanup complete, advanced to next turn for game ${gameId}`);
+              debug(2, `[skipToPhase] Cleanup complete, advanced to next turn for game ${gameId}`);
             }
           } catch (err) {
-            console.warn(`[skipToPhase] Failed to advance to next turn after cleanup:`, err);
+            debugWarn(1, `[skipToPhase] Failed to advance to next turn after cleanup:`, err);
           }
         }
       }
@@ -5625,10 +5626,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           { by: playerId, targetPhase, targetStep }
         );
       } catch (e) {
-        console.warn("appendEvent(skipToPhase) failed", e);
+        debugWarn(1, "appendEvent(skipToPhase) failed", e);
       }
 
-      console.log(
+      debug(2, 
         `[skipToPhase] Skipped to phase=${targetPhase}, step=${targetStep} for game ${gameId}`
       );
 
@@ -5649,7 +5650,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`skipToPhase error for game ${gameId}:`, err);
+      debugError(1, `skipToPhase error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "SKIP_TO_PHASE_ERROR",
         message: err?.message ?? String(err),
@@ -5669,12 +5670,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Use the engine's shuffleHand method
         if (typeof (game as any).shuffleHand === "function") {
           (game as any).shuffleHand(playerId);
-          console.log(
+          debug(2, 
             `[shuffleHand] Shuffled hand for player ${playerId} in game ${gameId}`
           );
         } else {
           // Fallback to direct manipulation if engine method not available
-          console.warn(
+          debugWarn(1, 
             `[shuffleHand] game.shuffleHand not available, using fallback for game ${gameId}`
           );
           game.state = (game.state || {}) as any;
@@ -5711,14 +5712,14 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         broadcastGame(io, game, gameId);
       } catch (e) {
-        console.error("shuffleHand failed:", e);
+        debugError(1, "shuffleHand failed:", e);
         socket.emit("error", {
           code: "SHUFFLE_HAND_ERROR",
           message: String(e),
         });
       }
     } catch (err) {
-      console.error("shuffleHand handler error:", err);
+      debugError(1, "shuffleHand handler error:", err);
     }
   });
 
@@ -5732,13 +5733,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         const spectator = socket.data.spectator;
         if (!game || !playerId || spectator) return;
 
-        console.info(
+        debug(1, 
           "[reorderHand] Received request for game",
           gameId,
           ", order length:",
           order.length
         );
-        console.info(
+        debug(1, 
           "[reorderHand] playerId:",
           playerId,
           ", spectator:",
@@ -5778,7 +5779,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             const zState = (game as any).state.zones[playerId];
             if (zState && Array.isArray(zState.hand) && zState.hand.length) {
               hand = zState.hand;
-              console.info(
+              debug(1, 
                 "[reorderHand] Fallback to state.zones hand, length:",
                 hand.length
               );
@@ -5788,7 +5789,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
 
-        console.info(
+        debug(1, 
           "[reorderHand] Current hand length:",
           hand.length,
           ", order length:",
@@ -5796,7 +5797,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         );
 
         if (!hand.length) {
-          console.warn("[reorderHand] No hand found for player", playerId);
+          debugWarn(2, "[reorderHand] No hand found for player", playerId);
           socket.emit("error", {
             code: "REORDER_HAND_NO_HAND",
             message: "No hand to reorder.",
@@ -5814,7 +5815,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         for (const id of order) {
           const idx = idToIndex.get(id);
           if (idx === undefined) {
-            console.warn(
+            debugWarn(1, 
               "[reorderHand] ID from client not found in hand:",
               id
             );
@@ -5850,7 +5851,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             }
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "[reorderHand] fallback reorder in state.zones failed",
               e
             );
@@ -5863,7 +5864,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         broadcastGame(io, game, gameId);
       } catch (err: any) {
-        console.error("reorderHand handler error:", err);
+        debugError(1, "reorderHand handler error:", err);
         socket.emit("error", {
           code: "REORDER_HAND_ERROR",
           message: err?.message ?? String(err),
@@ -6023,7 +6024,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         try {
           appendEvent(gameId, (game as any).seq ?? 0, "keepHand", { playerId });
         } catch (e) {
-          console.warn("appendEvent(keepHand) failed:", e);
+          debugWarn(1, "appendEvent(keepHand) failed:", e);
         }
 
         let message = `${getPlayerName(game, playerId)} keeps their hand`;
@@ -6046,7 +6047,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         broadcastGame(io, game, gameId);
       }
     } catch (err: any) {
-      console.error(`keepHand error for game ${gameId}:`, err);
+      debugError(1, `keepHand error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "KEEP_HAND_ERROR",
         message: err?.message ?? String(err),
@@ -6157,7 +6158,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           mulligansTaken: mulliganState.mulligansTaken,
         });
       } catch (e) {
-        console.warn("appendEvent(mulliganPutToBottom) failed:", e);
+        debugWarn(1, "appendEvent(mulliganPutToBottom) failed:", e);
       }
 
       io.to(gameId).emit("chat", {
@@ -6173,7 +6174,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`mulliganPutToBottom error for game ${gameId}:`, err);
+      debugError(1, `mulliganPutToBottom error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "MULLIGAN_BOTTOM_ERROR",
         message: err?.message ?? String(err),
@@ -6256,7 +6257,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           game.drawCards(playerId, cardsToDraw);
         }
       } catch (e) {
-        console.error("Mulligan hand manipulation failed:", e);
+        debugError(1, "Mulligan hand manipulation failed:", e);
         socket.emit("error", {
           code: "MULLIGAN_FAILED",
           message: "Failed to process mulligan",
@@ -6277,7 +6278,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           wasFree: isFreeNoLandsAllLands,
         });
       } catch (e) {
-        console.warn("appendEvent(mulligan) failed:", e);
+        debugWarn(1, "appendEvent(mulligan) failed:", e);
       }
 
       // Build the mulligan message
@@ -6299,7 +6300,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`mulligan error for game ${gameId}:`, err);
+      debugError(1, `mulligan error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "MULLIGAN_ERROR",
         message: err?.message ?? String(err),
@@ -6392,7 +6393,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           discardCount: discardedCards.length,
         });
       } catch (e) {
-        console.warn("appendEvent(cleanupDiscard) failed:", e);
+        debugWarn(1, "appendEvent(cleanupDiscard) failed:", e);
       }
 
       io.to(gameId).emit("chat", {
@@ -6407,15 +6408,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         if (typeof (game as any).nextTurn === "function") {
           (game as any).nextTurn();
-          console.log(`[cleanupDiscard] Advanced to next turn for game ${gameId}`);
+          debug(2, `[cleanupDiscard] Advanced to next turn for game ${gameId}`);
         }
       } catch (e) {
-        console.warn("[cleanupDiscard] Failed to advance to next turn:", e);
+        debugWarn(1, "[cleanupDiscard] Failed to advance to next turn:", e);
       }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`cleanupDiscard error for game ${gameId}:`, err);
+      debugError(1, `cleanupDiscard error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CLEANUP_DISCARD_ERROR",
         message: err?.message ?? String(err),
@@ -6476,7 +6477,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           by: playerId,
         });
       } catch (e) {
-        console.warn("appendEvent(adjustLife) failed:", e);
+        debugWarn(1, "appendEvent(adjustLife) failed:", e);
       }
 
       // Emit chat message
@@ -6493,7 +6494,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      console.log(`[adjustLife] ${targetName} ${actionType} ${actionAmount} life (${currentLife} → ${newLife}) in game ${gameId}`);
+      debug(2, `[adjustLife] ${targetName} ${actionType} ${actionAmount} life (${currentLife} → ${newLife}) in game ${gameId}`);
 
       // Check for lifegain triggers (Ratchet, Ajani's Pridemate, etc.)
       if (delta > 0) {
@@ -6533,13 +6534,13 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           }
         } catch (triggerErr) {
-          console.warn("Error detecting lifegain triggers:", triggerErr);
+          debugWarn(1, "Error detecting lifegain triggers:", triggerErr);
         }
       }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`adjustLife error for game ${gameId}:`, err);
+      debugError(1, `adjustLife error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "ADJUST_LIFE_ERROR",
         message: err?.message ?? String(err),
@@ -6594,7 +6595,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           by: playerId,
         });
       } catch (e) {
-        console.warn("appendEvent(setLife) failed:", e);
+        debugWarn(1, "appendEvent(setLife) failed:", e);
       }
 
       // Emit chat message
@@ -6608,7 +6609,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      console.log(`[setLife] ${targetName}'s life set to ${life} (was ${currentLife}) in game ${gameId}`);
+      debug(2, `[setLife] ${targetName}'s life set to ${life} (was ${currentLife}) in game ${gameId}`);
 
       // Check for player defeat (life <= 0)
       if (life <= 0) {
@@ -6666,7 +6667,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`setLife error for game ${gameId}:`, err);
+      debugError(1, `setLife error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "SET_LIFE_ERROR",
         message: err?.message ?? String(err),
@@ -6758,7 +6759,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           by: playerId,
         });
       } catch (e) {
-        console.warn("appendEvent(mill) failed:", e);
+        debugWarn(1, "appendEvent(mill) failed:", e);
       }
 
       // Emit chat message with milled card names
@@ -6786,11 +6787,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      console.log(`[mill] ${targetName} milled ${actualCount} cards in game ${gameId}`);
+      debug(2, `[mill] ${targetName} milled ${actualCount} cards in game ${gameId}`);
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`mill error for game ${gameId}:`, err);
+      debugError(1, `mill error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "MILL_ERROR",
         message: err?.message ?? String(err),
@@ -6851,7 +6852,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           houseRules,
         });
       } catch (e) {
-        console.warn("appendEvent(setHouseRules) failed:", e);
+        debugWarn(1, "appendEvent(setHouseRules) failed:", e);
       }
 
       // Build a description of enabled rules
@@ -6875,11 +6876,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      console.log(`[setHouseRules] ${playerId} set house rules for game ${gameId}:`, houseRules);
+      debug(2, `[setHouseRules] ${playerId} set house rules for game ${gameId}:`, houseRules);
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`setHouseRules error for game ${gameId}:`, err);
+      debugError(1, `setHouseRules error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "SET_HOUSE_RULES_ERROR",
         message: err?.message ?? String(err),
@@ -7018,7 +7019,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           miracleCost,
         });
       } catch (e) {
-        console.warn("appendEvent(castMiracle) failed:", e);
+        debugWarn(1, "appendEvent(castMiracle) failed:", e);
       }
 
       io.to(gameId).emit("chat", {
@@ -7031,7 +7032,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`castMiracle error for game ${gameId}:`, err);
+      debugError(1, `castMiracle error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CAST_MIRACLE_ERROR",
         message: err?.message ?? String(err),
@@ -7064,7 +7065,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         delete cardInHand.isFirstDrawnThisTurn;
         delete cardInHand.drawnAt;
         
-        console.log(`[declineMiracle] ${playerId} declined miracle for ${cardInHand.name}`);
+        debug(2, `[declineMiracle] ${playerId} declined miracle for ${cardInHand.name}`);
       }
 
       // Bump sequence
@@ -7074,7 +7075,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`declineMiracle error for game ${gameId}:`, err);
+      debugError(1, `declineMiracle error for game ${gameId}:`, err);
     }
   });
 
@@ -7114,7 +7115,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[modeSelectionConfirm] Player ${playerId} selected mode '${selectedMode}' for ${cardInHand.name}`);
+      debug(2, `[modeSelectionConfirm] Player ${playerId} selected mode '${selectedMode}' for ${cardInHand.name}`);
 
       if (selectedMode === 'overload') {
         // Player wants to cast with overload
@@ -7171,7 +7172,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
     } catch (err: any) {
-      console.error(`modeSelectionConfirm error:`, err);
+      debugError(1, `modeSelectionConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Mode selection failed" });
     }
   });
@@ -7212,7 +7213,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[modalSpellConfirm] Player ${playerId} selected modes [${selectedModes.join(', ')}] for ${cardInHand.name}`);
+      debug(1, `[modalSpellConfirm] Player ${playerId} selected modes [${selectedModes.join(', ')}] for ${cardInHand.name}`);
 
       // Store the selected modes on the card
       (cardInHand as any).selectedModes = selectedModes;
@@ -7247,7 +7248,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`modalSpellConfirm error:`, err);
+      debugError(1, `modalSpellConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Modal spell selection failed" });
     }
   });
@@ -7288,7 +7289,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[abundantChoiceConfirm] Player ${playerId} chose "${choice}" for ${cardInHand.name}`);
+      debug(2, `[abundantChoiceConfirm] Player ${playerId} chose "${choice}" for ${cardInHand.name}`);
 
       // Store the choice on the card
       (cardInHand as any).abundantChoice = choice;
@@ -7349,7 +7350,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`abundantChoiceConfirm error:`, err);
+      debugError(1, `abundantChoiceConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Abundant choice confirmation failed" });
     }
   });
@@ -7400,7 +7401,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[lifePaymentConfirm] Player ${playerId} paying ${lifePayment} life for ${cardInHand.name}`);
+      debug(2, `[lifePaymentConfirm] Player ${playerId} paying ${lifePayment} life for ${cardInHand.name}`);
 
       // Store the life payment amount on the card for resolution
       (cardInHand as any).lifePaymentAmount = lifePayment;
@@ -7437,7 +7438,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`lifePaymentConfirm error:`, err);
+      debugError(1, `lifePaymentConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Life payment failed" });
     }
   });
@@ -7478,7 +7479,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[additionalCostConfirm] ${playerId} paying ${costType} cost for ${cardInHand.name} with ${selectedCards.length} selection(s)`);
+      debug(2, `[additionalCostConfirm] ${playerId} paying ${costType} cost for ${cardInHand.name} with ${selectedCards.length} selection(s)`);
 
       // Declare these at outer scope so they can be accessed in the event logging
       let discardedCards: string[] = [];
@@ -7551,7 +7552,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           sacrificedNames: costType === 'sacrifice' ? sacrificedNames : undefined,
         });
       } catch (e) {
-        console.warn('appendEvent(additionalCostConfirm) failed:', e);
+        debugWarn(1, 'appendEvent(additionalCostConfirm) failed:', e);
       }
 
       // Emit event to continue the cast
@@ -7568,7 +7569,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
 
     } catch (err: any) {
-      console.error(`additionalCostConfirm error:`, err);
+      debugError(1, `additionalCostConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Additional cost payment failed" });
     }
   });
@@ -7608,7 +7609,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[squadCostConfirm] ${playerId} chose to pay squad cost ${timesPaid} time(s) for ${cardInHand.name}`);
+      debug(2, `[squadCostConfirm] ${playerId} chose to pay squad cost ${timesPaid} time(s) for ${cardInHand.name}`);
 
       // Store the squad payment on the card for use when it enters the battlefield
       // The token creation happens when the creature ETBs (handled in stack resolution)
@@ -7624,7 +7625,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           effectId,
         });
       } catch (e) {
-        console.warn('appendEvent(squadCostConfirm) failed:', e);
+        debugWarn(1, 'appendEvent(squadCostConfirm) failed:', e);
       }
 
       if (timesPaid > 0) {
@@ -7652,7 +7653,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
 
     } catch (err: any) {
-      console.error(`squadCostConfirm error:`, err);
+      debugError(1, `squadCostConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Squad cost payment failed" });
     }
   });
@@ -7701,7 +7702,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       const selectedCardFace = cardFaces[selectedFace];
-      console.log(`[mdfcFaceSelectionConfirm] Player ${playerId} selected face ${selectedFace} (${selectedCardFace.name}) for ${cardInHand.name}`);
+      debug(2, `[mdfcFaceSelectionConfirm] Player ${playerId} selected face ${selectedFace} (${selectedCardFace.name}) for ${cardInHand.name}`);
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -7721,7 +7722,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
 
     } catch (err: any) {
-      console.error(`mdfcFaceSelectionConfirm error:`, err);
+      debugError(1, `mdfcFaceSelectionConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "MDFC face selection failed" });
     }
   });
@@ -7835,7 +7836,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       socket.emit("costReductionInfo", { gameId, costInfo });
     } catch (err: any) {
-      console.error(`getCostReductions error for game ${gameId}:`, err);
+      debugError(1, `getCostReductions error for game ${gameId}:`, err);
     }
   });
 
@@ -7896,7 +7897,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Check if metalcraft is active using centralized function
         if (hasMetalcraft(game as any, playerId)) {
           equipCost = '{0}';
-          console.log(`[equipAbility] Metalcraft active (${countArtifacts(game as any, playerId)} artifacts) - equip cost reduced to {0}`);
+          debug(2, `[equipAbility] Metalcraft active (${countArtifacts(game as any, playerId)} artifacts) - equip cost reduced to {0}`);
         }
       }
 
@@ -7936,7 +7937,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           })),
         });
         
-        console.log(`[equipAbility] Requesting target for ${equipment.card?.name || "Equipment"} (effectId: ${effectId})`);
+        debug(2, `[equipAbility] Requesting target for ${equipment.card?.name || "Equipment"} (effectId: ${effectId})`);
         return;
       }
 
@@ -7978,7 +7979,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Consume mana
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[equipAbility]');
         
-        console.log(`[equipAbility] ${playerId} paid ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
+        debug(2, `[equipAbility] ${playerId} paid ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
       }
 
       // Proceed with equipping
@@ -8002,7 +8003,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         delete (game.state as any).pendingEquipPayment[playerId];
       }
 
-      console.log(`[equipAbility] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId}`);
+      debug(2, `[equipAbility] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId}`);
 
       // Persist event for replay
       try {
@@ -8015,7 +8016,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           previouslyAttachedTo: equipment.attachedTo, // for proper undo tracking
         });
       } catch (e) {
-        console.warn('appendEvent(equipPermanent) failed:', e);
+        debugWarn(1, 'appendEvent(equipPermanent) failed:', e);
       }
 
       io.to(gameId).emit("chat", {
@@ -8030,7 +8031,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`equipAbility error for game ${gameId}:`, err);
+      debugError(1, `equipAbility error for game ${gameId}:`, err);
       socket.emit("error", { code: "EQUIP_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8096,7 +8097,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Clear pending payment
       delete (game.state as any).pendingEquipPayment[playerId];
 
-      console.log(`[confirmEquipPayment] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId} (paid ${pending.equipCost})`);
+      debug(2, `[confirmEquipPayment] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId} (paid ${pending.equipCost})`);
 
       // Persist event for replay
       try {
@@ -8109,7 +8110,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           equipCost: pending.equipCost,
         });
       } catch (e) {
-        console.warn('appendEvent(equipPermanent) failed:', e);
+        debugWarn(1, 'appendEvent(equipPermanent) failed:', e);
       }
 
       io.to(gameId).emit("chat", {
@@ -8122,7 +8123,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`confirmEquipPayment error for game ${gameId}:`, err);
+      debugError(1, `confirmEquipPayment error for game ${gameId}:`, err);
       socket.emit("error", { code: "EQUIP_PAYMENT_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8189,7 +8190,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       (zones.exile as any[]).push(foretoldCard);
       (zones as any).exileCount = (zones.exile as any[]).length;
 
-      console.log(`[foretellCard] ${playerId} foretold ${card.name} (foretell cost: ${foretellCost})`);
+      debug(2, `[foretellCard] ${playerId} foretold ${card.name} (foretell cost: ${foretellCost})`);
 
       // Persist event for replay
       try {
@@ -8201,7 +8202,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: foretoldCard, // Include full card data for reliable replay
         });
       } catch (e) {
-        console.warn('appendEvent(foretellCard) failed:', e);
+        debugWarn(1, 'appendEvent(foretellCard) failed:', e);
       }
 
       io.to(gameId).emit("chat", {
@@ -8214,7 +8215,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`foretellCard error for game ${gameId}:`, err);
+      debugError(1, `foretellCard error for game ${gameId}:`, err);
       socket.emit("error", { code: "FORETELL_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8255,9 +8256,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         imageUrl: card.image_uris?.small || card.image_uris?.normal,
       });
 
-      console.log(`[castForetold] ${playerId} attempting to cast foretold ${card.name} for ${card.foretellCost}`);
+      debug(2, `[castForetold] ${playerId} attempting to cast foretold ${card.name} for ${card.foretellCost}`);
     } catch (err: any) {
-      console.error(`castForetold error for game ${gameId}:`, err);
+      debugError(1, `castForetold error for game ${gameId}:`, err);
       socket.emit("error", { code: "CAST_FORETOLD_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8291,7 +8292,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       if (phasedOut.length > 0) {
-        console.log(`[phaseOutPermanents] ${playerId} phased out: ${phasedOut.join(', ')}`);
+        debug(1, `[phaseOutPermanents] ${playerId} phased out: ${phasedOut.join(', ')}`);
 
         // Persist event for replay
         try {
@@ -8301,7 +8302,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             phasedOutNames: phasedOut,
           });
         } catch (e) {
-          console.warn('appendEvent(phaseOutPermanents) failed:', e);
+          debugWarn(1, 'appendEvent(phaseOutPermanents) failed:', e);
         }
 
         io.to(gameId).emit("chat", {
@@ -8315,7 +8316,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         broadcastGame(io, game, gameId);
       }
     } catch (err: any) {
-      console.error(`phaseOutPermanents error for game ${gameId}:`, err);
+      debugError(1, `phaseOutPermanents error for game ${gameId}:`, err);
       socket.emit("error", { code: "PHASE_OUT_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8401,9 +8402,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         targetPlayerId: searchPlayerId,
       });
 
-      console.log(`[requestGraveyardTargets] Found ${validTargets.length} valid targets in ${searchPlayerId}'s graveyard for ${cardName}`);
+      debug(2, `[requestGraveyardTargets] Found ${validTargets.length} valid targets in ${searchPlayerId}'s graveyard for ${cardName}`);
     } catch (err: any) {
-      console.error(`requestGraveyardTargets error for game ${gameId}:`, err);
+      debugError(1, `requestGraveyardTargets error for game ${gameId}:`, err);
       socket.emit("error", { code: "GRAVEYARD_TARGETS_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8487,7 +8488,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           movedCards,
         });
       } catch (e) {
-        console.warn('appendEvent(confirmGraveyardTargets) failed:', e);
+        debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);
       }
 
       if (movedCards.length > 0) {
@@ -8503,12 +8504,12 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
 
-        console.log(`[confirmGraveyardTargets] ${playerId} moved ${movedCards.join(', ')} to ${destName}`);
+        debug(1, `[confirmGraveyardTargets] ${playerId} moved ${movedCards.join(', ')} to ${destName}`);
       }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`confirmGraveyardTargets error for game ${gameId}:`, err);
+      debugError(1, `confirmGraveyardTargets error for game ${gameId}:`, err);
       socket.emit("error", { code: "GRAVEYARD_CONFIRM_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8572,11 +8573,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      console.log(`[confirmGraveyardExile] ${playerId} exiled ${cardName} from ${targetPlayerId}'s graveyard with ${pending.cardName}`);
+      debug(2, `[confirmGraveyardExile] ${playerId} exiled ${cardName} from ${targetPlayerId}'s graveyard with ${pending.cardName}`);
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`confirmGraveyardExile error for game ${gameId}:`, err);
+      debugError(1, `confirmGraveyardExile error for game ${gameId}:`, err);
       socket.emit("error", { code: "GRAVEYARD_EXILE_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8620,9 +8621,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         maxOpponents,
       });
 
-      console.log(`[requestOpponentSelection] Requesting opponent selection for ${cardName}`);
+      debug(2, `[requestOpponentSelection] Requesting opponent selection for ${cardName}`);
     } catch (err: any) {
-      console.error(`requestOpponentSelection error for game ${gameId}:`, err);
+      debugError(1, `requestOpponentSelection error for game ${gameId}:`, err);
       socket.emit("error", { code: "OPPONENT_SELECTION_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8648,11 +8649,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         timestamp: Date.now(),
       };
 
-      console.log(`[confirmOpponentSelection] ${playerId} selected opponents: ${selectedOpponentIds.join(', ')}`);
+      debug(1, `[confirmOpponentSelection] ${playerId} selected opponents: ${selectedOpponentIds.join(', ')}`);
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`confirmOpponentSelection error for game ${gameId}:`, err);
+      debugError(1, `confirmOpponentSelection error for game ${gameId}:`, err);
       socket.emit("error", { code: "OPPONENT_CONFIRM_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8706,9 +8707,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         permanentType,
       });
 
-      console.log(`[requestSacrificeSelection] ${targetPlayerId} must sacrifice ${count} ${permanentType}(s) due to ${sourceName}`);
+      debug(2, `[requestSacrificeSelection] ${targetPlayerId} must sacrifice ${count} ${permanentType}(s) due to ${sourceName}`);
     } catch (err: any) {
-      console.error(`requestSacrificeSelection error for game ${gameId}:`, err);
+      debugError(1, `requestSacrificeSelection error for game ${gameId}:`, err);
       socket.emit("error", { code: "SACRIFICE_REQUEST_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8769,11 +8770,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      console.log(`[changePermanentControl] ${cardName} control changed from ${oldController} to ${newController}`);
+      debug(2, `[changePermanentControl] ${cardName} control changed from ${oldController} to ${newController}`);
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`changePermanentControl error for game ${gameId}:`, err);
+      debugError(1, `changePermanentControl error for game ${gameId}:`, err);
       socket.emit("error", { code: "CONTROL_CHANGE_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8886,14 +8887,14 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         appendEvent(gameId, (game as any).seq ?? 0, "concede", { playerId, playerName });
       } catch (e) {
-        console.warn("appendEvent(concede) failed:", e);
+        debugWarn(1, "appendEvent(concede) failed:", e);
       }
 
       broadcastGame(io, game, gameId);
 
-      console.log(`[concede] Player ${playerName} (${playerId}) conceded in game ${gameId}`);
+      debug(2, `[concede] Player ${playerName} (${playerId}) conceded in game ${gameId}`);
     } catch (err: any) {
-      console.error(`concede error for game ${gameId}:`, err);
+      debugError(1, `concede error for game ${gameId}:`, err);
       socket.emit("error", { code: "CONCEDE_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -8978,7 +8979,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           triggerDescription,
         });
       } catch (e) {
-        console.warn("[game-actions] Failed to persist setTriggerShortcut event:", e);
+        debugWarn(1, "[game-actions] Failed to persist setTriggerShortcut event:", e);
       }
 
       // Bump sequence and broadcast
@@ -8988,10 +8989,10 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
 
-      console.log(`[setTriggerShortcut] Player ${playerId} set ${cardName} preference to ${preference}`);
+      debug(2, `[setTriggerShortcut] Player ${playerId} set ${cardName} preference to ${preference}`);
 
     } catch (err: any) {
-      console.error(`setTriggerShortcut error for game ${gameId}:`, err);
+      debugError(1, `setTriggerShortcut error for game ${gameId}:`, err);
       socket.emit("error", { code: "SET_TRIGGER_SHORTCUT_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -9032,7 +9033,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
 
     } catch (err: any) {
-      console.error(`getTriggerShortcut error:`, err);
+      debugError(1, `getTriggerShortcut error:`, err);
       socket.emit("triggerShortcutResponse", { shortcut: null });
     }
   });
@@ -9108,9 +9109,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         validTargets,
       });
 
-      console.log(`[requestMutateTargets] Found ${validTargets.length} valid mutate targets for ${card.name}`);
+      debug(2, `[requestMutateTargets] Found ${validTargets.length} valid mutate targets for ${card.name}`);
     } catch (err: any) {
-      console.error(`requestMutateTargets error:`, err);
+      debugError(1, `requestMutateTargets error:`, err);
       socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -9219,7 +9220,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           mutateCost,
         });
       } catch (e) {
-        console.warn('appendEvent(castWithMutate) failed:', e);
+        debugWarn(1, 'appendEvent(castWithMutate) failed:', e);
       }
 
       if (typeof (game as any).bumpSeq === "function") {
@@ -9228,9 +9229,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
 
-      console.log(`[confirmMutateTarget] ${playerId} cast ${card.name} with mutate onto ${targetPerm.card?.name}`);
+      debug(2, `[confirmMutateTarget] ${playerId} cast ${card.name} with mutate onto ${targetPerm.card?.name}`);
     } catch (err: any) {
-      console.error(`confirmMutateTarget error:`, err);
+      debugError(1, `confirmMutateTarget error:`, err);
       socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -9276,9 +9277,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
 
-      console.log(`[castMutateNormally] Mutate target invalid, ${stackItem.card?.name} will enter normally`);
+      debug(2, `[castMutateNormally] Mutate target invalid, ${stackItem.card?.name} will enter normally`);
     } catch (err: any) {
-      console.error(`castMutateNormally error:`, err);
+      debugError(1, `castMutateNormally error:`, err);
       socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -9470,9 +9471,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         options,
       });
 
-      console.log(`[requestAlternateCosts] Found ${options.length} casting options for ${card.name}`);
+      debug(2, `[requestAlternateCosts] Found ${options.length} casting options for ${card.name}`);
     } catch (err: any) {
-      console.error(`requestAlternateCosts error:`, err);
+      debugError(1, `requestAlternateCosts error:`, err);
       socket.emit("error", { code: "ALTERNATE_COSTS_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -9491,7 +9492,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId as string | undefined;
       if (!game || !playerId) return;
 
-      console.log(`[confirmAlternateCost] Player ${playerId} selected cost ${selectedCostId} for card ${cardId}`);
+      debug(2, `[confirmAlternateCost] Player ${playerId} selected cost ${selectedCostId} for card ${cardId}`);
 
       // Handle based on selected cost type
       if (selectedCostId === 'mutate') {
@@ -9524,8 +9525,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
     } catch (err: any) {
-      console.error(`confirmAlternateCost error:`, err);
+      debugError(1, `confirmAlternateCost error:`, err);
       socket.emit("error", { code: "ALTERNATE_COST_ERROR", message: err?.message ?? String(err) });
     }
   });
 }
+
+
+

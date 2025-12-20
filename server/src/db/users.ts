@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -249,7 +250,7 @@ export function registerUser(username: string, password: string, displayName?: s
     if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return null; // Username already exists
     }
-    console.error('[DB] registerUser failed:', err);
+    debugError(1, '[DB] registerUser failed:', err);
     throw err;
   }
 }
@@ -423,7 +424,7 @@ export function sendFriendRequest(fromUserId: string, toUserId: string): boolean
     });
     return true;
   } catch (err) {
-    console.error('[DB] sendFriendRequest failed:', err);
+    debugError(1, '[DB] sendFriendRequest failed:', err);
     return false;
   }
 }
@@ -447,7 +448,7 @@ export function acceptFriendRequest(userId: string, fromUserId: string): boolean
     
     return true;
   } catch (err) {
-    console.error('[DB] acceptFriendRequest failed:', err);
+    debugError(1, '[DB] acceptFriendRequest failed:', err);
     return false;
   }
 }
@@ -527,3 +528,4 @@ export function cleanupGuestUsers(): number {
   }
   return removed;
 }
+

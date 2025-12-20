@@ -9,6 +9,7 @@ import * as readline from 'readline';
 import { listGames, deleteGame as dbDeleteGame } from './db/index.js';
 import GameManager from './GameManager.js';
 import { games as socketGames, priorityTimers } from './socket/socket.js';
+import { debug, debugWarn, debugError } from "./utils/debug.js";
 
 // Reference to the HTTP server for graceful shutdown
 let httpServer: any = null;
@@ -36,12 +37,12 @@ function listAllGames(): void {
     const persisted = listGames();
     
     if (persisted.length === 0) {
-      console.log('\n📋 No games currently exist.\n');
+      debug(2, '\n📋 No games currently exist.\n');
       return;
     }
     
-    console.log('\n📋 Current Games:');
-    console.log('─'.repeat(80));
+    debug(2, '\n📋 Current Games:');
+    debug(2, '─'.repeat(80));
     
     persisted.forEach((row, index) => {
       const id = row.game_id;
@@ -63,20 +64,20 @@ function listAllGames(): void {
         ?.map((p: any) => p.name)
         ?.join(', ') || 'None';
       
-      console.log(`  ${index + 1}. Game ID: ${id}`);
-      console.log(`     Format: ${row.format} | Starting Life: ${row.starting_life}`);
-      console.log(`     Created: ${formatDate(row.created_at)}`);
-      console.log(`     Players (${playersCount}): ${playerNames}`);
-      console.log(`     Active Connections: ${activeConnections}`);
-      console.log(`     Phase: ${phase}${step ? '/' + step : ''} | Turn: ${turn}`);
-      console.log('');
+      debug(2, `  ${index + 1}. Game ID: ${id}`);
+      debug(2, `     Format: ${row.format} | Starting Life: ${row.starting_life}`);
+      debug(2, `     Created: ${formatDate(row.created_at)}`);
+      debug(2, `     Players (${playersCount}): ${playerNames}`);
+      debug(2, `     Active Connections: ${activeConnections}`);
+      debug(2, `     Phase: ${phase}${step ? '/' + step : ''} | Turn: ${turn}`);
+      debug(2, '');
     });
     
-    console.log(`Total: ${persisted.length} game(s)`);
-    console.log('─'.repeat(80));
-    console.log('');
+    debug(2, `Total: ${persisted.length} game(s)`);
+    debug(2, '─'.repeat(80));
+    debug(2, '');
   } catch (err) {
-    console.error('❌ Error listing games:', (err as Error).message);
+    debugError(1, '❌ Error listing games:', (err as Error).message);
   }
 }
 
@@ -88,31 +89,31 @@ function deleteGameByNumber(gameNumber: number): void {
     const persisted = listGames();
     
     if (gameNumber < 1 || gameNumber > persisted.length) {
-      console.log(`\n❌ Invalid game number: ${gameNumber}. Valid range: 1-${persisted.length}\n`);
+      debug(2, `\n❌ Invalid game number: ${gameNumber}. Valid range: 1-${persisted.length}\n`);
       return;
     }
     
     const game = persisted[gameNumber - 1];
     const gameId = game.game_id;
     
-    console.log(`\n🗑️  Deleting game #${gameNumber} (${gameId})...`);
+    debug(2, `\n🗑️  Deleting game #${gameNumber} (${gameId})...`);
     
     // Remove from GameManager (authoritative in-memory games map)
     try {
       const removed = GameManager.deleteGame(gameId);
-      console.log(`   - GameManager: ${removed ? 'removed' : 'not found'}`);
+      debug(2, `   - GameManager: ${removed ? 'removed' : 'not found'}`);
     } catch (e) {
-      console.warn(`   - GameManager removal failed: ${(e as Error).message}`);
+      debugWarn(1, `   - GameManager removal failed: ${(e as Error).message}`);
     }
     
     // Remove from legacy socketGames Map
     try {
       const hadLegacy = socketGames.delete(gameId as any);
       if (hadLegacy) {
-        console.log('   - Legacy socketGames: removed');
+        debug(2, '   - Legacy socketGames: removed');
       }
     } catch (e) {
-      console.warn(`   - Legacy socketGames removal failed: ${(e as Error).message}`);
+      debugWarn(1, `   - Legacy socketGames removal failed: ${(e as Error).message}`);
     }
     
     // Clear any priority timers
@@ -121,19 +122,19 @@ function deleteGameByNumber(gameNumber: number): void {
       if (timer) {
         clearTimeout(timer);
         priorityTimers.delete(gameId as any);
-        console.log('   - Priority timer: cleared');
+        debug(2, '   - Priority timer: cleared');
       }
     } catch (e) {
-      console.warn(`   - Priority timer cleanup failed: ${(e as Error).message}`);
+      debugWarn(1, `   - Priority timer cleanup failed: ${(e as Error).message}`);
     }
     
     // Delete from database
     const dbResult = dbDeleteGame(gameId);
-    console.log(`   - Database: ${dbResult ? 'deleted' : 'not found'}`);
+    debug(2, `   - Database: ${dbResult ? 'deleted' : 'not found'}`);
     
-    console.log(`\n✅ Game #${gameNumber} (${gameId}) has been deleted.\n`);
+    debug(2, `\n✅ Game #${gameNumber} (${gameId}) has been deleted.\n`);
   } catch (err) {
-    console.error('❌ Error deleting game:', (err as Error).message);
+    debugError(1, '❌ Error deleting game:', (err as Error).message);
   }
 }
 
@@ -141,21 +142,21 @@ function deleteGameByNumber(gameNumber: number): void {
  * Stop the server gracefully
  */
 function stopServer(): void {
-  console.log('\n🛑 Stopping server...');
+  debug(2, '\n🛑 Stopping server...');
   
   if (httpServer) {
     httpServer.close(() => {
-      console.log('✅ Server stopped gracefully.');
+      debug(2, '✅ Server stopped gracefully.');
       process.exit(0);
     });
     
     // Force exit after 5 seconds if graceful shutdown fails
     setTimeout(() => {
-      console.log('⚠️  Forcing shutdown after timeout...');
+      debug(2, '⚠️  Forcing shutdown after timeout...');
       process.exit(0);
     }, 5000);
   } else {
-    console.log('⚠️  No HTTP server reference available. Exiting process...');
+    debug(2, '⚠️  No HTTP server reference available. Exiting process...');
     process.exit(0);
   }
 }
@@ -165,22 +166,22 @@ function stopServer(): void {
  * The process manager (pm2, systemd, etc.) should restart the process
  */
 function restartServer(): void {
-  console.log('\n🔄 Restarting server...');
-  console.log('   Note: This relies on a process manager (like pm2) to restart the process.');
+  debug(2, '\n🔄 Restarting server...');
+  debug(2, '   Note: This relies on a process manager (like pm2) to restart the process.');
   
   if (httpServer) {
     httpServer.close(() => {
-      console.log('✅ Server closed. Exiting with code 0 for restart...');
+      debug(2, '✅ Server closed. Exiting with code 0 for restart...');
       // Exit with code 0 - process managers typically restart on non-error exits when configured
       process.exit(0);
     });
     
     setTimeout(() => {
-      console.log('⚠️  Forcing restart after timeout...');
+      debug(2, '⚠️  Forcing restart after timeout...');
       process.exit(0);
     }, 5000);
   } else {
-    console.log('⚠️  No HTTP server reference available. Exiting for restart...');
+    debug(2, '⚠️  No HTTP server reference available. Exiting for restart...');
     process.exit(0);
   }
 }
@@ -189,7 +190,7 @@ function restartServer(): void {
  * Display help information
  */
 function showHelp(): void {
-  console.log(`
+  debug(2, `
 📖 MTGEDH Server CLI Commands:
 ─────────────────────────────────────────────────────────────────
   list              Show all current games with their details
@@ -225,12 +226,12 @@ function processCommand(input: string): void {
       if (parts[1] === 'game' && parts[2]) {
         const gameNum = parseInt(parts[2], 10);
         if (isNaN(gameNum)) {
-          console.log('\n❌ Invalid game number. Usage: delete game <number>\n');
+          debug(2, '\n❌ Invalid game number. Usage: delete game <number>\n');
         } else {
           deleteGameByNumber(gameNum);
         }
       } else {
-        console.log('\n❌ Usage: delete game <number>\n   Example: delete game 1\n');
+        debug(2, '\n❌ Usage: delete game <number>\n   Example: delete game 1\n');
       }
       break;
       
@@ -254,7 +255,7 @@ function processCommand(input: string): void {
       break;
       
     default:
-      console.log(`\n❌ Unknown command: "${command}". Type "help" for available commands.\n`);
+      debug(2, `\n❌ Unknown command: "${command}". Type "help" for available commands.\n`);
   }
 }
 
@@ -276,7 +277,7 @@ function processCommand(input: string): void {
 export function initCLI(): void {
   // Skip CLI initialization if stdin is not a TTY (e.g., running in background)
   if (!process.stdin.isTTY) {
-    console.log('[CLI] Not running in interactive mode (no TTY). CLI commands disabled.');
+    debug(2, '[CLI] Not running in interactive mode (no TTY). CLI commands disabled.');
     return;
   }
   
@@ -285,8 +286,8 @@ export function initCLI(): void {
   const isPowerShell = !!(process.env.PSModulePath || process.env.POWERSHELL_DISTRIBUTION_CHANNEL);
   
   if (isWindows && isPowerShell) {
-    console.log('[CLI] Detected Windows PowerShell. If CLI commands are not working correctly,');
-    console.log('[CLI] try using cmd.exe, Windows Terminal, or Git Bash instead.');
+    debug(2, '[CLI] Detected Windows PowerShell. If CLI commands are not working correctly,');
+    debug(2, '[CLI] try using cmd.exe, Windows Terminal, or Git Bash instead.');
   }
   
   const rl = readline.createInterface({
@@ -298,9 +299,9 @@ export function initCLI(): void {
     terminal: true,
   });
   
-  console.log('\n═══════════════════════════════════════════════════════════════════');
-  console.log('  MTGEDH Server CLI - Type "help" for available commands');
-  console.log('═══════════════════════════════════════════════════════════════════\n');
+  debug(2, '\n═══════════════════════════════════════════════════════════════════');
+  debug(2, '  MTGEDH Server CLI - Type "help" for available commands');
+  debug(2, '═══════════════════════════════════════════════════════════════════\n');
   
   rl.prompt();
   
@@ -310,14 +311,16 @@ export function initCLI(): void {
   });
   
   rl.on('close', () => {
-    console.log('\n[CLI] Input stream closed. Use Ctrl+C to stop the server.');
+    debug(2, '\n[CLI] Input stream closed. Use Ctrl+C to stop the server.');
   });
   
   // Handle SIGINT (Ctrl+C) gracefully
   // Use 'once' to prevent multiple handlers if initCLI is called multiple times
   process.once('SIGINT', () => {
-    console.log('\n\n⚡ Received SIGINT (Ctrl+C)');
+    debug(2, '\n\n⚡ Received SIGINT (Ctrl+C)');
     rl.close(); // Close readline interface for proper cleanup
     stopServer();
   });
 }
+
+

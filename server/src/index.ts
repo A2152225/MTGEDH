@@ -23,6 +23,7 @@ import type {
 } from "../../shared/src/events";
 import GameManager from "./GameManager"; // NEW: import GameManager
 import { initCLI, setHttpServer } from "./cli"; // CLI support for server management
+import { debug, debugWarn, debugError } from "./utils/debug.js";
 
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -92,7 +93,7 @@ app.get("/api/games", (req, res) => {
     });
     res.json({ games: enriched });
   } catch (err) {
-    console.error("GET /api/games failed:", err);
+    debugError(1, "GET /api/games failed:", err);
     res.status(500).json({ error: "Failed to list games" });
   }
 });
@@ -103,7 +104,7 @@ app.get("/api/decks", (req, res) => {
     const decks = listDecks();
     res.json({ decks });
   } catch (err) {
-    console.error("GET /api/decks failed:", err);
+    debugError(1, "GET /api/decks failed:", err);
     res.status(500).json({ error: "Failed to list decks" });
   }
 });
@@ -129,7 +130,7 @@ app.post("/api/decks", (req, res) => {
       const parsed = parseDecklist(text);
       cardCount = parsed.reduce((sum, entry) => sum + (entry.count || 1), 0);
     } catch (e) {
-      console.warn("[API] parseDecklist failed, using fallback count:", e);
+      debugWarn(1, "[API] parseDecklist failed, using fallback count:", e);
       // Fallback: simple line count
       cardCount = text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length;
     }
@@ -145,11 +146,11 @@ app.post("/api/decks", (req, res) => {
       card_count: cardCount,
     });
     
-    console.info("[API] Deck saved:", { deckId, name: name.trim(), cardCount });
+    debug(1, "[API] Deck saved:", { deckId, name: name.trim(), cardCount });
     
     res.json({ success: true, deckId, cardCount });
   } catch (err) {
-    console.error("POST /api/decks failed:", err);
+    debugError(1, "POST /api/decks failed:", err);
     res.status(500).json({ error: "Failed to save deck" });
   }
 });
@@ -172,11 +173,11 @@ app.post("/api/house-rule-suggestions", (req, res) => {
     
     const saved = addSuggestion(suggestion.trim());
     
-    console.info("[API] House rule suggestion submitted:", saved.id);
+    debug(1, "[API] House rule suggestion submitted:", saved.id);
     
     res.json({ success: true, suggestionId: saved.id });
   } catch (err) {
-    console.error("POST /api/house-rule-suggestions failed:", err);
+    debugError(1, "POST /api/house-rule-suggestions failed:", err);
     res.status(500).json({ error: "Failed to save suggestion" });
   }
 });
@@ -199,7 +200,7 @@ app.get("/api/house-rule-suggestions", (req, res) => {
     const suggestions = loadSuggestions();
     res.json({ suggestions });
   } catch (err) {
-    console.error("GET /api/house-rule-suggestions failed:", err);
+    debugError(1, "GET /api/house-rule-suggestions failed:", err);
     res.status(500).json({ error: "Failed to list suggestions" });
   }
 });
@@ -228,16 +229,16 @@ app.delete("/admin/games/:id", (req, res) => {
     try {
       const removed = GameManager.deleteGame(id);
       if (!removed) {
-        console.info(
+        debug(1, 
           `DELETE /admin/games/${id}: GameManager.deleteGame returned false (no in-memory game)`
         );
       } else {
-        console.info(
+        debug(1, 
           `DELETE /admin/games/${id}: GameManager.deleteGame removed in-memory game`
         );
       }
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         `DELETE /admin/games/${id}: GameManager.deleteGame threw`,
         e
       );
@@ -247,23 +248,23 @@ app.delete("/admin/games/:id", (req, res) => {
     try {
       const hadLegacy = socketGames.delete(id);
       if (hadLegacy) {
-        console.info(
+        debug(1, 
           `DELETE /admin/games/${id}: removed from socketGames legacy map`
         );
       }
     } catch (e) {
-      console.warn("Failed to remove in-memory game from socketGames:", e);
+      debugWarn(1, "Failed to remove in-memory game from socketGames:", e);
     }
 
     // Remove persisted rows (events + games metadata)
     const ok = dbDeleteGame(id);
     if (!ok) {
-      console.warn(`DELETE /admin/games/${id}: deleteGame returned false`);
+      debugWarn(2, `DELETE /admin/games/${id}: deleteGame returned false`);
     }
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("DELETE /admin/games/:id failed:", err);
+    debugError(1, "DELETE /admin/games/:id failed:", err);
     res.status(500).json({ error: "Delete failed" });
   }
 });
@@ -272,7 +273,7 @@ app.delete("/admin/games/:id", (req, res) => {
 app.get("*", (req, res) => {
   res.sendFile(path.join(BUILD_PATH, "index.html"), (err) => {
     if (err) {
-      console.error(`Error serving index.html: ${err.message}`);
+      debugError(1, `Error serving index.html: ${err.message}`);
       res
         .status(500)
         .send(
@@ -285,11 +286,11 @@ app.get("*", (req, res) => {
 // Main bootstrap: initialize DB first, then create HTTP + Socket.IO servers and register handlers.
 async function main() {
   try {
-    console.log("[Server] Initializing database...");
+    debug(2, "[Server] Initializing database...");
     await initDb();
-    console.log("[Server] Database initialized successfully.");
+    debug(2, "[Server] Database initialized successfully.");
   } catch (err) {
-    console.error("[Server] Failed to initialize database:", err);
+    debugError(1, "[Server] Failed to initialize database:", err);
     process.exit(1); // Stop the server if the database cannot be initialized
   }
 
@@ -316,7 +317,7 @@ async function main() {
 
   // Start the server bound to localhost only for security (IIS/ARR will reverse-proxy to this)
   httpServer.listen(PORT, "127.0.0.1", () => {
-    console.log(`[Server] Running at http://127.0.0.1:${PORT}`);
+    debug(2, `[Server] Running at http://127.0.0.1:${PORT}`);
     
     // Initialize CLI interface for server management
     setHttpServer(httpServer);
@@ -325,6 +326,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[Server] Unhandled error during startup:", err);
+  debugError(1, "[Server] Unhandled error during startup:", err);
   process.exit(1);
 });
+

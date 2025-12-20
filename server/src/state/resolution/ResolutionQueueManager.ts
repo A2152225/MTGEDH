@@ -21,6 +21,7 @@ import {
   type ResolutionStepResponse,
   type CreateResolutionStepConfig,
 } from './types.js';
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import {
   createResolutionQueue,
   createResolutionStep,
@@ -131,7 +132,7 @@ class ResolutionQueueManagerClass {
       try {
         handler(event, gameId, step, response);
       } catch (err) {
-        console.error('[ResolutionQueueManager] Event handler error:', err);
+        debugError(1, '[ResolutionQueueManager] Event handler error:', err);
       }
     }
   }
@@ -372,3 +373,4 @@ export const ResolutionQueueManager = new ResolutionQueueManagerClass();
 
 // Export for direct imports
 export default ResolutionQueueManager;
+

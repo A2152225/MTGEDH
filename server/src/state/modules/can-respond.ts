@@ -21,6 +21,7 @@ import { hasPayableAlternateCost } from "./alternate-costs";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements } from "../../rules-engine/targeting";
 import { calculateMaxLandsPerTurn } from "./game-state-effects";
 import { creatureHasHaste } from "../../socket/game-actions.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
  * Check if a card has flash or is an instant
@@ -66,7 +67,7 @@ function hasFlashback(card: any): { hasIt: boolean; cost?: string } {
   }
   
   // If we find "flashback" but can't parse cost, log warning and assume it exists
-  console.warn(`[hasFlashback] Found flashback on ${card.name} but could not parse cost from: "${oracleText}"`);
+  debugWarn(2, `[hasFlashback] Found flashback on ${card.name} but could not parse cost from: "${oracleText}"`);
   return { hasIt: true };
 }
 
@@ -87,7 +88,7 @@ function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: stri
     if (foretellMatch) {
       return { hasIt: true, cost: foretellMatch[1] };
     }
-    console.warn(`[hasForetellOrCanCastFromExile] Found foretell on ${card.name} but could not parse cost from: "${oracleText}"`);
+    debugWarn(2, `[hasForetellOrCanCastFromExile] Found foretell on ${card.name} but could not parse cost from: "${oracleText}"`);
     return { hasIt: true };
   }
   
@@ -112,7 +113,7 @@ function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: stri
  * @returns Always returns true (assumes player can pay)
  */
 function assumeCanPayUnknownCost(cardName: string, mechanicName: string): boolean {
-  console.warn(`[assumeCanPayUnknownCost] Could not parse ${mechanicName} cost for ${cardName} - being conservative, assuming player can pay`);
+  debugWarn(2, `[assumeCanPayUnknownCost] Could not parse ${mechanicName} cost for ${cardName} - being conservative, assuming player can pay`);
   return true;
 }
 
@@ -214,7 +215,7 @@ function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boo
       // Cannot determine if valid targets exist without proper categorization
       // To be safe for turn advancement: return false (spell not castable)
       // This prevents incorrect turn stoppage while being conservative about unknown spells
-      console.warn(`[hasValidTargetsForSpell] Could not categorize targeting spell ${cardName}, assuming no valid targets`);
+      debugWarn(2, `[hasValidTargetsForSpell] Could not categorize targeting spell ${cardName}, assuming no valid targets`);
       return false;
     }
   }
@@ -460,7 +461,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         
         // Skip ignored cards - they shouldn't trigger auto-pass prompts
         if (ignoredCards[card.id]) {
-          console.log(`[canCastAnySpell] Skipping ignored card in hand: ${card.name || card.id}`);
+          debug(2, `[canCastAnySpell] Skipping ignored card in hand: ${card.name || card.id}`);
           continue;
         }
         
@@ -498,7 +499,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         
         // Skip ignored cards in graveyard
         if (ignoredCards[card.id]) {
-          console.log(`[canCastAnySpell] Skipping ignored card in graveyard: ${card.name || card.id}`);
+          debug(2, `[canCastAnySpell] Skipping ignored card in graveyard: ${card.name || card.id}`);
           continue;
         }
         
@@ -542,7 +543,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         
         // Skip ignored cards in exile
         if (ignoredCards[card.id]) {
-          console.log(`[canCastAnySpell] Skipping ignored card in exile: ${card.name || card.id}`);
+          debug(2, `[canCastAnySpell] Skipping ignored card in exile: ${card.name || card.id}`);
           continue;
         }
         
@@ -609,7 +610,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     
     return false;
   } catch (err) {
-    console.warn("[canCastAnySpell] Error:", err);
+    debugWarn(1, "[canCastAnySpell] Error:", err);
     return false; // Default to false on error
   }
 }
@@ -889,7 +890,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     for (const permanent of battlefield) {
       // Skip ignored permanents - they shouldn't trigger auto-pass prompts
       if (ignoredCards[permanent.id]) {
-        console.log(`[canActivateAnyAbility] Skipping ignored card: ${permanent.card?.name || permanent.id}`);
+        debug(2, `[canActivateAnyAbility] Skipping ignored card: ${permanent.card?.name || permanent.id}`);
         continue;
       }
       
@@ -905,7 +906,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
       for (const card of zones.graveyard as any[]) {
         // Skip ignored cards in graveyard
         if (ignoredCards[card.id]) {
-          console.log(`[canActivateAnyAbility] Skipping ignored graveyard card: ${card.name || card.id}`);
+          debug(2, `[canActivateAnyAbility] Skipping ignored graveyard card: ${card.name || card.id}`);
           continue;
         }
         
@@ -930,7 +931,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
       for (const card of zones.exile as any[]) {
         // Skip ignored cards in exile
         if (ignoredCards[card.id]) {
-          console.log(`[canActivateAnyAbility] Skipping ignored exile card: ${card.name || card.id}`);
+          debug(2, `[canActivateAnyAbility] Skipping ignored exile card: ${card.name || card.id}`);
           continue;
         }
         
@@ -945,7 +946,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
       for (const card of zones.hand as any[]) {
         // Skip ignored cards in hand
         if (ignoredCards[card.id]) {
-          console.log(`[canActivateAnyAbility] Skipping ignored hand card: ${card.name || card.id}`);
+          debug(2, `[canActivateAnyAbility] Skipping ignored hand card: ${card.name || card.id}`);
           continue;
         }
         
@@ -959,7 +960,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     
     return false;
   } catch (err) {
-    console.warn("[canActivateAnyAbility] Error:", err);
+    debugWarn(1, "[canActivateAnyAbility] Error:", err);
     return false;
   }
 }
@@ -1036,7 +1037,7 @@ function isInMainPhase(ctx: GameContext): boolean {
     const stepStr = String(step).toUpperCase();
     return stepStr === 'MAIN_1' || stepStr === 'MAIN_2' || stepStr === 'MAIN' || stepStr.includes('MAIN');
   } catch (err) {
-    console.warn("[isInMainPhase] Error:", err);
+    debugWarn(1, "[isInMainPhase] Error:", err);
     // Default to true to be conservative (don't auto-pass if uncertain)
     return true;
   }
@@ -1057,13 +1058,13 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const { state } = ctx;
     if (!state) {
-      console.log(`[canPlayLand] ${playerId}: No state`);
+      debug(2, `[canPlayLand] ${playerId}: No state`);
       return false;
     }
     
     const zones = state.zones?.[playerId];
     if (!zones) {
-      console.log(`[canPlayLand] ${playerId}: No zones found`);
+      debug(2, `[canPlayLand] ${playerId}: No zones found`);
       return false;
     }
     
@@ -1074,36 +1075,36 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
     const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx, playerId);
     
     if (landsPlayedThisTurn >= maxLandsPerTurn) {
-      console.log(`[canPlayLand] ${playerId}: Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
+      debug(2, `[canPlayLand] ${playerId}: Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
       return false; // Already played max lands
     }
     
     // Check if player has a land card in hand
     if (Array.isArray(zones.hand)) {
-      console.log(`[canPlayLand] ${playerId}: Checking hand with ${zones.hand.length} cards`);
+      debug(2, `[canPlayLand] ${playerId}: Checking hand with ${zones.hand.length} cards`);
       
       // Log first few cards in hand for debugging
       const sampleCards = zones.hand.slice(0, 3).map((c: any) => {
         if (!c || typeof c === "string") return `string:${c}`;
         return `${c.name || 'unknown'}(${(c.type_line || '').substring(0, 20)})`;
       });
-      console.log(`[canPlayLand] ${playerId}: Sample cards in hand: [${sampleCards.join(', ')}]`);
+      debug(1, `[canPlayLand] ${playerId}: Sample cards in hand: [${sampleCards.join(', ')}]`);
       
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
         
         const typeLine = (card.type_line || "").toLowerCase();
         if (typeLine.includes("land")) {
-          console.log(`[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'}) - returning TRUE`);
+          debug(2, `[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'}) - returning TRUE`);
           return true; // Found a land in hand that can be played
         }
       }
-      console.log(`[canPlayLand] ${playerId}: No lands found in hand of ${zones.hand.length} cards - returning FALSE`);
+      debug(2, `[canPlayLand] ${playerId}: No lands found in hand of ${zones.hand.length} cards - returning FALSE`);
     } else {
-      console.log(`[canPlayLand] ${playerId}: zones.hand is not an array:`, typeof zones.hand, zones.hand);
+      debug(2, `[canPlayLand] ${playerId}: zones.hand is not an array:`, typeof zones.hand, zones.hand);
       // FALLBACK: Check handCount to see if there might be cards
       if (zones.handCount && zones.handCount > 0) {
-        console.warn(`[canPlayLand] ${playerId}: WARNING - handCount=${zones.handCount} but zones.hand is not an array! This is a data consistency issue.`);
+        debugWarn(1, `[canPlayLand] ${playerId}: WARNING - handCount=${zones.handCount} but zones.hand is not an array! This is a data consistency issue.`);
         // Return true conservatively - don't auto-pass if we're not sure
         return true;
       }
@@ -1162,7 +1163,7 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
     
     return false;
   } catch (err) {
-    console.warn("[canPlayLand] Error:", err);
+    debugWarn(1, "[canPlayLand] Error:", err);
     return false;
   }
 }
@@ -1248,7 +1249,7 @@ function hasPlayFromZoneEffect(ctx: GameContext, playerId: PlayerID, zone: strin
     
     return false;
   } catch (err) {
-    console.warn("[hasPlayFromZoneEffect] Error:", err);
+    debugWarn(1, "[hasPlayFromZoneEffect] Error:", err);
     return false;
   }
 }
@@ -1286,7 +1287,7 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
     
     return false;
   } catch (err) {
-    console.warn("[hasPlayFromTopOfLibraryEffect] Error:", err);
+    debugWarn(1, "[hasPlayFromTopOfLibraryEffect] Error:", err);
     return false;
   }
 }
@@ -1307,25 +1308,25 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  */
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
   try {
-    console.log(`[canRespond] ${playerId}: checking instant-speed responses only`);
+    debug(2, `[canRespond] ${playerId}: checking instant-speed responses only`);
     
     // Check if player can cast any instant/flash spells
     if (canCastAnySpell(ctx, playerId)) {
-      console.log(`[canRespond] ${playerId}: Can cast instant/flash spell`);
+      debug(2, `[canRespond] ${playerId}: Can cast instant/flash spell`);
       return true;
     }
     
     // Check if player can activate any abilities
     if (canActivateAnyAbility(ctx, playerId)) {
-      console.log(`[canRespond] ${playerId}: Can activate ability`);
+      debug(2, `[canRespond] ${playerId}: Can activate ability`);
       return true;
     }
     
     // No instant-speed responses available
-    console.log(`[canRespond] ${playerId}: No instant-speed responses available (returning false)`);
+    debug(2, `[canRespond] ${playerId}: No instant-speed responses available (returning false)`);
     return false;
   } catch (err) {
-    console.warn("[canRespond] Error:", err);
+    debugWarn(1, "[canRespond] Error:", err);
     // On error, default to true (don't auto-pass) to be safe
     return true;
   }
@@ -1391,7 +1392,7 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
         
         if (hasFlash || isInstant) {
           // Can cast at instant speed - always valid
-          console.log(`[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} has flash/instant - can cast`);
+          debug(2, `[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} has flash/instant - can cast`);
           return true;
         }
         
@@ -1401,7 +1402,7 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
         const stackIsEmpty = !state.stack || state.stack.length === 0;
         
         if (isMainPhase && stackIsEmpty) {
-          console.log(`[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} can be cast (main phase, empty stack)`);
+          debug(2, `[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} can be cast (main phase, empty stack)`);
           return true;
         }
       }
@@ -1409,7 +1410,7 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
     
     return false;
   } catch (err) {
-    console.warn("[canCastCommanderFromCommandZone] Error:", err);
+    debugWarn(1, "[canCastCommanderFromCommandZone] Error:", err);
     return false;
   }
 }
@@ -1518,13 +1519,13 @@ function hasGoadedCreaturesThatMustAttack(ctx: GameContext, playerId: PlayerID):
       if (hasCantAttack) continue;
       
       // Found a goaded creature that CAN attack, so it MUST attack
-      console.log(`[hasGoadedCreaturesThatMustAttack] ${playerId}: Found goaded creature that must attack: ${permanent.card?.name || permanent.id}`);
+      debug(2, `[hasGoadedCreaturesThatMustAttack] ${playerId}: Found goaded creature that must attack: ${permanent.card?.name || permanent.id}`);
       return true;
     }
     
     return false;
   } catch (err) {
-    console.warn("[hasGoadedCreaturesThatMustAttack] Error:", err);
+    debugWarn(1, "[hasGoadedCreaturesThatMustAttack] Error:", err);
     return true; // On error, assume they might have goaded creatures (don't auto-pass)
   }
 }
@@ -1583,7 +1584,7 @@ function hasValidAttackers(ctx: GameContext, playerId: PlayerID): boolean {
     
     return false;
   } catch (err) {
-    console.warn("[hasValidAttackers] Error:", err);
+    debugWarn(1, "[hasValidAttackers] Error:", err);
     return true; // On error, assume they might have attackers (don't auto-pass)
   }
 }
@@ -1638,7 +1639,7 @@ function hasValidBlockers(ctx: GameContext, playerId: PlayerID): boolean {
     
     return false;
   } catch (err) {
-    console.warn("[hasValidBlockers] Error:", err);
+    debugWarn(1, "[hasValidBlockers] Error:", err);
     return true; // On error, assume they might have blockers (don't auto-pass)
   }
 }
@@ -1650,7 +1651,7 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
     const isTurnPlayer = (ctx.state as any).turnPlayer === playerId;
     
-    console.log(`[canAct] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isTurnPlayer=${isTurnPlayer}`);
+    debug(2, `[canAct] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isTurnPlayer=${isTurnPlayer}`);
     
     // CRITICAL: During main phase with empty stack, the turn player should ALWAYS be allowed
     // to take sorcery-speed actions (play land, cast creatures, etc.) before auto-passing.
@@ -1663,54 +1664,54 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
       // Check if player can play a land FIRST (highest priority action)
       // This ensures we never skip the land play opportunity
       if (canPlayLand(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Turn player in main phase can play land - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Turn player in main phase can play land - returning TRUE`);
         return true;
       }
     }
     
     // First check instant-speed responses (same as canRespond)
     if (canCastAnySpell(ctx, playerId)) {
-      console.log(`[canAct] ${playerId}: Can cast instant/flash spell - returning TRUE`);
+      debug(2, `[canAct] ${playerId}: Can cast instant/flash spell - returning TRUE`);
       return true;
     }
     
     if (canActivateAnyAbility(ctx, playerId)) {
-      console.log(`[canAct] ${playerId}: Can activate ability - returning TRUE`);
+      debug(2, `[canAct] ${playerId}: Can activate ability - returning TRUE`);
       return true;
     }
     
     // Check if player can cast commander from command zone (any time they could cast it)
     if (canCastCommanderFromCommandZone(ctx, playerId)) {
-      console.log(`[canAct] ${playerId}: Can cast commander from command zone - returning TRUE`);
+      debug(2, `[canAct] ${playerId}: Can cast commander from command zone - returning TRUE`);
       return true;
     }
     
     // During main phase with empty stack, check sorcery-speed actions
     if (isMainPhase && stackIsEmpty) {
-      console.log(`[canAct] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
+      debug(2, `[canAct] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
       
       // Check if player can play a land (Note: This is also checked above for turn player specifically,
       // but we check here too for completeness in case of unusual game states)
       if (canPlayLand(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Can play land - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Can play land - returning TRUE`);
         return true;
       }
       
       // Check if player can cast any sorcery-speed spells
       if (canCastAnySorcerySpeed(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Can cast sorcery-speed spell - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Can cast sorcery-speed spell - returning TRUE`);
         return true;
       }
       
       // Check if player can activate sorcery-speed abilities (equip, reconfigure, etc.)
       if (canActivateSorcerySpeedAbility(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Can activate sorcery-speed ability - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Can activate sorcery-speed ability - returning TRUE`);
         return true;
       }
       
-      console.log(`[canAct] ${playerId}: No sorcery-speed actions available in main phase - returning FALSE`);
+      debug(2, `[canAct] ${playerId}: No sorcery-speed actions available in main phase - returning FALSE`);
     } else {
-      console.log(`[canAct] ${playerId}: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE`);
+      debug(1, `[canAct] ${playerId}: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE`);
     }
     
     // Check combat phases - if player has valid attackers/blockers, they can act
@@ -1725,7 +1726,7 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     // Check during beginning of combat - if player has goaded creatures, they must proceed to declare attackers
     if ((currentStep === 'BEGIN_COMBAT' || currentStep === 'BEGINNING_OF_COMBAT') && isTurnPlayer && stackIsEmpty) {
       if (hasGoadedCreaturesThatMustAttack(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Has goaded creatures that must attack - cannot skip combat - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Has goaded creatures that must attack - cannot skip combat - returning TRUE`);
         return true;
       }
     }
@@ -1734,13 +1735,13 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
       // FIRST: Check if player has goaded creatures that MUST attack (Rule 701.15b)
       // Goaded creatures must attack if able - player cannot skip this
       if (hasGoadedCreaturesThatMustAttack(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Has goaded creatures that MUST attack - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Has goaded creatures that MUST attack - returning TRUE`);
         return true;
       }
       
       // Check if player has any creatures that can attack
       if (hasValidAttackers(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Has valid attackers - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Has valid attackers - returning TRUE`);
         return true;
       }
     }
@@ -1748,16 +1749,16 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     if (currentStep === 'DECLARE_BLOCKERS' && !isTurnPlayer && stackIsEmpty) {
       // Check if player has any creatures that can block
       if (hasValidBlockers(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Has valid blockers - returning TRUE`);
+        debug(2, `[canAct] ${playerId}: Has valid blockers - returning TRUE`);
         return true;
       }
     }
     
     // No actions available
-    console.log(`[canAct] ${playerId}: No actions available - returning FALSE`);
+    debug(2, `[canAct] ${playerId}: No actions available - returning FALSE`);
     return false;
   } catch (err) {
-    console.warn("[canAct] Error:", err);
+    debugWarn(1, "[canAct] Error:", err);
     // On error, default to true (don't auto-pass) to be safe
     return true;
   }
@@ -1789,7 +1790,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         
         // Skip ignored cards - they shouldn't trigger auto-pass prompts
         if (ignoredCards[card.id]) {
-          console.log(`[canCastAnySorcerySpeed] Skipping ignored card in hand: ${card.name || card.id}`);
+          debug(2, `[canCastAnySorcerySpeed] Skipping ignored card in hand: ${card.name || card.id}`);
           continue;
         }
         
@@ -1847,7 +1848,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         
         // Skip ignored cards in graveyard
         if (ignoredCards[card.id]) {
-          console.log(`[canCastAnySorcerySpeed] Skipping ignored card in graveyard: ${card.name || card.id}`);
+          debug(2, `[canCastAnySorcerySpeed] Skipping ignored card in graveyard: ${card.name || card.id}`);
           continue;
         }
         
@@ -2020,7 +2021,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     
     return false;
   } catch (err) {
-    console.warn("[canCastAnySorcerySpeed] Error:", err);
+    debugWarn(1, "[canCastAnySorcerySpeed] Error:", err);
     return false;
   }
 }
@@ -2158,7 +2159,8 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
     
     return false;
   } catch (err) {
-    console.warn("[canActivateSorcerySpeedAbility] Error:", err);
+    debugWarn(1, "[canActivateSorcerySpeedAbility] Error:", err);
     return false;
   }
 }
+

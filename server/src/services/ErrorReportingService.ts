@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { AutomationErrorReport } from '../../../shared/src';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 export class ErrorReportingService {
   private db: Database.Database;
@@ -57,7 +58,7 @@ export class ErrorReportingService {
       report.status
     );
 
-    console.log(`✅ Saved error report: ${report.id}`);
+    debug(1, `✅ Saved error report: ${report.id}`);
   }
 
   getReportsByCard(cardName: string): AutomationErrorReport[] {
@@ -130,3 +131,4 @@ export class ErrorReportingService {
     return markdown;
   }
 }
+

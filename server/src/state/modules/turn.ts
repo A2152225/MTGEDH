@@ -37,6 +37,7 @@ import { canAct, canRespond } from "./can-respond.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
 import { ResolutionQueueManager } from "../resolution/index.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -242,11 +243,11 @@ function checkPendingInteractions(ctx: GameContext): {
     
     // Log pending interactions for debugging
     if (result.hasPending) {
-      console.log(`${ts()} [checkPendingInteractions] Pending: ${result.pendingTypes.join(', ')}`);
+      debug(1, `${ts()} [checkPendingInteractions] Pending: ${result.pendingTypes.join(', ')}`);
     }
     
   } catch (err) {
-    console.warn(`${ts()} [checkPendingInteractions] Error:`, err);
+    debugWarn(1, `${ts()} [checkPendingInteractions] Error:`, err);
   }
   
   return result;
@@ -395,7 +396,7 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
 
     return { changed: true, resolvedNow: false, advanceStep: false };
   } catch (err) {
-    console.warn(`${ts()} passPriority stub failed:`, err);
+    debugWarn(1, `${ts()} passPriority stub failed:`, err);
     return { changed: false, resolvedNow: false, advanceStep: false };
   }
 }
@@ -409,7 +410,7 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
     (ctx as any).state.turnDirection = dir;
     ctx.bumpSeq();
   } catch (err) {
-    console.warn(`${ts()} setTurnDirection failed:`, err);
+    debugWarn(1, `${ts()} setTurnDirection failed:`, err);
   }
 }
 
@@ -457,10 +458,10 @@ function clearCombatState(ctx: GameContext) {
     }
     
     if (clearedCount > 0) {
-      console.log(`${ts()} [clearCombatState] Cleared combat state from ${clearedCount} permanents`);
+      debug(2, `${ts()} [clearCombatState] Cleared combat state from ${clearedCount} permanents`);
     }
   } catch (err) {
-    console.warn(`${ts()} clearCombatState failed:`, err);
+    debugWarn(1, `${ts()} clearCombatState failed:`, err);
   }
 }
 
@@ -499,7 +500,7 @@ function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
         player.hasLost = true;
         player.lossReason = "Life total is 0 or less";
         defeatedPlayers.push(player.id);
-        console.log(`${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (life: ${player.life})`);
+        debug(1, `${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (life: ${player.life})`);
         
         // Mark player as inactive
         if (!((ctx as any).inactive instanceof Set)) {
@@ -510,7 +511,7 @@ function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
     }
     
   } catch (err) {
-    console.warn(`${ts()} syncLifeAndCheckDefeat failed:`, err);
+    debugWarn(1, `${ts()} syncLifeAndCheckDefeat failed:`, err);
   }
   
   return defeatedPlayers;
@@ -552,11 +553,11 @@ function trackCommanderDamage(
   const totalDamage = previousDamage + damageAmount;
   (ctx as any).state.commanderDamage[defendingPlayerId][commanderId] = totalDamage;
   
-  console.log(`${ts()} [dealCombatDamage] COMMANDER DAMAGE: ${attackerCard.name || 'Commander'} dealt ${damageAmount} to ${defendingPlayerId} (total: ${totalDamage}/21)`);
+  debug(1, `${ts()} [dealCombatDamage] COMMANDER DAMAGE: ${attackerCard.name || 'Commander'} dealt ${damageAmount} to ${defendingPlayerId} (total: ${totalDamage}/21)`);
   
   // Check for commander damage loss (21+)
   if (totalDamage >= 21) {
-    console.log(`${ts()} [dealCombatDamage] ⚠️ COMMANDER DAMAGE LETHAL: ${defendingPlayerId} has taken 21+ damage from ${attackerCard.name || 'Commander'}`);
+    debug(1, `${ts()} [dealCombatDamage] ⚠️ COMMANDER DAMAGE LETHAL: ${defendingPlayerId} has taken 21+ damage from ${attackerCard.name || 'Commander'}`);
     const players = (ctx as any).state?.players || [];
     const defeatedPlayer = players.find((p: any) => p.id === defendingPlayerId);
     if (defeatedPlayer && !defeatedPlayer.hasLost) {
@@ -568,7 +569,7 @@ function trackCommanderDamage(
         (ctx as any).inactive = new Set<string>();
       }
       (ctx as any).inactive.add(defendingPlayerId);
-      console.log(`${ts()} [dealCombatDamage] Player ${defendingPlayerId} marked as inactive (commander damage)`);
+      debug(1, `${ts()} [dealCombatDamage] Player ${defendingPlayerId} marked as inactive (commander damage)`);
     }
   }
 }
@@ -607,7 +608,7 @@ function trackCreatureDamageToPlayer(
     lastDamageTime: Date.now(),
   };
   
-  console.log(`${ts()} [trackCreatureDamageToPlayer] ${creatureName} (${creaturePermanentId}) dealt ${damageAmount} damage to ${damagedPlayerId}`);
+  debug(2, `${ts()} [trackCreatureDamageToPlayer] ${creatureName} (${creaturePermanentId}) dealt ${damageAmount} damage to ${damagedPlayerId}`);
 }
 
 /**
@@ -674,7 +675,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   creaturesDestroyed: string[];
   attackersThatDealtDamage?: Record<string, Set<string>>; // defendingPlayerId -> Set of attacker IDs
 } {
-  console.log(`${ts()} [COMBAT_DAMAGE] ========== ENTERING dealCombatDamage (firstStrike=${isFirstStrikePhase}) ==========`);
+  debug(2, `${ts()} [COMBAT_DAMAGE] ========== ENTERING dealCombatDamage (firstStrike=${isFirstStrikePhase}) ==========`);
   
   const result = {
     damageToPlayers: {} as Record<string, number>,
@@ -686,22 +687,22 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   try {
     const battlefield = (ctx as any).state?.battlefield;
     if (!Array.isArray(battlefield)) {
-      console.log(`${ts()} [COMBAT_DAMAGE] No battlefield array, returning early`);
+      debug(2, `${ts()} [COMBAT_DAMAGE] No battlefield array, returning early`);
       return result;
     }
     
     // Find all attacking creatures
     const attackers = battlefield.filter((perm: any) => perm && perm.attacking);
-    console.log(`${ts()} [COMBAT_DAMAGE] Found ${attackers.length} attackers`);
+    debug(2, `${ts()} [COMBAT_DAMAGE] Found ${attackers.length} attackers`);
     
     // Log attacker details
     for (const att of attackers) {
       const blockedBy = att.blockedBy || [];
-      console.log(`${ts()} [COMBAT_DAMAGE] Attacker: ${att.card?.name || att.id}, blocked by ${blockedBy.length} creatures: [${blockedBy.join(', ')}]`);
+      debug(1, `${ts()} [COMBAT_DAMAGE] Attacker: ${att.card?.name || att.id}, blocked by ${blockedBy.length} creatures: [${blockedBy.join(', ')}]`);
     }
     
     if (attackers.length === 0) {
-      console.log(`${ts()} [COMBAT_DAMAGE] No attackers, skipping combat damage`);
+      debug(2, `${ts()} [COMBAT_DAMAGE] No attackers, skipping combat damage`);
       return result;
     }
     
@@ -714,11 +715,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     const startingLife = (ctx as any).state?.startingLife || 40;
     
     for (const attacker of attackers) {
-      console.log(`${ts()} [COMBAT_DAMAGE] Processing attacker: ${attacker.card?.name || attacker.id}`);
+      debug(2, `${ts()} [COMBAT_DAMAGE] Processing attacker: ${attacker.card?.name || attacker.id}`);
       
       // Skip creatures that were already killed (e.g., by deathtouch in first strike phase)
       if (attacker.markedForDestruction) {
-        console.log(`${ts()} [COMBAT_DAMAGE] Skipping attacker ${attacker.card?.name || attacker.id} - marked for destruction`);
+        debug(2, `${ts()} [COMBAT_DAMAGE] Skipping attacker ${attacker.card?.name || attacker.id} - marked for destruction`);
         continue;
       }
       
@@ -728,7 +729,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       try {
         keywords = parseCreatureKeywords(card, attacker);
       } catch (err) {
-        console.error(`${ts()} [dealCombatDamage] CRASH parsing keywords for ${card.name || attacker.id}:`, err);
+        debugError(1, `${ts()} [dealCombatDamage] CRASH parsing keywords for ${card.name || attacker.id}:`, err);
         // Fallback to empty keywords to prevent crash
         keywords = {
           flying: false, reach: false, shadow: false, horsemanship: false,
@@ -761,7 +762,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
         const allBonuses = calculateAllPTBonuses(attacker, state);
         
         attackerPower = Math.max(0, basePower + counterDelta + allBonuses.power);
-        console.log(`${ts()} [dealCombatDamage] ${card?.name || attacker.id} power calculation: base=${basePower}, counters=${counterDelta}, bonuses=${allBonuses.power}, total=${attackerPower}`);
+        debug(2, `${ts()} [dealCombatDamage] ${card?.name || attacker.id} power calculation: base=${basePower}, counters=${counterDelta}, bonuses=${allBonuses.power}, total=${attackerPower}`);
       }
       
       const attackerController = attacker.controller;
@@ -777,14 +778,14 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       if (isFirstStrikePhase === true) {
         // First strike phase - only first strike or double strike creatures deal damage
         if (!hasFirstStrike) {
-          console.log(`${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in first strike phase (no first/double strike)`);
+          debug(2, `${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in first strike phase (no first/double strike)`);
           continue;
         }
       } else if (isFirstStrikePhase === false) {
         // Regular damage phase after first strike - skip first strike-only creatures
         // but double strike creatures deal damage again
         if (keywords.firstStrike && !keywords.doubleStrike) {
-          console.log(`${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in regular phase (first strike only, already dealt)`);
+          debug(2, `${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in regular phase (first strike only, already dealt)`);
           continue;
         }
       }
@@ -814,7 +815,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           
           // Log replacement effects
           for (const effect of replacementResult.effectsApplied) {
-            console.log(`${ts()} [dealCombatDamage] ${effect}`);
+            debug(2, `${ts()} [dealCombatDamage] ${effect}`);
           }
           
           // Apply mill effect if triggered (The Mindskinner)
@@ -843,7 +844,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               oppZones.libraryCount = lib.length;
               oppZones.graveyardCount = (oppZones.graveyard || []).length;
               
-              console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} milled ${milledCards.length} cards from ${opponentId}: ${milledCards.map((c: any) => c.name).join(', ')}`);
+              debug(1, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} milled ${milledCards.length} cards from ${opponentId}: ${milledCards.map((c: any) => c.name).join(', ')}`);
             }
           }
           
@@ -861,7 +862,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             }
             result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
             
-            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${actualDamage} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${actualDamage} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
             
             // Track commander damage (Rule 903.10a)
             trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, actualDamage);
@@ -878,7 +879,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               result.lifeGainForPlayers[attackerController] = 
                 (result.lifeGainForPlayers[attackerController] || 0) + actualDamage;
               
-              console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${attackerController} gained ${actualDamage} life (${controllerLife} -> ${life[attackerController]})`);
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${attackerController} gained ${actualDamage} life (${controllerLife} -> ${life[attackerController]})`);
             }
             
             // Check for auras that grant life gain on combat damage (Spirit Loop, etc.)
@@ -903,11 +904,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 result.lifeGainForPlayers[auraController] = 
                   (result.lifeGainForPlayers[auraController] || 0) + actualDamage;
                 
-                console.log(`${ts()} [dealCombatDamage] ${aura.card?.name || 'Aura'}: ${auraController} gained ${actualDamage} life from enchanted creature dealing damage`);
+                debug(2, `${ts()} [dealCombatDamage] ${aura.card?.name || 'Aura'}: ${auraController} gained ${actualDamage} life from enchanted creature dealing damage`);
               }
             }
           } else if (replacementResult.prevented) {
-            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage was prevented`);
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage was prevented`);
           }
         }
         // TODO: Handle attacking planeswalkers (defendingTarget starts with 'perm_')
@@ -944,7 +945,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           
           // If blocker already has lethal damage, skip assigning more (relevant for trample)
           if (lethalDamage <= 0) {
-            console.log(`${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} already has lethal damage, skipping`);
+            debug(1, `${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} already has lethal damage, skipping`);
             continue;
           }
           
@@ -956,7 +957,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             blocker.markedDamage = (blocker.markedDamage || 0) + damageToBlocker;
             remainingDamage -= damageToBlocker;
             
-            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
             
             // Check if blocker dies
             const totalDamageOnBlocker = blocker.markedDamage || 0;
@@ -964,7 +965,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             if (isDead) {
               result.creaturesDestroyed.push(blockerId);
-              console.log(`${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} received lethal damage`);
+              debug(1, `${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} received lethal damage`);
             }
             
             // Lifelink for damage dealt to blocker
@@ -997,7 +998,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             }
             result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
             
-            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
             
             // Track commander trample damage (Rule 903.10a)
             trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, remainingDamage);
@@ -1017,31 +1018,31 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
         }
         
         // Blockers deal damage back to attackers
-        console.log(`${ts()} [COMBAT_DAMAGE] Processing ${blockedBy.length} blocker(s) dealing damage to attacker ${card.name || attacker.id}`);
+        debug(2, `${ts()} [COMBAT_DAMAGE] Processing ${blockedBy.length} blocker(s) dealing damage to attacker ${card.name || attacker.id}`);
         
         for (const blockerId of blockedBy) {
-          console.log(`${ts()} [COMBAT_DAMAGE] Processing blocker: ${blockerId}`);
+          debug(2, `${ts()} [COMBAT_DAMAGE] Processing blocker: ${blockerId}`);
           const blocker = battlefield.find((p: any) => p?.id === blockerId);
           if (!blocker) {
-            console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerId} not found on battlefield, skipping`);
+            debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerId} not found on battlefield, skipping`);
             continue;
           }
           
           // Skip blockers that were already killed (e.g., by deathtouch in first strike phase)
           if (blocker.markedForDestruction) {
-            console.log(`${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerId} - marked for destruction`);
+            debug(2, `${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerId} - marked for destruction`);
             continue;
           }
           
           const blockerCard = blocker.card || {};
-          console.log(`${ts()} [COMBAT_DAMAGE] Found blocker: ${blockerCard.name || blockerId}, parsing keywords...`);
+          debug(2, `${ts()} [COMBAT_DAMAGE] Found blocker: ${blockerCard.name || blockerId}, parsing keywords...`);
           
           let blockerKeywords;
           try {
             blockerKeywords = parseCreatureKeywords(blockerCard, blocker);
-            console.log(`${ts()} [COMBAT_DAMAGE] Blocker keywords parsed successfully`);
+            debug(2, `${ts()} [COMBAT_DAMAGE] Blocker keywords parsed successfully`);
           } catch (err) {
-            console.error(`${ts()} [COMBAT_DAMAGE] CRASH parsing keywords for blocker ${blockerCard.name || blockerId}:`, err);
+            debugError(1, `${ts()} [COMBAT_DAMAGE] CRASH parsing keywords for blocker ${blockerCard.name || blockerId}:`, err);
             blockerKeywords = {
               flying: false, reach: false, shadow: false, horsemanship: false,
               fear: false, intimidate: false, menace: false, skulk: false,
@@ -1073,7 +1074,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             blockerPower = Math.max(0, basePower + counterDelta + allBonuses.power);
           }
-          console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} has power ${blockerPower}`);
+          debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} has power ${blockerPower}`);
           
           // Check if this blocker should deal damage in this phase based on first strike rules
           const blockerHasFirstStrike = blockerKeywords.firstStrike || blockerKeywords.doubleStrike;
@@ -1081,14 +1082,14 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (isFirstStrikePhase === true) {
             // First strike phase - only first strike or double strike blockers deal damage
             if (!blockerHasFirstStrike) {
-              console.log(`${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerCard.name || blockerId} in first strike phase (no first/double strike)`);
+              debug(2, `${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerCard.name || blockerId} in first strike phase (no first/double strike)`);
               continue;
             }
           } else if (isFirstStrikePhase === false) {
             // Regular damage phase after first strike - skip first strike-only blockers
             // but double strike blockers deal damage again
             if (blockerKeywords.firstStrike && !blockerKeywords.doubleStrike) {
-              console.log(`${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerCard.name || blockerId} in regular phase (first strike only, already dealt)`);
+              debug(2, `${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerCard.name || blockerId} in regular phase (first strike only, already dealt)`);
               continue;
             }
           }
@@ -1097,18 +1098,18 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // Deal damage to attacker
             attacker.markedDamage = (attacker.markedDamage || 0) + blockerPower;
             
-            console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerPower} damage to attacker ${card.name || attacker.id}`);
+            debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerPower} damage to attacker ${card.name || attacker.id}`);
             
             // Check if attacker dies
             const attackerToughness = parseInt(String(attacker.baseToughness ?? card.toughness ?? '0'), 10) || 0;
             const totalDamageOnAttacker = attacker.markedDamage || 0;
             const isDead = totalDamageOnAttacker >= attackerToughness || (blockerKeywords.deathtouch && totalDamageOnAttacker > 0);
             
-            console.log(`${ts()} [COMBAT_DAMAGE] Attacker ${card.name || attacker.id}: toughness=${attackerToughness}, totalDamage=${totalDamageOnAttacker}, isDead=${isDead}`);
+            debug(2, `${ts()} [COMBAT_DAMAGE] Attacker ${card.name || attacker.id}: toughness=${attackerToughness}, totalDamage=${totalDamageOnAttacker}, isDead=${isDead}`);
             
             if (isDead && !result.creaturesDestroyed.includes(attacker.id)) {
               result.creaturesDestroyed.push(attacker.id);
-              console.log(`${ts()} [COMBAT_DAMAGE] Attacker ${card.name || attacker.id} received lethal damage`);
+              debug(1, `${ts()} [COMBAT_DAMAGE] Attacker ${card.name || attacker.id} received lethal damage`);
             }
             
             // Lifelink for blocker
@@ -1120,7 +1121,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               result.lifeGainForPlayers[blockerController] = 
                 (result.lifeGainForPlayers[blockerController] || 0) + blockerPower;
               
-              console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} lifelink: ${blockerController} gained ${blockerPower} life`);
+              debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} lifelink: ${blockerController} gained ${blockerPower} life`);
             }
           }
         }
@@ -1133,7 +1134,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     // Sync life to player objects and check for player defeat (SBA Rule 704.5a)
     const defeatedPlayers = syncLifeAndCheckDefeat(ctx);
     if (defeatedPlayers.length > 0) {
-      console.log(`${ts()} [dealCombatDamage] Players defeated due to combat damage: ${defeatedPlayers.join(', ')}`);
+      debug(1, `${ts()} [dealCombatDamage] Players defeated due to combat damage: ${defeatedPlayers.join(', ')}`);
       // Store defeated players for the socket layer to broadcast
       (ctx as any).state.lastCombatDefeat = defeatedPlayers;
     }
@@ -1147,14 +1148,14 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       }
     }
     
-    console.log(`${ts()} [dealCombatDamage] Combat damage complete. Damage to players: ${JSON.stringify(result.damageToPlayers)}, Life gained: ${JSON.stringify(result.lifeGainForPlayers)}, Creatures destroyed: ${result.creaturesDestroyed.length}`);
+    debug(2, `${ts()} [dealCombatDamage] Combat damage complete. Damage to players: ${JSON.stringify(result.damageToPlayers)}, Life gained: ${JSON.stringify(result.lifeGainForPlayers)}, Creatures destroyed: ${result.creaturesDestroyed.length}`);
     
     // Run state-based actions to destroy creatures that have lethal damage
     // This will move creatures with 0 or less toughness (after damage) to the graveyard
     try {
       runSBA(ctx);
     } catch (sbaErr) {
-      console.warn(`${ts()} [dealCombatDamage] SBA failed:`, sbaErr);
+      debugWarn(1, `${ts()} [dealCombatDamage] SBA failed:`, sbaErr);
     }
     
     // Check for batched combat damage triggers (e.g., Professional Face-Breaker, Nature's Will)
@@ -1185,7 +1186,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           );
           
           for (const trigger of batchedTriggers) {
-            console.log(`${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
+            debug(2, `${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
             
             const effectLower = (trigger.description || trigger.effect || '').toLowerCase();
             
@@ -1193,9 +1194,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             if (effectLower.includes('untap all lands you control')) {
               try {
                 untapLandsForPlayer(ctx, controllerId);
-                console.log(`${ts()} [dealCombatDamage] Untapped all lands for ${controllerId} from ${trigger.cardName}`);
+                debug(2, `${ts()} [dealCombatDamage] Untapped all lands for ${controllerId} from ${trigger.cardName}`);
               } catch (untapErr) {
-                console.error(`${ts()} [dealCombatDamage] Failed to untap lands:`, untapErr);
+                debugError(1, `${ts()} [dealCombatDamage] Failed to untap lands:`, untapErr);
               }
             }
             
@@ -1205,9 +1206,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             if (isProfessionalFaceBreaker || effectLower.includes('create a treasure')) {
               try {
                 createToken(ctx, controllerId, 'Treasure', 1);
-                console.log(`${ts()} [dealCombatDamage] Created 1 Treasure token for ${controllerId} from ${trigger.cardName}`);
+                debug(2, `${ts()} [dealCombatDamage] Created 1 Treasure token for ${controllerId} from ${trigger.cardName}`);
               } catch (tokenErr) {
-                console.error(`${ts()} [dealCombatDamage] Failed to create Treasure token:`, tokenErr);
+                debugError(1, `${ts()} [dealCombatDamage] Failed to create Treasure token:`, tokenErr);
               }
             }
           }
@@ -1216,7 +1217,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     }
     
   } catch (err) {
-    console.warn(`${ts()} dealCombatDamage failed:`, err);
+    debugWarn(1, `${ts()} dealCombatDamage failed:`, err);
   }
   
   return result;
@@ -1269,10 +1270,10 @@ function clearDamageFromPermanents(ctx: GameContext) {
     }
     
     if (clearedCount > 0) {
-      console.log(`${ts()} [clearDamageFromPermanents] Cleared damage from ${clearedCount} permanent(s) (Rule 514.2/703.4p)`);
+      debug(2, `${ts()} [clearDamageFromPermanents] Cleared damage from ${clearedCount} permanent(s) (Rule 514.2/703.4p)`);
     }
   } catch (err) {
-    console.warn(`${ts()} clearDamageFromPermanents failed:`, err);
+    debugWarn(1, `${ts()} clearDamageFromPermanents failed:`, err);
   }
 }
 
@@ -1349,10 +1350,10 @@ function endTemporaryEffects(ctx: GameContext) {
     }
     
     if (endedCount > 0) {
-      console.log(`${ts()} [endTemporaryEffects] Ended ${endedCount} temporary effect(s) (Rule 514.2)`);
+      debug(2, `${ts()} [endTemporaryEffects] Ended ${endedCount} temporary effect(s) (Rule 514.2)`);
     }
   } catch (err) {
-    console.warn(`${ts()} endTemporaryEffects failed:`, err);
+    debugWarn(1, `${ts()} endTemporaryEffects failed:`, err);
   }
 }
 
@@ -1380,10 +1381,10 @@ function clearSummoningSicknessForPlayer(ctx: GameContext, playerId: string) {
     }
 
     if (clearedCount > 0) {
-      console.log(`${ts()} [clearSummoningSicknessForPlayer] Cleared summoning sickness from ${clearedCount} permanent(s) for ${playerId}`);
+      debug(2, `${ts()} [clearSummoningSicknessForPlayer] Cleared summoning sickness from ${clearedCount} permanent(s) for ${playerId}`);
     }
   } catch (err) {
-    console.warn(`${ts()} clearSummoningSicknessForPlayer failed:`, err);
+    debugWarn(1, `${ts()} clearSummoningSicknessForPlayer failed:`, err);
   }
 }
 
@@ -1484,7 +1485,7 @@ function anyPlayerHasSundialEffect(ctx: GameContext): boolean {
     
     return false;
   } catch (err) {
-    console.warn(`${ts()} [anyPlayerHasSundialEffect] Error checking for Sundial effects:`, err);
+    debugWarn(1, `${ts()} [anyPlayerHasSundialEffect] Error checking for Sundial effects:`, err);
     return false;
   }
 }
@@ -1523,12 +1524,12 @@ function untapLandsForPlayer(ctx: GameContext, playerId: string) {
     }
 
     if (untappedCount > 0) {
-      console.log(
+      debug(2, 
         `${ts()} [untapLandsForPlayer] Untapped ${untappedCount} lands for player ${playerId}`
       );
     }
   } catch (err) {
-    console.warn(`${ts()} untapLandsForPlayer failed:`, err);
+    debugWarn(1, `${ts()} untapLandsForPlayer failed:`, err);
   }
 }
 
@@ -1558,7 +1559,7 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
           }
         } catch (e) {
           // If check fails, allow untapping to prevent game state from getting stuck
-          console.warn(`${ts()} [untapPermanentsForPlayer] Failed to check untap prevention for ${permanent.card?.name}:`, e);
+          debugWarn(1, `${ts()} [untapPermanentsForPlayer] Failed to check untap prevention for ${permanent.card?.name}:`, e);
         }
 
         // Check for stun counters (Rule 122.1c)
@@ -1588,12 +1589,12 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
     }
 
     if (untappedCount > 0 || stunCountersRemoved > 0 || skippedDueToEffects > 0) {
-      console.log(
+      debug(2, 
         `${ts()} [untapPermanentsForPlayer] Player ${playerId}: untapped ${untappedCount}, stun counters removed ${stunCountersRemoved}, skipped (doesn't untap) ${skippedDueToEffects}`
       );
     }
   } catch (err) {
-    console.warn(`${ts()} untapPermanentsForPlayer failed:`, err);
+    debugWarn(1, `${ts()} untapPermanentsForPlayer failed:`, err);
   }
 }
 
@@ -1623,7 +1624,7 @@ export function nextTurn(ctx: GameContext) {
     // Filter to only active (non-defeated) players
     const players = allPlayers.filter((id: string) => !inactiveSet.has(id));
     if (!players.length) {
-      console.log(`${ts()} [nextTurn] No active players remaining, game should end`);
+      debug(2, `${ts()} [nextTurn] No active players remaining, game should end`);
       return;
     }
     
@@ -1644,12 +1645,12 @@ export function nextTurn(ctx: GameContext) {
       next = extraTurn.playerId;
       // Skip extra turn if player is inactive
       if (inactiveSet.has(next)) {
-        console.log(`${ts()} [nextTurn] Skipping extra turn for inactive player ${next}`);
+        debug(1, `${ts()} [nextTurn] Skipping extra turn for inactive player ${next}`);
         // Recursive call to get next turn
         nextTurn(ctx);
         return;
       }
-      console.log(`${ts()} [nextTurn] Taking extra turn for ${next} (turn ${turnNumber})`);
+      debug(2, `${ts()} [nextTurn] Taking extra turn for ${next} (turn ${turnNumber})`);
     } else {
       // Normal turn progression - find next active player
       const currentIdx = players.indexOf(current);
@@ -1669,7 +1670,7 @@ export function nextTurn(ctx: GameContext) {
       const updatedBattlefield = removeExpiredGoads(battlefield, turnNumber, next);
       (ctx as any).state.battlefield = updatedBattlefield;
     } catch (err) {
-      console.warn(`${ts()} [nextTurn] Failed to remove expired goads:`, err);
+      debugWarn(1, `${ts()} [nextTurn] Failed to remove expired goads:`, err);
     }
 
     // Reset to beginning of turn
@@ -1682,7 +1683,7 @@ export function nextTurn(ctx: GameContext) {
     try {
       clearSummoningSicknessForPlayer(ctx, next);
     } catch (err) {
-      console.warn(`${ts()} [nextTurn] Failed to clear summoning sickness:`, err);
+      debugWarn(1, `${ts()} [nextTurn] Failed to clear summoning sickness:`, err);
     }
 
     // Note: Untapping happens when leaving the UNTAP step (in nextStep),
@@ -1700,7 +1701,7 @@ export function nextTurn(ctx: GameContext) {
     try {
       clearTemporaryLandBonuses(ctx);
     } catch (err) {
-      console.warn(`${ts()} [nextTurn] Failed to clear temporary land bonuses:`, err);
+      debugWarn(1, `${ts()} [nextTurn] Failed to clear temporary land bonuses:`, err);
     }
     
     // Immediately advance from UNTAP to UPKEEP (Rule 502.1: untap step has no priority)
@@ -1713,11 +1714,11 @@ export function nextTurn(ctx: GameContext) {
       for (const effect of untapEffects) {
         const count = applyUntapStepEffect(ctx, effect);
         if (count > 0) {
-          console.log(`${ts()} [nextTurn] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
+          debug(2, `${ts()} [nextTurn] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
         }
       }
     } catch (err) {
-      console.warn(`${ts()} [nextTurn] Failed to untap permanents:`, err);
+      debugWarn(1, `${ts()} [nextTurn] Failed to untap permanents:`, err);
     }
     
     // Advance to UPKEEP step
@@ -1730,22 +1731,22 @@ export function nextTurn(ctx: GameContext) {
     // This resets the "Auto-Pass Rest of Turn" setting for all players
     if ((ctx as any).state.autoPassForTurn) {
       (ctx as any).state.autoPassForTurn = {};
-      console.log(`${ts()} [nextTurn] Cleared autoPassForTurn flags for new turn`);
+      debug(2, `${ts()} [nextTurn] Cleared autoPassForTurn flags for new turn`);
     }
     
     // Clear justSkippedToPhase flag when starting a new turn
     // Players need to use phase navigator again if they want priority protection
     if ((ctx as any).state.justSkippedToPhase) {
       delete (ctx as any).state.justSkippedToPhase;
-      console.log(`${ts()} [nextTurn] Cleared justSkippedToPhase flag for new turn`);
+      debug(2, `${ts()} [nextTurn] Cleared justSkippedToPhase flag for new turn`);
     }
 
-    console.log(`${ts()} [nextTurn] Advanced to player ${next}, phase=${(ctx as any).state.phase}, step=${(ctx as any).state.step}`);
+    debug(2, `${ts()} [nextTurn] Advanced to player ${next}, phase=${(ctx as any).state.phase}, step=${(ctx as any).state.step}`);
     
     // After granting priority at UPKEEP, check if we should auto-pass for players who cannot act
     // This ensures that auto-pass works immediately when starting a turn
     try {
-      console.log(`${ts()} [nextTurn] Checking if auto-pass should apply at upkeep`);
+      debug(2, `${ts()} [nextTurn] Checking if auto-pass should apply at upkeep`);
       const autoPassResult = tryAutoPass(ctx);
       
       // Store the auto-pass result in the state so the caller can check it
@@ -1753,16 +1754,16 @@ export function nextTurn(ctx: GameContext) {
       
       if (autoPassResult.allPassed && autoPassResult.advanceStep) {
         // All players auto-passed with empty stack - mark flag for caller to handle
-        console.log(`${ts()} [nextTurn] All players auto-passed at upkeep - caller should advance step`);
+        debug(2, `${ts()} [nextTurn] All players auto-passed at upkeep - caller should advance step`);
       } else if (autoPassResult.allPassed && autoPassResult.resolved) {
         // All players auto-passed and stack was resolved
-        console.log(`${ts()} [nextTurn] All players auto-passed at upkeep and stack item resolved`);
+        debug(2, `${ts()} [nextTurn] All players auto-passed at upkeep and stack item resolved`);
       } else {
         // Auto-pass stopped at a player who can act, or auto-pass is not enabled
-        console.log(`${ts()} [nextTurn] Auto-pass stopped at upkeep, player ${(ctx as any).state.priority} has priority`);
+        debug(2, `${ts()} [nextTurn] Auto-pass stopped at upkeep, player ${(ctx as any).state.priority} has priority`);
       }
     } catch (err) {
-      console.warn(`${ts()} [nextTurn] Failed to run auto-pass check at upkeep:`, err);
+      debugWarn(1, `${ts()} [nextTurn] Failed to run auto-pass check at upkeep:`, err);
     }
 
     // Reset lands played this turn for all players
@@ -1782,12 +1783,12 @@ export function nextTurn(ctx: GameContext) {
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {
-      console.warn(`${ts()} [nextTurn] Failed to recalculate player effects:`, err);
+      debugWarn(1, `${ts()} [nextTurn] Failed to recalculate player effects:`, err);
     }
 
     ctx.bumpSeq();
   } catch (err) {
-    console.warn(`${ts()} nextTurn failed:`, err);
+    debugWarn(1, `${ts()} nextTurn failed:`, err);
   }
 }
 
@@ -1929,7 +1930,7 @@ function clearManaPool(ctx: GameContext) {
       
       if (retainAllMana) {
         // Mana doesn't empty at all (e.g., Upwelling, or legacy doesNotEmpty without convertsTo)
-        console.log(`${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (all mana doesn't empty)`);
+        debug(2, `${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (all mana doesn't empty)`);
         continue;
       }
       
@@ -1976,7 +1977,7 @@ function clearManaPool(ctx: GameContext) {
         }
         
         (ctx as any).state.manaPool[pid] = newPool;
-        console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to ${convertToColor}, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
+        debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to ${convertToColor}, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
         continue;
       }
       
@@ -2019,7 +2020,7 @@ function clearManaPool(ctx: GameContext) {
         }
         
         (ctx as any).state.manaPool[pid] = newPool;
-        console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to colorless, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
+        debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to colorless, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
         
       } else if (colorsToRetain.size > 0) {
         // Some colors are retained (e.g., Omnath for green, Leyline Tyrant for red)
@@ -2043,7 +2044,7 @@ function clearManaPool(ctx: GameContext) {
         (ctx as any).state.manaPool[pid] = newPool;
         
         const retainedInfo = Array.from(colorsToRetain).map(c => `${c}: ${newPool[c] || 0}`).join(', ');
-        console.log(`${ts()} [clearManaPool] Player ${pid}: Retained mana for colors: ${retainedInfo}`);
+        debug(2, `${ts()} [clearManaPool] Player ${pid}: Retained mana for colors: ${retainedInfo}`);
         
       } else {
         // Normal case: empty the pool completely
@@ -2058,9 +2059,9 @@ function clearManaPool(ctx: GameContext) {
       }
     }
     
-    console.log(`${ts()} [clearManaPool] Processed mana pools for all players`);
+    debug(2, `${ts()} [clearManaPool] Processed mana pools for all players`);
   } catch (err) {
-    console.warn(`${ts()} clearManaPool failed:`, err);
+    debugWarn(1, `${ts()} clearManaPool failed:`, err);
   }
 }
 
@@ -2139,7 +2140,7 @@ function getMaxHandSize(ctx: GameContext, playerId: string): number {
     // Default maximum hand size
     return 7;
   } catch (err) {
-    console.warn(`${ts()} getMaxHandSize failed:`, err);
+    debugWarn(1, `${ts()} getMaxHandSize failed:`, err);
     return 7;
   }
 }
@@ -2191,7 +2192,7 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
         handSize: handCount,
       };
       
-      console.log(
+      debug(2, 
         `${ts()} [setupCleanupDiscard] Player ${playerId} needs to discard ${discardCount} cards (handCount: ${handCount}, max: ${maxHandSize})`
       );
       
@@ -2214,13 +2215,13 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
       handSize,
     };
     
-    console.log(
+    debug(2, 
       `${ts()} [setupCleanupDiscard] Player ${playerId} needs to discard ${discardCount} cards (hand: ${handSize}, max: ${maxHandSize})`
     );
     
     return { needsInteraction: true, discardCount };
   } catch (err) {
-    console.warn(`${ts()} setupCleanupDiscard failed:`, err);
+    debugWarn(1, `${ts()} setupCleanupDiscard failed:`, err);
     return { needsInteraction: false, discardCount: 0 };
   }
 }
@@ -2236,12 +2237,12 @@ export function executeCleanupDiscard(ctx: GameContext, playerId: string, cardId
     
     const pendingDiscard = state.pendingDiscardSelection?.[playerId];
     if (!pendingDiscard) {
-      console.warn(`${ts()} [executeCleanupDiscard] No pending discard for player ${playerId}`);
+      debugWarn(2, `${ts()} [executeCleanupDiscard] No pending discard for player ${playerId}`);
       return false;
     }
     
     if (cardIds.length !== pendingDiscard.count) {
-      console.warn(`${ts()} [executeCleanupDiscard] Wrong number of cards: expected ${pendingDiscard.count}, got ${cardIds.length}`);
+      debugWarn(2, `${ts()} [executeCleanupDiscard] Wrong number of cards: expected ${pendingDiscard.count}, got ${cardIds.length}`);
       return false;
     }
     
@@ -2275,14 +2276,14 @@ export function executeCleanupDiscard(ctx: GameContext, playerId: string, cardId
     // Clear the pending discard state
     delete state.pendingDiscardSelection[playerId];
     
-    console.log(
+    debug(2, 
       `${ts()} [executeCleanupDiscard] Player ${playerId} discarded ${discardedCards.length} cards`
     );
     
     ctx.bumpSeq();
     return true;
   } catch (err) {
-    console.warn(`${ts()} executeCleanupDiscard failed:`, err);
+    debugWarn(1, `${ts()} executeCleanupDiscard failed:`, err);
     return false;
   }
 }
@@ -2310,11 +2311,11 @@ export function nextStep(ctx: GameContext) {
       stackTrace: new Error().stack?.split('\n').slice(2, 6).join('\n    ') || 'no stack'
     };
     
-    console.log(`${ts()} [nextStep] ========== CALLED ==========`);
-    console.log(`${ts()} [nextStep] Game: ${debugInfo.gameId}`);
-    console.log(`${ts()} [nextStep] Current: ${debugInfo.currentPhase}/${debugInfo.currentStep}`);
-    console.log(`${ts()} [nextStep] Priority: ${debugInfo.priority}, Turn: ${debugInfo.turnPlayer}`);
-    console.log(`${ts()} [nextStep] Call stack:\n    ${debugInfo.stackTrace}`);
+    debug(2, `${ts()} [nextStep] ========== CALLED ==========`);
+    debug(2, `${ts()} [nextStep] Game: ${debugInfo.gameId}`);
+    debug(2, `${ts()} [nextStep] Current: ${debugInfo.currentPhase}/${debugInfo.currentStep}`);
+    debug(2, `${ts()} [nextStep] Priority: ${debugInfo.priority}, Turn: ${debugInfo.turnPlayer}`);
+    debug(2, `${ts()} [nextStep] Call stack:\n    ${debugInfo.stackTrace}`);
     // ========================================================================
     
     (ctx as any).state = (ctx as any).state || {};
@@ -2337,7 +2338,7 @@ export function nextStep(ctx: GameContext) {
     if (!isReplaying) {
       const pendingCheck = checkPendingInteractions(ctx);
       if (pendingCheck.hasPending) {
-        console.log(`${ts()} [nextStep] BLOCKED: Cannot advance step - pending interactions: ${pendingCheck.pendingTypes.join(', ')}`);
+        debug(1, `${ts()} [nextStep] BLOCKED: Cannot advance step - pending interactions: ${pendingCheck.pendingTypes.join(', ')}`);
         
         // Store the blocking reason in state for UI feedback
         (ctx as any).state.stepAdvanceBlocked = {
@@ -2375,7 +2376,7 @@ export function nextStep(ctx: GameContext) {
     // It should only be exited via explicit game start logic (when all players are ready).
     // Auto-pass and nextStep should NOT automatically advance from pre_game to beginning phase.
     if (currentPhase === "pre_game") {
-      console.log(`${ts()} [nextStep] In pre_game phase - nextStep should not be called during pre_game. Returning without advancing.`);
+      debug(2, `${ts()} [nextStep] In pre_game phase - nextStep should not be called during pre_game. Returning without advancing.`);
       return;
     }
     
@@ -2425,51 +2426,51 @@ export function nextStep(ctx: GameContext) {
         });
         
         if (hasFirstStrikeOrDoubleStrike) {
-          console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING TO FIRST_STRIKE_DAMAGE (first/double strike detected) ==========`);
+          debug(2, `${ts()} [COMBAT_STEP] ========== TRANSITIONING TO FIRST_STRIKE_DAMAGE (first/double strike detected) ==========`);
           nextStep = "FIRST_STRIKE_DAMAGE";
           // Deal first strike damage - skip during replay
           if (!isReplaying) {
             try {
-              console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (first strike phase)...`);
+              debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage (first strike phase)...`);
               const combatResult = dealCombatDamage(ctx, true); // Pass flag for first strike phase
-              console.log(`${ts()} [COMBAT_STEP] First strike damage completed`);
+              debug(2, `${ts()} [COMBAT_STEP] First strike damage completed`);
               (ctx as any).state.lastFirstStrikeDamageResult = combatResult;
             } catch (err) {
-              console.error(`${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
+              debugError(1, `${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
             }
           }
         } else {
-          console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM DECLARE_BLOCKERS TO DAMAGE (no first strike) ==========`);
+          debug(2, `${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM DECLARE_BLOCKERS TO DAMAGE (no first strike) ==========`);
           nextStep = "DAMAGE";
           // Deal combat damage when entering the DAMAGE step (Rule 510) - skip during replay
           if (!isReplaying) {
             try {
-              console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
+              debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
               const combatResult = dealCombatDamage(ctx);
-              console.log(`${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
-              console.log(`${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
+              debug(2, `${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
+              debug(2, `${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
               (ctx as any).state.lastCombatDamageResult = combatResult;
             } catch (err) {
-              console.error(`${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
-              console.warn(`${ts()} [nextStep] Failed to deal combat damage:`, err);
+              debugError(1, `${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
+              debugWarn(1, `${ts()} [nextStep] Failed to deal combat damage:`, err);
             }
           }
         }
-        console.log(`${ts()} [COMBAT_STEP] ========== END DAMAGE STEP PROCESSING ==========`);
+        debug(2, `${ts()} [COMBAT_STEP] ========== END DAMAGE STEP PROCESSING ==========`);
       } else if (currentStep === "firstStrikeDamage" || currentStep === "FIRST_STRIKE_DAMAGE") {
         // After first strike damage, proceed to regular combat damage
-        console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM FIRST_STRIKE_DAMAGE TO DAMAGE ==========`);
+        debug(2, `${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM FIRST_STRIKE_DAMAGE TO DAMAGE ==========`);
         nextStep = "DAMAGE";
         // Deal regular combat damage (from creatures without first strike, and double strike creatures again)
         // Skip during replay - combat damage should be handled by replayed events
         if (!isReplaying) {
           try {
-            console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (regular damage phase after first strike)...`);
+            debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage (regular damage phase after first strike)...`);
             const combatResult = dealCombatDamage(ctx, false); // Regular damage phase
-            console.log(`${ts()} [COMBAT_STEP] Regular damage completed`);
+            debug(2, `${ts()} [COMBAT_STEP] Regular damage completed`);
             (ctx as any).state.lastCombatDamageResult = combatResult;
           } catch (err) {
-            console.error(`${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
+            debugError(1, `${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
           }
         }
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
@@ -2481,7 +2482,7 @@ export function nextStep(ctx: GameContext) {
         if (!isReplaying && hasExtraCombat(ctx)) {
           // There's an extra combat phase pending
           const extraCombat = consumeExtraCombat(ctx);
-          console.log(`${ts()} [nextStep] Starting extra combat phase from ${extraCombat?.source || 'Unknown'}`);
+          debug(2, `${ts()} [nextStep] Starting extra combat phase from ${extraCombat?.source || 'Unknown'}`);
           
           // Go back to beginning of combat
           nextPhase = "combat";
@@ -2544,7 +2545,7 @@ export function nextStep(ctx: GameContext) {
       clearManaPool(ctx);
     }
 
-    console.log(
+    debug(2, 
       `${ts()} [nextStep] Advanced to phase=${nextPhase}, step=${nextStep}`
     );
 
@@ -2567,14 +2568,14 @@ export function nextStep(ctx: GameContext) {
           const totalDraws = 1 + additionalDraws;
           
           const drawn = drawCards(ctx, turnPlayer, totalDraws);
-          console.log(
+          debug(2, 
             `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
           );
         } else {
-          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot draw card`);
+          debugWarn(2, `${ts()} [nextStep] No turnPlayer set, cannot draw card`);
         }
       } catch (err) {
-        console.warn(`${ts()} [nextStep] Failed to draw card:`, err);
+        debugWarn(1, `${ts()} [nextStep] Failed to draw card:`, err);
       }
     }
 
@@ -2603,7 +2604,7 @@ export function nextStep(ctx: GameContext) {
         const pushTriggersToStack = (triggers: any[], triggerType: string, idPrefix: string) => {
           if (triggers.length === 0) return;
           
-          console.log(`${ts()} [nextStep] Found ${triggers.length} ${triggerType} trigger(s)`);
+          debug(2, `${ts()} [nextStep] Found ${triggers.length} ${triggerType} trigger(s)`);
           
           // Group by controller for proper APNAP ordering (Rule 101.4)
           const triggersByController = new Map<string, typeof triggers>();
@@ -2631,7 +2632,7 @@ export function nextStep(ctx: GameContext) {
             // If player has multiple triggers, store them for ordering
             // They will be added to triggerQueue for the socket layer to handle
             if (playerTriggers.length > 1) {
-              console.log(`${ts()} [nextStep] Player ${playerId} has ${playerTriggers.length} triggers to order`);
+              debug(2, `${ts()} [nextStep] Player ${playerId} has ${playerTriggers.length} triggers to order`);
               
               // Initialize trigger queue if needed
               (ctx as any).state.triggerQueue = (ctx as any).state.triggerQueue || [];
@@ -2651,7 +2652,7 @@ export function nextStep(ctx: GameContext) {
                   mandatory: trigger.mandatory !== false,
                   imageUrl: trigger.imageUrl,
                 });
-                console.log(`${ts()} [nextStep] 📋 Queued trigger for ordering: ${trigger.cardName}`);
+                debug(2, `${ts()} [nextStep] 📋 Queued trigger for ordering: ${trigger.cardName}`);
               }
               
               // Store pending ordering request for the socket layer to detect
@@ -2675,7 +2676,7 @@ export function nextStep(ctx: GameContext) {
                 mandatory: trigger.mandatory !== false,
                 effect: trigger.effect,
               });
-              console.log(`${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
+              debug(2, `${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
             }
           }
         };
@@ -2687,12 +2688,12 @@ export function nextStep(ctx: GameContext) {
           // as part of cumulative upkeep, not as a separate trigger
           const processedMana = autoProcessCumulativeUpkeepMana(ctx, turnPlayer);
           if (processedMana.length > 0) {
-            console.log(`${ts()} [nextStep] Auto-processed cumulative upkeep mana for ${processedMana.length} permanent(s)`);
+            debug(2, `${ts()} [nextStep] Auto-processed cumulative upkeep mana for ${processedMana.length} permanent(s)`);
             for (const item of processedMana) {
               const manaStr = Object.entries(item.manaAdded)
                 .map(([type, amount]) => `${amount} ${type}`)
                 .join(', ');
-              console.log(`${ts()} [nextStep] ${item.cardName}: Added ${manaStr} (${item.ageCounters} age counters)`);
+              debug(2, `${ts()} [nextStep] ${item.cardName}: Added ${manaStr} (${item.ageCounters} age counters)`);
             }
           }
           
@@ -2711,7 +2712,7 @@ export function nextStep(ctx: GameContext) {
           const justEnteredDrawFromUpkeep = (currentStep === "upkeep" || currentStep === "UPKEEP");
           
           if (justEnteredDrawFromUpkeep && drawTriggers.length === 0 && (ctx as any).state.stack.length === 0) {
-            console.log(`${ts()} [nextStep] No draw triggers, immediately advancing to MAIN1 (similar to UNTAP->UPKEEP)`);
+            debug(2, `${ts()} [nextStep] No draw triggers, immediately advancing to MAIN1 (similar to UNTAP->UPKEEP)`);
             // Override the next step to be MAIN1 instead of DRAW
             nextPhase = "precombatMain";
             nextStep = "MAIN1";
@@ -2723,7 +2724,7 @@ export function nextStep(ctx: GameContext) {
             // Check for precombat main triggers
             const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
             pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
-            console.log(`${ts()} [nextStep] Advanced to MAIN1, found ${precombatMainTriggers.length} precombat main trigger(s)`);
+            debug(2, `${ts()} [nextStep] Advanced to MAIN1, found ${precombatMainTriggers.length} precombat main trigger(s)`);
             
             // IMPORTANT: Set a flag to skip the duplicate MAIN1 trigger processing below
             (ctx as any)._skipMain1TriggerCheck = true;
@@ -2736,7 +2737,7 @@ export function nextStep(ctx: GameContext) {
         else if (nextStep === "MAIN1" && !(ctx as any)._skipMain1TriggerCheck) {
           const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
           pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
-          console.log(`${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);
+          debug(2, `${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);
         }
         
         // Clear the skip flag after processing triggers
@@ -2784,7 +2785,7 @@ export function nextStep(ctx: GameContext) {
                     if (cardName.includes("leyline tyrant") ||
                         (oracleText.includes("red mana") && (oracleText.includes("don't lose") || oracleText.includes("doesn't empty")))) {
                       retainsRedMana = true;
-                      console.log(`${ts()} [END_COMBAT] ${playerId} has Leyline Tyrant - firebending red mana preserved`);
+                      debug(2, `${ts()} [END_COMBAT] ${playerId} has Leyline Tyrant - firebending red mana preserved`);
                       break;
                     }
                     
@@ -2792,7 +2793,7 @@ export function nextStep(ctx: GameContext) {
                     if (cardName.includes("ozai") || 
                         (oracleText.includes("lose unspent mana") && oracleText.includes("becomes red instead"))) {
                       hasOzaiEffect = true;
-                      console.log(`${ts()} [END_COMBAT] ${playerId} has Ozai - firebending red mana converts to red (already red, so preserved)`);
+                      debug(2, `${ts()} [END_COMBAT] ${playerId} has Ozai - firebending red mana converts to red (already red, so preserved)`);
                     }
                   }
                   
@@ -2800,12 +2801,12 @@ export function nextStep(ctx: GameContext) {
                   // - Leyline Tyrant keeps it
                   // - Ozai converts it to red (already red, so effectively keeps it)
                   if (retainsRedMana || hasOzaiEffect) {
-                    console.log(`${ts()} [END_COMBAT] Firebending mana (${amount} red) preserved due to mana retention effect`);
+                    debug(2, `${ts()} [END_COMBAT] Firebending mana (${amount} red) preserved due to mana retention effect`);
                     // Don't clear the mana, just reset the firebending tracking
                   } else {
                     // Remove firebending red mana from pool
                     manaPool.red = Math.max(0, (manaPool.red || 0) - amount);
-                    console.log(`${ts()} [END_COMBAT] Cleared ${amount} firebending red mana from ${playerId}`);
+                    debug(2, `${ts()} [END_COMBAT] Cleared ${amount} firebending red mana from ${playerId}`);
                   }
                 }
               }
@@ -2847,7 +2848,7 @@ export function nextStep(ctx: GameContext) {
           // Also clear priorityClaimed set - players need to claim priority again each step
           (ctx as any).state.priorityClaimed = new Set<string>();
           
-          console.log(`${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
+          debug(2, `${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
           
           // DEBUG: Log turn player's hand and ability to act
           try {
@@ -2859,18 +2860,18 @@ export function nextStep(ctx: GameContext) {
             const playerCanAct = canAct(ctx, turnPlayer);
             const playerCanRespond = canRespond(ctx, turnPlayer);
             
-            console.log(`${ts()} [nextStep] DEBUG - Turn Player ${turnPlayer}:`);
-            console.log(`${ts()} [nextStep]   Hand (${handCount}): ${handNames || '(empty)'}`);
-            console.log(`${ts()} [nextStep]   canAct: ${playerCanAct}, canRespond: ${playerCanRespond}`);
+            debug(2, `${ts()} [nextStep] DEBUG - Turn Player ${turnPlayer}:`);
+            debug(2, `${ts()} [nextStep]   Hand (${handCount}): ${handNames || '(empty)'}`);
+            debug(2, `${ts()} [nextStep]   canAct: ${playerCanAct}, canRespond: ${playerCanRespond}`);
           } catch (err) {
-            console.warn(`${ts()} [nextStep] Failed to log debug info:`, err);
+            debugWarn(1, `${ts()} [nextStep] Failed to log debug info:`, err);
           }
           
           // After granting priority, check if we should auto-pass for players who cannot act
           // This ensures that auto-pass works immediately when entering a new step,
           // not just when someone manually passes priority
           try {
-            console.log(`${ts()} [nextStep] Checking if auto-pass should apply after granting priority`);
+            debug(2, `${ts()} [nextStep] Checking if auto-pass should apply after granting priority`);
             const autoPassResult = tryAutoPass(ctx);
             
             // Store the auto-pass result in the state so the caller can check it
@@ -2880,21 +2881,21 @@ export function nextStep(ctx: GameContext) {
             
             if (autoPassResult.allPassed && autoPassResult.advanceStep) {
               // All players auto-passed with empty stack - mark flag for caller to handle
-              console.log(`${ts()} [nextStep] All players auto-passed after granting priority - caller should advance step`);
+              debug(2, `${ts()} [nextStep] All players auto-passed after granting priority - caller should advance step`);
             } else if (autoPassResult.allPassed && autoPassResult.resolved) {
               // All players auto-passed and stack was resolved
-              console.log(`${ts()} [nextStep] All players auto-passed and stack item resolved`);
+              debug(2, `${ts()} [nextStep] All players auto-passed and stack item resolved`);
             } else {
               // Auto-pass stopped at a player who can act, or auto-pass is not enabled
-              console.log(`${ts()} [nextStep] Auto-pass stopped, player ${(ctx as any).state.priority} has priority`);
+              debug(2, `${ts()} [nextStep] Auto-pass stopped, player ${(ctx as any).state.priority} has priority`);
             }
           } catch (err) {
-            console.warn(`${ts()} [nextStep] Failed to run auto-pass check:`, err);
+            debugWarn(1, `${ts()} [nextStep] Failed to run auto-pass check:`, err);
           }
         } else {
           // UNTAP and CLEANUP steps don't grant priority normally
           (ctx as any).state.priority = null;
-          console.log(`${ts()} [nextStep] Step ${nextStep ?? 'unknown'} does not grant priority (Rule 502.1/514.1)`);
+          debug(2, `${ts()} [nextStep] Step ${nextStep ?? 'unknown'} does not grant priority (Rule 502.1/514.1)`);
         }
       }
     }
@@ -2919,13 +2920,13 @@ export function nextStep(ctx: GameContext) {
           const discardCheck = setupCleanupDiscard(ctx, turnPlayer);
           if (discardCheck.needsInteraction && discardCheck.discardCount > 0) {
             // Player needs to choose cards to discard - don't advance turn yet
-            console.log(`${ts()} [nextStep] Waiting for player to select ${discardCheck.discardCount} cards to discard`);
+            debug(2, `${ts()} [nextStep] Waiting for player to select ${discardCheck.discardCount} cards to discard`);
             ctx.bumpSeq();
             return; // Stop here - turn will advance after discard selection
           }
         }
       } catch (err) {
-        console.warn(`${ts()} [nextStep] Failed to check discard during cleanup:`, err);
+        debugWarn(1, `${ts()} [nextStep] Failed to check discard during cleanup:`, err);
       }
       
       // If any player has a Sundial-like effect and stack is empty, 
@@ -2933,7 +2934,7 @@ export function nextStep(ctx: GameContext) {
       // Per Rule 514.3: Normally no priority during cleanup, but if triggers or SBAs occur, priority is given
       // We extend this to also give priority when Sundial effects are available
       if (hasSundialEffect && stackEmpty) {
-        console.log(`${ts()} [nextStep] Player has Sundial effect available, pausing at cleanup for potential action`);
+        debug(2, `${ts()} [nextStep] Player has Sundial effect available, pausing at cleanup for potential action`);
         ctx.bumpSeq();
         return; // Stop here - player can use Sundial effect or pass to advance
       }
@@ -2944,10 +2945,10 @@ export function nextStep(ctx: GameContext) {
         clearDamageFromPermanents(ctx);
         endTemporaryEffects(ctx);
       } catch (err) {
-        console.warn(`${ts()} [nextStep] Failed to clear damage/effects during cleanup:`, err);
+        debugWarn(1, `${ts()} [nextStep] Failed to clear damage/effects during cleanup:`, err);
       }
       
-      console.log(`${ts()} [nextStep] Cleanup complete, advancing to next turn`);
+      debug(2, `${ts()} [nextStep] Cleanup complete, advancing to next turn`);
       ctx.bumpSeq();
       nextTurn(ctx);
       return;
@@ -2968,20 +2969,20 @@ export function nextStep(ctx: GameContext) {
           for (const effect of untapEffects) {
             const count = applyUntapStepEffect(ctx, effect);
             if (count > 0) {
-              console.log(`${ts()} [nextStep] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
+              debug(2, `${ts()} [nextStep] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
             }
           }
         } else {
-          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot untap permanents`);
+          debugWarn(2, `${ts()} [nextStep] No turnPlayer set, cannot untap permanents`);
         }
       } catch (err) {
-        console.warn(`${ts()} [nextStep] Failed to untap permanents:`, err);
+        debugWarn(1, `${ts()} [nextStep] Failed to untap permanents:`, err);
       }
     }
 
     ctx.bumpSeq();
   } catch (err) {
-    console.warn(`${ts()} nextStep failed:`, err);
+    debugWarn(1, `${ts()} nextStep failed:`, err);
   }
 }
 
@@ -2993,7 +2994,7 @@ export function scheduleStepsAfterCurrent(ctx: any, steps: any[]) {
     if (!Array.isArray(steps)) return;
     ctx._scheduledSteps.push(...steps);
   } catch (err) {
-    console.warn(`${ts()} scheduleStepsAfterCurrent failed:`, err);
+    debugWarn(1, `${ts()} scheduleStepsAfterCurrent failed:`, err);
   }
 }
 
@@ -3004,7 +3005,7 @@ export function scheduleStepsAtEndOfTurn(ctx: any, steps: any[]) {
     if (!Array.isArray(steps)) return;
     ctx._scheduledEndOfTurnSteps.push(...steps);
   } catch (err) {
-    console.warn(`${ts()} scheduleStepsAtEndOfTurn failed:`, err);
+    debugWarn(1, `${ts()} scheduleStepsAtEndOfTurn failed:`, err);
   }
 }
 
@@ -3014,7 +3015,7 @@ export function clearScheduledSteps(ctx: any) {
     ctx._scheduledSteps = [];
     ctx._scheduledEndOfTurnSteps = [];
   } catch (err) {
-    console.warn(`${ts()} clearScheduledSteps failed:`, err);
+    debugWarn(1, `${ts()} clearScheduledSteps failed:`, err);
   }
 }
 
@@ -3043,7 +3044,7 @@ export function removeScheduledSteps(ctx: any, steps: any[]) {
       ctx._scheduledEndOfTurnSteps || []
     ).filter((s: any) => !steps.includes(s));
   } catch (err) {
-    console.warn(`${ts()} removeScheduledSteps failed:`, err);
+    debugWarn(1, `${ts()} removeScheduledSteps failed:`, err);
   }
 }
 
@@ -3072,10 +3073,10 @@ export function addExtraTurn(ctx: GameContext, playerId: string, source?: string
       createdAt: Date.now(),
     });
     
-    console.log(`${ts()} [addExtraTurn] Extra turn added for ${playerId} from "${source || 'Unknown'}" (current turn: ${turnNumber})`);
+    debug(2, `${ts()} [addExtraTurn] Extra turn added for ${playerId} from "${source || 'Unknown'}" (current turn: ${turnNumber})`);
     ctx.bumpSeq();
   } catch (err) {
-    console.warn(`${ts()} addExtraTurn failed:`, err);
+    debugWarn(1, `${ts()} addExtraTurn failed:`, err);
   }
 }
 
@@ -3120,10 +3121,10 @@ export function addExtraCombat(ctx: GameContext, source?: string, untapAttackers
       createdAt: Date.now(),
     });
     
-    console.log(`${ts()} [addExtraCombat] Extra combat added from "${source || 'Unknown'}" (untap: ${untapAttackers})`);
+    debug(2, `${ts()} [addExtraCombat] Extra combat added from "${source || 'Unknown'}" (untap: ${untapAttackers})`);
     ctx.bumpSeq();
   } catch (err) {
-    console.warn(`${ts()} addExtraCombat failed:`, err);
+    debugWarn(1, `${ts()} addExtraCombat failed:`, err);
   }
 }
 
@@ -3146,7 +3147,7 @@ export function consumeExtraCombat(ctx: GameContext): { source?: string; untapAt
     const extraCombat = state.extraCombats.shift();
     state.combatNumber = (state.combatNumber || 1) + 1;
     
-    console.log(`${ts()} [consumeExtraCombat] Starting extra combat from "${extraCombat.source}" (combat #${state.combatNumber})`);
+    debug(2, `${ts()} [consumeExtraCombat] Starting extra combat from "${extraCombat.source}" (combat #${state.combatNumber})`);
     
     // If untapAttackers is true, untap all creatures that attacked
     if (extraCombat.untapAttackers) {
@@ -3154,7 +3155,7 @@ export function consumeExtraCombat(ctx: GameContext): { source?: string; untapAt
       for (const perm of battlefield) {
         if (perm && perm.attacking) {
           perm.tapped = false;
-          console.log(`${ts()} [consumeExtraCombat] Untapped ${perm.card?.name || perm.id} for extra combat`);
+          debug(2, `${ts()} [consumeExtraCombat] Untapped ${perm.card?.name || perm.id} for extra combat`);
         }
       }
     }
@@ -3162,7 +3163,7 @@ export function consumeExtraCombat(ctx: GameContext): { source?: string; untapAt
     ctx.bumpSeq();
     return extraCombat;
   } catch (err) {
-    console.warn(`${ts()} consumeExtraCombat failed:`, err);
+    debugWarn(1, `${ts()} consumeExtraCombat failed:`, err);
     return null;
   }
 }
@@ -3181,13 +3182,13 @@ export function skipExtraTurn(ctx: GameContext, playerId: string): boolean {
     const idx = state.extraTurns.findIndex((et: any) => et.playerId === playerId);
     if (idx >= 0) {
       const skipped = state.extraTurns.splice(idx, 1)[0];
-      console.log(`${ts()} [skipExtraTurn] Skipped extra turn for ${playerId} from "${skipped.source || 'Unknown'}"`);
+      debug(2, `${ts()} [skipExtraTurn] Skipped extra turn for ${playerId} from "${skipped.source || 'Unknown'}"`);
       ctx.bumpSeq();
       return true;
     }
     return false;
   } catch (err) {
-    console.warn(`${ts()} skipExtraTurn failed:`, err);
+    debugWarn(1, `${ts()} skipExtraTurn failed:`, err);
     return false;
   }
 }
@@ -3222,3 +3223,5 @@ export default {
   didCreatureDealDamageToPlayer,
   getCreaturesThatDealtDamageToPlayer,
 };
+
+

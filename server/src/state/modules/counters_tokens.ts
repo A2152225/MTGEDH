@@ -5,6 +5,7 @@ import { uid, parsePT } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -144,7 +145,7 @@ export function applyCounterModifications(
         if (mod.halvesOpponentCounters) {
           const before = amount;
           amount = Math.floor(amount / 2);
-          console.log(`[applyCounterModifications] ${mod.cardName} halved counters: ${before} -> ${amount}`);
+          debug(2, `[applyCounterModifications] ${mod.cardName} halved counters: ${before} -> ${amount}`);
         }
       }
       
@@ -153,7 +154,7 @@ export function applyCounterModifications(
         if (mod.doublesYourCounters) {
           const before = amount;
           amount = amount * 2;
-          console.log(`[applyCounterModifications] ${mod.cardName} doubled counters: ${before} -> ${amount}`);
+          debug(2, `[applyCounterModifications] ${mod.cardName} doubled counters: ${before} -> ${amount}`);
         }
       }
       
@@ -164,7 +165,7 @@ export function applyCounterModifications(
           if (mod.addsBonusCounter > 0) {
             const before = amount;
             amount += mod.addsBonusCounter;
-            console.log(`[applyCounterModifications] ${mod.cardName} added bonus: ${before} -> ${amount}`);
+            debug(2, `[applyCounterModifications] ${mod.cardName} added bonus: ${before} -> ${amount}`);
           }
         }
       }
@@ -301,7 +302,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       
       const deathTriggers = getDeathTriggers(ctx, perm, controller);
       if (deathTriggers.length > 0) {
-        console.log(`[movePermanentToGraveyard] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${card?.name || perm.id}`);
+        debug(2, `[movePermanentToGraveyard] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${card?.name || perm.id}`);
         
         // Push death triggers onto the stack
         state.stack = state.stack || [];
@@ -388,13 +389,13 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         }
       }
     } catch (err) {
-      console.warn(`[movePermanentToGraveyard] Error processing death triggers:`, err);
+      debugWarn(1, `[movePermanentToGraveyard] Error processing death triggers:`, err);
     }
   }
   
   // Rule 111.7: Tokens cease to exist when in any zone other than battlefield
   if (isToken) {
-    console.log(`[movePermanentToGraveyard] Token ${card?.name || perm.id} ceased to exist (left battlefield)`);
+    debug(2, `[movePermanentToGraveyard] Token ${card?.name || perm.id} ceased to exist (left battlefield)`);
     bumpSeq();
     return true; // Token ceased to exist (death triggers already fired above)
   }
@@ -427,7 +428,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         toughness: card.toughness,
       },
     });
-    console.log(`[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - DEFERRING zone change for player choice`);
+    debug(2, `[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - DEFERRING zone change for player choice`);
     
     // Remove from battlefield but DON'T add to graveyard yet - wait for player choice
     bumpSeq();
@@ -436,7 +437,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {
-      console.warn('[movePermanentToGraveyard] Failed to recalculate player effects:', err);
+      debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects:', err);
     }
     
     return true; // Zone change deferred for commander
@@ -458,7 +459,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   try {
     recalculatePlayerEffects(ctx);
   } catch (err) {
-    console.warn('[movePermanentToGraveyard] Failed to recalculate player effects:', err);
+    debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects:', err);
   }
   
   return true;
@@ -476,7 +477,7 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {
-      console.warn('[removePermanent] Failed to recalculate player effects:', err);
+      debugWarn(1, '[removePermanent] Failed to recalculate player effects:', err);
     }
   }
 }
@@ -494,7 +495,7 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   // Tokens don't go to exile - they cease to exist as a state-based action.
   const isToken = (perm as any).isToken === true;
   if (isToken) {
-    console.log(`[movePermanentToExile] Token ${card?.name || perm.id} ceased to exist (left battlefield for exile)`);
+    debug(2, `[movePermanentToExile] Token ${card?.name || perm.id} ceased to exist (left battlefield for exile)`);
     bumpSeq();
     return; // Token ceases to exist, don't add to exile
   }
@@ -529,7 +530,7 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
         toughness: card.toughness,
       },
     });
-    console.log(`[movePermanentToExile] Commander ${card.name} would go to exile - DEFERRING zone change for player choice`);
+    debug(2, `[movePermanentToExile] Commander ${card.name} would go to exile - DEFERRING zone change for player choice`);
     bumpSeq();
     return; // Zone change deferred for commander - don't add to exile yet
   }
@@ -582,7 +583,7 @@ export function runSBA(ctx: GameContext) {
       const targetExists = state.battlefield.some(p => p.id === (perm as any).attachedTo);
       if (!targetExists) {
         // Target is gone - unattach and restore creature stats
-        console.log(`[runSBA] ${(perm as any).card?.name} unattaching (bestow/reconfigure target gone), restoring creature stats`);
+        debug(2, `[runSBA] ${(perm as any).card?.name} unattaching (bestow/reconfigure target gone), restoring creature stats`);
         (perm as any).attachedTo = undefined;
         
         // Restore creature stats from the card if they're missing
@@ -594,14 +595,14 @@ export function runSBA(ctx: GameContext) {
             const parsed = parsePT(cardPower);
             if (parsed !== undefined) {
               (perm as any).basePower = parsed;
-              console.log(`[runSBA] Restored basePower to ${parsed}`);
+              debug(2, `[runSBA] Restored basePower to ${parsed}`);
             }
           }
           if (cardToughness !== undefined) {
             const parsed = parsePT(cardToughness);
             if (parsed !== undefined) {
               (perm as any).baseToughness = parsed;
-              console.log(`[runSBA] Restored baseToughness to ${parsed}`);
+              debug(2, `[runSBA] Restored baseToughness to ${parsed}`);
             }
           }
         }
@@ -640,7 +641,7 @@ export function runSBA(ctx: GameContext) {
           try {
             const deathTriggers = getDeathTriggers(ctx, destroyed, controller);
             if (deathTriggers.length > 0) {
-              console.log(`[runSBA] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${(destroyed as any).card?.name || destroyed.id}`);
+              debug(2, `[runSBA] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${(destroyed as any).card?.name || destroyed.id}`);
               
               // Push death triggers onto the stack
               state.stack = state.stack || [];
@@ -659,14 +660,14 @@ export function runSBA(ctx: GameContext) {
               }
             }
           } catch (err) {
-            console.warn(`[runSBA] Error processing death triggers:`, err);
+            debugWarn(1, `[runSBA] Error processing death triggers:`, err);
           }
         }
         
         // Rule 111.7: A token that's in a zone other than the battlefield ceases to exist.
         // Tokens don't go to the graveyard - they cease to exist as a state-based action.
         if (isToken) {
-          console.log(`[runSBA] Token ${(destroyed as any).card?.name || destroyed.id} ceased to exist (left battlefield)`);
+          debug(2, `[runSBA] Token ${(destroyed as any).card?.name || destroyed.id} ceased to exist (left battlefield)`);
           changed = true;
           continue; // Token ceases to exist, don't add to graveyard
         }
@@ -801,7 +802,7 @@ export function updateGodCreatureStatus(ctx: GameContext): void {
     if (isCreature !== wasCreature) {
       (perm as any).notCreature = !isCreature;
       changed = true;
-      console.log(`[updateGodCreatureStatus] ${(perm.card as any)?.name}: devotion ${devotion}/${threshold} - ${isCreature ? 'IS' : 'NOT'} a creature`);
+      debug(2, `[updateGodCreatureStatus] ${(perm.card as any)?.name}: devotion ${devotion}/${threshold} - ${isCreature ? 'IS' : 'NOT'} a creature`);
     }
   }
   

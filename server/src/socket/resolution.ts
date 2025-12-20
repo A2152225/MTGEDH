@@ -14,6 +14,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Register Resolution System socket handlers
@@ -136,7 +137,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       });
       
       // Log the action
-      console.log(`[Resolution] Step ${stepId} completed by ${pid}: ${completedStep.type}`);
+      debug(2, `[Resolution] Step ${stepId} completed by ${pid}: ${completedStep.type}`);
       
       // Handle the response based on step type
       handleStepResponse(io, game, gameId, completedStep, response);
@@ -195,7 +196,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         success: true,
       });
       
-      console.log(`[Resolution] Step ${stepId} cancelled by ${pid}: ${cancelledStep.type}`);
+      debug(2, `[Resolution] Step ${stepId} cancelled by ${pid}: ${cancelledStep.type}`);
       
       const game = ensureGame(gameId);
       if (game) {
@@ -420,10 +421,10 @@ function handleStepResponse(
       
     // Add more handlers as needed
     default:
-      console.log(`[Resolution] No specific handler for step type: ${step.type}`);
+      debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
       // For steps with legacy data, try to process using old system
       if (step.legacyData) {
-        console.log(`[Resolution] Step has legacy data, may need migration`);
+        debug(2, `[Resolution] Step has legacy data, may need migration`);
       }
   }
 }
@@ -442,14 +443,14 @@ function handleDiscardResponse(
   const selections = response.selections as string[];
   
   if (!Array.isArray(selections) || selections.length === 0) {
-    console.warn(`[Resolution] Invalid discard selections for step ${step.id}`);
+    debugWarn(2, `[Resolution] Invalid discard selections for step ${step.id}`);
     return;
   }
   
   // Get player zones
   const zones = game.state?.zones?.[pid];
   if (!zones || !zones.hand) {
-    console.warn(`[Resolution] No hand found for player ${pid}`);
+    debugWarn(2, `[Resolution] No hand found for player ${pid}`);
     return;
   }
   
@@ -513,7 +514,7 @@ function handleCommanderZoneResponse(
   if (goToCommandZone) {
     // Move commander to command zone
     // Implementation depends on existing game state structure
-    console.log(`[Resolution] Moving ${commanderName} to command zone`);
+    debug(2, `[Resolution] Moving ${commanderName} to command zone`);
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -523,7 +524,7 @@ function handleCommanderZoneResponse(
       ts: Date.now(),
     });
   } else {
-    console.log(`[Resolution] ${commanderName} stays in ${fromZone}`);
+    debug(2, `[Resolution] ${commanderName} stays in ${fromZone}`);
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -564,7 +565,7 @@ function handleTargetSelectionResponse(
   const pid = response.playerId;
   const selections = response.selections as string[];
   
-  console.log(`[Resolution] Target selection: ${selections?.join(', ')}`);
+  debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
   
   // Clear legacy pending state if present
   if (game.state.pendingTargets?.[pid]) {
@@ -592,7 +593,7 @@ function handleTriggerOrderResponse(
   const pid = response.playerId;
   const orderedTriggerIds = response.selections as string[];
   
-  console.log(`[Resolution] Trigger order: ${orderedTriggerIds?.join(', ')}`);
+  debug(1, `[Resolution] Trigger order: ${orderedTriggerIds?.join(', ')}`);
   
   // Clear legacy pending state if present
   if (game.state.pendingTriggerOrdering?.[pid]) {
@@ -640,7 +641,7 @@ function handleKynaiosChoiceResponse(
   const sourceController = stepData.sourceController || pid;
   const sourceName = step.sourceName || 'Kynaios and Tiro of Meletis';
   
-  console.log(`[Resolution] Kynaios choice: player=${pid}, choice=${choice}, landCardId=${landCardId}, isController=${isController}`);
+  debug(2, `[Resolution] Kynaios choice: player=${pid}, choice=${choice}, landCardId=${landCardId}, isController=${isController}`);
   
   if (choice === 'play_land' && landCardId) {
     // Move the land from hand to battlefield
@@ -677,7 +678,7 @@ function handleKynaiosChoiceResponse(
           ts: Date.now(),
         });
         
-        console.log(`[Resolution] ${pid} played land ${cardName} via Kynaios choice`);
+        debug(2, `[Resolution] ${pid} played land ${cardName} via Kynaios choice`);
       }
     }
   } else if (choice === 'draw_card' && !isController) {
@@ -693,7 +694,7 @@ function handleKynaiosChoiceResponse(
       ts: Date.now(),
     });
     
-    console.log(`[Resolution] ${pid} chose to draw via Kynaios choice`);
+    debug(2, `[Resolution] ${pid} chose to draw via Kynaios choice`);
   } else {
     // Player declined
     if (!isController) {
@@ -718,7 +719,7 @@ function handleKynaiosChoiceResponse(
       });
     }
     
-    console.log(`[Resolution] ${pid} declined Kynaios land play option`);
+    debug(2, `[Resolution] ${pid} declined Kynaios land play option`);
   }
   
   if (typeof game.bumpSeq === "function") {
@@ -752,7 +753,7 @@ function handleJoinForcesResponse(
   const cardName = stepData.cardName || step.sourceName || 'Join Forces';
   const initiator = stepData.initiator;
   
-  console.log(`[Resolution] Join Forces: player=${pid} contributed ${contribution} mana to ${cardName}`);
+  debug(1, `[Resolution] Join Forces: player=${pid} contributed ${contribution} mana to ${cardName}`);
   
   // Track contributions in game state for effect resolution
   game.state.joinForcesContributions = game.state.joinForcesContributions || {};
@@ -815,7 +816,7 @@ function applyJoinForcesEffect(
   const players = game.state?.players || [];
   const battlefield = game.state.battlefield = game.state.battlefield || [];
   
-  console.log(`[Resolution] Applying Join Forces effect: ${cardName} with ${totalContributions} total mana`);
+  debug(1, `[Resolution] Applying Join Forces effect: ${cardName} with ${totalContributions} total mana`);
   
   // Minds Aglow: Each player draws X cards
   if (cardNameLower.includes('minds aglow')) {
@@ -948,7 +949,7 @@ function handleTemptingOfferResponse(
   const cardName = stepData.cardName || step.sourceName || 'Tempting Offer';
   const initiator = stepData.initiator;
   
-  console.log(`[Resolution] Tempting Offer: player=${pid} ${accepted ? 'ACCEPTS' : 'DECLINES'} ${cardName}`);
+  debug(2, `[Resolution] Tempting Offer: player=${pid} ${accepted ? 'ACCEPTS' : 'DECLINES'} ${cardName}`);
   
   // Track responses in game state for effect resolution
   game.state.temptingOfferResponses = game.state.temptingOfferResponses || {};
@@ -1012,7 +1013,7 @@ function applyTemptingOfferEffect(
   const cardNameLower = cardName.toLowerCase();
   const battlefield = game.state.battlefield = game.state.battlefield || [];
   
-  console.log(`[Resolution] Applying Tempting Offer effect: ${cardName}, ${acceptedBy.length} accepted, initiator gets ${initiatorBonusCount}x`);
+  debug(2, `[Resolution] Applying Tempting Offer effect: ${cardName}, ${acceptedBy.length} accepted, initiator gets ${initiatorBonusCount}x`);
   
   // Tempt with Discovery: Search for lands
   if (cardNameLower.includes('discovery')) {
@@ -1108,3 +1109,4 @@ function applyTemptingOfferEffect(
 }
 
 export default { registerResolutionHandlers };
+

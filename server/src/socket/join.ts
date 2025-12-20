@@ -4,6 +4,7 @@ import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
 import { appendEvent, updateGameCreatorPlayerId, getGameCreator } from "../db";
 import { computeDiff } from "../utils/diff";
 import { games } from "./socket";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Register join handlers.
@@ -124,7 +125,7 @@ function ensureStateZonesForPlayers(game: any) {
     }
   } catch (e) {
     // non-fatal; best-effort
-    console.warn("ensureStateZonesForPlayers failed:", e);
+    debugWarn(1, "ensureStateZonesForPlayers failed:", e);
   }
 }
 
@@ -201,7 +202,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
 
     return view;
   } catch (e) {
-    console.warn("normalizeViewForEmit failed:", e);
+    debugWarn(1, "normalizeViewForEmit failed:", e);
     return rawView || {};
   }
 }
@@ -241,14 +242,14 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
     const lastLib =
       lib.length > 1 ? lib[lib.length - 1] : lib.length === 1 ? lib[0] : null;
 
-    console.log(
+    debug(2, 
       `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(
         ","
       )}] zones=[${zoneKeys.join(
         ","
       )}] handCount=${handCount} libraryCount=${libraryCount}`
     );
-    console.log(`[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
+    debug(2, `[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
       firstLibraryCard: firstLib
         ? {
             id: firstLib.id,
@@ -308,7 +309,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
 
             // Debug: log incoming join payload when enabled
             if (process.env.DEBUG_STATE === "1") {
-              console.log("joinGame incoming payload:", {
+              debug(2, "joinGame incoming payload:", {
                 socketId: socket.id,
                 gameId,
                 playerName,
@@ -327,7 +328,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 forcedFixedPlayerId = byToken.id;
                 resolvedToken = byToken.seatToken;
                 if (process.env.DEBUG_STATE === "1")
-                  console.log(
+                  debug(2, 
                     `joinGame: resolved via seatToken -> playerId=${forcedFixedPlayerId}`
                   );
               }
@@ -352,7 +353,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
 
                 if (isConnected) {
                   if (process.env.DEBUG_STATE === "1")
-                    console.log(
+                    debug(2, 
                       `joinGame: name exists and is connected -> prompting nameInUse (playerId=${existing.id}, connected=true)`
                     );
                   socket.emit("nameInUse", {
@@ -372,7 +373,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   forcedFixedPlayerId = existing.id;
                   resolvedToken = existing.seatToken || resolvedToken;
                   if (process.env.DEBUG_STATE === "1")
-                    console.log(
+                    debug(2, 
                       `joinGame: name exists but is disconnected -> auto-reusing playerId=${existing.id}`
                     );
                 }
@@ -413,7 +414,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     (game as any)._rngSeed = seed;
                   }
                 } catch (e) {
-                  console.warn(
+                  debugWarn(1, 
                     "joinGame: failed to set rng seed on game instance (continuing):",
                     e
                   );
@@ -427,14 +428,14 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     { seed }
                   );
                 } catch (err) {
-                  console.warn(
+                  debugWarn(1, 
                     "joinGame: appendEvent rngSeed failed (continuing):",
                     err
                   );
                 }
               }
             } catch (e) {
-              console.warn(
+              debugWarn(1, 
                 "joinGame: rng seed detection failed (continuing):",
                 e
               );
@@ -464,20 +465,20 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 resolvedToken =
                   resolvedToken || res?.seatToken || res?.seat || undefined;
                 if (process.env.DEBUG_STATE === "1")
-                  console.log("joinGame: game.join returned", {
+                  debug(2, "joinGame: game.join returned", {
                     playerId,
                     added,
                     resolvedToken,
                   });
               } catch (err) {
-                console.warn(
+                debugWarn(1, 
                   "joinGame: game.join threw (continuing to fallback):",
                   err
                 );
               }
             } else {
               if (forcedFixedPlayerId && process.env.DEBUG_STATE === "1") {
-                console.log(
+                debug(2, 
                   "joinGame: skipping game.join because forcedFixedPlayerId present; falling back to server reattach logic"
                 );
               }
@@ -516,7 +517,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     resolvedToken = resolvedToken || playerObj.seatToken;
                     added = false;
                     if (process.env.DEBUG_STATE === "1")
-                      console.log(
+                      debug(2, 
                         `joinGame: reused forcedFixedPlayerId ${playerId}`
                       );
                   } else {
@@ -533,7 +534,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     resolvedToken = token;
                     added = true;
                     if (process.env.DEBUG_STATE === "1")
-                      console.log(
+                      debug(2, 
                         `joinGame: created player for forcedFixedPlayerId ${playerId}`
                       );
                   }
@@ -541,7 +542,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   // Rebind engine participants to this socketId
                   rebindEngineParticipant(game, playerId, socket.id);
                 } catch (e) {
-                  console.warn(
+                  debugWarn(1, 
                     "joinGame: forcedFixedPlayerId fallback failed:",
                     e
                   );
@@ -558,7 +559,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     } catch {}
                     added = false;
                     if (process.env.DEBUG_STATE === "1")
-                      console.log(
+                      debug(2, 
                         `joinGame: reattached by seatToken -> ${playerId}`
                       );
                     // Rebind engine participants
@@ -599,7 +600,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   } catch {}
                   added = false;
                   if (process.env.DEBUG_STATE === "1")
-                    console.log(
+                    debug(2, 
                       `joinGame: reused disconnected name -> ${playerId}`
                     );
                   // Rebind engine participants
@@ -621,7 +622,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     resolvedToken = byToken2.seatToken;
                   } catch {}
                   if (process.env.DEBUG_STATE === "1")
-                    console.log(
+                    debug(2, 
                       `joinGame: last-chance reattach by seatToken -> ${playerId}`
                     );
                   // Rebind engine participants
@@ -681,7 +682,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 }
                 (game as any).inactive.add(newId);
                 if (process.env.DEBUG_STATE === "1")
-                  console.log(
+                  debug(2, 
                     `joinGame: marked new player ${newId} as inactive (game already started)`
                   );
               }
@@ -690,7 +691,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               resolvedToken = tokenToUse;
               added = true;
               if (process.env.DEBUG_STATE === "1")
-                console.log(
+                debug(2, 
                   `joinGame: created new player ${playerId} (name=${playerName})`
                 );
               // Rebind engine participants (in case engine inspects state.players)
@@ -731,7 +732,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 rawView = game.state;
               }
             } catch (e) {
-              console.warn(
+              debugWarn(1, 
                 "joinGame: viewFor failed, falling back to raw state",
                 e
               );
@@ -751,7 +752,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 seatToken: resolvedToken,
               });
             } catch (e) {
-              console.warn("joinGame: emit joined failed", e);
+              debugWarn(1, "joinGame: emit joined failed", e);
             }
             try {
               socket.emit("state", {
@@ -760,7 +761,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 seq: (game as any).seq || 0,
               });
             } catch (e) {
-              console.warn("joinGame: emit state failed", e);
+              debugWarn(1, "joinGame: emit state failed", e);
             }
 
             // Persist join event if new
@@ -771,10 +772,10 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 const creatorInfo = getGameCreator(gameId);
                 if (creatorInfo && !creatorInfo.created_by_player_id) {
                   updateGameCreatorPlayerId(gameId, playerId);
-                  console.info(`[join] Set game creator for ${gameId} to player ${playerId}`);
+                  debug(1, `[join] Set game creator for ${gameId} to player ${playerId}`);
                 }
               } catch (e) {
-                console.warn("joinGame: failed to update game creator (non-fatal):", e);
+                debugWarn(1, "joinGame: failed to update game creator (non-fatal):", e);
               }
               
               try {
@@ -793,7 +794,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   }
                 );
               } catch (dbError) {
-                console.error(
+                debugError(1, 
                   `joinGame database error for game ${gameId}:`,
                   dbError
                 );
@@ -815,7 +816,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 });
                 schedulePriorityTimeout(io, game, gameId);
               } catch (e) {
-                console.warn("joinGame: emit stateDiff failed", e);
+                debugWarn(1, "joinGame: emit stateDiff failed", e);
                 try {
                   io.to(gameId).emit("state", {
                     gameId,
@@ -830,7 +831,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               } catch {}
             }
           } catch (err: any) {
-            console.error(`joinGame error for socket ${socket.id}:`, err);
+            debugError(1, `joinGame error for socket ${socket.id}:`, err);
             try {
               socket.emit("error", {
                 code: "JOIN_FAILED",
@@ -842,7 +843,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
         .catch((e) => {
           // swallow to keep chain healthy
           if (process.env.DEBUG_STATE === "1")
-            console.warn("join queue task error:", e);
+            debugWarn(1, "join queue task error:", e);
         });
 
       // put myTask onto the tail for this gameId so subsequent joins queue behind it
@@ -874,7 +875,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               })()
             : game.state;
       } catch (e) {
-        console.warn(
+        debugWarn(1, 
           "requestState: viewFor failed, falling back to raw state",
           e
         );
@@ -891,7 +892,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       socket.emit("state", { gameId, view, seq: (game as any).seq || 0 });
       schedulePriorityTimeout(io, game, gameId);
     } catch (e) {
-      console.warn("requestState handler failed:", e);
+      debugWarn(1, "requestState handler failed:", e);
     }
   });
 }
+

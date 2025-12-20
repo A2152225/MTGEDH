@@ -58,7 +58,15 @@ npm install
 cp .env.example .env
 ```
 
-4. Start development server:
+4. Configure debug level (optional):
+```bash
+# Edit .env and set DEBUG_STATE:
+# DEBUG_STATE=0  # No debug output (production, default)
+# DEBUG_STATE=1  # Essential debugging (important state changes, errors)
+# DEBUG_STATE=2  # Verbose debugging (detailed logs for investigation)
+```
+
+5. Start development server:
 ```bash
 npm run dev
 ```
@@ -152,6 +160,42 @@ See [Rules Engine Integration](./docs/rules-engine-integration.md) for architect
 - **Modular Design**: Extensible rules engine for adding new cards/mechanics
 
 ## Documentation
+
+### Debug Logging
+
+The platform uses an environment-based debug system to control log verbosity:
+
+**Debug Levels:**
+- `DEBUG_STATE=0` - No debug output (production mode, default)
+- `DEBUG_STATE=1` - Essential debugging (errors, warnings, important state changes)
+- `DEBUG_STATE=2` - Verbose debugging (detailed logs for investigation)
+
+**Usage:**
+
+Server (set in `.env`):
+```bash
+DEBUG_STATE=1 npm run dev
+```
+
+Client (set in `.env.local`):
+```bash
+VITE_DEBUG_STATE=1 npm run dev:client
+```
+
+**In Code:**
+```typescript
+import { debug, debugWarn, debugError } from './utils/debug';
+
+// Only shows when DEBUG_STATE >= 1
+debug(1, '[module] Important state change');
+
+// Only shows when DEBUG_STATE >= 2  
+debug(2, '[module] Detailed investigation info');
+```
+
+This allows you to control the amount of logging without modifying code, making it easier to diagnose issues in development while keeping production logs clean.
+
+### Other Documentation
 
 - [Architecture Overview](./docs/architecture.md)
 - [Rules Engine Integration](./docs/rules-engine-integration.md)

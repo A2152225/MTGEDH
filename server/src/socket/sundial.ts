@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, appendGameEvent, broadcastGame } from "./util";
 import { GameStep } from "../../../shared/src";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Payload:
@@ -56,14 +57,14 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         if (!allowed && Array.isArray(playerZones.graveyard) && playerZones.graveyard.some((c: any) => nameMatches(c?.name))) allowed = true;
       } catch (err) {
         // defensive: do not fail permission check on unexpected shapes
-        console.warn("sundialActivate: permisssion check failed shape test", err);
+        debugWarn(1, "sundialActivate: permisssion check failed shape test", err);
       }
 
       if (!allowed) {
         // Looser fallback: allow if the caller is an active player (optionally), else deny.
         // Here we choose to allow activations from any joined player (loose mode) but still log this.
         // If you prefer stricter: set allowed = false and reject.
-        console.warn(`sundialActivate: ${playerId} did not match strict sundial ownership, allowing in loose mode.`);
+        debugWarn(2, `sundialActivate: ${playerId} did not match strict sundial ownership, allowing in loose mode.`);
         allowed = true;
       }
 
@@ -73,10 +74,10 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         if (typeof (game as any).exileStack === "function") {
           exiledCount = (game as any).exileStack(playerId);
         } else {
-          console.warn("sundialActivate: exileStack not available on game object");
+          debugWarn(2, "sundialActivate: exileStack not available on game object");
         }
       } catch (err) {
-        console.warn("sundialActivate: exileStack threw", err);
+        debugWarn(2, "sundialActivate: exileStack threw", err);
       }
 
       // Handle requested action
@@ -91,41 +92,43 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
             // game.nextStep();
             // we'll persist a note
           } catch (err) {
-            console.warn("sundialActivate cleanup: failed to set CLEANUP", err);
+            debugWarn(1, "sundialActivate cleanup: failed to set CLEANUP", err);
           }
         } else if (action === "skipSteps" && Array.isArray(skipSteps) && skipSteps.length) {
           try {
             // ask game wrapper to remove scheduled steps (string list)
             if (typeof (game as any).removeScheduledSteps === "function") {
               const removed = (game as any).removeScheduledSteps(skipSteps);
-              console.debug("sundialActivate removed scheduled steps count:", removed);
+              debug(2, "sundialActivate removed scheduled steps count:", removed);
             } else {
               // Fallback: clear all scheduled steps if fine-grained removal not available
               if (typeof (game as any).clearScheduledSteps === "function") (game as any).clearScheduledSteps();
             }
           } catch (err) {
-            console.warn("sundialActivate skipSteps failed", err);
+            debugWarn(1, "sundialActivate skipSteps failed", err);
           }
         } else {
           // unknown action: log
-          console.warn("sundialActivate: unknown action", action);
+          debugWarn(2, "sundialActivate: unknown action", action);
         }
       } catch (err) {
-        console.warn("sundialActivate: action handling failed", err);
+        debugWarn(1, "sundialActivate: action handling failed", err);
       }
 
       // Persist the activation
       try {
         appendGameEvent(game, gameId, "sundialActivated", { by: playerId, exiled: exiledCount, action, skipSteps });
       } catch (err) {
-        console.warn("sundialActivate: appendGameEvent failed", err);
+        debugWarn(1, "sundialActivate: appendGameEvent failed", err);
       }
 
       // Broadcast updated state
       broadcastGame(io, game, gameId);
     } catch (err) {
-      console.error("sundialActivate handler error:", err);
+      debugError(1, "sundialActivate handler error:", err);
       socket.emit("error", { code: "SUNDIAL", message: (err && (err as Error).message) || "Sundial activation failed" });
     }
   });
 }
+
+

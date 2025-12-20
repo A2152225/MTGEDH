@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent } from "./util";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Judge voting metadata stored on the game object (runtime only).
@@ -172,7 +173,7 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
         responses,
       });
     } catch (err: any) {
-      console.error("requestJudge handler failed:", err);
+      debugError(1, "requestJudge handler failed:", err);
       socket.emit("error", {
         code: "JUDGE_REQUEST_ERROR",
         message: err?.message ?? String(err),
@@ -285,7 +286,7 @@ try {
     }
   }
 } catch (e) {
-  console.warn("Failed to tag judge role on sockets:", e);
+  debugWarn(1, "Failed to tag judge role on sockets:", e);
 }
 
         io.to(gameId).emit("chat", {
@@ -307,7 +308,7 @@ try {
 
         broadcastGame(io, game, gameId);
       } catch (err: any) {
-        console.error("judgeConfirmResponse handler failed:", err);
+        debugError(1, "judgeConfirmResponse handler failed:", err);
         socket.emit("error", {
           code: "JUDGE_CONFIRM_ERROR",
           message: err?.message ?? String(err),

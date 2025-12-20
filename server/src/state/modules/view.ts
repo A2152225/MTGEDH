@@ -9,6 +9,7 @@ import type {
 } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonusesWithSources, type PTBonusSource } from "../utils.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -221,7 +222,7 @@ export function viewFor(
     })
   );
 
-  console.log("[VIEW_FOR_DEBUG]", {
+  debug(2, "[VIEW_FOR_DEBUG]", {
     viewer,
     stackLength: state.stack?.length || 0,
     stackItems: state.stack?.slice(0, 3).map((s: any) => s?.card?.name || s?.id) || [],
@@ -257,3 +258,4 @@ export function viewFor(
     maxLandsPerTurn: (state as any).maxLandsPerTurn || {},
   } as any;
 }
+

@@ -8,6 +8,7 @@
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -92,12 +93,12 @@ function loadTokens(): void {
         }
       }
       
-      console.log(`[tokens] Loaded ${tokenCache.length} tokens from Tokens.json`);
+      debug(2, `[tokens] Loaded ${tokenCache.length} tokens from Tokens.json`);
     }
     
     tokensLoaded = true;
   } catch (err) {
-    console.warn('[tokens] Failed to load Tokens.json:', err);
+    debugWarn(1, '[tokens] Failed to load Tokens.json:', err);
     tokensLoaded = true; // Mark as loaded to prevent repeated attempts
   }
 }
@@ -649,3 +650,4 @@ export function getTokenTypes(): string[] {
   loadTokens();
   return Array.from(tokensByType.keys()).sort();
 }
+

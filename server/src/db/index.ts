@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 type DB = Database.Database;
 
@@ -51,12 +52,12 @@ export async function initDb(): Promise<void> {
     // Column doesn't exist, add it
     try {
       db.exec('ALTER TABLE games ADD COLUMN created_by_socket_id TEXT');
-      console.log('[DB] Added created_by_socket_id column');
+      debug(2, '[DB] Added created_by_socket_id column');
     } catch (e: any) {
       // Log migration failure unless it's a "duplicate column" error
       const errMsg = String(e?.message || '');
       if (!errMsg.toLowerCase().includes('duplicate column')) {
-        console.warn('[DB] Migration warning for created_by_socket_id:', errMsg);
+        debugWarn(1, '[DB] Migration warning for created_by_socket_id:', errMsg);
       }
     }
   }
@@ -66,12 +67,12 @@ export async function initDb(): Promise<void> {
   } catch {
     try {
       db.exec('ALTER TABLE games ADD COLUMN created_by_player_id TEXT');
-      console.log('[DB] Added created_by_player_id column');
+      debug(2, '[DB] Added created_by_player_id column');
     } catch (e: any) {
       // Log migration failure unless it's a "duplicate column" error
       const errMsg = String(e?.message || '');
       if (!errMsg.toLowerCase().includes('duplicate column')) {
-        console.warn('[DB] Migration warning for created_by_player_id:', errMsg);
+        debugWarn(1, '[DB] Migration warning for created_by_player_id:', errMsg);
       }
     }
   }
@@ -92,7 +93,7 @@ export function createGameIfNotExists(
 
   // Defensive guard: invalid or empty gameId should never be persisted.
   if (!gameId || typeof gameId !== 'string' || gameId.trim() === '') {
-    console.error("[DB] createGameIfNotExists called with invalid gameId:", String(gameId));
+    debugError(1, "[DB] createGameIfNotExists called with invalid gameId:", String(gameId));
     // Do not proceed — caller should be fixed. Return early to avoid inserting bad rows.
     return;
   }
@@ -109,12 +110,12 @@ export function createGameIfNotExists(
     const insert = db!.prepare(insertSql);
     // Log exact SQL and args to diagnose binding issues
     try {
-      console.debug("[DB] Running insert:", insertSql.trim().replace(/\s+/g, " "));
-      console.debug("[DB] Params:", { gameId, format, startingLife: startingLife | 0, now, createdBySocketId, createdByPlayerId });
+      debug(2, "[DB] Running insert:", insertSql.trim().replace(/\s+/g, " "));
+      debug(2, "[DB] Params:", { gameId, format, startingLife: startingLife | 0, now, createdBySocketId, createdByPlayerId });
       insert.run(gameId, format, startingLife | 0, now, createdBySocketId || null, createdByPlayerId || null);
     } catch (runErr) {
-      console.error("[DB] insert.run failed:", runErr && (runErr as Error).message);
-      console.error("[DB] insert statement source:", (insert as any).source ?? insertSql);
+      debugError(1, "[DB] insert.run failed:", runErr && (runErr as Error).message);
+      debugError(1, "[DB] insert statement source:", (insert as any).source ?? insertSql);
       // rethrow so caller sees failure after logging
       throw runErr;
     }
@@ -122,18 +123,18 @@ export function createGameIfNotExists(
     // Keep metadata up to date (non-critical)
     const update = db!.prepare(updateSql);
     try {
-      console.debug("[DB] Running update:", updateSql.trim().replace(/\s+/g, " "));
-      console.debug("[DB] Params:", { format, startingLife: startingLife | 0, gameId });
+      debug(2, "[DB] Running update:", updateSql.trim().replace(/\s+/g, " "));
+      debug(2, "[DB] Params:", { format, startingLife: startingLife | 0, gameId });
       update.run(format, startingLife | 0, gameId);
     } catch (runErr) {
-      console.error("[DB] update.run failed:", runErr && (runErr as Error).message);
-      console.error("[DB] update statement source:", (update as any).source ?? updateSql);
+      debugError(1, "[DB] update.run failed:", runErr && (runErr as Error).message);
+      debugError(1, "[DB] update statement source:", (update as any).source ?? updateSql);
       // rethrow so we can see debugging info
       throw runErr;
     }
   } catch (err) {
     // Bubble the original error after logging contextual info.
-    console.error("[DB] createGameIfNotExists error:", err && (err as Error).message);
+    debugError(1, "[DB] createGameIfNotExists error:", err && (err as Error).message);
     throw err;
   }
 }
@@ -205,7 +206,7 @@ export function appendEvent(gameId: string, seq: number, type: string, payload: 
             Date.now()
           );
         } catch (e2) {
-          console.warn("appendEvent: failed to create games row on FK error (createGameIfNotExists fallback failed):", e2);
+          debugWarn(1, "appendEvent: failed to create games row on FK error (createGameIfNotExists fallback failed):", e2);
           throw err; // rethrow original
         }
       }
@@ -214,7 +215,7 @@ export function appendEvent(gameId: string, seq: number, type: string, payload: 
       const info2 = stmt.run(gameId, seq | 0, type, payloadJson, Date.now());
       return Number(info2.lastInsertRowid);
     } catch (retryErr) {
-      console.error("appendEvent: retry after creating games row failed:", retryErr);
+      debugError(1, "appendEvent: retry after creating games row failed:", retryErr);
       throw retryErr;
     }
   }
@@ -268,7 +269,7 @@ export function gameExistsInDb(gameId: string): boolean {
     const result = stmt.get(gameId);
     return result !== undefined;
   } catch (err) {
-    console.error("[DB] gameExistsInDb failed:", (err as Error).message);
+    debugError(1, "[DB] gameExistsInDb failed:", (err as Error).message);
     return false;
   }
 }
@@ -289,7 +290,7 @@ export function deleteGame(gameId: string): boolean {
   try {
     return tx(gameId);
   } catch (err) {
-    console.error("[DB] deleteGame failed:", (err as Error).message);
+    debugError(1, "[DB] deleteGame failed:", (err as Error).message);
     return false;
   }
 }
@@ -325,10 +326,10 @@ export function truncateEventsForUndo(gameId: string, keepCount: number): number
   );
   try {
     const info = delStmt.run(gameId, maxIdToKeep);
-    console.log(`[DB] truncateEventsForUndo: deleted ${info.changes} events for game ${gameId}, kept ${keepCount}`);
+    debug(2, `[DB] truncateEventsForUndo: deleted ${info.changes} events for game ${gameId}, kept ${keepCount}`);
     return info.changes;
   } catch (err) {
-    console.error("[DB] truncateEventsForUndo failed:", (err as Error).message);
+    debugError(1, "[DB] truncateEventsForUndo failed:", (err as Error).message);
     return 0;
   }
 }
@@ -382,6 +383,8 @@ export function updateGameCreatorPlayerId(gameId: string, playerId: string): voi
     const stmt = db!.prepare(`UPDATE games SET created_by_player_id = ? WHERE game_id = ? AND created_by_player_id IS NULL`);
     stmt.run(playerId, gameId);
   } catch (err) {
-    console.error("[DB] updateGameCreatorPlayerId failed:", (err as Error).message);
+    debugError(1, "[DB] updateGameCreatorPlayerId failed:", (err as Error).message);
   }
 }
+
+

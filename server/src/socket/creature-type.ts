@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { extractCreatureTypes, CREATURE_TYPES } from "../../../shared/src/creatureTypes";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Creature type selection handlers
@@ -114,7 +115,7 @@ function getDominantCreatureType(game: any, playerId: string): string {
     }
   }
   
-  console.log(`[creatureType] AI dominant creature type analysis for ${playerId}:`, {
+  debug(2, `[creatureType] AI dominant creature type analysis for ${playerId}:`, {
     topTypes: Object.entries(creatureTypeCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
@@ -149,7 +150,7 @@ function handleAICreatureTypeSelection(
   // Determine the best creature type for the AI based on their deck
   const chosenType = getDominantCreatureType(game, playerId);
   
-  console.log(`[creatureType] AI ${playerId} automatically choosing ${chosenType} for ${cardName}`);
+  debug(2, `[creatureType] AI ${playerId} automatically choosing ${chosenType} for ${cardName}`);
   
   // Apply the selection to the permanent
   const battlefield = game.state?.battlefield || [];
@@ -177,7 +178,7 @@ function handleAICreatureTypeSelection(
       isAI: true,
     });
   } catch (e) {
-    console.warn("appendEvent(creatureTypeSelected) failed for AI:", e);
+    debugWarn(1, "appendEvent(creatureTypeSelected) failed for AI:", e);
   }
   
   // Bump sequence
@@ -223,7 +224,7 @@ export function requestCreatureTypeSelection(
   // Check if there's already a pending selection for this permanent
   for (const [existingConfirmId, pending] of pendingSelections.entries()) {
     if (pending.permanentId === permanentId && pending.gameId === gameId) {
-      console.log(`[creatureType] Selection already pending for ${cardName} (${existingConfirmId}), skipping duplicate request`);
+      debug(2, `[creatureType] Selection already pending for ${cardName} (${existingConfirmId}), skipping duplicate request`);
       return existingConfirmId;
     }
   }
@@ -233,7 +234,7 @@ export function requestCreatureTypeSelection(
   // Check if this is an AI player - handle automatically
   const game = ensureGame(gameId);
   if (game && isAIPlayer(game, playerId)) {
-    console.log(`[creatureType] Player ${playerId} is AI, handling selection automatically`);
+    debug(2, `[creatureType] Player ${playerId} is AI, handling selection automatically`);
     // Use setTimeout to avoid blocking and allow state to settle after permanent enters battlefield
     setTimeout(() => {
       handleAICreatureTypeSelection(io, game, gameId, playerId, permanentId, cardName, confirmId);
@@ -258,7 +259,7 @@ export function requestCreatureTypeSelection(
     const p = pendingSelections.get(confirmId);
     if (p) {
       pendingSelections.delete(confirmId);
-      console.warn(`[creatureType] Selection timed out for ${cardName} (${confirmId})`);
+      debugWarn(2, `[creatureType] Selection timed out for ${cardName} (${confirmId})`);
       // Emit cancellation
       io.to(gameId).emit("creatureTypeSelectionCancelled", {
         confirmId,
@@ -284,7 +285,7 @@ export function requestCreatureTypeSelection(
     }
   }
   
-  console.log(`[creatureType] Requested selection for ${cardName} (${confirmId}) from player ${playerId}`);
+  debug(2, `[creatureType] Requested selection for ${cardName} (${confirmId}) from player ${playerId}`);
   return confirmId;
 }
 
@@ -467,7 +468,7 @@ export function registerCreatureTypeHandlers(io: Server, socket: Socket) {
           game.state.morophonChosenType = morophonChosenType;
         }
         
-        console.log(`[creatureType] Player ${playerId} chose ${creatureType} for ${pending.cardName}`);
+        debug(2, `[creatureType] Player ${playerId} chose ${creatureType} for ${pending.cardName}`);
       }
       
       // Persist the event
@@ -479,7 +480,7 @@ export function registerCreatureTypeHandlers(io: Server, socket: Socket) {
           cardName: pending.cardName,
         });
       } catch (e) {
-        console.warn("appendEvent(creatureTypeSelected) failed:", e);
+        debugWarn(1, "appendEvent(creatureTypeSelected) failed:", e);
       }
       
       // Bump sequence
@@ -511,7 +512,7 @@ export function registerCreatureTypeHandlers(io: Server, socket: Socket) {
       // Broadcast updated game state
       broadcastGame(io, game, gameId);
     } catch (err) {
-      console.error("[creatureType] creatureTypeSelected handler failed:", err);
+      debugError(1, "[creatureType] creatureTypeSelected handler failed:", err);
       socket.emit("error", {
         code: "CREATURE_TYPE_ERROR",
         message: String(err),
@@ -574,7 +575,7 @@ export function registerCreatureTypeHandlers(io: Server, socket: Socket) {
       
       requestCreatureTypeSelection(io, gameId, playerId, permanentId, cardName, finalReason);
     } catch (err) {
-      console.error("[creatureType] requestCreatureTypeSelection handler failed:", err);
+      debugError(1, "[creatureType] requestCreatureTypeSelection handler failed:", err);
       socket.emit("error", {
         code: "CREATURE_TYPE_ERROR",
         message: String(err),
@@ -594,3 +595,4 @@ export function hasPendingCreatureTypeSelections(gameId: string): boolean {
   }
   return false;
 }
+

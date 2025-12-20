@@ -8,6 +8,7 @@ import type { PlayerID, KnownCardRef } from "../../../../shared/src/types.js";
 import type { GameContext } from "../context.js";
 import { uid } from "../utils.js";
 import { checkEmptyLibraryDraw, hasDrawWinReplacement, hasCantLoseEffect } from "./game-state-effects.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /* ===== core zone operations ===== */
 
@@ -29,7 +30,7 @@ export function importDeckResolved(
   const { libraries, state, bumpSeq } = ctx as any;
   const zones = state.zones = state.zones || {};
   
-  console.log(`[importDeckResolved] Importing ${cards.length} cards for player ${playerId}`);
+  debug(2, `[importDeckResolved] Importing ${cards.length} cards for player ${playerId}`);
   
   // Clear all existing zones for this player to ensure clean deck import
   // This prevents issues with loading a new deck over an existing one
@@ -74,13 +75,13 @@ export function importDeckResolved(
     zone: "library",
   }));
   
-  console.log(`[importDeckResolved] Mapped ${mappedCards.length} cards. First card: ${mappedCards[0]?.name} (${mappedCards[0]?.id})`);
+  debug(2, `[importDeckResolved] Mapped ${mappedCards.length} cards. First card: ${mappedCards[0]?.name} (${mappedCards[0]?.id})`);
   
   libraries.set(playerId, mappedCards);
   const libLen = libraries.get(playerId)?.length ?? 0;
   zones[playerId]!.libraryCount = libLen;
   
-  console.log(`[importDeckResolved] Library set for player ${playerId}. Final library size: ${libLen}`);
+  debug(2, `[importDeckResolved] Library set for player ${playerId}. Final library size: ${libLen}`);
   
   bumpSeq();
 }
@@ -153,7 +154,7 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
     } else {
       // Attempted to draw from empty library (Rule 704.5b)
       attemptedEmptyDraw = true;
-      console.log(`[drawCards] Player ${playerId} attempted to draw from empty library`);
+      debug(2, `[drawCards] Player ${playerId} attempted to draw from empty library`);
       break; // Stop trying to draw more cards
     }
   }
@@ -176,14 +177,14 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
     const result = checkEmptyLibraryDraw(ctx, playerId);
     
     if (result.wins) {
-      console.log(`[drawCards] Player ${playerId} WINS: ${result.reason}`);
+      debug(2, `[drawCards] Player ${playerId} WINS: ${result.reason}`);
       
       // Mark the game as won
       (ctx.state as any).gameOver = true;
       (ctx.state as any).winner = playerId;
       (ctx.state as any).winReason = result.reason;
     } else if (result.loses) {
-      console.log(`[drawCards] Player ${playerId} LOSES: ${result.reason}`);
+      debug(2, `[drawCards] Player ${playerId} LOSES: ${result.reason}`);
       
       // Track that this player attempted to draw from empty library
       // State-based actions will check this
@@ -191,7 +192,7 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
       (ctx.state as any).attemptedEmptyLibraryDraw[playerId] = true;
     } else {
       // Can't lose the game (Platinum Angel, etc.)
-      console.log(`[drawCards] Player ${playerId} attempted empty library draw but can't lose: ${result.reason}`);
+      debug(2, `[drawCards] Player ${playerId} attempted empty library draw but can't lose: ${result.reason}`);
     }
   }
   
@@ -222,7 +223,7 @@ function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsD
       for (const player of players) {
         if (player.id !== drawingPlayerId && (ctx as any).life) {
           (ctx as any).life[player.id] = ((ctx as any).life[player.id] ?? 40) - cardsDrawn;
-          console.log(`[drawTrigger] Psychosis Crawler: ${player.name || player.id} lost ${cardsDrawn} life`);
+          debug(1, `[drawTrigger] Psychosis Crawler: ${player.name || player.id} lost ${cardsDrawn} life`);
         }
       }
     }
@@ -231,7 +232,7 @@ function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsD
     if (permName.includes('niv-mizzet') && 
         oracleText.includes('whenever you draw') && 
         perm.controller === drawingPlayerId) {
-      console.log(`[drawTrigger] Niv-Mizzet: ${cardsDrawn} damage trigger(s)`);
+      debug(2, `[drawTrigger] Niv-Mizzet: ${cardsDrawn} damage trigger(s)`);
     }
   }
 }
@@ -708,7 +709,7 @@ export function movePermanentToLibrary(
         toughness: cardAny.toughness,
       },
     });
-    console.log(`[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - DEFERRING zone change for player choice`);
+    debug(2, `[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - DEFERRING zone change for player choice`);
     bumpSeq();
     return true;
   }
@@ -737,7 +738,7 @@ export function movePermanentToLibrary(
   const z = zones[owner] || (zones[owner] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   z.libraryCount = lib.length;
   
-  console.log(`[movePermanentToLibrary] ${(card as any)?.name || permanentId} put ${position} of ${owner}'s library`);
+  debug(2, `[movePermanentToLibrary] ${(card as any)?.name || permanentId} put ${position} of ${owner}'s library`);
   bumpSeq();
   return true;
 }
@@ -787,7 +788,7 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
         toughness: card.toughness,
       },
     });
-    console.log(`[movePermanentToHand] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
+    debug(2, `[movePermanentToHand] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
     bumpSeq();
     return true;
   }
@@ -799,7 +800,7 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   z.hand.push({ ...card, zone: 'hand' });
   z.handCount = z.hand.length;
   
-  console.log(`[movePermanentToHand] ${card?.name || permanentId} returned to ${owner}'s hand`);
+  debug(2, `[movePermanentToHand] ${card?.name || permanentId} returned to ${owner}'s hand`);
   bumpSeq();
   return true;
 }
@@ -846,7 +847,7 @@ export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID)
       ctx.libraries.set(pid, lib);
       // Do not bump seq automatically for silent repairs to avoid noisy diffs; callers may bump if they need visible change.
     } catch (err) {
-      console.warn("reconcileZonesConsistency failed for player", pid, err);
+      debugWarn(1, "reconcileZonesConsistency failed for player", pid, err);
     }
   }
 }

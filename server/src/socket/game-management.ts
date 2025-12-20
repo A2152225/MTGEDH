@@ -8,6 +8,7 @@ import type {
 import { deleteGame as deleteGameFromDb, isGameCreator } from "../db/index.js";
 import GameManager from "../GameManager.js";
 import { games, priorityTimers } from "./socket.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 type TypedServer = Server<
   ClientToServerEvents,
@@ -63,7 +64,7 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       }
       const noActivePlayers = activePlayerCount === 0;
       
-      console.info("[socket] deleteGame requested", {
+      debug(1, "[socket] deleteGame requested", {
         gameId,
         bySocket: socket.id,
         socketPlayerId: socket.data?.playerId,
@@ -86,12 +87,12 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       // Remove from GameManager (authoritative in-memory games map)
       try {
         const removed = GameManager.deleteGame(gameId);
-        console.info("[socket] GameManager.deleteGame", {
+        debug(1, "[socket] GameManager.deleteGame", {
           gameId,
           removed,
         });
       } catch (e) {
-        console.warn("[socket] GameManager.deleteGame failed", {
+        debugWarn(1, "[socket] GameManager.deleteGame failed", {
           gameId,
           error: (e as Error).message,
         });
@@ -101,10 +102,10 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       try {
         const hadLegacy = games.delete(gameId as any);
         if (hadLegacy) {
-          console.info("[socket] legacy games Map delete", { gameId });
+          debug(1, "[socket] legacy games Map delete", { gameId });
         }
       } catch (e) {
-        console.warn("[socket] legacy games Map delete failed", {
+        debugWarn(1, "[socket] legacy games Map delete failed", {
           gameId,
           error: (e as Error).message,
         });
@@ -115,11 +116,11 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       // The in-memory game was already removed above, so we should still consider this a success
       try {
         const dbOk = deleteGameFromDb(gameId);
-        console.info("[socket] deleteGameFromDb", { gameId, dbOk });
+        debug(1, "[socket] deleteGameFromDb", { gameId, dbOk });
         // dbOk is false if no DB row existed - this is fine, game may have been in-memory only
       } catch (e) {
         // Log but don't fail the entire delete operation - in-memory game is already removed
-        console.error("[socket] deleteGameFromDb threw (continuing)", {
+        debugError(1, "[socket] deleteGameFromDb threw (continuing)", {
           gameId,
           error: (e as Error).message,
         });
@@ -133,7 +134,7 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
           priorityTimers.delete(gameId as any);
         }
       } catch (e) {
-        console.warn("[socket] deleteGame: clearing priority timer failed", {
+        debugWarn(1, "[socket] deleteGame: clearing priority timer failed", {
           gameId,
           error: (e as Error).message,
         });
@@ -143,7 +144,7 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       socket.emit("gameDeletedAck", { gameId });
       socket.broadcast.emit("gameDeleted", { gameId });
     } catch (err) {
-      console.error("[socket] deleteGame handler failed", err);
+      debugError(1, "[socket] deleteGame handler failed", err);
       try {
         socket.emit("error", {
           code: "DELETE_GAME_FAILED",
@@ -155,3 +156,5 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
     }
   });
 }
+
+

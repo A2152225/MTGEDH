@@ -1,5 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import type { ServerToClientEvents, ClientToServerEvents } from '../../shared/src';
+import { debug, debugWarn, debugError } from "./utils/debug";
+
 
 // Point to your server explicitly when client and server run on different ports.
 // In dev, set VITE_SOCKET_URL=http://localhost:4000
@@ -21,20 +23,20 @@ export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(URL
 // Optional diagnostics (remove once stable)
 socket.on('connect', () => {
   // eslint-disable-next-line no-console
-  console.log('[client] connected:', socket.id);
+  debug(1, '[client] connected:', socket.id);
 });
 socket.on('disconnect', (reason) => {
   // eslint-disable-next-line no-console
-  console.log('[client] disconnected:', reason);
+  debug(1, '[client] disconnected:', reason);
 });
 socket.on('connect_error', (err) => {
   // eslint-disable-next-line no-console
-  console.error('[client] connect_error', err);
+  debugError(1, '[client] connect_error', err);
 });
 // Manager-level error (rare, optional)
 socket.io.on('error', (err: unknown) => {
   // eslint-disable-next-line no-console
-  console.error('[client] manager error', err);
+  debugError(1, '[client] manager error', err);
 });
 
 export default socket;

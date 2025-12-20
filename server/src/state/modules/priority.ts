@@ -1,6 +1,7 @@
 import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { canAct, canRespond } from "./can-respond";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
  * Normalize phase and step strings for comparison.
@@ -194,11 +195,11 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   // Auto-pass should not interfere with these setup steps.
   const currentPhase = String(stateAny.phase || '').toLowerCase();
   if (currentPhase === 'pre_game') {
-    console.log(`[priority] autoPassLoop - in pre_game phase, skipping auto-pass`);
+    debug(2, `[priority] autoPassLoop - in pre_game phase, skipping auto-pass`);
     return { allPassed: false, resolved: false };
   }
   
-  console.log(`[priority] autoPassLoop starting - active players: ${active.map(p => p.id).join(', ')}, autoPassEnabled: ${Array.from(autoPassPlayers).join(', ')}, currentPriority: ${state.priority}, turnPlayer: ${turnPlayer}`);
+  debug(1, `[priority] autoPassLoop starting - active players: ${active.map(p => p.id).join(', ')}, autoPassEnabled: ${Array.from(autoPassPlayers).join(', ')}, currentPriority: ${state.priority}, turnPlayer: ${turnPlayer}`);
   
   
   let iterations = 0;
@@ -241,14 +242,14 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       stateAny.priorityClaimed = new Set<string>();
     }
     if (stateAny.priorityClaimed.has(currentPlayer)) {
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player claimed priority (wants to take action)`);
+      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: player claimed priority (wants to take action)`);
       return { allPassed: false, resolved: false };
     }
     
     // Check if auto-pass is enabled for current player
     if (!autoPassPlayers.has(currentPlayer)) {
       // Auto-pass not enabled, stop here
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: auto-pass not enabled`);
+      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: auto-pass not enabled`);
       return { allPassed: false, resolved: false };
     }
     
@@ -258,7 +259,7 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     // If player has "Auto-Pass Rest of Turn" enabled, skip all ability checks
     // and auto-pass them through everything
     if (autoPassForTurn) {
-      console.log(`[priority] Auto-passing for ${currentPlayer} - auto-pass for rest of turn enabled`);
+      debug(2, `[priority] Auto-passing for ${currentPlayer} - auto-pass for rest of turn enabled`);
       stateAny.priorityPassedBy.add(currentPlayer);
       state.priority = advancePriorityClockwise(ctx, currentPlayer);
       continue;
@@ -278,7 +279,7 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       ? canAct(ctx, currentPlayer)      // Active player: check all actions (instant + sorcery speed)
       : canRespond(ctx, currentPlayer);  // Non-active: only check instant-speed responses
     
-    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
+    debug(2, `[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
     
     // Check if the current player used phase navigator and we're AT the target phase/step
     // If so, give them priority at this specific step (they explicitly navigated here)
@@ -293,13 +294,13 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       );
       
       if (isAtTarget) {
-        console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: reached phase navigator target at ${currentStep}`);
+        debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: reached phase navigator target at ${currentStep}`);
         // Clear the flag since we've reached the target and given them priority
         delete stateAny.justSkippedToPhase;
         return { allPassed: false, resolved: false };
       } else {
         // Not at target yet - allow auto-pass to continue moving toward target
-        console.log(`[priority] autoPassLoop - continuing auto-pass for ${currentPlayer}: moving toward phase navigator target (currently at ${currentStep})`);
+        debug(2, `[priority] autoPassLoop - continuing auto-pass for ${currentPlayer}: moving toward phase navigator target (currently at ${currentStep})`);
       }
     }
     
@@ -311,19 +312,19 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     // 2. Turn player with no legal moves is auto-passed (e.g., no lands, all spells too expensive)
     if (isActivePlayer && playerCanAct) {
       // Active player can take actions - stop here
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act`);
+      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act`);
       return { allPassed: false, resolved: false };
     }
     
     // For non-active players, check if they can respond
     if (!isActivePlayer && playerCanAct) {
       // Non-active player can respond - stop here
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player can act`);
+      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: player can act`);
       return { allPassed: false, resolved: false };
     }
     
     // Player cannot act (or has auto-pass for turn enabled) - auto-pass
-    console.log(`[priority] Auto-passing for ${currentPlayer} - no available actions`);
+    debug(2, `[priority] Auto-passing for ${currentPlayer} - no available actions`);
     stateAny.priorityPassedBy.add(currentPlayer);
     
     // Advance to next player
@@ -331,7 +332,7 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   }
   
   // Safety fallback - should never reach here
-  console.warn('[priority] Auto-pass loop exceeded maximum iterations');
+  debugWarn(2, '[priority] Auto-pass loop exceeded maximum iterations');
   return { allPassed: false, resolved: false };
 }
 

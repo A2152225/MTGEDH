@@ -26,6 +26,7 @@ import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
 import { checkSpellTimingRestriction, hasValidTargetsForSpell } from "../../../rules-engine/src/castingRestrictions.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 // ============================================================================
 // Constants
@@ -129,7 +130,7 @@ function ensureStateZonesForPlayers(game: any) {
       }
     }
   } catch (e) {
-    console.warn("ensureStateZonesForPlayers failed:", e);
+    debugWarn(1, "ensureStateZonesForPlayers failed:", e);
   }
 }
 
@@ -164,7 +165,7 @@ export function millUntilLand(
     zones.graveyardCount = zones.graveyard?.length ?? zones.graveyardCount;
   } catch (err) {
     if (process.env.DEBUG_STATE) {
-      console.warn("[millUntilLand] Error milling:", err);
+      debugWarn(1, "[millUntilLand] Error milling:", err);
     }
   }
   return result;
@@ -221,13 +222,13 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
   try {
     const state = game.state;
     if (!state) {
-      console.log(`[getPlayableCardIds] No state for player ${playerId}`);
+      debug(2, `[getPlayableCardIds] No state for player ${playerId}`);
       return playableIds;
     }
     
     const zones = state.zones?.[playerId];
     if (!zones) {
-      console.log(`[getPlayableCardIds] No zones for player ${playerId}`);
+      debug(2, `[getPlayableCardIds] No zones for player ${playerId}`);
       return playableIds;
     }
     
@@ -244,14 +245,14 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     const turnPlayer = state.turnPlayer;
     const isMyTurn = turnPlayer === playerId;
     
-    console.log(`[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
-    console.log(`[getPlayableCardIds] manaPool=`, pool);
-    console.log(`[getPlayableCardIds] availableMana=`, availableMana);
-    console.log(`[getPlayableCardIds] Total available mana:`, getTotalManaFromPool(availableMana));
+    debug(2, `[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
+    debug(2, `[getPlayableCardIds] manaPool=`, pool);
+    debug(2, `[getPlayableCardIds] availableMana=`, availableMana);
+    debug(2, `[getPlayableCardIds] Total available mana:`, getTotalManaFromPool(availableMana));
     
     // Check hand for castable spells
     if (Array.isArray(zones.hand)) {
-      console.log(`[getPlayableCardIds] Checking ${zones.hand.length} cards in hand`);
+      debug(2, `[getPlayableCardIds] Checking ${zones.hand.length} cards in hand`);
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
         
@@ -270,7 +271,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             // Check if the front face has a mana cost
             const frontFace = cardFaces[0];
             if (frontFace?.mana_cost) {
-              console.log(`[getPlayableCardIds] Skipping back face of DFC: ${card.name}`);
+              debug(2, `[getPlayableCardIds] Skipping back face of DFC: ${card.name}`);
               continue; // This is the back face, skip it
             }
           }
@@ -293,7 +294,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         );
         
         if (!timingRestriction.canCast) {
-          console.log(`[getPlayableCardIds] Card ${card.name} blocked by timing restriction: ${timingRestriction.reason}`);
+          debug(2, `[getPlayableCardIds] Card ${card.name} blocked by timing restriction: ${timingRestriction.reason}`);
           continue;
         }
         
@@ -306,7 +307,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         );
         
         if (!targetCheck.hasTargets) {
-          console.log(`[getPlayableCardIds] Card ${card.name} blocked - no valid targets: ${targetCheck.reason}`);
+          debug(2, `[getPlayableCardIds] Card ${card.name} blocked - no valid targets: ${targetCheck.reason}`);
           continue;
         }
         
@@ -338,13 +339,13 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           
           if (canPayManaCost(availableMana, actualCost) || hasPayableAlternateCost(game as any, playerId, card)) {
             if (reduction.messages && reduction.messages.length > 0) {
-              console.log(`[getPlayableCardIds] Card ${card.name} (${card.id}) is playable with cost reduction: ${reduction.messages.join(', ')}`);
+              debug(1, `[getPlayableCardIds] Card ${card.name} (${card.id}) is playable with cost reduction: ${reduction.messages.join(', ')}`);
             } else {
-              console.log(`[getPlayableCardIds] Card ${card.name} (${card.id}) is playable`);
+              debug(2, `[getPlayableCardIds] Card ${card.name} (${card.id}) is playable`);
             }
             playableIds.push(card.id);
           } else {
-            console.log(`[getPlayableCardIds] Card ${card.name} not playable - cannot pay cost ${manaCost} (after reduction: ${JSON.stringify(actualCost)})`);
+            debug(2, `[getPlayableCardIds] Card ${card.name} not playable - cannot pay cost ${manaCost} (after reduction: ${JSON.stringify(actualCost)})`);
           }
         }
       }
@@ -357,7 +358,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       // This accounts for Exploration, Azusa, Rites of Flourishing, etc.
       const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
       
-      console.log(`[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
+      debug(2, `[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
       
       if (landsPlayedThisTurn < maxLandsPerTurn && Array.isArray(zones.hand)) {
         for (const card of zones.hand) {
@@ -365,15 +366,15 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           
           const typeLine = (card.type_line || "").toLowerCase();
           if (typeLine.includes("land")) {
-            console.log(`[getPlayableCardIds] Land ${card.name} (${card.id}) is playable`);
+            debug(2, `[getPlayableCardIds] Land ${card.name} (${card.id}) is playable`);
             playableIds.push(card.id);
           }
         }
       } else if (landsPlayedThisTurn >= maxLandsPerTurn) {
-        console.log(`[getPlayableCardIds] Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
+        debug(2, `[getPlayableCardIds] Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
       }
     } else {
-      console.log(`[getPlayableCardIds] Not checking lands: isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
+      debug(2, `[getPlayableCardIds] Not checking lands: isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
     }
     
     // Check for castable commanders from command zone
@@ -387,7 +388,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       const taxById = (commandZone as any).taxById || {};
       
       if (inCommandZone.length > 0 && commanderCards.length > 0) {
-        console.log(`[getPlayableCardIds] Checking ${inCommandZone.length} commanders in command zone`);
+        debug(2, `[getPlayableCardIds] Checking ${inCommandZone.length} commanders in command zone`);
         
         for (const commanderId of inCommandZone) {
           const commander = commanderCards.find((c: any) => c.id === commanderId || c.name === commanderId);
@@ -408,10 +409,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           
           // Check if player can pay the cost (normal or alternate like WUBRG/Omniscience)
           if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, commander))) {
-            console.log(`[getPlayableCardIds] Commander ${commander.name} (${commanderId}) is playable with cost ${totalCost}`);
+            debug(2, `[getPlayableCardIds] Commander ${commander.name} (${commanderId}) is playable with cost ${totalCost}`);
             playableIds.push(commanderId);
           } else {
-            console.log(`[getPlayableCardIds] Commander ${commander.name} not playable - canCastNow=${canCastNow}, canPay=${canPayManaCost(availableMana, parsedCost)}`);
+            debug(2, `[getPlayableCardIds] Commander ${commander.name} not playable - canCastNow=${canCastNow}, canPay=${canPayManaCost(availableMana, parsedCost)}`);
           }
         }
       }
@@ -669,10 +670,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     }
     
   } catch (err) {
-    console.warn("[getPlayableCardIds] Error:", err);
+    debugWarn(1, "[getPlayableCardIds] Error:", err);
   }
   
-  console.log(`[getPlayableCardIds] Returning ${playableIds.length} playable card(s):`, playableIds);
+  debug(2, `[getPlayableCardIds] Returning ${playableIds.length} playable card(s):`, playableIds);
   return playableIds;
 }
 
@@ -775,7 +776,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
       }
     } catch (e) {
       // non-fatal - don't break the whole view if static ability calculation fails
-      console.warn("Failed to apply static abilities to battlefield:", e);
+      debugWarn(1, "Failed to apply static abilities to battlefield:", e);
     }
 
     // Augment battlefield permanents with mana production amounts for special abilities
@@ -806,7 +807,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
       }
     } catch (e) {
       // non-fatal - don't break the whole view if mana calculation fails
-      console.warn("Failed to augment mana amounts:", e);
+      debugWarn(1, "Failed to augment mana amounts:", e);
     }
     
     // Add playable cards highlighting for the current priority player
@@ -816,18 +817,18 @@ function normalizeViewForEmit(rawView: any, game: any) {
         const priority = game.state.priority;
         const viewerId = view.viewer;
         
-        console.log(`[normalizeViewForEmit] Checking playable cards: priority=${priority}, viewerId=${viewerId}, match=${priority === viewerId}`);
+        debug(2, `[normalizeViewForEmit] Checking playable cards: priority=${priority}, viewerId=${viewerId}, match=${priority === viewerId}`);
         
         // Only add playable cards for the current priority holder viewing their own game
         if (priority === viewerId) {
           const playableCardIds = getPlayableCardIds(game, viewerId);
-          console.log(`[normalizeViewForEmit] getPlayableCardIds returned ${playableCardIds?.length || 0} cards`);
+          debug(2, `[normalizeViewForEmit] getPlayableCardIds returned ${playableCardIds?.length || 0} cards`);
           
           if (playableCardIds && playableCardIds.length > 0) {
             view.playableCards = playableCardIds;
-            console.log(`[normalizeViewForEmit] Set view.playableCards with ${playableCardIds.length} cards`);
+            debug(2, `[normalizeViewForEmit] Set view.playableCards with ${playableCardIds.length} cards`);
           } else {
-            console.log(`[normalizeViewForEmit] Not setting view.playableCards - no playable cards found`);
+            debug(2, `[normalizeViewForEmit] Not setting view.playableCards - no playable cards found`);
           }
           
           // Add canAct and canRespond flags to the view
@@ -835,22 +836,22 @@ function normalizeViewForEmit(rawView: any, game: any) {
           try {
             view.canAct = canAct(game as any, viewerId);
             view.canRespond = canRespond(game as any, viewerId);
-            console.log(`[normalizeViewForEmit] Set canAct=${view.canAct}, canRespond=${view.canRespond}`);
+            debug(2, `[normalizeViewForEmit] Set canAct=${view.canAct}, canRespond=${view.canRespond}`);
           } catch (err) {
-            console.warn("Failed to calculate canAct/canRespond:", err);
+            debugWarn(1, "Failed to calculate canAct/canRespond:", err);
             // Fallback: use playableCards as indicator
             view.canAct = playableCardIds && playableCardIds.length > 0;
             view.canRespond = view.canAct; // Conservative fallback
           }
         } else {
-          console.log(`[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority`);
+          debug(2, `[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority`);
         }
       } else {
-        console.log(`[normalizeViewForEmit] Skipping playable cards - missing game/state/viewer`);
+        debug(2, `[normalizeViewForEmit] Skipping playable cards - missing game/state/viewer`);
       }
     } catch (e) {
       // non-fatal - don't break the whole view if playable calculation fails
-      console.warn("Failed to calculate playable cards:", e);
+      debugWarn(1, "Failed to calculate playable cards:", e);
     }
     
     // Add cost adjustment info for cards in hand
@@ -886,12 +887,12 @@ function normalizeViewForEmit(rawView: any, game: any) {
       }
     } catch (e) {
       // non-fatal - don't break the whole view if cost adjustment calculation fails
-      console.warn("Failed to calculate cost adjustments:", e);
+      debugWarn(1, "Failed to calculate cost adjustments:", e);
     }
 
     return view;
   } catch (e) {
-    console.warn("normalizeViewForEmit failed:", e);
+    debugWarn(1, "normalizeViewForEmit failed:", e);
     return rawView || {};
   }
 }
@@ -915,7 +916,7 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
     const lastLib =
       lib.length > 1 ? lib[lib.length - 1] : lib.length === 1 ? lib[0] : null;
 
-    console.log(
+    debug(1,
       `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(
         ","
       )}] zones=[${zoneKeys.join(
@@ -924,7 +925,7 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
     );
 
     // Compact library sample instead of full JSON dump
-    console.log(`[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
+    debug(2, `[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
       firstLibraryCard: firstLib
         ? {
             id: firstLib.id,
@@ -981,7 +982,7 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
   // Defensive validation: reject invalid/falsy gameId early to prevent creating games with no id.
   if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
     const msg = `ensureGame called with invalid gameId: ${String(gameId)}`;
-    console.error("[ensureGame] " + msg);
+    debugError(1, "[ensureGame] " + msg);
     throw new Error(msg);
   }
 
@@ -1009,14 +1010,14 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
         // Don't fall through to local recreation
         return undefined;
       } catch (err) {
-        console.warn(
+        debugWarn(2,
           "ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:",
           err
         );
       }
     }
   } catch (err) {
-    console.warn("ensureGame: GameManager not usable, falling back:", err);
+    debugWarn(2, "ensureGame: GameManager not usable, falling back:", err);
   }
 
   // Original fallback behavior - but first check if the game exists in the database
@@ -1026,7 +1027,7 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
     // IMPORTANT: Check if the game exists in the database before recreating it.
     // This prevents re-creating games that were previously deleted.
     if (!gameExistsInDb(gameId)) {
-      console.info(
+      debug(1, 
         `[ensureGame] game ${gameId} does not exist in database, not recreating (may have been deleted)`
       );
       return undefined;
@@ -1051,7 +1052,7 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
         }
       }
     } catch (err) {
-      console.warn(
+      debugWarn(1, 
         "ensureGame: replay persisted events failed, continuing with fresh state:",
         err
       );
@@ -1089,12 +1090,12 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
               let strategy = (player as any).strategy || AIStrategy.BASIC;
               const difficulty = (player as any).difficulty ?? 0.5;
               aiModule.registerAIPlayer(gameId, player.id as any, player.name || 'AI Opponent', strategy as any, difficulty);
-              console.info('[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name, strategy, difficulty });
+              debug(1, '[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name, strategy, difficulty });
             }
           }
         }
       }).catch(err => {
-        console.warn('[ensureGame] Error re-registering AI players:', err);
+        debugWarn(1, '[ensureGame] Error re-registering AI players:', err);
       });
     }
 
@@ -1143,14 +1144,14 @@ export function emitStateToSocket(
         seq: (game as any).seq || 0,
       });
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         "emitStateToSocket: failed to emit state to socket",
         socketId,
         e
       );
     }
   } catch (e) {
-    console.warn("emitStateToSocket: failed to build or emit view", e);
+    debugWarn(1, "emitStateToSocket: failed to build or emit view", e);
   }
 }
 
@@ -1189,7 +1190,7 @@ export function broadcastGame(
       participants = [];
     }
   } catch (err) {
-    console.warn("broadcastGame: failed to obtain participants:", err);
+    debugWarn(1, "broadcastGame: failed to obtain participants:", err);
     participants = [];
   }
 
@@ -1221,7 +1222,7 @@ export function broadcastGame(
           anySent = true;
         }
       } catch (err) {
-        console.warn(
+        debugWarn(1, 
           "broadcastGame: failed to send state to",
           p.socketId,
           err
@@ -1257,7 +1258,7 @@ export function broadcastGame(
         seq: (game as any).seq,
       });
     } catch (err) {
-      console.warn(
+      debugWarn(1, 
         "broadcastGame: fallback emit to room failed for gameId",
         gameId,
         err
@@ -1341,7 +1342,7 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
         // Determine if this player is the controller or an opponent
         const isController = playerId === controllerId;
         
-        console.log(`[util] Emitting Kynaios choice prompt to ${playerId} (isController: ${isController}, landsInHand: ${landsInHand.length})`);
+        debug(2, `[util] Emitting Kynaios choice prompt to ${playerId} (isController: ${isController}, landsInHand: ${landsInHand.length})`);
         promptedPlayers.add(promptKey);
         
         // Emit the choice prompt to this player
@@ -1380,7 +1381,7 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
         for (const opp of opponents) {
           if (!playersWhoPlayedLand.includes(opp.id)) {
             gameState.pendingDraws[opp.id] = (gameState.pendingDraws[opp.id] || 0) + 1;
-            console.log(`[util] Kynaios: Opponent ${opp.id} didn't play a land, will draw a card`);
+            debug(2, `[util] Kynaios: Opponent ${opp.id} didn't play a land, will draw a card`);
           }
         }
         
@@ -1388,14 +1389,14 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
         delete pendingKynaiosChoice[controllerId];
         delete gameState._kynaiosChoicePromptedPlayers;
         
-        console.log(`[util] Kynaios choice complete for controller ${controllerId}`);
+        debug(2, `[util] Kynaios choice complete for controller ${controllerId}`);
         
         // Broadcast updated state to process the draws
         broadcastGame(io, game, gameId);
       }
     }
   } catch (e) {
-    console.warn('[util] checkAndEmitKynaiosChoicePrompts error:', e);
+    debugWarn(1, '[util] checkAndEmitKynaiosChoicePrompts error:', e);
   }
 }
 
@@ -1411,7 +1412,7 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
     // CRITICAL FIX: If triggerQueue is empty but pendingTriggerOrdering still has entries,
     // clear the stale pending state to prevent game from being stuck
     if (triggerQueue.length === 0 && Object.keys(pendingTriggerOrdering).length > 0) {
-      console.log(`[util] Clearing stale pendingTriggerOrdering - no triggers in queue`);
+      debug(2, `[util] Clearing stale pendingTriggerOrdering - no triggers in queue`);
       delete (game.state as any).pendingTriggerOrdering;
       delete (game.state as any)._triggerOrderingPromptedPlayers;
       return;
@@ -1439,7 +1440,7 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
     for (const playerId of Object.keys(pendingTriggerOrdering)) {
       const playerTriggersInQueue = triggersByController.get(playerId) || [];
       if (playerTriggersInQueue.length === 0) {
-        console.log(`[util] Clearing pendingTriggerOrdering for ${playerId} - no triggers in queue`);
+        debug(2, `[util] Clearing pendingTriggerOrdering for ${playerId} - no triggers in queue`);
         delete pendingTriggerOrdering[playerId];
       }
     }
@@ -1454,11 +1455,11 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
         
         // Skip if we've already prompted for this exact set of triggers
         if (promptedPlayers.has(promptKey)) {
-          console.log(`[util] Skipping trigger ordering prompt for ${playerId} - already prompted`);
+          debug(2, `[util] Skipping trigger ordering prompt for ${playerId} - already prompted`);
           continue;
         }
         
-        console.log(`[util] Emitting trigger ordering prompt to ${playerId} for ${playerTriggers.length} triggers`);
+        debug(2, `[util] Emitting trigger ordering prompt to ${playerId} for ${playerTriggers.length} triggers`);
         promptedPlayers.add(promptKey);
         
         // Emit all the order-type triggers to the player
@@ -1478,13 +1479,13 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
       } else if (playerTriggers.length === 1) {
         // Single trigger doesn't need ordering - clear any pending state
         if (pendingTriggerOrdering[playerId]) {
-          console.log(`[util] Clearing pendingTriggerOrdering for ${playerId} - only 1 trigger (no ordering needed)`);
+          debug(2, `[util] Clearing pendingTriggerOrdering for ${playerId} - only 1 trigger (no ordering needed)`);
           delete pendingTriggerOrdering[playerId];
         }
       }
     }
   } catch (e) {
-    console.warn('[util] checkAndEmitTriggerOrderingPrompts error:', e);
+    debugWarn(1, '[util] checkAndEmitTriggerOrderingPrompts error:', e);
   }
 }
 
@@ -1506,7 +1507,7 @@ function checkAndEmitProliferatePrompts(io: Server, game: InMemoryGame, gameId: 
       
       // Skip if already prompted
       if (promptedProliferates.has(proliferateEffect.id)) {
-        console.log(`[util] Skipping proliferate prompt ${proliferateEffect.id} - already prompted`);
+        debug(2, `[util] Skipping proliferate prompt ${proliferateEffect.id} - already prompted`);
         continue;
       }
       
@@ -1578,7 +1579,7 @@ function checkAndEmitProliferatePrompts(io: Server, game: InMemoryGame, gameId: 
         }
       }
       
-      console.log(`[util] Emitting proliferate prompt to ${controller} with ${validTargets.length} valid targets`);
+      debug(2, `[util] Emitting proliferate prompt to ${controller} with ${validTargets.length} valid targets`);
       promptedProliferates.add(proliferateEffect.id);
       
       // Emit proliferate prompt to the controller
@@ -1591,7 +1592,7 @@ function checkAndEmitProliferatePrompts(io: Server, game: InMemoryGame, gameId: 
       });
     }
   } catch (e) {
-    console.warn('[util] checkAndEmitProliferatePrompts error:', e);
+    debugWarn(1, '[util] checkAndEmitProliferatePrompts error:', e);
   }
 }
 
@@ -1636,7 +1637,7 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
           reason,
         });
         
-        console.log(`[checkAndEmitPlayerElimination] Player ${playerName} eliminated: ${reason}`);
+        debug(1, `[checkAndEmitPlayerElimination] Player ${playerName} eliminated: ${reason}`);
         
         // Check if game is over (only 1 or 0 active players remaining)
         const activePlayers = players.filter((p: any) => 
@@ -1662,7 +1663,7 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
           gameState.gameOver = true;
           gameState.winner = winner.id;
           
-          console.log(`[checkAndEmitPlayerElimination] Game over! ${winnerName} wins.`);
+          debug(1, `[checkAndEmitPlayerElimination] Game over! ${winnerName} wins.`);
         } else if (activePlayers.length === 0) {
           // No players left - draw
           io.to(gameId).emit("gameOver", {
@@ -1673,12 +1674,12 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
           
           gameState.gameOver = true;
           
-          console.log(`[checkAndEmitPlayerElimination] Game over! Draw.`);
+          debug(1, `[checkAndEmitPlayerElimination] Game over! Draw.`);
         }
       }
     }
   } catch (err) {
-    console.warn(`[checkAndEmitPlayerElimination] Error:`, err);
+    debugWarn(1, `[checkAndEmitPlayerElimination] Error:`, err);
   }
 }
 
@@ -1709,7 +1710,7 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
                 await aiModule.handleAIGameFlow(io, gameId, turnPlayer);
               }
             } catch (e) {
-              console.error('[util] Failed to trigger AI handler for cleanup:', { gameId, playerId: turnPlayer, error: e });
+              debugError(1, '[util] Failed to trigger AI handler for cleanup:', { gameId, playerId: turnPlayer, error: e });
             }
           }, AI_REACTION_DELAY_MS);
           return; // Exit early - we've handled the cleanup case
@@ -1746,7 +1747,7 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
                   await aiModule.handleAIGameFlow(io, gameId, playerId);
                 }
               } catch (e) {
-                console.error('[util] Failed to trigger AI handler for Kynaios choice:', { gameId, playerId, error: e });
+                debugError(1, '[util] Failed to trigger AI handler for Kynaios choice:', { gameId, playerId, error: e });
               }
             }, AI_REACTION_DELAY_MS);
             return; // Exit - handle one AI at a time
@@ -1771,12 +1772,12 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
             await aiModule.handleAIPriority(io, gameId, priority);
           }
         } catch (e) {
-          console.error('[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
+          debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
         }
       }, AI_REACTION_DELAY_MS);
     }
   } catch (e) {
-    console.error('[util] checkAndTriggerAI error:', { gameId, error: e });
+    debugError(1, '[util] checkAndTriggerAI error:', { gameId, error: e });
   }
 }
 
@@ -1797,12 +1798,12 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // DEBUG: Track auto-pass calls to diagnose skip issues
     // ========================================================================
     const debugCallId = `autopass_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    console.log(`${ts()} [checkAndTriggerAutoPass] ========== CALLED (ID: ${debugCallId}) ==========`);
-    console.log(`${ts()} [checkAndTriggerAutoPass] Priority: ${priority}, Phase: ${stateAny?.phase}, Step: ${stateAny?.step}`);
+    debug(2, `${ts()} [checkAndTriggerAutoPass] ========== CALLED (ID: ${debugCallId}) ==========`);
+    debug(2, `${ts()} [checkAndTriggerAutoPass] Priority: ${priority}, Phase: ${stateAny?.phase}, Step: ${stateAny?.step}`);
     // ========================================================================
     
     if (!priority) {
-      console.log(`${ts()} [checkAndTriggerAutoPass] No priority holder, returning (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] No priority holder, returning (ID: ${debugCallId})`);
       return;
     }
     
@@ -1810,7 +1811,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
     // Auto-pass should not interfere with these setup steps.
     if (stateAny?.phase === 'pre_game' || stateAny?.phase === 'PRE_GAME') {
-      console.log(`${ts()} [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: ${debugCallId})`);
       return;
     }
     
@@ -1820,7 +1821,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       stateAny._autoPassInProgress = new Set<string>();
     }
     if (stateAny._autoPassInProgress.has(priority)) {
-      console.log(`[checkAndTriggerAutoPass] Already processing auto-pass for ${priority}, skipping re-entry (ID: ${debugCallId})`);
+      debug(2, `[checkAndTriggerAutoPass] Already processing auto-pass for ${priority}, skipping re-entry (ID: ${debugCallId})`);
       return;
     }
     
@@ -1830,7 +1831,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     
     if (!autoPassPlayers.has(priority) && !autoPassForTurn) {
       // Auto-pass not enabled for this player
-      console.log(`${ts()} [checkAndTriggerAutoPass] Auto-pass not enabled for ${priority}, returning (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass not enabled for ${priority}, returning (ID: ${debugCallId})`);
       return;
     }
     
@@ -1839,7 +1840,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const priorityPlayer = players.find((p: any) => p?.id === priority);
     if (priorityPlayer && priorityPlayer.isAI) {
       // AI players are handled by checkAndTriggerAI, skip
-      console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} is AI, handled separately (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} is AI, handled separately (ID: ${debugCallId})`);
       return;
     }
     
@@ -1849,7 +1850,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     }
     if (stateAny.priorityClaimed.has(priority)) {
       // Player has claimed priority, don't auto-pass
-      console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} claimed priority, returning (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} claimed priority, returning (ID: ${debugCallId})`);
       return;
     }
     
@@ -1900,22 +1901,22 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
           ? canAct(ctx, priority)      // Active player: check all actions
           : canRespond(ctx, priority);  // Non-active: only check instant-speed responses
         
-        console.log(`${ts()} [checkAndTriggerAutoPass] canAct check: ${priority} isActive=${isActivePlayer} canAct=${playerCanAct} (ID: ${debugCallId})`);
+        debug(2, `${ts()} [checkAndTriggerAutoPass] canAct check: ${priority} isActive=${isActivePlayer} canAct=${playerCanAct} (ID: ${debugCallId})`);
       } catch (err) {
-        console.warn(`[checkAndTriggerAutoPass] Error checking if player ${priority} can act (ID: ${debugCallId}):`, err);
+        debugWarn(1, `[checkAndTriggerAutoPass] Error checking if player ${priority} can act (ID: ${debugCallId}):`, err);
         // On error, don't auto-pass to be safe
         return;
       }
       
       // If player can act, don't auto-pass
       if (playerCanAct) {
-        console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} CAN ACT - returning early, NO auto-pass (ID: ${debugCallId})`);
+        debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} CAN ACT - returning early, NO auto-pass (ID: ${debugCallId})`);
         return;
       }
       
-      console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} CANNOT ACT - proceeding with auto-pass (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} CANNOT ACT - proceeding with auto-pass (ID: ${debugCallId})`);
     } else {
-      console.log(`[checkAndTriggerAutoPass] Auto-pass for rest of turn is enabled for ${priority} - bypassing canAct check`);
+      debug(2, `[checkAndTriggerAutoPass] Auto-pass for rest of turn is enabled for ${priority} - bypassing canAct check`);
     }
     
     // For human players, add a small delay before auto-passing
@@ -1924,8 +1925,8 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const isHumanPlayer = priorityPlayer && !priorityPlayer.isAI;
     
     const executeAutoPass = () => {
-      console.log(`${ts()} [executeAutoPass] ========== EXECUTING for ${priority} (ID: ${debugCallId}) ==========`);
-      console.log(`${ts()} [executeAutoPass] Phase: ${(game.state as any)?.phase}, Step: ${(game.state as any)?.step}`);
+      debug(2, `${ts()} [executeAutoPass] ========== EXECUTING for ${priority} (ID: ${debugCallId}) ==========`);
+      debug(2, `${ts()} [executeAutoPass] Phase: ${(game.state as any)?.phase}, Step: ${(game.state as any)?.step}`);
       
       // Re-check conditions after delay (state might have changed)
       const currentState = game.state as any;
@@ -1933,13 +1934,13 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       
       // Only proceed if priority hasn't changed
       if (currentPriority !== priority) {
-        console.log(`${ts()} [executeAutoPass] Priority changed from ${priority} to ${currentPriority}, aborting (ID: ${debugCallId})`);
+        debug(2, `${ts()} [executeAutoPass] Priority changed from ${priority} to ${currentPriority}, aborting (ID: ${debugCallId})`);
         return;
       }
       
       // Check if player claimed priority during the delay
       if (currentState.priorityClaimed?.has(priority)) {
-        console.log(`${ts()} [executeAutoPass] ${priority} claimed priority during delay, aborting (ID: ${debugCallId})`);
+        debug(2, `${ts()} [executeAutoPass] ${priority} claimed priority during delay, aborting (ID: ${debugCallId})`);
         return;
       }
       
@@ -1988,31 +1989,31 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             ? canAct(recheckCtx, priority)
             : canRespond(recheckCtx, priority);
           
-          console.log(`${ts()} [executeAutoPass] Re-check: ${priority} canAct=${playerCanActNow} (ID: ${debugCallId})`);
+          debug(2, `${ts()} [executeAutoPass] Re-check: ${priority} canAct=${playerCanActNow} (ID: ${debugCallId})`);
           
           if (playerCanActNow) {
-            console.log(`${ts()} [executeAutoPass] Player ${priority} CAN NOW ACT - canceling auto-pass (ID: ${debugCallId})`);
+            debug(2, `${ts()} [executeAutoPass] Player ${priority} CAN NOW ACT - canceling auto-pass (ID: ${debugCallId})`);
             return;
           }
         } catch (err) {
-          console.warn(`${ts()} [executeAutoPass] Error re-checking if player ${priority} can act (ID: ${debugCallId}):`, err);
+          debugWarn(1, `${ts()} [executeAutoPass] Error re-checking if player ${priority} can act (ID: ${debugCallId}):`, err);
           // On error, don't auto-pass to be safe
           return;
         }
       }
       
       // Player cannot act and has auto-pass enabled - auto-pass their priority
-      console.log(`${ts()} [executeAutoPass] Proceeding with auto-pass for ${priority} (ID: ${debugCallId})`);
+      debug(2, `${ts()} [executeAutoPass] Proceeding with auto-pass for ${priority} (ID: ${debugCallId})`);
       
       // Mark that we're processing auto-pass for this player
       stateAny._autoPassInProgress.add(priority);
-      console.log(`${ts()} [executeAutoPass] Set _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
+      debug(2, `${ts()} [executeAutoPass] Set _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
       
       // Call passPriority with isAutoPass flag
       if (typeof (game as any).passPriority === 'function') {
         try {
           const result = (game as any).passPriority(priority, true); // true = isAutoPass
-          console.log(`${ts()} [executeAutoPass] passPriority result: changed=${result.changed}, advanceStep=${result.advanceStep}, resolvedNow=${result.resolvedNow} (ID: ${debugCallId})`);
+          debug(2, `${ts()} [executeAutoPass] passPriority result: changed=${result.changed}, advanceStep=${result.advanceStep}, resolvedNow=${result.resolvedNow} (ID: ${debugCallId})`);
           
           if (result.changed) {
             // Priority was passed successfully
@@ -2020,7 +2021,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             
             // Handle stack resolution or step advancement if needed
             if (result.resolvedNow) {
-              console.log(`[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
+              debug(2, `[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
               if (typeof (game as any).resolveTopOfStack === 'function') {
                 (game as any).resolveTopOfStack();
               }
@@ -2028,7 +2029,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             }
             
             if (result.advanceStep) {
-              console.log(`${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
+              debug(2, `${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
               if (typeof (game as any).nextStep === 'function') {
                 (game as any).nextStep();
               }
@@ -2038,26 +2039,26 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             // Clear the in-progress flag before broadcasting
             // This allows the next player to be checked
             stateAny._autoPassInProgress.delete(priority);
-            console.log(`${ts()} [executeAutoPass] Cleared _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
+            debug(2, `${ts()} [executeAutoPass] Cleared _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
             
             // Broadcast updated state after auto-pass
             // Note: This will recursively call checkAndTriggerAutoPass for the next player
-            console.log(`${ts()} [executeAutoPass] Broadcasting state after auto-pass (ID: ${debugCallId})`);
+            debug(2, `${ts()} [executeAutoPass] Broadcasting state after auto-pass (ID: ${debugCallId})`);
             broadcastGame(io, game, gameId);
-            console.log(`${ts()} [executeAutoPass] Broadcast complete (ID: ${debugCallId})`);
+            debug(2, `${ts()} [executeAutoPass] Broadcast complete (ID: ${debugCallId})`);
           } else {
             // Priority pass didn't change state - clear flag
-            console.log(`${ts()} [executeAutoPass] Priority pass didn't change state (ID: ${debugCallId})`);
+            debug(2, `${ts()} [executeAutoPass] Priority pass didn't change state (ID: ${debugCallId})`);
             stateAny._autoPassInProgress.delete(priority);
           }
         } catch (err) {
-          console.error(`${ts()} [executeAutoPass] Error passing priority for ${priority} (ID: ${debugCallId}):`, err);
+          debugError(1, `${ts()} [executeAutoPass] Error passing priority for ${priority} (ID: ${debugCallId}):`, err);
           // Clear flag on error
           stateAny._autoPassInProgress.delete(priority);
         }
       } else {
         // passPriority function not available - clear flag
-        console.log(`${ts()} [executeAutoPass] passPriority function not available (ID: ${debugCallId})`);
+        debug(2, `${ts()} [executeAutoPass] passPriority function not available (ID: ${debugCallId})`);
         stateAny._autoPassInProgress.delete(priority);
       }
     };
@@ -2065,15 +2066,15 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // For human players without autoPassForTurn, add a small delay
     // This allows them to evaluate and claim priority if needed
     if (isHumanPlayer && !autoPassForTurn) {
-      console.log(`${ts()} [checkAndTriggerAutoPass] Scheduling auto-pass for ${priority} with ${AUTO_PASS_DELAY_MS}ms delay (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Scheduling auto-pass for ${priority} with ${AUTO_PASS_DELAY_MS}ms delay (ID: ${debugCallId})`);
       setTimeout(executeAutoPass, AUTO_PASS_DELAY_MS);
     } else {
       // AI players or autoPassForTurn: execute immediately
-      console.log(`${ts()} [checkAndTriggerAutoPass] Executing auto-pass for ${priority} IMMEDIATELY (isHuman=${isHumanPlayer}, autoPassForTurn=${autoPassForTurn}) (ID: ${debugCallId})`);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Executing auto-pass for ${priority} IMMEDIATELY (isHuman=${isHumanPlayer}, autoPassForTurn=${autoPassForTurn}) (ID: ${debugCallId})`);
       executeAutoPass();
     }
   } catch (e) {
-    console.error('[util] checkAndTriggerAutoPass error:', { gameId, error: e });
+    debugError(1, '[util] checkAndTriggerAutoPass error:', { gameId, error: e });
   }
 }
 
@@ -2098,13 +2099,13 @@ export function appendGameEvent(
       }
     }
   } catch (err) {
-    console.warn("appendGameEvent: in-memory apply failed:", err);
+    debugWarn(1, "appendGameEvent: in-memory apply failed:", err);
   }
 
   try {
     appendEvent(gameId, (game as any).seq, type, payload);
   } catch (err) {
-    console.warn("appendGameEvent: DB appendEvent failed:", err);
+    debugWarn(1, "appendGameEvent: DB appendEvent failed:", err);
   }
 }
 
@@ -2138,14 +2139,14 @@ export function schedulePriorityTimeout(
     // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
     const currentPhase = String((game.state as any)?.phase || '').toLowerCase();
     if (currentPhase === 'pre_game') {
-      console.log(`[schedulePriorityTimeout] In pre_game phase, not scheduling timeout for game ${gameId}`);
+      debug(2, `[schedulePriorityTimeout] In pre_game phase, not scheduling timeout for game ${gameId}`);
       return;
     }
     
     // If priority is null (no player has priority), auto-advance to next step
     // This happens in steps like DRAW where there are no triggers - only turn-based actions
     if (!game.state.priority) {
-      console.log(`[schedulePriorityTimeout] Priority is null, auto-advancing step for game ${gameId}`);
+      debug(2, `[schedulePriorityTimeout] Priority is null, auto-advancing step for game ${gameId}`);
       // Schedule immediate step advancement
       priorityTimers.set(
         gameId,
@@ -2155,7 +2156,7 @@ export function schedulePriorityTimeout(
             (game as any).nextStep();
             appendGameEvent(game, gameId, "nextStep", { reason: 'noPriority' });
             broadcastGame(io, game, gameId);
-            console.log(`[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`);
+            debug(2, `[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`);
           }
         }, 0)
       );
@@ -2213,7 +2214,7 @@ function doAutoPass(
     const priorityPlayer = players.find((p: any) => p?.id === playerId);
     
     if (!priorityPlayer) {
-      console.warn(`[doAutoPass] Priority player ${playerId} not found in game ${gameId}`);
+      debugWarn(2, `[doAutoPass] Priority player ${playerId} not found in game ${gameId}`);
       return;
     }
     
@@ -2233,11 +2234,11 @@ function doAutoPass(
         : canRespond(game as any, playerId);
       
       if (hasActions) {
-        console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - they have valid actions available`);
+        debug(2, `[doAutoPass] Skipping auto-pass for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - they have valid actions available`);
         return; // Player has options, don't auto-pass
       }
       
-      console.log(`[doAutoPass] Auto-passing for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - no valid actions available`);
+      debug(2, `[doAutoPass] Auto-passing for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - no valid actions available`);
       // Fall through to auto-pass since player has no valid responses
     }
     
@@ -2246,7 +2247,7 @@ function doAutoPass(
     // This is a turn-based action that doesn't use the stack
     
     if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
-      console.log(`[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - must allow blocker declaration`);
+      debug(2, `[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - must allow blocker declaration`);
       return;
     }
 
@@ -2257,7 +2258,7 @@ function doAutoPass(
     } else if (typeof (game as any).nextPass === "function") {
       res = (game as any).nextPass(playerId);
     } else {
-      console.warn(
+      debugWarn(1, 
         "doAutoPass: game.passPriority not implemented for this game wrapper"
       );
       return;
@@ -2273,7 +2274,7 @@ function doAutoPass(
       // Directly call resolveTopOfStack to ensure the spell resolves
       if (typeof (game as any).resolveTopOfStack === "function") {
         (game as any).resolveTopOfStack();
-        console.log(`[doAutoPass] Stack resolved for game ${gameId}`);
+        debug(2, `[doAutoPass] Stack resolved for game ${gameId}`);
       }
       appendGameEvent(game, gameId, "resolveTopOfStack");
       try {
@@ -2285,7 +2286,7 @@ function doAutoPass(
           ts: Date.now(),
         });
       } catch (err) {
-        console.warn("doAutoPass: failed to emit chat", err);
+        debugWarn(1, "doAutoPass: failed to emit chat", err);
       }
       
       // Check for pending library search (from tutor spells)
@@ -2297,7 +2298,7 @@ function doAutoPass(
 
     broadcastGame(io, game, gameId);
   } catch (err) {
-    console.warn("doAutoPass: unexpected error", err);
+    debugWarn(1, "doAutoPass: unexpected error", err);
   }
 }
 
@@ -2519,7 +2520,7 @@ export function handlePendingLibrarySearch(io: Server, game: any, gameId: string
       if (socket) {
         socket.emit("librarySearchRequest", baseRequest);
         
-        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
+        debug(2, `[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
       } else {
         // No specific socket - broadcast to the room and let the client filter
         io.to(gameId).emit("librarySearchRequest", {
@@ -2527,7 +2528,7 @@ export function handlePendingLibrarySearch(io: Server, game: any, gameId: string
           playerId,
         });
         
-        console.log(`[handlePendingLibrarySearch] Broadcast librarySearchRequest for ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
+        debug(2, `[handlePendingLibrarySearch] Broadcast librarySearchRequest for ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
       }
     }
     
@@ -2537,7 +2538,7 @@ export function handlePendingLibrarySearch(io: Server, game: any, gameId: string
     // This allows multiple players to have pending searches simultaneously (e.g., Join Forces effects).
     
   } catch (err) {
-    console.warn('[handlePendingLibrarySearch] Error:', err);
+    debugWarn(1, '[handlePendingLibrarySearch] Error:', err);
   }
 }
 
@@ -2573,11 +2574,11 @@ function handlePendingEntrapmentManeuver(io: Server, game: any, gameId: string):
       
       if (socket) {
         socket.emit("entrapmentManeuverSacrificeRequest", sacrificeRequest);
-        console.log(`[handlePendingEntrapmentManeuver] Sent sacrifice request to ${playerId}`);
+        debug(2, `[handlePendingEntrapmentManeuver] Sent sacrifice request to ${playerId}`);
       } else {
         // Broadcast to the room and let client filter
         io.to(gameId).emit("entrapmentManeuverSacrificeRequest", sacrificeRequest);
-        console.log(`[handlePendingEntrapmentManeuver] Broadcast sacrifice request for ${playerId}`);
+        debug(2, `[handlePendingEntrapmentManeuver] Broadcast sacrifice request for ${playerId}`);
       }
       
       // Emit chat message
@@ -2593,7 +2594,7 @@ function handlePendingEntrapmentManeuver(io: Server, game: any, gameId: string):
     // Don't clear pending yet - it will be cleared when player makes their choice
     
   } catch (err) {
-    console.warn('[handlePendingEntrapmentManeuver] Error:', err);
+    debugWarn(1, '[handlePendingEntrapmentManeuver] Error:', err);
   }
 }
 
@@ -2683,7 +2684,7 @@ function parseSearchFilter(criteria: string): { types?: string[]; subtypes?: str
 export function handlePendingJoinForces(io: Server, game: any, gameId: string): void {
   try {
     const pendingArray = game.state?.pendingJoinForces;
-    console.log(`[handlePendingJoinForces] Checking for pending Join Forces effects (count: ${pendingArray?.length || 0})`);
+    debug(1, `[handlePendingJoinForces] Checking for pending Join Forces effects (count: ${pendingArray?.length || 0})`);
     if (!pendingArray || !Array.isArray(pendingArray) || pendingArray.length === 0) return;
     
     // Get all non-spectator players
@@ -2691,7 +2692,7 @@ export function handlePendingJoinForces(io: Server, game: any, gameId: string): 
       .filter((p: any) => p && !p.spectator)
       .map((p: any) => p.id);
     
-    console.log(`[handlePendingJoinForces] Players available for Join Forces: ${players.join(', ')}`);
+    debug(1, `[handlePendingJoinForces] Players available for Join Forces: ${players.join(', ')}`);
     
     if (players.length === 0) {
       // No players to participate
@@ -2704,7 +2705,7 @@ export function handlePendingJoinForces(io: Server, game: any, gameId: string): 
       
       const { id, controller, cardName, effectDescription, imageUrl } = jf;
       
-      console.log(`[handlePendingJoinForces] Registering Join Forces effect for ${cardName} (id: ${id})`);
+      debug(1, `[handlePendingJoinForces] Registering Join Forces effect for ${cardName} (id: ${id})`);
       
       // Use the proper registration function that handles AI responses
       registerPendingJoinForces(
@@ -2723,7 +2724,7 @@ export function handlePendingJoinForces(io: Server, game: any, gameId: string): 
     game.state.pendingJoinForces = [];
     
   } catch (err) {
-    console.warn('[handlePendingJoinForces] Error:', err);
+    debugWarn(1, '[handlePendingJoinForces] Error:', err);
   }
 }
 
@@ -2735,7 +2736,7 @@ export function handlePendingJoinForces(io: Server, game: any, gameId: string): 
 export function handlePendingTemptingOffer(io: Server, game: any, gameId: string): void {
   try {
     const pendingArray = game.state?.pendingTemptingOffer;
-    console.log(`[handlePendingTemptingOffer] Checking for pending Tempting Offer effects (count: ${pendingArray?.length || 0})`);
+    debug(2, `[handlePendingTemptingOffer] Checking for pending Tempting Offer effects (count: ${pendingArray?.length || 0})`);
     if (!pendingArray || !Array.isArray(pendingArray) || pendingArray.length === 0) return;
     
     // Get all opponents (non-spectator players)
@@ -2743,7 +2744,7 @@ export function handlePendingTemptingOffer(io: Server, game: any, gameId: string
       .filter((p: any) => p && !p.spectator)
       .map((p: any) => p.id);
     
-    console.log(`[handlePendingTemptingOffer] Players available: ${players.join(', ')}`);
+    debug(1, `[handlePendingTemptingOffer] Players available: ${players.join(', ')}`);
     
     for (const offer of pendingArray) {
       if (!offer) continue;
@@ -2753,7 +2754,7 @@ export function handlePendingTemptingOffer(io: Server, game: any, gameId: string
       // Get opponents (everyone except the caster)
       const opponents = players.filter((pid: string) => pid !== controller);
       
-      console.log(`[handlePendingTemptingOffer] Registering Tempting Offer effect for ${cardName} (id: ${id}), opponents: ${opponents.join(', ')}`);
+      debug(1, `[handlePendingTemptingOffer] Registering Tempting Offer effect for ${cardName} (id: ${id}), opponents: ${opponents.join(', ')}`);
       
       // Use the proper registration function that handles AI responses
       registerPendingTemptingOffer(
@@ -2772,7 +2773,7 @@ export function handlePendingTemptingOffer(io: Server, game: any, gameId: string
     game.state.pendingTemptingOffer = [];
     
   } catch (err) {
-    console.warn('[handlePendingTemptingOffer] Error:', err);
+    debugWarn(1, '[handlePendingTemptingOffer] Error:', err);
   }
 }
 
@@ -2791,7 +2792,7 @@ export function handlePendingPonder(io: Server, game: any, gameId: string): void
       
       const { effectId, cardCount, cardName, variant, canShuffle, drawAfter, pickToHand, targetPlayerId, imageUrl } = ponder;
       
-      console.log(`[handlePendingPonder] Processing Ponder effect for ${playerId}: ${cardName} (${cardCount} cards)`);
+      debug(2, `[handlePendingPonder] Processing Ponder effect for ${playerId}: ${cardName} (${cardCount} cards)`);
       
       // Get the top N cards from the target player's library
       const targetPid = targetPlayerId || playerId;
@@ -2838,14 +2839,14 @@ export function handlePendingPonder(io: Server, game: any, gameId: string): void
             timeoutMs: 120000, // 2 minutes
           });
           
-          console.log(`[handlePendingPonder] Sent ponderRequest to ${playerId} for ${cardName}`);
+          debug(2, `[handlePendingPonder] Sent ponderRequest to ${playerId} for ${cardName}`);
           break;
         }
       }
     }
     
   } catch (err) {
-    console.warn('[handlePendingPonder] Error:', err);
+    debugWarn(1, '[handlePendingPonder] Error:', err);
   }
 }
 
@@ -3005,7 +3006,7 @@ export function handlePendingCascade(io: Server, game: any, gameId: string): voi
       }
     }
   } catch (err) {
-    console.warn('[handlePendingCascade] Error:', err);
+    debugWarn(1, '[handlePendingCascade] Error:', err);
   }
 }
 
@@ -3109,7 +3110,7 @@ export function consumeManaFromPool(
       pool[colorKey] -= needed;
       consumed[colorKey] = (consumed[colorKey] || 0) + needed;
       if (logPrefix) {
-        console.log(`${logPrefix} Consumed ${needed} ${color} mana from pool`);
+        debug(2, `${logPrefix} Consumed ${needed} ${color} mana from pool`);
       }
     }
   }
@@ -3124,7 +3125,7 @@ export function consumeManaFromPool(
     consumed.colorless = (consumed.colorless || 0) + useColorless;
     genericLeft -= useColorless;
     if (logPrefix) {
-      console.log(`${logPrefix} Consumed ${useColorless} colorless mana for generic cost`);
+      debug(2, `${logPrefix} Consumed ${useColorless} colorless mana for generic cost`);
     }
   }
   
@@ -3138,7 +3139,7 @@ export function consumeManaFromPool(
       consumed[colorKey] = (consumed[colorKey] || 0) + useColor;
       genericLeft -= useColor;
       if (logPrefix) {
-        console.log(`${logPrefix} Consumed ${useColor} ${color} mana for generic cost`);
+        debug(2, `${logPrefix} Consumed ${useColor} ${color} mana for generic cost`);
       }
     }
   }
@@ -3147,7 +3148,7 @@ export function consumeManaFromPool(
   if (logPrefix) {
     const remainingMana = Object.entries(pool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
     if (remainingMana) {
-      console.log(`${logPrefix} Unspent mana remaining in pool: ${remainingMana}`);
+      debug(2, `${logPrefix} Unspent mana remaining in pool: ${remainingMana}`);
     }
   }
   
@@ -4020,7 +4021,7 @@ export function calculateManaProduction(
       const { power } = getActualPowerToughness(perm, gameState);
       if (power > greatestPower) greatestPower = power;
     }
-    console.log(`[calculateManaProduction] ${cardName}: Greatest power among creatures is ${greatestPower}`);
+    debug(2, `[calculateManaProduction] ${cardName}: Greatest power among creatures is ${greatestPower}`);
     result.isDynamic = true;
     result.baseAmount = greatestPower;
     result.dynamicDescription = `{G} equal to greatest power (${greatestPower})`;
@@ -4470,7 +4471,7 @@ export function emitToPlayer(
       }
     }
   } catch (err) {
-    console.warn(`[util] emitToPlayer failed for ${event}:`, err);
+    debugWarn(1, `[util] emitToPlayer failed for ${event}:`, err);
   }
 }
 
@@ -4789,6 +4790,9 @@ export function broadcastManaPoolUpdate(
       broadcastGame(io, game, gameId);
     }
   } catch (err) {
-    console.warn(`[util] broadcastManaPoolUpdate failed:`, err);
+    debugWarn(1, `[util] broadcastManaPoolUpdate failed:`, err);
   }
 }
+
+
+

@@ -24,6 +24,7 @@ import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../..
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
 import { creatureHasHaste } from "./game-actions.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 // ============================================================================
 // Constants
@@ -956,7 +957,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       z.handCount = (z.hand as any[]).length;
       
-      console.log(`[confirmPonder] ${pid} put ${toHand.length} card(s) to hand`);
+      debug(2, `[confirmPonder] ${pid} put ${toHand.length} card(s) to hand`);
     }
     
     if (shouldShuffle) {
@@ -974,7 +975,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (game as any).shuffleLibrary(targetPid);
       } else {
         // Fallback: manual shuffle (non-deterministic) and set library
-        console.warn("[confirmPonder] game.shuffleLibrary not available, using Math.random");
+        debugWarn(2, "[confirmPonder] game.shuffleLibrary not available, using Math.random");
         for (let i = lib.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [lib[i], lib[j]] = [lib[j], lib[i]];
@@ -983,7 +984,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           (game as any).libraries.set(targetPid, lib);
         }
       }
-      console.log(`[confirmPonder] ${targetPid} shuffled their library`);
+      debug(2, `[confirmPonder] ${targetPid} shuffled their library`);
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -1000,7 +1001,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           lib.unshift({ ...card, zone: 'library' });
         }
       }
-      console.log(`[confirmPonder] ${targetPid} reordered top ${newOrder.length} cards`);
+      debug(2, `[confirmPonder] ${targetPid} reordered top ${newOrder.length} cards`);
     }
     
     // Update library count
@@ -1020,7 +1021,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerZones.libraryCount = lib.length;
         drawnCardName = drawnCard.name;
         
-        console.log(`[confirmPonder] ${pid} drew ${drawnCardName}`);
+        debug(2, `[confirmPonder] ${pid} drew ${drawnCardName}`);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -1882,7 +1883,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // If no specific handler, log it and notify
-      console.log(`[activateGraveyardAbility] Unhandled ability ${abilityId} for ${cardName}`);
+      debug(2, `[activateGraveyardAbility] Unhandled ability ${abilityId} for ${cardName}`);
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -1984,7 +1985,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       battlefield[battlefieldIndex].tapped = true;
     }
     
-    console.log(`[tapPermanent] Tapped ${cardName} (${permanentId}). Tapped state: ${!!permanent.tapped}`);
+    debug(2, `[tapPermanent] Tapped ${cardName} (${permanentId}). Tapped state: ${!!permanent.tapped}`);
     
     // Check if this permanent has mana abilities (intrinsic or granted by effects like Cryptolith Rite)
     // If so, add the produced mana to the player's mana pool
@@ -1999,7 +2000,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Debug logging for devotion mana
     if (cardName.toLowerCase().includes('karametra') || cardName.toLowerCase().includes('acolyte')) {
-      console.log(`[tapPermanent] ${cardName} devotion check:`, {
+      debug(2, `[tapPermanent] ${cardName} devotion check:`, {
         devotionMana,
         creatureCountMana,
         hasDevotionMana: !!devotionMana,
@@ -2486,7 +2487,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           }
         }
       } catch (err) {
-        console.warn("[sacrificePermanent] Error processing death triggers:", err);
+        debugWarn(1, "[sacrificePermanent] Error processing death triggers:", err);
       }
     }
     
@@ -2869,7 +2870,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         })),
       });
       
-      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: cost=${equipCost}, type=${equipType || 'any'}, prompting for target selection (effectId: ${effectId})`);
+      debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: cost=${equipCost}, type=${equipType || 'any'}, prompting for target selection (effectId: ${effectId})`);
       return;
     }
     
@@ -2927,7 +2928,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `Choose a graveyard and a card to exile`,
       });
       
-      console.log(`[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, prompting for graveyard target selection`);
+      debug(2, `[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, prompting for graveyard target selection`);
       return;
     }
     
@@ -2954,7 +2955,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Convert word numbers to actual count using module-level constant
       const drawCount = drawCards ? (WORD_TO_NUMBER[drawCards.toLowerCase()] || 0) : 0;
       
-      console.log(`[activateBattlefieldAbility] Control change ability on ${cardName}: drawCards=${drawCards}, drawCount=${drawCount}`);
+      debug(2, `[activateBattlefieldAbility] Control change ability on ${cardName}: drawCards=${drawCards}, drawCount=${drawCount}`);
       
       // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:draw|opponent gains control)/i);
@@ -3048,7 +3049,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             // Retrieve pending activation
             const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
             if (!pending || pending.playerId !== pid) {
-              console.warn('[AI] Control change activation expired or invalid');
+              debugWarn(2, '[AI] Control change activation expired or invalid');
               return;
             }
             
@@ -3060,7 +3061,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const permanent = battlefield.find((p: any) => p && p.id === pending.permanentId);
             
             if (!permanent) {
-              console.warn('[AI] Permanent not found for control change');
+              debugWarn(2, '[AI] Permanent not found for control change');
               return;
             }
             
@@ -3132,7 +3133,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 drewCards: pending.drawCards || 0,
               });
             } catch (e) {
-              console.warn('[AI] Failed to persist AI control change event:', e);
+              debugWarn(1, '[AI] Failed to persist AI control change event:', e);
             }
             
             broadcastGame(io, game, gameId);
@@ -3140,7 +3141,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
       
-      console.log(`[activateBattlefieldAbility] Control change ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}${requiresTap ? 'tapped, ' : ''}prompting for opponent selection`);
+      debug(2, `[activateBattlefieldAbility] Control change ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}${requiresTap ? 'tapped, ' : ''}prompting for opponent selection`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3228,7 +3229,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: oracleText,
       });
       
-      console.log(`[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature (controller: ${fightController})`);
+      debug(2, `[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature (controller: ${fightController})`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3328,7 +3329,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: oracleText,
       });
       
-      console.log(`[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
+      debug(2, `[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3404,7 +3405,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: "Choose a permanent you control with counters to move a counter from",
       });
       
-      console.log(`[activateBattlefieldAbility] Move counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for source permanent`);
+      debug(2, `[activateBattlefieldAbility] Move counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for source permanent`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3486,7 +3487,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: oracleText,
       });
       
-      console.log(`[activateBattlefieldAbility] Tap/Untap ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for ${tapUntapParams.count} target(s)`);
+      debug(2, `[activateBattlefieldAbility] Tap/Untap ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for ${tapUntapParams.count} target(s)`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3547,7 +3548,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         })),
       });
       
-      console.log(`[activateBattlefieldAbility] Crew ability on ${cardName}: prompting for creature selection (need power ${crewPower})`);
+      debug(2, `[activateBattlefieldAbility] Crew ability on ${cardName}: prompting for creature selection (need power ${crewPower})`);
       return;
     }
     
@@ -3626,7 +3627,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: oracleText,
       });
       
-      console.log(`[activateBattlefieldAbility] Counter movement ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for counter selection`);
+      debug(2, `[activateBattlefieldAbility] Counter movement ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for counter selection`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3655,7 +3656,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         modes: multiModeAbility.modes,
       });
       
-      console.log(`[activateBattlefieldAbility] Multi-mode ability on ${cardName}: prompting for mode selection`);
+      debug(2, `[activateBattlefieldAbility] Multi-mode ability on ${cardName}: prompting for mode selection`);
       return;
     }
     
@@ -3750,7 +3751,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: `Tap another untapped creature you control. Put charge counters on ${cardName} equal to that creature's power.`,
       });
       
-      console.log(`[activateBattlefieldAbility] Station ability on ${cardName}: prompting for creature selection (${untappedCreatures.length} valid targets)`);
+      debug(2, `[activateBattlefieldAbility] Station ability on ${cardName}: prompting for creature selection (${untappedCreatures.length} valid targets)`);
       return;
     }
     
@@ -4158,7 +4159,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             };
             game.state.battlefield.push(spiritToken);
             
-            console.log(`[activateBattlefieldAbility] AI Forbidden Orchard: auto-selected ${targetOpponentId} to receive Spirit token`);
+            debug(2, `[activateBattlefieldAbility] AI Forbidden Orchard: auto-selected ${targetOpponentId} to receive Spirit token`);
             
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -4196,7 +4197,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               message: "Choose target opponent to create a 1/1 colorless Spirit creature token.",
             });
             
-            console.log(`[activateBattlefieldAbility] Forbidden Orchard: prompting ${pid} to choose target opponent`);
+            debug(2, `[activateBattlefieldAbility] Forbidden Orchard: prompting ${pid} to choose target opponent`);
             broadcastGame(io, game, gameId);
             return; // Exit early - wait for target selection
           }
@@ -4407,7 +4408,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Handle other activated abilities - put them on the stack
-    console.log(`[activateBattlefieldAbility] Processing ability ${abilityId} on ${cardName}`);
+    debug(2, `[activateBattlefieldAbility] Processing ability ${abilityId} on ${cardName}`);
     
     // Parse the ability from oracle text if possible
     // Ability ID format is: "{cardId}-{abilityType}-{index}" e.g., "card123-ability-0" or "card123-mana-r-0"
@@ -4454,7 +4455,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // For cards with a single activated ability or when the client sends an unrecognized abilityId,
       // use the full oracle text to detect if it's a mana ability
       // This fixes double-clicking lands and creatures with mana abilities
-      console.log(`[activateBattlefieldAbility] Ability parsing failed or index out of range (${abilityIndex}/${abilities.length}), using oracle text as fallback`);
+      debug(1, `[activateBattlefieldAbility] Ability parsing failed or index out of range (${abilityIndex}/${abilities.length}), using oracle text as fallback`);
       
       // If there's only one ability parsed, use it
       if (abilities.length === 1) {
@@ -4549,7 +4550,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         eligibleTargets: sacrificeTargets,
       });
       
-      console.log(`[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeType}. Waiting for selection from ${pid}`);
+      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeType}. Waiting for selection from ${pid}`);
       return;
     }
     
@@ -5194,7 +5195,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           movedCardNames.push((card as any).name || "Unknown");
         }
       } else {
-        console.error('[librarySearchSelect] game.selectFromLibrary not available');
+        debugError(1, '[librarySearchSelect] game.selectFromLibrary not available');
         socket.emit("error", {
           code: "INTERNAL_ERROR",
           message: "Library selection not available",
@@ -5359,7 +5360,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 // Clear the pending flag - it's now tracked in pendingControlChangeActivations
                 delete (enteredPermanent as any).pendingControlChange;
                 
-                console.log(`[playCard] ETB control change request emitted for ${(fullCard as any).name}`);
+                debug(2, `[playCard] ETB control change request emitted for ${(fullCard as any).name}`);
                 
                 // Auto-select opponent for AI players
                 if (isAIPlayer(gameId, pid)) {
@@ -5376,7 +5377,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                       if (!shouldGiveControl) {
                         // AI declines to give control
                         delete (game.state as any).pendingControlChangeActivations[activationId];
-                        console.log(`[AI] Declined to give control of ${(fullCard as any).name}`);
+                        debug(2, `[AI] Declined to give control of ${(fullCard as any).name}`);
                         broadcastGame(io, game, gameId);
                         return;
                       }
@@ -5419,7 +5420,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                           ts: Date.now(),
                         });
                         
-                        console.log(`[AI] Auto-gave control of ${(fullCard as any).name} to ${randomOpponent.name}`);
+                        debug(2, `[AI] Auto-gave control of ${(fullCard as any).name} to ${randomOpponent.name}`);
                         broadcastGame(io, game, gameId);
                       }
                     }
@@ -5489,7 +5490,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             // Push all collected triggers onto the stack
             if (allETBTriggers.length > 0) {
-              console.log(`[librarySearchSelect] Found ${allETBTriggers.length} ETB trigger(s) for entered permanents`);
+              debug(2, `[librarySearchSelect] Found ${allETBTriggers.length} ETB trigger(s) for entered permanents`);
               
               // Initialize stack if needed
               (game.state as any).stack = (game.state as any).stack || [];
@@ -5511,14 +5512,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                   isModal: trigger.isModal,
                   modalOptions: trigger.modalOptions,
                 });
-                console.log(`[librarySearchSelect] ⚡ Pushed ETB trigger: ${trigger.cardName || trigger.sourceName} - ${trigger.description || trigger.effect}`);
+                debug(2, `[librarySearchSelect] ⚡ Pushed ETB trigger: ${trigger.cardName || trigger.sourceName} - ${trigger.description || trigger.effect}`);
               }
             }
           } catch (err) {
-            console.warn('[librarySearchSelect] Failed to process ETB triggers:', err);
+            debugWarn(1, '[librarySearchSelect] Failed to process ETB triggers:', err);
           }
         } else {
-          console.error('[librarySearchSelect] game.selectFromLibrary not available');
+          debugError(1, '[librarySearchSelect] game.selectFromLibrary not available');
         }
       } else {
         // moveTo === 'top': For tutors that put card on top of library (e.g., Vampiric Tutor)
@@ -5548,10 +5549,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Step 3: Put the saved cards on top of the library
           game.putCardsOnTopOfLibrary(libraryOwner, cardsToTop);
           
-          console.info('[librarySearchSelect] Cards put on top of library after shuffle:', 
+          debug(1, '[librarySearchSelect] Cards put on top of library after shuffle:', 
             cardsToTop.map(c => c.name).join(', '));
         } else {
-          console.warn('[librarySearchSelect] Required functions not available for top destination');
+          debugWarn(2, '[librarySearchSelect] Required functions not available for top destination');
         }
       }
     }
@@ -5602,7 +5603,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         zones.graveyard = [...zones.graveyard, discardedCard] as any;
         zones.graveyardCount = zones.graveyard.length;
         
-        console.log(`[Gamble] ${pid} discarded ${discardedCardName} at random`);
+        debug(2, `[Gamble] ${pid} discarded ${discardedCardName} at random`);
         
         // Notify about the random discard
         io.to(gameId).emit("chat", {
@@ -5709,7 +5710,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
     } else {
-      console.error('[librarySearchSplitSelect] game.selectFromLibrary not available');
+      debugError(1, '[librarySearchSplitSelect] game.selectFromLibrary not available');
       socket.emit("error", {
         code: "INTERNAL_ERROR",
         message: "Library selection not available",
@@ -5869,7 +5870,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         } as any);
       }
       
-      console.log(`[entrapmentManeuverSelect] Created ${toughness} Soldier token(s) for ${caster}`);
+      debug(2, `[entrapmentManeuverSelect] Created ${toughness} Soldier token(s) for ${caster}`);
     }
     
     // Clear the pending Entrapment Maneuver
@@ -5951,28 +5952,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     selectedTargetIds?: string[];
     targets?: string[];  // Client sends 'targets' instead of 'selectedTargetIds'
   }) => {
-    console.log(`[targetSelectionConfirm] ======== CONFIRM START ========`);
-    console.log(`[targetSelectionConfirm] gameId: ${gameId}, effectId: ${effectId}`);
-    console.log(`[targetSelectionConfirm] selectedTargetIds: ${JSON.stringify(selectedTargetIds)}`);
-    console.log(`[targetSelectionConfirm] targets: ${JSON.stringify(targets)}`);
+    debug(2, `[targetSelectionConfirm] ======== CONFIRM START ========`);
+    debug(2, `[targetSelectionConfirm] gameId: ${gameId}, effectId: ${effectId}`);
+    debug(2, `[targetSelectionConfirm] selectedTargetIds: ${JSON.stringify(selectedTargetIds)}`);
+    debug(2, `[targetSelectionConfirm] targets: ${JSON.stringify(targets)}`);
     
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) {
-      console.log(`[targetSelectionConfirm] ERROR: No playerId or is spectator`);
+      debug(1, `[targetSelectionConfirm] ERROR: No playerId or is spectator`);
       return;
     }
 
     const game = ensureGame(gameId);
-    console.log(`[targetSelectionConfirm] playerId: ${pid}`);
+    debug(2, `[targetSelectionConfirm] playerId: ${pid}`);
     
     // CRITICAL FIX: Accept both 'selectedTargetIds' (old) and 'targets' (current client)
     // Ensure selectedTargetIds is a valid array (defensive check for malformed payloads)
     const targetIds = Array.isArray(selectedTargetIds) ? selectedTargetIds : 
                       Array.isArray(targets) ? targets : [];
-    console.log(`[targetSelectionConfirm] Validated targetIds: ${targetIds.join(',')}`);
+    debug(1, `[targetSelectionConfirm] Validated targetIds: ${targetIds.join(',')}`);
     
     if (targetIds.length === 0) {
-      console.warn(`[targetSelectionConfirm] WARNING: No targets provided by client!`);
+      debugWarn(1, `[targetSelectionConfirm] WARNING: No targets provided by client!`);
     }
     // Store targets for the pending effect/spell
     // This will be used when the spell/ability resolves
@@ -5981,7 +5982,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       playerId: pid,
       targetIds: targetIds,
     };
-    console.log(`[targetSelectionConfirm] Stored targets in pendingTargets[${effectId}]`);
+    debug(2, `[targetSelectionConfirm] Stored targets in pendingTargets[${effectId}]`);
     
     // =========================================================================
     // AUTO-UNIGNORE: Remove targeted permanents from ignore list
@@ -6006,7 +6007,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const cardName = controllerIgnored[targetId].cardName;
             delete controllerIgnored[targetId];
             
-            console.log(`[targetSelectionConfirm] Auto-unignored ${cardName} (${targetId}) - targeted by opponent's spell`);
+            debug(2, `[targetSelectionConfirm] Auto-unignored ${cardName} (${targetId}) - targeted by opponent's spell`);
             
             // Notify the controller that their card was auto-unignored
             emitToPlayer(io, targetController, "cardUnignoredAutomatically", {
@@ -6049,7 +6050,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const invalidTargets = targetIds.filter((t: string) => !validTargetSet.has(t));
         
         if (invalidTargets.length > 0) {
-          console.warn(`[targetSelectionConfirm] Invalid targets selected: ${invalidTargets.join(', ')} for ${pendingCast.cardName}`);
+          debugWarn(1, `[targetSelectionConfirm] Invalid targets selected: ${invalidTargets.join(', ')} for ${pendingCast.cardName}`);
           
           // Clean up pending spell cast to prevent loops
           delete (game.state as any).pendingSpellCasts[effectId];
@@ -6062,8 +6063,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         
         // MTG Rule 601.2h: After targets chosen, now request payment
-        console.log(`[targetSelectionConfirm] Targets selected for ${pendingCast.cardName}, now requesting payment`);
-        console.log(`[targetSelectionConfirm] Storing targets in pendingCast.targets: ${targetIds.join(',')}`);
+        debug(2, `[targetSelectionConfirm] Targets selected for ${pendingCast.cardName}, now requesting payment`);
+        debug(1, `[targetSelectionConfirm] Storing targets in pendingCast.targets: ${targetIds.join(',')}`);
         
         // Store targets with the pending cast
         pendingCast.targets = targetIds;
@@ -6078,8 +6079,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           targets: targetIds,
         });
         
-        console.log(`[targetSelectionConfirm] Emitted paymentRequired to ${pid}`);
-        console.log(`[targetSelectionConfirm] ======== CONFIRM END (waiting for payment) ========`);
+        debug(2, `[targetSelectionConfirm] Emitted paymentRequired to ${pid}`);
+        debug(2, `[targetSelectionConfirm] ======== CONFIRM END (waiting for payment) ========`);
       } else {
         // Legacy flow - old-style cast that bypassed requestCastSpell
         // Keep the old behavior for backward compatibility
@@ -6087,11 +6088,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (parts.length >= 2) {
           const cardId = parts.slice(1, -1).join('_');
           
-          console.log(`[targetSelectionConfirm] Legacy spell cast with targets: cardId=${cardId}, targets=${targetIds.join(',')}`);
+          debug(1, `[targetSelectionConfirm] Legacy spell cast with targets: cardId=${cardId}, targets=${targetIds.join(',')}`);
           
           if (typeof game.applyEvent === 'function') {
             game.applyEvent({ type: "castSpell", playerId: pid, cardId, targets: targetIds });
-            console.log(`[targetSelectionConfirm] Spell ${cardId} cast with targets via applyEvent (legacy)`);
+            debug(2, `[targetSelectionConfirm] Spell ${cardId} cast with targets via applyEvent (legacy)`);
           }
         }
       }
@@ -6107,7 +6108,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       selectedTargetIds: targetIds,
     });
     
-    console.log(`[targetSelectionConfirm] Player ${pid} selected targets:`, targetIds);
+    debug(2, `[targetSelectionConfirm] Player ${pid} selected targets:`, targetIds);
     
     broadcastGame(io, game, gameId);
   });
@@ -6126,7 +6127,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // This fixes the Bear Umbra issue where cancelling kept looping between target and payment
     if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
       delete (game.state as any).pendingSpellCasts[effectId];
-      console.log(`[targetSelectionCancel] Cleaned up pending spell cast for effectId: ${effectId}`);
+      debug(2, `[targetSelectionCancel] Cleaned up pending spell cast for effectId: ${effectId}`);
     }
     
     // Also clean up pending targets if stored
@@ -6134,7 +6135,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       delete game.state.pendingTargets[effectId];
     }
     
-    console.log(`[targetSelectionCancel] Player ${pid} cancelled target selection for effect ${effectId}`);
+    debug(2, `[targetSelectionCancel] Player ${pid} cancelled target selection for effect ${effectId}`);
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -6979,7 +6980,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Validate that the target is in the valid list
       const validTargetIds = pendingEquip.validTargetIds || [];
       if (!validTargetIds.includes(targetCreatureId)) {
-        console.warn(`[equipTargetChosen] Invalid target selected: ${targetCreatureId} for ${pendingEquip.equipmentName}`);
+        debugWarn(2, `[equipTargetChosen] Invalid target selected: ${targetCreatureId} for ${pendingEquip.equipmentName}`);
         socket.emit("error", {
           code: "INVALID_TARGET",
           message: `Invalid target selected for ${pendingEquip.equipmentName}`,
@@ -6994,7 +6995,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Clean up pending state
       delete (game.state as any).pendingEquipActivations[effectId];
-      console.log(`[equipTargetChosen] Using preserved equip data from effectId: ${effectId}, cost: ${storedEquipCost}, type: ${storedEquipType}`);
+      debug(2, `[equipTargetChosen] Using preserved equip data from effectId: ${effectId}, cost: ${storedEquipCost}, type: ${storedEquipType}`);
     }
 
     const battlefield = game.state?.battlefield || [];
@@ -7040,7 +7041,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const oracleText = equipment.card?.oracle_text || "";
       const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
       equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
-      console.warn(`[equipTargetChosen] No stored equipCost found, using fallback parse: ${equipCost}`);
+      debugWarn(2, `[equipTargetChosen] No stored equipCost found, using fallback parse: ${equipCost}`);
     }
     
     // Validate and consume mana payment
@@ -7070,7 +7071,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             }
           }
         }
-        console.log(`[equipTargetChosen] Added mana from ${payment.length} sources`);
+        debug(2, `[equipTargetChosen] Added mana from ${payment.length} sources`);
       }
       
       const totalAvailable = calculateTotalAvailableMana(pool, []);
@@ -7102,7 +7103,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           imageUrl: equipment.card?.image_uris?.small || equipment.card?.image_uris?.normal,
         });
         
-        console.log(`[equipTargetChosen] Payment required for ${equipment.card?.name} equip cost ${equipCost}`);
+        debug(2, `[equipTargetChosen] Payment required for ${equipment.card?.name} equip cost ${equipCost}`);
         return;
       }
       
@@ -7145,7 +7146,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       ts: Date.now(),
     });
     
-    console.log(`[equipTargetChosen] Equip ability on stack: ${equipment.card?.name} → ${targetCreature.card?.name}`);
+    debug(2, `[equipTargetChosen] Equip ability on stack: ${equipment.card?.name} → ${targetCreature.card?.name}`);
     
     appendEvent(gameId, (game as any).seq ?? 0, "equipTarget", {
       playerId: pid,
@@ -7242,7 +7243,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     sourceCreature.damageMarked = (sourceCreature.damageMarked || 0) + targetPower;
     targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
     
-    console.log(`[fightTargetChosen] ${pendingFight.sourceName} (power ${sourcePower}) fights ${targetCreature.card?.name} (power ${targetPower})`);
+    debug(2, `[fightTargetChosen] ${pendingFight.sourceName} (power ${sourcePower}) fights ${targetCreature.card?.name} (power ${targetPower})`);
     
     // Check for "dealt damage" triggers on the source creature
     // Brash Taunter: "Whenever this creature is dealt damage, it deals that much damage to target opponent."
@@ -7295,7 +7296,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           description: `${creatureName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
         });
         
-        console.log(`[fightTargetChosen] Queued damage trigger from ${creatureName} for ${damageAmount} damage`);
+        debug(2, `[fightTargetChosen] Queued damage trigger from ${creatureName} for ${damageAmount} damage`);
       }
     };
     
@@ -7407,7 +7408,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           return typeLine.includes(searchType) || name.includes(searchType);
         }).length;
         
-        console.log(`[counterTargetChosen] Scaling: ${counterCount} ${searchType}(s) controlled by ${pid}`);
+        debug(2, `[counterTargetChosen] Scaling: ${counterCount} ${searchType}(s) controlled by ${pid}`);
       }
     }
     
@@ -7420,7 +7421,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     (targetPermanent.counters as any)[counterType] = ((targetPermanent.counters as any)[counterType] || 0) + counterCount;
     
     const targetName = targetPermanent.card?.name || "permanent";
-    console.log(`[counterTargetChosen] ${pendingCounter.sourceName} put ${counterCount} ${counterType} counter(s) on ${targetName}`);
+    debug(2, `[counterTargetChosen] ${pendingCounter.sourceName} put ${counterCount} ${counterType} counter(s) on ${targetName}`);
     
     // Emit chat message
     io.to(gameId).emit("chat", {
@@ -7441,7 +7442,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const zones = game.state?.zones?.[targetController];
         if (zones && Array.isArray(zones.hand)) {
           // Add a placeholder card to hand (full draw logic handled elsewhere)
-          console.log(`[counterTargetChosen] ${targetController} should draw a card (Gwafa effect)`);
+          debug(2, `[counterTargetChosen] ${targetController} should draw a card (Gwafa effect)`);
           
           // Use simplified draw - just emit message for now
           // Full implementation would require proper library management
@@ -7467,7 +7468,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         counterType,
       });
     } catch (e) {
-      console.warn("[interaction] Failed to persist counterTargetChosen event:", e);
+      debugWarn(1, "[interaction] Failed to persist counterTargetChosen event:", e);
     }
     
     // Bump sequence
@@ -7560,7 +7561,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       description: `Choose a permanent to move the ${counterType} counter to`,
     });
     
-    console.log(`[moveCounterSourceChosen] Selected source: ${sourcePermanent.card?.name}, counter: ${counterType}`);
+    debug(2, `[moveCounterSourceChosen] Selected source: ${sourcePermanent.card?.name}, counter: ${counterType}`);
     broadcastGame(io, game, gameId);
   });
 
@@ -7648,7 +7649,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const sourceName = sourcePermanent.card?.name || "permanent";
     const destName = destPermanent.card?.name || "permanent";
     
-    console.log(`[moveCounterDestinationChosen] Moved ${counterType} counter from ${sourceName} to ${destName}`);
+    debug(2, `[moveCounterDestinationChosen] Moved ${counterType} counter from ${sourceName} to ${destName}`);
     
     // Emit chat message
     io.to(gameId).emit("chat", {
@@ -7670,7 +7671,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         counterType,
       });
     } catch (e) {
-      console.warn("[interaction] Failed to persist moveCounterComplete event:", e);
+      debugWarn(1, "[interaction] Failed to persist moveCounterComplete event:", e);
     }
     
     // Bump sequence
@@ -7818,7 +7819,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
-    console.log(`[proliferateConfirm] ${pid} proliferated ${proliferatedTargets.length} target(s)`);
+    debug(2, `[proliferateConfirm] ${pid} proliferated ${proliferatedTargets.length} target(s)`);
     
     // Emit chat message
     if (proliferatedTargets.length > 0) {
@@ -7849,7 +7850,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         targetCount: proliferatedTargets.length,
       });
     } catch (e) {
-      console.warn("[interaction] Failed to persist proliferateConfirm event:", e);
+      debugWarn(1, "[interaction] Failed to persist proliferateConfirm event:", e);
     }
     
     // Bump sequence
@@ -8050,7 +8051,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     for (const targetId of targetIds) {
       const target = battlefield.find((p: any) => p.id === targetId);
       if (!target) {
-        console.warn(`[confirmTapUntapTarget] Target ${targetId} not found on battlefield`);
+        debugWarn(2, `[confirmTapUntapTarget] Target ${targetId} not found on battlefield`);
         continue;
       }
 
@@ -8795,7 +8796,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const ctx = {
       state: game.state,
       bumpSeq: game.bumpSeq?.bind(game) || (() => {
-        console.warn('[Forbidden Orchard] bumpSeq not available, state updates may not propagate');
+        debugWarn(2, '[Forbidden Orchard] bumpSeq not available, state updates may not propagate');
       }),
     };
     triggerETBEffectsForToken(ctx as any, spiritToken, targetOpponentId);
@@ -8966,19 +8967,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       };
       permanent.goadedUntil = newGoadedUntil;
       
-      console.log(`[confirmControlChangeOpponent] ${pending.cardName} is goaded by ${pid}`);
+      debug(2, `[confirmControlChangeOpponent] ${pending.cardName} is goaded by ${pid}`);
     }
     
     // Apply attack restrictions (Xantcha - must attack each combat, can't attack owner)
     if (pending.mustAttackEachCombat) {
       (permanent as any).mustAttackEachCombat = true;
-      console.log(`[confirmControlChangeOpponent] ${pending.cardName} must attack each combat`);
+      debug(2, `[confirmControlChangeOpponent] ${pending.cardName} must attack each combat`);
     }
     
     if (pending.cantAttackOwner) {
       (permanent as any).cantAttackOwner = true;
       (permanent as any).ownerId = pending.playerId; // Track original owner for attack restriction
-      console.log(`[confirmControlChangeOpponent] ${pending.cardName} can't attack its owner (${pending.playerId})`);
+      debug(2, `[confirmControlChangeOpponent] ${pending.cardName} can't attack its owner (${pending.playerId})`);
     }
     
     // Remove summoning sickness if the new controller already had control this turn
@@ -9017,3 +9018,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 }
+
+
+

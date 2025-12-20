@@ -4,6 +4,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, emitToPlayer, getPlayerName } from "./util";
 import { appendEvent } from "../db";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Check if a card has a Leyline-style opening hand ability
@@ -77,7 +78,7 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
       for (const cardId of cardIds) {
         const cardIndex = hand.findIndex((c: any) => c?.id === cardId);
         if (cardIndex === -1) {
-          console.warn(`[playOpeningHandCards] Card ${cardId} not found in hand`);
+          debugWarn(2, `[playOpeningHandCards] Card ${cardId} not found in hand`);
           continue;
         }
 
@@ -85,7 +86,7 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
 
         // Verify it's a Leyline card
         if (!isLeylineCard(card)) {
-          console.warn(`[playOpeningHandCards] Card ${card.name} is not a Leyline card`);
+          debugWarn(2, `[playOpeningHandCards] Card ${card.name} is not a Leyline card`);
           continue;
         }
 
@@ -124,7 +125,7 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
           cardIds,
         });
       } catch (e) {
-        console.warn("appendEvent(playOpeningHandCards) failed:", e);
+        debugWarn(1, "appendEvent(playOpeningHandCards) failed:", e);
       }
 
       if (playedCards.length > 0) {
@@ -139,7 +140,7 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`playOpeningHandCards error for game ${gameId}:`, err);
+      debugError(1, `playOpeningHandCards error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "OPENING_HAND_ERROR",
         message: err?.message ?? String(err),
@@ -155,18 +156,18 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
       if (!game || !playerId) return;
 
       // Just acknowledge and continue - no state change needed
-      console.log(`[skipOpeningHandActions] Player ${playerId} skipped opening hand actions`);
+      debug(2, `[skipOpeningHandActions] Player ${playerId} skipped opening hand actions`);
 
       // Persist the event
       try {
         appendEvent(gameId, (game as any).seq ?? 0, "skipOpeningHandActions", { playerId });
       } catch (e) {
-        console.warn("appendEvent(skipOpeningHandActions) failed:", e);
+        debugWarn(1, "appendEvent(skipOpeningHandActions) failed:", e);
       }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`skipOpeningHandActions error for game ${gameId}:`, err);
+      debugError(1, `skipOpeningHandActions error for game ${gameId}:`, err);
     }
   });
 }
@@ -201,7 +202,8 @@ export function checkAndPromptOpeningHandActions(
 
     return false;
   } catch (err) {
-    console.error(`checkAndPromptOpeningHandActions error:`, err);
+    debugError(1, `checkAndPromptOpeningHandActions error:`, err);
     return false;
   }
 }
+

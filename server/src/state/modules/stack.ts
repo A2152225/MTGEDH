@@ -3,6 +3,7 @@ import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { 
   getETBTriggersForPermanent, 
   processLinkedExileReturns, 
@@ -147,7 +148,7 @@ function handleDispatch(
   const targetPerm = battlefield.find((p: any) => p?.id === targets[0] || p?.id === targets[0]?.id);
   
   if (!targetPerm) {
-    console.log(`[handleDispatch] Target not found on battlefield`);
+    debug(2, `[handleDispatch] Target not found on battlefield`);
     return false;
   }
   
@@ -162,7 +163,7 @@ function handleDispatch(
       
       // Tokens cease to exist when they leave the battlefield - don't add to exile zone
       if (targetPerm.isToken || targetPerm.card?.isToken) {
-        console.log(`[handleDispatch] Metalcraft active - ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
+        debug(2, `[handleDispatch] Metalcraft active - ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
       } else {
         // Move non-token to exile zone
         const owner = targetPerm.owner || targetPerm.controller;
@@ -172,13 +173,13 @@ function handleDispatch(
         zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
         zones[owner].exileCount = zones[owner].exile.length;
         
-        console.log(`[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
+        debug(2, `[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
       }
     }
   } else {
     // Just tap the creature
     targetPerm.tapped = true;
-    console.log(`[handleDispatch] Metalcraft inactive (${countArtifacts(ctx, controller)} artifacts) - tapped ${targetPerm.card?.name || targetPerm.id}`);
+    debug(1, `[handleDispatch] Metalcraft inactive (${countArtifacts(ctx, controller)} artifacts) - tapped ${targetPerm.card?.name || targetPerm.id}`);
   }
   
   return true;
@@ -478,7 +479,7 @@ function creatureWillHaveHaste(
     
     return false;
   } catch (err) {
-    console.warn('[creatureWillHaveHaste] Error checking haste:', err);
+    debugWarn(1, '[creatureWillHaveHaste] Error checking haste:', err);
     return false;
   }
 }
@@ -517,14 +518,14 @@ function checkCreatureEntersTapped(
     // Authority of the Consuls: "Creatures your opponents control enter the battlefield tapped."
     if (cardName.includes('authority of the consuls') ||
         (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped'))) {
-      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Blind Obedience: "Artifacts and creatures your opponents control enter the battlefield tapped."
     if (cardName.includes('blind obedience') ||
         (oracleText.includes('artifacts and creatures your opponents control enter') && oracleText.includes('tapped'))) {
-      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
@@ -532,35 +533,35 @@ function checkCreatureEntersTapped(
     if (cardName.includes('urabrask the hidden') ||
         cardName.includes('urabrask,')) {
       if (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped')) {
-        console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+        debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
         return true;
       }
     }
     
     // Imposing Sovereign: "Creatures your opponents control enter the battlefield tapped."
     if (cardName.includes('imposing sovereign')) {
-      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Thalia, Heretic Cathar: "Creatures and nonbasic lands your opponents control enter the battlefield tapped."
     if (cardName.includes('thalia, heretic cathar') ||
         (oracleText.includes('creatures') && oracleText.includes('your opponents control enter') && oracleText.includes('tapped'))) {
-      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Frozen Aether: "Permanents your opponents control enter the battlefield tapped."
     if (cardName.includes('frozen aether') ||
         (oracleText.includes('permanents your opponents control enter') && oracleText.includes('tapped'))) {
-      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Kismet: "Artifacts, creatures, and lands your opponents play come into play tapped."
     if (cardName.includes('kismet') ||
         (oracleText.includes('creatures') && oracleText.includes('your opponents') && oracleText.includes('play') && oracleText.includes('tapped'))) {
-      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
@@ -572,7 +573,7 @@ function checkCreatureEntersTapped(
         oracleText.includes('enter') && 
         oracleText.includes('battlefield') &&
         oracleText.includes('tapped')) {
-      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'} (generic pattern)`);
+      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'} (generic pattern)`);
       return true;
     }
   }
@@ -721,7 +722,7 @@ export function triggerETBEffectsForToken(
           mandatory: trigger.mandatory,
         } as any);
         
-        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
       
       // another_permanent_etb triggers
@@ -753,7 +754,7 @@ export function triggerETBEffectsForToken(
           mandatory: trigger.mandatory,
         } as any);
         
-        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
       
       // permanent_etb triggers (Altar of the Brood style - triggers on ANY permanent)
@@ -774,7 +775,7 @@ export function triggerETBEffectsForToken(
           mandatory: trigger.mandatory,
         } as any);
         
-        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
       
       // opponent_creature_etb triggers (Suture Priest, Authority of the Consuls)
@@ -799,7 +800,7 @@ export function triggerETBEffectsForToken(
             targetPlayer: controller,
           } as any);
           
-          console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
+          debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
       }
     }
@@ -864,7 +865,7 @@ function triggerETBEffectsForPermanent(
           mandatory: trigger.mandatory,
         } as any);
         
-        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
       
       // another_permanent_etb triggers
@@ -896,7 +897,7 @@ function triggerETBEffectsForPermanent(
           mandatory: trigger.mandatory,
         } as any);
         
-        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
       
       // permanent_etb triggers (Altar of the Brood style)
@@ -916,7 +917,7 @@ function triggerETBEffectsForPermanent(
           mandatory: trigger.mandatory,
         } as any);
         
-        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
       
       // opponent_creature_etb triggers (Suture Priest, Authority of the Consuls)
@@ -941,7 +942,7 @@ function triggerETBEffectsForPermanent(
             targetPlayer: controller,
           } as any);
           
-          console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
+          debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
       }
     }
@@ -975,7 +976,7 @@ function triggerETBEffectsForPermanent(
       
       state.stack.push(triggerObj);
       
-      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
+      debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
     }
   }
 }
@@ -1019,7 +1020,7 @@ function executeTriggerEffect(
     
     const action = delta > 0 ? 'gained' : 'lost';
     const amount = Math.abs(delta);
-    console.log(`[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
+    debug(2, `[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
   };
   
   // ===== SPECIAL HANDLERS =====
@@ -1073,7 +1074,7 @@ function executeTriggerEffect(
       controller
     );
     
-    console.log(`[executeTriggerEffect] Join Forces attack trigger from ${sourceName} - created ${players.length} resolution steps`);
+    debug(1, `[executeTriggerEffect] Join Forces attack trigger from ${sourceName} - created ${players.length} resolution steps`);
     return;
   }
   
@@ -1090,7 +1091,7 @@ function executeTriggerEffect(
     
     state.pendingDraws = state.pendingDraws || {};
     state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + drawCount;
-    console.log(`[executeTriggerEffect] ${controller} will draw ${drawCount} card(s) from ${sourceName}`);
+    debug(2, `[executeTriggerEffect] ${controller} will draw ${drawCount} card(s) from ${sourceName}`);
     handled = true;
   }
   
@@ -1099,7 +1100,7 @@ function executeTriggerEffect(
   if (youLoseLifeMatch) {
     const amount = parseInt(youLoseLifeMatch[1], 10);
     modifyLife(controller, -amount);
-    console.log(`[executeTriggerEffect] ${controller} loses ${amount} life from ${sourceName}`);
+    debug(2, `[executeTriggerEffect] ${controller} loses ${amount} life from ${sourceName}`);
     handled = true;
   }
   
@@ -1108,7 +1109,7 @@ function executeTriggerEffect(
   if (youGainLifeMatch) {
     const amount = parseInt(youGainLifeMatch[1], 10);
     modifyLife(controller, amount);
-    console.log(`[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
+    debug(2, `[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
     handled = true;
   }
   
@@ -1194,7 +1195,7 @@ function executeTriggerEffect(
     
     // Apply life gain
     modifyLife(controller, lifeAmount);
-    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} gains ${lifeAmount} life`);
+    debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} gains ${lifeAmount} life`);
     
     // Apply energy gain
     addEnergyCounters(state, controller, energyAmount, sourceName);
@@ -1233,7 +1234,7 @@ function executeTriggerEffect(
       // Add +1/+1 counter
       perm.counters = perm.counters || {};
       perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
-      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id}`);
+      debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id}`);
     }
     return;
   }
@@ -1260,7 +1261,7 @@ function executeTriggerEffect(
       // Add +1/+1 counter
       perm.counters = perm.counters || {};
       perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
-      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id} (${creatureType})`);
+      debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id} (${creatureType})`);
     }
     return;
   }
@@ -1276,7 +1277,7 @@ function executeTriggerEffect(
     if (sourcePerm) {
       sourcePerm.counters = sourcePerm.counters || {};
       sourcePerm.counters['+1/+1'] = (sourcePerm.counters['+1/+1'] || 0) + 1;
-      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${sourcePerm.card?.name || sourcePerm.id}`);
+      debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${sourcePerm.card?.name || sourcePerm.id}`);
     }
     return;
   }
@@ -1294,7 +1295,7 @@ function executeTriggerEffect(
       const currentCounters = sourcePerm.counters['+1/+1'] || 0;
       const newCounters = currentCounters * 2;
       sourcePerm.counters['+1/+1'] = newCounters;
-      console.log(`[executeTriggerEffect] Doubled +1/+1 counters on ${sourcePerm.card?.name || sourcePerm.id}: ${currentCounters} -> ${newCounters}`);
+      debug(2, `[executeTriggerEffect] Doubled +1/+1 counters on ${sourcePerm.card?.name || sourcePerm.id}: ${currentCounters} -> ${newCounters}`);
     }
     return;
   }
@@ -1333,7 +1334,7 @@ function executeTriggerEffect(
         sourcePower = Math.max(0, basePower + counterDelta + allBonuses.power);
       }
       
-      console.log(`[executeTriggerEffect] ${sourcePerm.card?.name || 'Unknown'} has power ${sourcePower}, adding counters to all creatures`);
+      debug(2, `[executeTriggerEffect] ${sourcePerm.card?.name || 'Unknown'} has power ${sourcePower}, adding counters to all creatures`);
       
       // Add counters to each creature controller controls
       for (const perm of battlefield) {
@@ -1345,7 +1346,7 @@ function executeTriggerEffect(
         // Add X +1/+1 counters
         perm.counters = perm.counters || {};
         perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + sourcePower;
-        console.log(`[executeTriggerEffect] Added ${sourcePower} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+        debug(2, `[executeTriggerEffect] Added ${sourcePower} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
       }
     }
     return;
@@ -1359,7 +1360,7 @@ function executeTriggerEffect(
     // Set up pending draw - actual draw happens through zone management
     state.pendingDraws = state.pendingDraws || {};
     state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + count;
-    console.log(`[executeTriggerEffect] ${controller} will draw ${count} card(s)`);
+    debug(2, `[executeTriggerEffect] ${controller} will draw ${count} card(s)`);
     return;
   }
   
@@ -1416,7 +1417,7 @@ function executeTriggerEffect(
     const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId || 'unknown';
     
     if (gameId === 'unknown') {
-      console.warn(`[executeTriggerEffect] Kynaios: gameId is unknown, resolution steps may not work properly`);
+      debugWarn(2, `[executeTriggerEffect] Kynaios: gameId is unknown, resolution steps may not work properly`);
     }
     
     ResolutionQueueManager.addStepsWithAPNAP(
@@ -1426,7 +1427,7 @@ function executeTriggerEffect(
       activePlayerId
     );
     
-    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices (gameId: ${gameId})`);
+    debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices (gameId: ${gameId})`);
     return;
   }
   
@@ -1442,7 +1443,7 @@ function executeTriggerEffect(
     
     state.pendingDraws = state.pendingDraws || {};
     state.pendingDraws[targetPlayer] = (state.pendingDraws[targetPlayer] || 0) + count;
-    console.log(`[executeTriggerEffect] ${targetPlayer} will draw ${count} card(s)`);
+    debug(2, `[executeTriggerEffect] ${targetPlayer} will draw ${count} card(s)`);
     return;
   }
   
@@ -1456,7 +1457,7 @@ function executeTriggerEffect(
     for (const opp of opponents) {
       state.pendingDraws[opp.id] = (state.pendingDraws[opp.id] || 0) + count;
     }
-    console.log(`[executeTriggerEffect] Each opponent will draw ${count} card(s)`);
+    debug(2, `[executeTriggerEffect] Each opponent will draw ${count} card(s)`);
     return;
   }
   
@@ -1557,11 +1558,11 @@ function executeTriggerEffect(
       const { myLandCount, anyOpponentHasMoreLands } = checkOpponentHasMoreLands(state, controller);
       
       if (!anyOpponentHasMoreLands) {
-        console.log(`[executeTriggerEffect] ${sourceName}: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
+        debug(2, `[executeTriggerEffect] ${sourceName}: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
         return; // Don't set up library search if condition not met
       }
       
-      console.log(`[executeTriggerEffect] ${sourceName}: Condition met - opponent has more lands than ${controller} (${myLandCount} lands)`);
+      debug(2, `[executeTriggerEffect] ${sourceName}: Condition met - opponent has more lands than ${controller} (${myLandCount} lands)`);
     }
     
     // Set up pending library search
@@ -1577,7 +1578,7 @@ function executeTriggerEffect(
       filter,
     };
     
-    console.log(`[executeTriggerEffect] ${sourceName} trigger: ${controller} may search for ${searchFor} (destination: ${destination}, filter: ${JSON.stringify(filter)})`);
+    debug(2, `[executeTriggerEffect] ${sourceName} trigger: ${controller} may search for ${searchFor} (destination: ${destination}, filter: ${JSON.stringify(filter)})`);
     return;
   }
   
@@ -1652,7 +1653,7 @@ function executeTriggerEffect(
           },
         } as any);
         
-        console.log(`[executeTriggerEffect] Created ${tokenName} token for ${controller}`);
+        debug(2, `[executeTriggerEffect] Created ${tokenName} token for ${controller}`);
       }
       return;
     }
@@ -1748,7 +1749,7 @@ function executeTriggerEffect(
       } as any;
       
       state.battlefield.push(token);
-      console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : ''}`);
+      debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : ''}`);
       
       // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
       triggerETBEffectsForToken(ctx, token, controller);
@@ -1816,15 +1817,15 @@ function executeTriggerEffect(
           state.battlefield = state.battlefield || [];
           state.battlefield.push(tokenCopy);
           
-          console.log(`[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
+          debug(2, `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
           
           // Trigger ETB effects for the copy token (Cathars' Crusade, Soul Warden, etc.)
           triggerETBEffectsForToken(ctx, tokenCopy, controller);
         } else {
-          console.log(`[executeTriggerEffect] No equipped creature found for copy token creation`);
+          debug(2, `[executeTriggerEffect] No equipped creature found for copy token creation`);
         }
       } else {
-        console.log(`[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything`);
+        debug(2, `[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything`);
       }
     }
     return;
@@ -1834,7 +1835,7 @@ function executeTriggerEffect(
   const millOpponentsMatch = desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);
   if (millOpponentsMatch) {
     const millCount = millOpponentsMatch[1] ? parseInt(millOpponentsMatch[1], 10) : 1;
-    console.log(`[executeTriggerEffect] Each opponent mills ${millCount} card(s)`);
+    debug(2, `[executeTriggerEffect] Each opponent mills ${millCount} card(s)`);
     
     // Set up pending mill for each opponent
     state.pendingMill = state.pendingMill || {};
@@ -1850,7 +1851,7 @@ function executeTriggerEffect(
             oppZones.graveyard = oppZones.graveyard || [];
             milledCard.zone = 'graveyard';
             oppZones.graveyard.push(milledCard);
-            console.log(`[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
+            debug(2, `[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
           }
         }
         // Update library count and graveyard count
@@ -1865,7 +1866,7 @@ function executeTriggerEffect(
   const scryMatch = desc.match(/scry (\d+)/i);
   if (scryMatch) {
     const scryCount = parseInt(scryMatch[1], 10);
-    console.log(`[executeTriggerEffect] ${controller} scries ${scryCount}`);
+    debug(2, `[executeTriggerEffect] ${controller} scries ${scryCount}`);
     
     // Set up pending scry for the controller
     state.pendingScry = state.pendingScry || {};
@@ -1881,7 +1882,7 @@ function executeTriggerEffect(
     for (const player of players) {
       if (!player.hasLost) {
         const drawn = drawCardsFromZone(ctx, player.id as PlayerID, count);
-        console.log(`[executeTriggerEffect] ${sourceName}: ${player.id} drew ${drawn.length} card(s)`);
+        debug(2, `[executeTriggerEffect] ${sourceName}: ${player.id} drew ${drawn.length} card(s)`);
       }
     }
     return;
@@ -1891,7 +1892,7 @@ function executeTriggerEffect(
   const discardOpponentsMatch = desc.match(/each opponent discards? (?:a card|(\d+) cards?)/i);
   if (discardOpponentsMatch) {
     const discardCount = discardOpponentsMatch[1] ? parseInt(discardOpponentsMatch[1], 10) : 1;
-    console.log(`[executeTriggerEffect] Each opponent discards ${discardCount} card(s)`);
+    debug(2, `[executeTriggerEffect] Each opponent discards ${discardCount} card(s)`);
     
     state.pendingDiscard = state.pendingDiscard || {};
     for (const opp of opponents) {
@@ -1928,7 +1929,7 @@ function executeTriggerEffect(
           counterCount += matches.length;
         }
       }
-      console.log(`[executeTriggerEffect] ${sourceName}: Devotion to ${devotionColor} = ${counterCount}`);
+      debug(2, `[executeTriggerEffect] ${sourceName}: Devotion to ${devotionColor} = ${counterCount}`);
     } else if (otherScaling) {
       // Handle other scaling patterns (can be extended)
       // Examples: "the number of artifacts you control", "the number of creatures you control"
@@ -1947,7 +1948,7 @@ function executeTriggerEffect(
           p?.controller === controller && (p.card?.type_line || '').toLowerCase().includes('land')
         ).length;
       }
-      console.log(`[executeTriggerEffect] ${sourceName}: Scaling (${otherScaling}) = ${counterCount}`);
+      debug(2, `[executeTriggerEffect] ${sourceName}: Scaling (${otherScaling}) = ${counterCount}`);
     }
     
     if (sourceId && counterCount > 0) {
@@ -1955,7 +1956,7 @@ function executeTriggerEffect(
       if (perm) {
         perm.counters = perm.counters || {};
         perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
-        console.log(`[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id} (scaling effect)`);
+        debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id} (scaling effect)`);
       }
     }
     return;
@@ -1972,7 +1973,7 @@ function executeTriggerEffect(
       if (perm) {
         perm.counters = perm.counters || {};
         perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
-        console.log(`[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+        debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
       }
     }
     return;
@@ -2017,7 +2018,7 @@ function executeTriggerEffect(
         const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targetId);
         if (targetPerm) {
           targetPerm.damageMarked = (targetPerm.damageMarked || 0) + damage;
-          console.log(`[executeTriggerEffect] Dealt ${damage} damage to ${targetPerm.card?.name || targetId}`);
+          debug(2, `[executeTriggerEffect] Dealt ${damage} damage to ${targetPerm.card?.name || targetId}`);
         }
       }
     }
@@ -2035,7 +2036,7 @@ function executeTriggerEffect(
       
       if (perm.tapped) {
         perm.tapped = false;
-        console.log(`[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
+        debug(2, `[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
       }
     }
     return;
@@ -2048,7 +2049,7 @@ function executeTriggerEffect(
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
         targetPerm.tapped = true;
-        console.log(`[executeTriggerEffect] Tapped ${targetPerm.card?.name || targetPerm.id}`);
+        debug(2, `[executeTriggerEffect] Tapped ${targetPerm.card?.name || targetPerm.id}`);
       }
     }
     return;
@@ -2075,7 +2076,7 @@ function executeTriggerEffect(
           
           // Tokens cease to exist when they leave the battlefield
           if (targetPerm.isToken || exiledCard?.isToken) {
-            console.log(`[executeTriggerEffect] ${exiledCardName} token ceases to exist (not added to exile, no return)`);
+            debug(2, `[executeTriggerEffect] ${exiledCardName} token ceases to exist (not added to exile, no return)`);
           } else {
             // Add to exile zone
             const ownerZones = state.zones?.[originalOwner];
@@ -2097,7 +2098,7 @@ function executeTriggerEffect(
               originalController
             );
             
-            console.log(`[executeTriggerEffect] ${sourceName} exiled ${exiledCardName} - will return when ${sourceName} leaves the battlefield`);
+            debug(2, `[executeTriggerEffect] ${sourceName} exiled ${exiledCardName} - will return when ${sourceName} leaves the battlefield`);
           }
           
           // Process linked exile returns for the removed permanent
@@ -2127,7 +2128,7 @@ function executeTriggerEffect(
           
           // Tokens cease to exist when they leave the battlefield
           if (targetPerm.isToken || targetPerm.card?.isToken) {
-            console.log(`[executeTriggerEffect] ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
+            debug(2, `[executeTriggerEffect] ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
           } else {
             // Add to exile zone
             const ownerZones = state.zones?.[targetPerm.owner];
@@ -2149,9 +2150,9 @@ function executeTriggerEffect(
                 targetPerm.owner,
                 targetPerm.controller
               );
-              console.log(`[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
+              debug(2, `[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
             } else {
-              console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+              debug(2, `[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
             }
           }
           
@@ -2206,7 +2207,7 @@ function executeTriggerEffect(
                 toughness: card.toughness,
               },
             });
-            console.log(`[executeTriggerEffect] Commander ${card.name} destroyed - DEFERRING zone change for player choice`);
+            debug(2, `[executeTriggerEffect] Commander ${card.name} destroyed - DEFERRING zone change for player choice`);
           } else {
             // Non-commander - move directly to graveyard
             const ownerZones = state.zones?.[targetPerm.owner];
@@ -2216,7 +2217,7 @@ function executeTriggerEffect(
               ownerZones.graveyard.push(targetPerm.card);
               ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
             }
-            console.log(`[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
+            debug(2, `[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
           }
           
           // Process linked exile returns for the removed permanent
@@ -2270,7 +2271,7 @@ function executeTriggerEffect(
                 toughness: card.toughness,
               },
             });
-            console.log(`[executeTriggerEffect] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
+            debug(2, `[executeTriggerEffect] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
           } else {
             // Non-commander - move directly to hand
             const ownerZones = state.zones?.[owner];
@@ -2280,7 +2281,7 @@ function executeTriggerEffect(
               ownerZones.hand.push(card);
               ownerZones.handCount = ownerZones.hand.length;
             }
-            console.log(`[executeTriggerEffect] Returned ${card?.name || targetPerm.id} to owner's hand`);
+            debug(2, `[executeTriggerEffect] Returned ${card?.name || targetPerm.id} to owner's hand`);
           }
           
           // Process linked exile returns for the removed permanent
@@ -2329,7 +2330,7 @@ function executeTriggerEffect(
         playableUntilTurn: (state.turnNumber || 0) + 1,
       });
       
-      console.log(`[executeTriggerEffect] ${sourceName}: Exiled ${topCard.name || 'card'} from ${controller}'s library (can play until end of next turn)`);
+      debug(2, `[executeTriggerEffect] ${sourceName}: Exiled ${topCard.name || 'card'} from ${controller}'s library (can play until end of next turn)`);
     }
     return;
   }
@@ -2338,7 +2339,7 @@ function executeTriggerEffect(
   const addManaMatch = desc.match(/add (\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (addManaMatch) {
     const manaString = addManaMatch[1];
-    console.log(`[executeTriggerEffect] ${controller} adds ${manaString} to mana pool`);
+    debug(2, `[executeTriggerEffect] ${controller} adds ${manaString} to mana pool`);
     
     // Parse mana and add to pool
     state.manaPool = state.manaPool || {};
@@ -2365,7 +2366,7 @@ function executeTriggerEffect(
     const drawingPlayer = triggerItem?.triggeringPlayer || triggerItem?.targets?.[0];
     if (drawingPlayer && drawingPlayer !== controller) {
       modifyLife(drawingPlayer, -damage);
-      console.log(`[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
+      debug(2, `[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
     }
     return;
   }
@@ -2381,7 +2382,7 @@ function executeTriggerEffect(
       const drawingPlayer = triggerItem?.triggeringPlayer || triggerItem?.targets?.[0];
       if (drawingPlayer) {
         modifyLife(drawingPlayer, -damage);
-        console.log(`[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
+        debug(2, `[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
       }
     }
     return;
@@ -2392,7 +2393,7 @@ function executeTriggerEffect(
   if (thatPlayerAddsManaMatch) {
     const manaString = thatPlayerAddsManaMatch[1];
     const targetPlayer = triggerItem?.triggeringPlayer || controller;
-    console.log(`[executeTriggerEffect] ${targetPlayer} adds ${manaString} to mana pool`);
+    debug(2, `[executeTriggerEffect] ${targetPlayer} adds ${manaString} to mana pool`);
     
     state.manaPool = state.manaPool || {};
     state.manaPool[targetPlayer] = state.manaPool[targetPlayer] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
@@ -2421,7 +2422,7 @@ function executeTriggerEffect(
     // Check if this trigger has already fired this turn (for "once per turn" effects)
     const extraCombatKey = `extraCombat_${sourceName}_${state.turnNumber || 0}`;
     if (isFirstAttackOnly && state.usedOncePerTurn?.[extraCombatKey]) {
-      console.log(`[executeTriggerEffect] ${sourceName} extra combat already used this turn, skipping`);
+      debug(2, `[executeTriggerEffect] ${sourceName} extra combat already used this turn, skipping`);
       return;
     }
     
@@ -2433,7 +2434,7 @@ function executeTriggerEffect(
     
     // Add the extra combat phase
     addExtraCombat(ctx, sourceName, shouldUntap);
-    console.log(`[executeTriggerEffect] ${sourceName}: Added extra combat phase (untap: ${shouldUntap})`);
+    debug(2, `[executeTriggerEffect] ${sourceName}: Added extra combat phase (untap: ${shouldUntap})`);
     return;
   }
   
@@ -2448,7 +2449,7 @@ function executeTriggerEffect(
       
       if (perm.tapped) {
         perm.tapped = false;
-        console.log(`[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
+        debug(2, `[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
       }
     }
     return;
@@ -2459,7 +2460,7 @@ function executeTriggerEffect(
   // Rule 701.34: Choose any number of permanents and/or players that have a counter,
   // then give each one additional counter of each kind that permanent or player already has.
   if (desc.includes('proliferate')) {
-    console.log(`[executeTriggerEffect] Proliferate effect from ${sourceName} for ${controller}`);
+    debug(2, `[executeTriggerEffect] Proliferate effect from ${sourceName} for ${controller}`);
     
     // Set up pending proliferate choice - the socket layer will prompt the player
     // to select targets (permanents/players with counters)
@@ -2493,7 +2494,7 @@ function executeTriggerEffect(
       }
     }
     
-    console.log(`[executeTriggerEffect] ${sourceName}: Creating ${goblinCount} Goblin tokens for ${controller} (goblins controlled: ${goblinCount})`);
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${goblinCount} Goblin tokens for ${controller} (goblins controlled: ${goblinCount})`);
     
     // Apply token doublers (Anointed Procession, Doubling Season, etc.)
     const tokensToCreate = goblinCount * getTokenDoublerMultiplier(controller, state);
@@ -2531,14 +2532,14 @@ function executeTriggerEffect(
       // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
       triggerETBEffectsForToken(ctx, goblinToken, controller);
       
-      console.log(`[executeTriggerEffect] Created Goblin token ${i + 1}/${tokensToCreate}`);
+      debug(2, `[executeTriggerEffect] Created Goblin token ${i + 1}/${tokensToCreate}`);
     }
     
     return;
   }
   
   // Log unhandled triggers for future implementation
-  console.log(`[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
+  debug(2, `[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
 
 /* Resolve the top item - moves permanent spells to battlefield */
@@ -2611,7 +2612,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         loyalty: frontFace.loyalty || card.loyalty,
         name: frontFace.name || card.name,
       };
-      console.log(`[resolveTopOfStack] Transform DFC ${effectiveCard.name}: using front face P/T ${frontFace.power}/${frontFace.toughness}`);
+      debug(2, `[resolveTopOfStack] Transform DFC ${effectiveCard.name}: using front face P/T ${frontFace.power}/${frontFace.toughness}`);
     }
   }
   
@@ -2622,7 +2623,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle fetch land ability resolution
     if (abilityType === 'fetch-land') {
-      console.log(`[resolveTopOfStack] Resolving fetch land ability from ${sourceName} for ${controller}`);
+      debug(2, `[resolveTopOfStack] Resolving fetch land ability from ${sourceName} for ${controller}`);
       
       // Set up pending library search - the socket layer will send the search prompt
       const searchParams = (item as any).searchParams || {};
@@ -2648,7 +2649,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       const tappedStatus = searchParams.entersTapped ? ' (enters tapped)' : '';
       const selectionText = maxSel > 1 ? ` (up to ${maxSel})` : '';
       
-      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchDesc}${selectionText}${tappedStatus}`);
+      debug(2, `[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchDesc}${selectionText}${tappedStatus}`);
       bumpSeq();
       return;
     }
@@ -2658,7 +2659,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // The creature permanently becomes the new type/stats until it leaves the battlefield.
     // This enables the progression system where each upgrade builds on the previous one.
     if (abilityType === 'creature-upgrade') {
-      console.log(`[resolveTopOfStack] Resolving creature upgrade ability from ${sourceName} for ${controller}`);
+      debug(2, `[resolveTopOfStack] Resolving creature upgrade ability from ${sourceName} for ${controller}`);
       
       const source = (item as any).source;
       const upgradeData = (item as any).upgradeData || {};
@@ -2668,7 +2669,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       const sourcePerm = battlefield.find((p: any) => p.id === source);
       
       if (!sourcePerm) {
-        console.log(`[resolveTopOfStack] Creature upgrade: source permanent ${source} no longer on battlefield`);
+        debug(2, `[resolveTopOfStack] Creature upgrade: source permanent ${source} no longer on battlefield`);
         bumpSeq();
         return;
       }
@@ -2719,7 +2720,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         changes.push(`got ${upgradeData.counterCount} ${upgradeData.counterType} counter(s)`);
       }
       
-      console.log(`[resolveTopOfStack] Creature upgrade applied to ${sourceName}: ${changes.join(', ')}`);
+      debug(1, `[resolveTopOfStack] Creature upgrade applied to ${sourceName}: ${changes.join(', ')}`);
       bumpSeq();
       return;
     }
@@ -2727,13 +2728,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Handle equip ability resolution
     // CRITICAL: Equipment attachments must go through the stack and can be responded to
     if (abilityType === 'equip') {
-      console.log(`[resolveTopOfStack] Resolving equip ability from ${sourceName} for ${controller}`);
+      debug(2, `[resolveTopOfStack] Resolving equip ability from ${sourceName} for ${controller}`);
       
       const equipParams = (item as any).equipParams || {};
       const { equipmentId, targetCreatureId, equipmentName, targetCreatureName } = equipParams;
       
       if (!equipmentId || !targetCreatureId) {
-        console.warn(`[resolveTopOfStack] Equip ability missing parameters`);
+        debugWarn(2, `[resolveTopOfStack] Equip ability missing parameters`);
         bumpSeq();
         return;
       }
@@ -2744,13 +2745,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
       
       if (!equipment) {
-        console.log(`[resolveTopOfStack] Equipment ${equipmentName || equipmentId} no longer on battlefield`);
+        debug(2, `[resolveTopOfStack] Equipment ${equipmentName || equipmentId} no longer on battlefield`);
         bumpSeq();
         return;
       }
       
       if (!targetCreature) {
-        console.log(`[resolveTopOfStack] Target creature ${targetCreatureName || targetCreatureId} no longer on battlefield`);
+        debug(2, `[resolveTopOfStack] Target creature ${targetCreatureName || targetCreatureId} no longer on battlefield`);
         bumpSeq();
         return;
       }
@@ -2758,7 +2759,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Verify target is still a legal creature
       const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
       if (!targetTypeLine.includes("creature")) {
-        console.log(`[resolveTopOfStack] Target ${targetCreatureName || targetCreatureId} is no longer a creature`);
+        debug(2, `[resolveTopOfStack] Target ${targetCreatureName || targetCreatureId} is no longer a creature`);
         bumpSeq();
         return;
       }
@@ -2791,7 +2792,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Add equipped badge/marker
       targetCreature.isEquipped = true;
       
-      console.log(`[resolveTopOfStack] ${equipmentName || 'Equipment'} equipped to ${targetCreatureName || 'creature'}`);
+      debug(2, `[resolveTopOfStack] ${equipmentName || 'Equipment'} equipped to ${targetCreatureName || 'creature'}`);
       bumpSeq();
       return;
     }
@@ -2799,7 +2800,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Handle other activated abilities - execute their effects
     // Use the same effect execution logic as triggered abilities
     const description = (item as any).description || '';
-    console.log(`[resolveTopOfStack] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
+    debug(2, `[resolveTopOfStack] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
     
     // Execute the ability effect (handles life gain, draw, damage, etc.)
     executeTriggerEffect(ctx, controller, sourceName, description, item);
@@ -2814,7 +2815,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     const description = (item as any).description || '';
     const triggerController = (item as any).controller || controller;
     
-    console.log(`[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
+    debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
     
     // Execute the triggered ability effect based on description
     executeTriggerEffect(ctx, triggerController, sourceName, description, item);
@@ -2848,7 +2849,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       const startingLoyalty = typeof effectiveCard.loyalty === 'number' ? effectiveCard.loyalty : parseInt(effectiveCard.loyalty, 10);
       if (!isNaN(startingLoyalty)) {
         initialCounters.loyalty = startingLoyalty;
-        console.log(`[resolveTopOfStack] Planeswalker ${effectiveCard.name} enters with ${startingLoyalty} loyalty`);
+        debug(2, `[resolveTopOfStack] Planeswalker ${effectiveCard.name} enters with ${startingLoyalty} loyalty`);
       }
     }
     
@@ -2878,7 +2879,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Add loyalty for each commander cast (including Jeska herself if she was just cast from command zone)
       if (totalCommanderCasts > 0) {
         initialCounters.loyalty = (initialCounters.loyalty || 0) + totalCommanderCasts;
-        console.log(`[resolveTopOfStack] ${effectiveCard.name} (Jeska-style): enters with ${totalCommanderCasts} additional loyalty for commander casts`);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} (Jeska-style): enters with ${totalCommanderCasts} additional loyalty for commander casts`);
       }
     }
     
@@ -2886,13 +2887,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     const etbCounters = detectEntersWithCounters(effectiveCard);
     for (const [counterType, count] of Object.entries(etbCounters)) {
       initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
-      console.log(`[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s)`);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s)`);
     }
     
     // Yuna, Grand Summoner: "When you next cast a creature spell this turn, that creature enters with two additional +1/+1 counters on it."
     if (isCreature && (state as any).yunaNextCreatureFlags?.[controller]) {
       initialCounters['+1/+1'] = (initialCounters['+1/+1'] || 0) + 2;
-      console.log(`[resolveTopOfStack] Yuna's Grand Summon: ${effectiveCard.name} enters with 2 additional +1/+1 counters`);
+      debug(2, `[resolveTopOfStack] Yuna's Grand Summon: ${effectiveCard.name} enters with 2 additional +1/+1 counters`);
       // Clear the flag
       delete (state as any).yunaNextCreatureFlags[controller];
     }
@@ -2946,15 +2947,15 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (isEquipment) {
           (targetPerm as any).attachedEquipment = (targetPerm as any).attachedEquipment || [];
           (targetPerm as any).attachedEquipment.push(newPermId);
-          console.log(`[resolveTopOfStack] Equipment ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
+          debug(2, `[resolveTopOfStack] Equipment ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
         } else {
           // For auras, use the standard attachments field
           (targetPerm as any).attachments = (targetPerm as any).attachments || [];
           (targetPerm as any).attachments.push(newPermId);
-          console.log(`[resolveTopOfStack] Aura ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
+          debug(2, `[resolveTopOfStack] Aura ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
         }
       } else {
-        console.warn(`[resolveTopOfStack] ${isAura ? 'Aura' : 'Equipment'} ${effectiveCard.name} target ${targetId} not found on battlefield`);
+        debugWarn(2, `[resolveTopOfStack] ${isAura ? 'Aura' : 'Equipment'} ${effectiveCard.name} target ${targetId} not found on battlefield`);
       }
     }
     
@@ -2967,7 +2968,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     } else if (hasHaste) {
       statusNote = ' (haste)';
     }
-    console.log(`[resolveTopOfStack] Permanent ${effectiveCard.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
+    debug(2, `[resolveTopOfStack] Permanent ${effectiveCard.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
     
     // Check for ETB control change effects (Xantcha, Akroan Horse, Vislor Turlough)
     // These permanents enter under an opponent's control or may give control to an opponent
@@ -2987,7 +2988,7 @@ export function resolveTopOfStack(ctx: GameContext) {
               mustAttackEachCombat: mustAttackEachCombat(effectiveCard),
               cantAttackOwner: cantAttackOwner(effectiveCard),
             };
-            console.log(`[resolveTopOfStack] ${effectiveCard.name} has ETB control change - requires opponent selection`);
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name} has ETB control change - requires opponent selection`);
           } else if (effect.type === 'may_give_control_to_opponent') {
             // Optional: may give control to opponent (Vislor Turlough)
             (newPermanent as any).pendingControlChange = {
@@ -2996,19 +2997,19 @@ export function resolveTopOfStack(ctx: GameContext) {
               isOptional: true,
               goadsOnChange: effect.goadsOnChange || false,
             };
-            console.log(`[resolveTopOfStack] ${effectiveCard.name} has optional ETB control change`);
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name} has optional ETB control change`);
           } else if (effect.type === 'opponent_gains_control') {
             // Opponent gains control (Akroan Horse)
             (newPermanent as any).pendingControlChange = {
               type: 'opponent_gains',
               originalOwner: controller,
             };
-            console.log(`[resolveTopOfStack] ${effectiveCard.name} has ETB opponent gains control`);
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name} has ETB opponent gains control`);
           }
         }
       }
     } catch (err) {
-      console.error(`[resolveTopOfStack] Error checking control change effects:`, err);
+      debugError(1, `[resolveTopOfStack] Error checking control change effects:`, err);
     }
     
     // Check for ETB triggers on this permanent and other permanents
@@ -3100,7 +3101,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       
       if (etbTriggers.length > 0) {
-        console.log(`[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${effectiveCard.name || 'permanent'}`);
+        debug(2, `[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${effectiveCard.name || 'permanent'}`);
         
         for (const trigger of etbTriggers) {
           // Handle Job Select and Living Weapon immediately (they don't go on stack - they're part of ETB)
@@ -3141,7 +3142,7 @@ export function resolveTopOfStack(ctx: GameContext) {
                 (tokenPermanent as any).attachedEquipment = (tokenPermanent as any).attachedEquipment || [];
                 (tokenPermanent as any).attachedEquipment.push(newPermId);
                 
-                console.log(`[resolveTopOfStack] ${trigger.triggerType === 'job_select' ? 'Job Select' : 'Living Weapon'}: Created ${tokenCard.name} token and attached ${card.name}`);
+                debug(2, `[resolveTopOfStack] ${trigger.triggerType === 'job_select' ? 'Job Select' : 'Living Weapon'}: Created ${tokenCard.name} token and attached ${card.name}`);
               }
               
               // Trigger ETB effects for the token
@@ -3176,11 +3177,11 @@ export function resolveTopOfStack(ctx: GameContext) {
             mandatory: trigger.mandatory,
           } as any);
           
-          console.log(`[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability (controlled by ${triggerController}): ${trigger.description}`);
+          debug(2, `[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability (controlled by ${triggerController}): ${trigger.description}`);
         }
       }
     } catch (err) {
-      console.warn('[resolveTopOfStack] Failed to detect ETB triggers:', err);
+      debugWarn(1, '[resolveTopOfStack] Failed to detect ETB triggers:', err);
     }
     
     // Handle Squad token creation (Rule 702.157)
@@ -3189,7 +3190,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     try {
       const squadTimesPaid = (card as any).squadTimesPaid;
       if (squadTimesPaid && squadTimesPaid > 0 && isCreature) {
-        console.log(`[resolveTopOfStack] Squad: Creating ${squadTimesPaid} token copies of ${effectiveCard.name || 'creature'}`);
+        debug(2, `[resolveTopOfStack] Squad: Creating ${squadTimesPaid} token copies of ${effectiveCard.name || 'creature'}`);
         
         for (let i = 0; i < squadTimesPaid; i++) {
           const tokenId = uid("squad_token");
@@ -3223,18 +3224,18 @@ export function resolveTopOfStack(ctx: GameContext) {
           // Trigger ETB effects for each squad token
           triggerETBEffectsForToken(ctx, tokenPermanent, controller);
           
-          console.log(`[resolveTopOfStack] Squad: Created token copy #${i + 1} of ${effectiveCard.name}`);
+          debug(2, `[resolveTopOfStack] Squad: Created token copy #${i + 1} of ${effectiveCard.name}`);
         }
       }
     } catch (err) {
-      console.warn('[resolveTopOfStack] Failed to create squad tokens:', err);
+      debugWarn(1, '[resolveTopOfStack] Failed to create squad tokens:', err);
     }
     
     // Recalculate player effects when permanents ETB (for Exploration, Font of Mythos, etc.)
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {
-      console.warn('[resolveTopOfStack] Failed to recalculate player effects:', err);
+      debugWarn(1, '[resolveTopOfStack] Failed to recalculate player effects:', err);
     }
   } else if (effectiveCard) {
     // Non-permanent spell (instant/sorcery) - execute effects before moving to graveyard
@@ -3261,7 +3262,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         // For token creation after destroy (Beast Within, etc.)
         if (oracleTextLower.includes('its controller creates')) {
           targetControllerForTokenCreation = targetPerm.controller as PlayerID;
-          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForTokenCreation} for token creation`);
+          debug(2, `[resolveTopOfStack] Captured target controller ${targetControllerForTokenCreation} for token creation`);
         }
         
         // For effects that affect target's controller after exile/destroy
@@ -3303,7 +3304,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
           }
           
-          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForRemovalEffects} for removal spell effects (power: ${targetPowerBeforeRemoval})`);
+          debug(2, `[resolveTopOfStack] Captured target controller ${targetControllerForRemovalEffects} for removal spell effects (power: ${targetPowerBeforeRemoval})`);
         }
       }
     }
@@ -3330,7 +3331,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       const landBonus = detectSpellLandBonus(effectiveCard.name || '', oracleText);
       if (landBonus > 0) {
         applyTemporaryLandBonus(ctx, controller, landBonus);
-        console.log(`[resolveTopOfStack] ${effectiveCard.name} granted ${controller} ${landBonus} additional land play(s) this turn`);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} granted ${controller} ${landBonus} additional land play(s) this turn`);
       }
       
       // Handle special spell effects not covered by the base system
@@ -3352,7 +3353,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           const tokenName = `${tokenType} Token`;
           
           createBeastToken(ctx, targetControllerForTokenCreation, tokenName, power, toughness, color);
-          console.log(`[resolveTopOfStack] ${effectiveCard.name} created ${power}/${toughness} ${tokenName} for ${targetControllerForTokenCreation}`);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${power}/${toughness} ${tokenName} for ${targetControllerForTokenCreation}`);
         }
       }
     }
@@ -3383,7 +3384,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Get all players EXCEPT the target's controller
         const copyRecipients = players.filter((p: any) => p && p.id && p.id !== targetController);
         
-        console.log(`[resolveTopOfStack] Fractured Identity: Creating token copies for ${copyRecipients.length} players (excluding target controller ${targetController})`);
+        debug(2, `[resolveTopOfStack] Fractured Identity: Creating token copies for ${copyRecipients.length} players (excluding target controller ${targetController})`);
         
         // Create token copy for each player other than target's controller
         for (const recipient of copyRecipients) {
@@ -3419,9 +3420,9 @@ export function resolveTopOfStack(ctx: GameContext) {
             state.battlefield = state.battlefield || [];
             state.battlefield.push(tokenPerm as any);
             
-            console.log(`[resolveTopOfStack] Fractured Identity: Created token copy of ${targetCard.name} for ${recipient.name || recipient.id}`);
+            debug(2, `[resolveTopOfStack] Fractured Identity: Created token copy of ${targetCard.name} for ${recipient.name || recipient.id}`);
           } catch (err) {
-            console.warn(`[resolveTopOfStack] Failed to create Fractured Identity token for ${recipient.id}:`, err);
+            debugWarn(1, `[resolveTopOfStack] Failed to create Fractured Identity token for ${recipient.id}:`, err);
           }
         }
         
@@ -3436,7 +3437,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       for (let i = 0; i < tokenCreationResult.count; i++) {
         createTokenFromSpec(ctx, controller, tokenCreationResult);
       }
-      console.log(`[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
     
     // Handle mass bounce spells (Evacuation, Cyclonic Rift overloaded, Aetherize, etc.)
@@ -3491,7 +3492,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       });
       
-      console.log(`[resolveTopOfStack] ${effectiveCard.name}: Returning ${permanentsToBounce.length} permanents to owners' hands (filter: ${massBounceFilter})`);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Returning ${permanentsToBounce.length} permanents to owners' hands (filter: ${massBounceFilter})`);
       
       // Helper function to bounce a single permanent
       const bouncePermanent = (perm: any) => {
@@ -3502,7 +3503,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (ownerZones) {
           // Token permanents cease to exist when they leave the battlefield
           if (perm.isToken) {
-            console.log(`[resolveTopOfStack] ${perm.card?.name || 'Token'} is a token - removed from game`);
+            debug(2, `[resolveTopOfStack] ${perm.card?.name || 'Token'} is a token - removed from game`);
             const idx = battlefield.findIndex((p: any) => p.id === perm.id);
             if (idx !== -1) battlefield.splice(idx, 1);
             return;
@@ -3513,7 +3514,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           (ownerZones.hand as any[]).push({ ...perm.card, zone: 'hand' });
           ownerZones.handCount = ownerZones.hand.length;
           
-          console.log(`[resolveTopOfStack] ${perm.card?.name || 'Permanent'} returned to ${ownerId}'s hand`);
+          debug(2, `[resolveTopOfStack] ${perm.card?.name || 'Permanent'} returned to ${ownerId}'s hand`);
         }
         
         // Handle attached permanents (auras, equipment) - they fall off
@@ -3527,12 +3528,12 @@ export function resolveTopOfStack(ctx: GameContext) {
           if (auraOwnerZones) {
             // Token auras cease to exist
             if (aura.isToken) {
-              console.log(`[resolveTopOfStack] ${aura.card?.name || 'Aura Token'} is a token - removed from game`);
+              debug(2, `[resolveTopOfStack] ${aura.card?.name || 'Aura Token'} is a token - removed from game`);
             } else {
               auraOwnerZones.graveyard = auraOwnerZones.graveyard || [];
               (auraOwnerZones.graveyard as any[]).push({ ...aura.card, zone: 'graveyard' });
               auraOwnerZones.graveyardCount = auraOwnerZones.graveyard.length;
-              console.log(`[resolveTopOfStack] ${aura.card?.name || 'Aura'} fell off and went to graveyard`);
+              debug(2, `[resolveTopOfStack] ${aura.card?.name || 'Aura'} fell off and went to graveyard`);
             }
           }
           const auraIdx = battlefield.findIndex((p: any) => p.id === aura.id);
@@ -3545,7 +3546,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         );
         for (const equipment of attachedEquipment) {
           delete equipment.attachedTo;
-          console.log(`[resolveTopOfStack] ${equipment.card?.name || 'Equipment'} detached`);
+          debug(2, `[resolveTopOfStack] ${equipment.card?.name || 'Equipment'} detached`);
         }
         
         // Remove permanent from battlefield
@@ -3580,7 +3581,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       
       addExtraTurn(ctx, extraTurnPlayer, effectiveCard.name || 'Extra turn spell');
-      console.log(`[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${effectiveCard.name}`);
+      debug(2, `[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${effectiveCard.name}`);
     }
     
     // Handle "each player draws" spells (Vision Skeins, Prosperity, Howling Mine effects, etc.)
@@ -3599,9 +3600,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (player && player.id) {
           try {
             const drawn = drawCardsFromZone(ctx, player.id as PlayerID, drawCount);
-            console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
           } catch (err) {
-            console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+            debugWarn(1, `[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
           }
         }
       }
@@ -3621,9 +3622,9 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       try {
         const drawn = drawCardsFromZone(ctx, controller, controllerDrawCount);
-        console.log(`[resolveTopOfStack] ${effectiveCard.name}: Controller ${controller} drew ${drawn.length} card(s)`);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Controller ${controller} drew ${drawn.length} card(s)`);
       } catch (err) {
-        console.warn(`[resolveTopOfStack] Failed to draw cards for controller ${controller}:`, err);
+        debugWarn(1, `[resolveTopOfStack] Failed to draw cards for controller ${controller}:`, err);
       }
       
       // Handle "each other player draws" if present
@@ -3634,9 +3635,9 @@ export function resolveTopOfStack(ctx: GameContext) {
           if (player && player.id && player.id !== controller) {
             try {
               const drawn = drawCardsFromZone(ctx, player.id as PlayerID, otherDrawCount);
-              console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+              debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
             } catch (err) {
-              console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+              debugWarn(1, `[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
             }
           }
         }
@@ -3669,7 +3670,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             playerZones.handCount = 0;
             playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
             
-            console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} discarded ${handSize} card(s)`);
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} discarded ${handSize} card(s)`);
           }
         }
       }
@@ -3679,9 +3680,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (player && player.id && greatestDiscarded > 0) {
           try {
             const drawn = drawCardsFromZone(ctx, player.id as PlayerID, greatestDiscarded);
-            console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s) (greatest discarded: ${greatestDiscarded})`);
+            debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s) (greatest discarded: ${greatestDiscarded})`);
           } catch (err) {
-            console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+            debugWarn(1, `[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
           }
         }
       }
@@ -3700,7 +3701,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       try {
         // Draw first
         const drawn = drawCardsFromZone(ctx, controller, drawCount);
-        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s)`);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s)`);
         
         // Set up pending discard - the socket layer will prompt for discard selection
         (state as any).pendingDiscard = (state as any).pendingDiscard || {};
@@ -3709,16 +3710,16 @@ export function resolveTopOfStack(ctx: GameContext) {
           source: effectiveCard.name || 'Spell',
           reason: 'spell_effect',
         };
-        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} must discard ${discardCount} card(s)`);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} must discard ${discardCount} card(s)`);
       } catch (err) {
-        console.warn(`[resolveTopOfStack] Failed to process draw/discard for ${controller}:`, err);
+        debugWarn(1, `[resolveTopOfStack] Failed to process draw/discard for ${controller}:`, err);
       }
     }
     
     // Handle "draw cards and create treasure" spells (Seize the Spoils, Unexpected Windfall, etc.)
     // Pattern: "Draw two cards and create a Treasure token"
     const drawAndTreasureMatch = oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?.*(?:create|creates?)\s+(?:a|an|one|two|three|\d+)?\s*treasure\s+tokens?/i);
-    console.log(`[resolveTopOfStack] ${effectiveCard.name}: Checking draw+treasure pattern. Match: ${!!drawAndTreasureMatch}, drawThenDiscardMatch: ${!!drawThenDiscardMatch}, eachPlayer: ${oracleTextLower.includes('each player')}`);
+    debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Checking draw+treasure pattern. Match: ${!!drawAndTreasureMatch}, drawThenDiscardMatch: ${!!drawThenDiscardMatch}, eachPlayer: ${oracleTextLower.includes('each player')}`);
     if (drawAndTreasureMatch && !oracleTextLower.includes('each player') && !drawThenDiscardMatch) {
       const wordToNumber: Record<string, number> = { 
         'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
@@ -3730,18 +3731,18 @@ export function resolveTopOfStack(ctx: GameContext) {
       const treasureCount = treasureCountMatch && treasureCountMatch[1] ? 
         parseInt(treasureCountMatch[1], 10) : 1;
       
-      console.log(`[resolveTopOfStack] ${effectiveCard.name}: Executing draw ${drawCount} + create ${treasureCount} treasure(s)`);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Executing draw ${drawCount} + create ${treasureCount} treasure(s)`);
       try {
         const drawn = drawCardsFromZone(ctx, controller, drawCount);
-        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s)`);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s)`);
         
         // Create treasure tokens
         for (let i = 0; i < treasureCount; i++) {
           createTreasureToken(ctx, controller);
         }
-        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} created ${treasureCount} Treasure token(s)`);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} created ${treasureCount} Treasure token(s)`);
       } catch (err) {
-        console.warn(`[resolveTopOfStack] Failed to process draw/treasure for ${controller}:`, err);
+        debugWarn(1, `[resolveTopOfStack] Failed to process draw/treasure for ${controller}:`, err);
       }
     }
     
@@ -3770,9 +3771,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         try {
           const drawn = drawCardsFromZone(ctx, controller, drawCount);
-          console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s) (simple draw spell)`);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s) (simple draw spell)`);
         } catch (err) {
-          console.warn(`[resolveTopOfStack] Failed to draw cards for ${controller}:`, err);
+          debugWarn(1, `[resolveTopOfStack] Failed to draw cards for ${controller}:`, err);
         }
       }
     }
@@ -3798,7 +3799,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         toHand: tutorInfo.toHand,
         entersTapped: tutorInfo.entersTapped,
       };
-      console.log(`[resolveTopOfStack] Tutor spell ${effectiveCard.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
+      debug(2, `[resolveTopOfStack] Tutor spell ${effectiveCard.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
     }
     
     // Handle Gamble - special tutor with random discard
@@ -3818,7 +3819,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Special flag for Gamble: after the tutor, discard random
         discardRandomAfter: true,
       };
-      console.log(`[resolveTopOfStack] Gamble: ${controller} will search for a card and then discard a random card`);
+      debug(2, `[resolveTopOfStack] Gamble: ${controller} will search for a card and then discard a random card`);
     }
     
     // Handle Gift of Estates - "If an opponent controls more lands than you, 
@@ -3846,9 +3847,9 @@ export function resolveTopOfStack(ctx: GameContext) {
           maxSelections: 3,
           filter: { subtypes: ['Plains'] },
         };
-        console.log(`[resolveTopOfStack] Gift of Estates: Condition met (opponent has more lands) - ${controller} may search for up to 3 Plains`);
+        debug(2, `[resolveTopOfStack] Gift of Estates: Condition met (opponent has more lands) - ${controller} may search for up to 3 Plains`);
       } else {
-        console.log(`[resolveTopOfStack] Gift of Estates: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
+        debug(2, `[resolveTopOfStack] Gift of Estates: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
       }
     }
     
@@ -3928,7 +3929,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         maxSelections: greatestPower,
         filter: { types: ['land'], supertypes: ['basic'] },
       };
-      console.log(`[resolveTopOfStack] Traverse the Outlands: ${controller} may search for up to ${greatestPower} basic lands (greatest power with counters/modifiers)`);
+      debug(2, `[resolveTopOfStack] Traverse the Outlands: ${controller} may search for up to ${greatestPower} basic lands (greatest power with counters/modifiers)`);
     }
     
     // Handle Boundless Realms - "Search your library for up to X basic land cards, 
@@ -3960,7 +3961,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         maxSelections: landCount,
         filter: { types: ['land'], supertypes: ['basic'] },
       };
-      console.log(`[resolveTopOfStack] Boundless Realms: ${controller} may search for up to ${landCount} basic lands (lands controlled)`);
+      debug(2, `[resolveTopOfStack] Boundless Realms: ${controller} may search for up to ${landCount} basic lands (lands controlled)`);
     }
     
     // Handle Jaheira's Respite - "Search your library for up to X basic land cards, 
@@ -3991,7 +3992,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         maxSelections: attackingController,
         filter: { types: ['land'], supertypes: ['basic'] },
       };
-      console.log(`[resolveTopOfStack] Jaheira's Respite: ${controller} may search for up to ${attackingController} basic lands (creatures attacking)`);
+      debug(2, `[resolveTopOfStack] Jaheira's Respite: ${controller} may search for up to ${attackingController} basic lands (creatures attacking)`);
     }
     
     // Handle Path to Exile - exile target creature, controller may search for basic land
@@ -4012,7 +4013,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         optional: true,
         source: effectiveCard.name || 'Path to Exile',
       };
-      console.log(`[resolveTopOfStack] Path to Exile: ${targetControllerForRemovalEffects} may search for a basic land (tapped)`);
+      debug(2, `[resolveTopOfStack] Path to Exile: ${targetControllerForRemovalEffects} may search for a basic land (tapped)`);
     }
     
     // Handle Swords to Plowshares - "Exile target creature. Its controller gains life equal to its power."
@@ -4035,7 +4036,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         if (player) {
           player.life = state.life[targetControllerForRemovalEffects];
-          console.log(`[resolveTopOfStack] Swords to Plowshares: ${targetControllerForRemovalEffects} gains ${targetPowerBeforeRemoval} life (${currentLife} -> ${state.life[targetControllerForRemovalEffects]})`);
+          debug(2, `[resolveTopOfStack] Swords to Plowshares: ${targetControllerForRemovalEffects} gains ${targetPowerBeforeRemoval} life (${currentLife} -> ${state.life[targetControllerForRemovalEffects]})`);
         }
         
         // Trigger life gain effects (Ajani's Pridemate, etc.)
@@ -4070,7 +4071,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         },
       } as any);
       
-      console.log(`[resolveTopOfStack] Fateful Absence: Created Clue token for ${targetControllerForRemovalEffects}`);
+      debug(2, `[resolveTopOfStack] Fateful Absence: Created Clue token for ${targetControllerForRemovalEffects}`);
     }
     
     // Handle Get Lost - "Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens."
@@ -4102,7 +4103,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         } as any);
       }
       
-      console.log(`[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${targetControllerForRemovalEffects}`);
+      debug(1, `[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${targetControllerForRemovalEffects}`);
     }
     
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
@@ -4141,9 +4142,9 @@ export function resolveTopOfStack(ctx: GameContext) {
             typeLine: c.card?.type_line,
           })),
         };
-        console.log(`[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} must sacrifice one of ${attackingCreatures.length} attacking creature(s)`);
+        debug(2, `[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} must sacrifice one of ${attackingCreatures.length} attacking creature(s)`);
       } else {
-        console.log(`[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} has no attacking creatures to sacrifice`);
+        debug(2, `[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} has no attacking creatures to sacrifice`);
       }
     }
     
@@ -4197,7 +4198,7 @@ export function resolveTopOfStack(ctx: GameContext) {
               toughness: targetCard.toughness,
             },
           });
-          console.log(`[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - DEFERRING zone change for player choice`);
+          debug(2, `[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - DEFERRING zone change for player choice`);
           
           // Still reveal and potentially put a card onto battlefield
           // (but the commander choice happens separately)
@@ -4223,7 +4224,7 @@ export function resolveTopOfStack(ctx: GameContext) {
                 counters: {},
               };
               battlefield.push(newPerm);
-              console.log(`[resolveTopOfStack] Chaos Warp: Revealed and put ${topCard.name} onto battlefield for ${owner}`);
+              debug(2, `[resolveTopOfStack] Chaos Warp: Revealed and put ${topCard.name} onto battlefield for ${owner}`);
             }
           }
           
@@ -4242,7 +4243,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         ctx.libraries?.set(owner, lib);
         
-        console.log(`[resolveTopOfStack] Chaos Warp: ${targetCard?.name || 'Permanent'} shuffled into ${owner}'s library`);
+        debug(2, `[resolveTopOfStack] Chaos Warp: ${targetCard?.name || 'Permanent'} shuffled into ${owner}'s library`);
         
         // Reveal top card of library
         if (lib.length > 0) {
@@ -4277,9 +4278,9 @@ export function resolveTopOfStack(ctx: GameContext) {
             } as any;
             
             battlefield.push(newPermanent);
-            console.log(`[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (permanent) - put onto battlefield`);
+            debug(2, `[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (permanent) - put onto battlefield`);
           } else {
-            console.log(`[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (${topTypeLine}) - not a permanent, stays on top`);
+            debug(2, `[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (${topTypeLine}) - not a permanent, stays on top`);
           }
         }
         
@@ -4296,7 +4297,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // These require all players to have the option to contribute mana
     // Uses the unified ResolutionQueueManager for proper APNAP ordering
     const cardNameLower = (effectiveCard.name || '').toLowerCase();
-    console.log(`[resolveTopOfStack] Checking if ${effectiveCard.name} is a Join Forces spell...`);
+    debug(1, `[resolveTopOfStack] Checking if ${effectiveCard.name} is a Join Forces spell...`);
     if (isJoinForcesSpell(effectiveCard.name, oracleTextLower)) {
       // Get players from state
       const allPlayers = (state as any).players || [];
@@ -4345,15 +4346,15 @@ export function resolveTopOfStack(ctx: GameContext) {
         controller // Start with caster, not active player
       );
       
-      console.log(`[resolveTopOfStack] Join Forces spell ${effectiveCard.name} created ${allPlayers.length} resolution steps for contributions`);
+      debug(1, `[resolveTopOfStack] Join Forces spell ${effectiveCard.name} created ${allPlayers.length} resolution steps for contributions`);
     } else {
-      console.log(`[resolveTopOfStack] ${effectiveCard.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
+      debug(1, `[resolveTopOfStack] ${effectiveCard.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
     }
     
     // Handle Tempting Offer spells (Tempt with Discovery, Tempt with Glory, etc.)
     // These require each opponent to choose whether to accept the offer
     // Uses the unified ResolutionQueueManager for proper APNAP ordering
-    console.log(`[resolveTopOfStack] Checking if ${effectiveCard.name} is a Tempting Offer spell...`);
+    debug(2, `[resolveTopOfStack] Checking if ${effectiveCard.name} is a Tempting Offer spell...`);
     if (isTemptingOfferSpell(effectiveCard.name, oracleTextLower)) {
       // Get players from state
       const allPlayers = (state as any).players || [];
@@ -4392,13 +4393,13 @@ export function resolveTopOfStack(ctx: GameContext) {
           (state as any).activePlayer || controller
         );
         
-        console.log(`[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} created ${opponents.length} resolution steps for opponent responses`);
+        debug(2, `[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} created ${opponents.length} resolution steps for opponent responses`);
       } else {
         // No opponents - initiator just gets the effect once
-        console.log(`[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} has no opponents - effect resolves immediately for initiator`);
+        debug(2, `[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} has no opponents - effect resolves immediately for initiator`);
       }
     } else {
-      console.log(`[resolveTopOfStack] ${effectiveCard.name} is NOT a Tempting Offer spell`);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} is NOT a Tempting Offer spell`);
     }
     
     // Handle Ponder-style effects (look at top N, reorder, optionally shuffle, then draw)
@@ -4419,7 +4420,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         targetPlayerId: controller,
         imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
       };
-      console.log(`[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
+      debug(2, `[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
     }
 
     // Handle Genesis Wave: Reveal top X, put all permanents with mana value <= X onto battlefield, rest on bottom in random order
@@ -4490,7 +4491,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         } as any;
         
         state.battlefield.push(newPermanent);
-        console.log(`[resolveTopOfStack] Genesis Wave: Put ${cardToPut.name} onto the battlefield (MV ${cardManaValue(cardToPut)}, X=${xVal})`);
+        debug(2, `[resolveTopOfStack] Genesis Wave: Put ${cardToPut.name} onto the battlefield (MV ${cardManaValue(cardToPut)}, X=${xVal})`);
         
         // Self ETB triggers
         const selfETBTriggerTypes = new Set([
@@ -4560,7 +4561,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       const castCount = (state as any).approachCastHistory[controller].length;
       if (castCount >= 2) {
         // Win the game!
-        console.log(`[resolveTopOfStack] ${controller} wins! Approach of the Second Sun cast for the second time!`);
+        debug(2, `[resolveTopOfStack] ${controller} wins! Approach of the Second Sun cast for the second time!`);
         
         // Set winner
         (state as any).winner = controller;
@@ -4587,7 +4588,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         const player = (state.players || []).find((p: any) => p.id === controller);
         if (player) player.life = state.life[controller];
         
-        console.log(`[resolveTopOfStack] Approach of the Second Sun: ${controller} gained 7 life, card put 7th from top (cast #${castCount})`);
+        debug(2, `[resolveTopOfStack] Approach of the Second Sun: ${controller} gained 7 life, card put 7th from top (cast #${castCount})`);
       }
       
       bumpSeq();
@@ -4613,13 +4614,13 @@ export function resolveTopOfStack(ctx: GameContext) {
         });
         z.exileCount = (z.exile as any[]).length;
         
-        console.log(`[resolveTopOfStack] Adventure spell ${effectiveCard.name || 'unnamed'} resolved and exiled for ${controller}`);
+        debug(2, `[resolveTopOfStack] Adventure spell ${effectiveCard.name || 'unnamed'} resolved and exiled for ${controller}`);
       } else {
         // Regular instant/sorcery - goes to graveyard
         z.graveyard = z.graveyard || [];
         (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
         z.graveyardCount = (z.graveyard as any[]).length;
-        console.log(`[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
+        debug(2, `[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
       }
     }
   }
@@ -4630,7 +4631,7 @@ export function resolveTopOfStack(ctx: GameContext) {
   try {
     runSBA(ctx);
   } catch (err) {
-    console.warn('[resolveTopOfStack] Error running SBA:', err);
+    debugWarn(1, '[resolveTopOfStack] Error running SBA:', err);
   }
   
   // CRITICAL FIX: Reset priorityPassedBy after stack resolution
@@ -4642,9 +4643,9 @@ export function resolveTopOfStack(ctx: GameContext) {
   // receives priority again and can perform more actions before passing.
   try {
     (state as any).priorityPassedBy = new Set<string>();
-    console.log(`[resolveTopOfStack] Reset priorityPassedBy after spell resolution`);
+    debug(2, `[resolveTopOfStack] Reset priorityPassedBy after spell resolution`);
   } catch (err) {
-    console.warn('[resolveTopOfStack] Error resetting priorityPassedBy:', err);
+    debugWarn(1, '[resolveTopOfStack] Error resetting priorityPassedBy:', err);
   }
   
   bumpSeq();
@@ -4674,7 +4675,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
             z.graveyardCount = (z.graveyard as any[]).length;
           }
         }
-        console.log(`[resolveSpell] ${spellName} destroyed ${(destroyed as any).card?.name || effect.id}`);
+        debug(2, `[resolveSpell] ${spellName} destroyed ${(destroyed as any).card?.name || effect.id}`);
         
         // Process linked exile returns - if this was an Oblivion Ring-style card,
         // return any cards it had exiled
@@ -4698,7 +4699,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
             (z.exile as any[]).push({ ...card, zone: "exile" });
           }
         }
-        console.log(`[resolveSpell] ${spellName} exiled ${(exiled as any).card?.name || effect.id}`);
+        debug(2, `[resolveSpell] ${spellName} exiled ${(exiled as any).card?.name || effect.id}`);
         
         // Process linked exile returns - if this was an Oblivion Ring-style card,
         // return any cards it had exiled
@@ -4725,7 +4726,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
         
         // Tokens cease to exist when exiled (Rule 111.7) - they don't return
         if (isToken) {
-          console.log(`[resolveSpell] ${spellName} exiled token ${flickeredName} - token ceased to exist`);
+          debug(2, `[resolveSpell] ${spellName} exiled token ${flickeredName} - token ceased to exist`);
           break;
         }
         
@@ -4750,7 +4751,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           };
           
           battlefield.push(newPermanent);
-          console.log(`[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${newPermanent.id}`);
+          debug(2, `[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${newPermanent.id}`);
           
           // Trigger ETB effects for the returned permanent
           triggerETBEffectsForPermanent(ctx, newPermanent, owner);
@@ -4765,7 +4766,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
             returnTime: returnDelay, // 'end_of_turn' or 'end_of_combat'
             source: spellName,
           });
-          console.log(`[resolveSpell] ${spellName} exiled ${flickeredName} - will return at ${returnDelay}`);
+          debug(2, `[resolveSpell] ${spellName} exiled ${flickeredName} - will return at ${returnDelay}`);
         }
       }
       break;
@@ -4775,7 +4776,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       const perm = battlefield.find((p: any) => p.id === effect.id);
       if (perm) {
         (perm as any).damage = ((perm as any).damage || 0) + effect.amount;
-        console.log(`[resolveSpell] ${spellName} dealt ${effect.amount} damage to ${(perm as any).card?.name || effect.id}`);
+        debug(2, `[resolveSpell] ${spellName} dealt ${effect.amount} damage to ${(perm as any).card?.name || effect.id}`);
       }
       break;
     }
@@ -4784,7 +4785,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       const player = players.find((p: any) => p.id === effect.playerId);
       if (player) {
         (player as any).life = ((player as any).life || 40) - effect.amount;
-        console.log(`[resolveSpell] ${spellName} dealt ${effect.amount} damage to player ${effect.playerId}`);
+        debug(2, `[resolveSpell] ${spellName} dealt ${effect.amount} damage to player ${effect.playerId}`);
       }
       break;
     }
@@ -4806,7 +4807,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           (zones[controller] as any).graveyardCount = gy.length;
         }
         
-        console.log(`[resolveSpell] ${spellName} countered ${counteredCardName}`);
+        debug(2, `[resolveSpell] ${spellName} countered ${counteredCardName}`);
       }
       break;
     }
@@ -4817,13 +4818,13 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       if (stackIdx >= 0) {
         const countered = stack.splice(stackIdx, 1)[0];
         const abilityDesc = (countered as any).description || (countered as any).ability?.text || 'ability';
-        console.log(`[resolveSpell] ${spellName} countered ${abilityDesc}`);
+        debug(2, `[resolveSpell] ${spellName} countered ${abilityDesc}`);
         // Abilities don't go anywhere when countered - they just cease to exist
       }
       break;
     }
     case 'Broadcast': {
-      console.log(`[resolveSpell] ${effect.message}`);
+      debug(2, `[resolveSpell] ${effect.message}`);
       break;
     }
   }
@@ -5160,7 +5161,7 @@ function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, 
     },
   } as any);
   
-  console.log(`[resolveSpell] Created ${power}/${toughness} ${color || 'green'} ${name} token for ${controller}`);
+  debug(2, `[resolveSpell] Created ${power}/${toughness} ${color || 'green'} ${name} token for ${controller}`);
 }
 
 /**
@@ -5398,7 +5399,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       (p: any) => p?.card?.id === cardId && p?.controller === playerId
     );
     if (alreadyOnBattlefield) {
-      console.info(`playLand: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
+      debug(1, `playLand: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
       return;
     }
   }
@@ -5407,18 +5408,18 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     // Find card in player's hand
     const z = zones[playerId];
     if (!z) {
-      console.warn(`playLand: no zone found for player ${playerId}`);
+      debugWarn(2, `playLand: no zone found for player ${playerId}`);
       return;
     }
     if (!Array.isArray(z.hand)) {
-      console.warn(`playLand: hand is not an array for player ${playerId} (type: ${typeof z.hand})`);
+      debugWarn(2, `playLand: hand is not an array for player ${playerId} (type: ${typeof z.hand})`);
       return;
     }
     const handCards = z.hand as any[];
     const idx = handCards.findIndex((c: any) => c.id === cardOrId);
     if (idx === -1) {
       // During replay, card might not be in hand anymore - this is okay
-      console.info(`playLand: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
+      debug(1, `playLand: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
       return;
     }
     // Remove card from hand
@@ -5428,7 +5429,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     // Card object passed directly (legacy or event replay)
     card = cardOrId;
     if (!card) {
-      console.warn(`playLand: card is null or undefined for player ${playerId}`);
+      debugWarn(2, `playLand: card is null or undefined for player ${playerId}`);
       return;
     }
     // Try to remove from hand if it exists there
@@ -5471,7 +5472,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     if (etbTappedStatus === 'always') {
       // Unconditional ETB tapped (temples, guildgates, etc.)
       shouldEnterTapped = true;
-      console.log(`[playLand] ${card.name || 'Land'} enters tapped (ETB-tapped pattern detected)`);
+      debug(2, `[playLand] ${card.name || 'Land'} enters tapped (ETB-tapped pattern detected)`);
     } else if (etbTappedStatus === 'conditional') {
       // Conditional ETB tapped - evaluate based on board state
       // Count other lands controlled by this player
@@ -5509,7 +5510,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       if (hasBattleLandPattern) {
         // Battle land (BFZ tango land) - check basic land count
         shouldEnterTapped = basicLandCount < 2;
-        console.log(`[playLand] ${card.name || 'Land'} battle land check: ${basicLandCount} basic lands - enters ${shouldEnterTapped ? 'tapped' : 'untapped'}`);
+        debug(2, `[playLand] ${card.name || 'Land'} battle land check: ${basicLandCount} basic lands - enters ${shouldEnterTapped ? 'tapped' : 'untapped'}`);
       } else {
         // Use general conditional evaluation for check lands, fast lands, slow lands, etc.
         const evaluation = evaluateConditionalLandETB(
@@ -5521,7 +5522,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           opponentCount    // Pass opponent count for Luxury Suite and similar lands
         );
         shouldEnterTapped = evaluation.shouldEnterTapped;
-        console.log(`[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);
+        debug(2, `[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);
       }
     }
   }
@@ -5548,7 +5549,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
     
     if (etbTriggers.length > 0) {
-      console.log(`[playLand] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'land'}`);
+      debug(2, `[playLand] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'land'}`);
       
       // Put ETB triggers on the stack
       state.stack = state.stack || [];
@@ -5573,11 +5574,11 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           targets: [],
         } as any);
         
-        console.log(`[playLand] Pushed ETB trigger to stack: ${trigger.description || trigger.effect}`);
+        debug(2, `[playLand] Pushed ETB trigger to stack: ${trigger.description || trigger.effect}`);
       }
     }
   } catch (err) {
-    console.warn('[playLand] Failed to check ETB triggers:', err);
+    debugWarn(1, '[playLand] Failed to check ETB triggers:', err);
   }
   
   // ========================================================================
@@ -5587,7 +5588,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   try {
     const landfallTriggers = getLandfallTriggers(ctx, playerId);
     if (landfallTriggers.length > 0) {
-      console.log(`[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
+      debug(2, `[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
       
       // Initialize stack if needed
       state.stack = state.stack || [];
@@ -5614,18 +5615,18 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           isModal: trigger.isModal,
           modalOptions: trigger.modalOptions,
         } as any);
-        console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
+        debug(2, `[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
       }
     }
   } catch (err) {
-    console.warn('[playLand] Failed to process landfall triggers:', err);
+    debugWarn(1, '[playLand] Failed to process landfall triggers:', err);
   }
   
   // Recalculate player effects when lands ETB (some lands might have effects)
   try {
     recalculatePlayerEffects(ctx);
   } catch (err) {
-    console.warn('[playLand] Failed to recalculate player effects:', err);
+    debugWarn(1, '[playLand] Failed to recalculate player effects:', err);
   }
   
   bumpSeq();
@@ -5660,7 +5661,7 @@ export function castSpell(
         (s: any) => s?.card?.id === cardId && s?.controller === playerId
       );
       if (alreadyOnStack) {
-        console.info(`castSpell: card ${cardId} already on stack for ${playerId}, skipping (replay idempotency)`);
+        debug(1, `castSpell: card ${cardId} already on stack for ${playerId}, skipping (replay idempotency)`);
         return;
       }
     }
@@ -5669,7 +5670,7 @@ export function castSpell(
         (p: any) => p?.card?.id === cardId && p?.controller === playerId
       );
       if (alreadyOnBattlefield) {
-        console.info(`castSpell: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
+        debug(1, `castSpell: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
         return;
       }
     }
@@ -5679,18 +5680,18 @@ export function castSpell(
     // Find card in player's hand
     const z = zones[playerId];
     if (!z) {
-      console.warn(`castSpell: no zone found for player ${playerId}`);
+      debugWarn(2, `castSpell: no zone found for player ${playerId}`);
       return;
     }
     if (!Array.isArray(z.hand)) {
-      console.warn(`castSpell: hand is not an array for player ${playerId} (type: ${typeof z.hand})`);
+      debugWarn(2, `castSpell: hand is not an array for player ${playerId} (type: ${typeof z.hand})`);
       return;
     }
     const handCards = z.hand as any[];
     const idx = handCards.findIndex((c: any) => c.id === cardOrId);
     if (idx === -1) {
       // During replay, card might not be in hand anymore - this is okay
-      console.info(`castSpell: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
+      debug(1, `castSpell: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
       return;
     }
     // Remove card from hand
@@ -5700,7 +5701,7 @@ export function castSpell(
     // Card object passed directly (legacy or event replay)
     card = cardOrId;
     if (!card) {
-      console.warn(`castSpell: card is null or undefined for player ${playerId}`);
+      debugWarn(2, `castSpell: card is null or undefined for player ${playerId}`);
       return;
     }
     // Try to remove from hand if it exists there
@@ -5868,7 +5869,9 @@ export function exileEntireStack(ctx: GameContext, invokedBy?: PlayerID): number
     ctx.bumpSeq();
     return count;
   } catch (err) {
-    console.warn("exileEntireStack failed:", err);
+    debugWarn(1, "exileEntireStack failed:", err);
     return 0;
   }
 }
+
+

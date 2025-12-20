@@ -12,6 +12,7 @@
 
 import type { GameContext } from "../../context.js";
 import { KNOWN_UNTAP_TRIGGERS } from "./card-data-tables.js";
+import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 // Re-export detectDoesntUntapEffects from turn-phases for backwards compatibility
 export { detectDoesntUntapEffects } from "./turn-phases.js";
@@ -202,7 +203,7 @@ export function executeUntapTrigger(
 ): void {
   const battlefield = ctx.state?.battlefield || [];
   
-  console.log(`[executeUntapTrigger] ${trigger.cardName}: ${trigger.effect}`);
+  debug(2, `[executeUntapTrigger] ${trigger.cardName}: ${trigger.effect}`);
   
   switch (trigger.untapType) {
     case 'lands':
@@ -212,7 +213,7 @@ export function executeUntapTrigger(
         const typeLine = (permanent.card?.type_line || '').toLowerCase();
         if (typeLine.includes('land') && permanent.tapped) {
           permanent.tapped = false;
-          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+          debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
       break;
@@ -224,7 +225,7 @@ export function executeUntapTrigger(
         const typeLine = (permanent.card?.type_line || '').toLowerCase();
         if (typeLine.includes('creature') && permanent.tapped) {
           permanent.tapped = false;
-          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+          debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
       break;
@@ -235,7 +236,7 @@ export function executeUntapTrigger(
         if (!permanent || permanent.controller !== trigger.controllerId) continue;
         if (permanent.tapped) {
           permanent.tapped = false;
-          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+          debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
         }
       }
       break;
@@ -436,3 +437,4 @@ export function getTapTriggers(
   
   return triggers;
 }
+

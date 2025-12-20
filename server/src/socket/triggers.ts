@@ -9,6 +9,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getOrInitManaPool, calculateTotalAvailableMana, consumeManaFromPool } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * List of shock lands and similar "pay life or enter tapped" lands
@@ -146,7 +147,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           cardName,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist shockLandChoice event:", e);
+        debugWarn(1, "[triggers] Failed to persist shockLandChoice event:", e);
       }
 
       // Bump sequence and broadcast
@@ -156,10 +157,10 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
 
       broadcastGame(io, game, gameId);
       
-      console.log(`[triggers] ${payLife ? "Paid life for" : "Tapped"} ${cardName} for player ${playerId} in game ${gameId}`);
+      debug(2, `[triggers] ${payLife ? "Paid life for" : "Tapped"} ${cardName} for player ${playerId} in game ${gameId}`);
       
     } catch (err: any) {
-      console.error(`[triggers] shockLandChoice error:`, err);
+      debugError(1, `[triggers] shockLandChoice error:`, err);
       socket.emit("error", {
         code: "SHOCK_LAND_ERROR",
         message: err?.message ?? String(err),
@@ -285,7 +286,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           ts: Date.now(),
         });
         
-        console.log(`[triggers] Mox Diamond: ${playerId} discarded ${landName}, Mox Diamond enters battlefield`);
+        debug(2, `[triggers] Mox Diamond: ${playerId} discarded ${landName}, Mox Diamond enters battlefield`);
         
       } else {
         // Player chose not to discard - put Mox Diamond in graveyard
@@ -300,7 +301,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           ts: Date.now(),
         });
         
-        console.log(`[triggers] Mox Diamond: ${playerId} didn't discard, Mox Diamond goes to graveyard`);
+        debug(2, `[triggers] Mox Diamond: ${playerId} didn't discard, Mox Diamond goes to graveyard`);
       }
       
       // Persist the event
@@ -312,7 +313,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           cardName,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist moxDiamondChoice event:", e);
+        debugWarn(1, "[triggers] Failed to persist moxDiamondChoice event:", e);
       }
       
       // Bump sequence and broadcast
@@ -323,7 +324,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[triggers] moxDiamondChoice error:`, err);
+      debugError(1, `[triggers] moxDiamondChoice error:`, err);
       socket.emit("error", {
         code: "MOX_DIAMOND_ERROR",
         message: err?.message ?? String(err),
@@ -412,7 +413,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         const stackIndex = stack.findIndex((item: any) => item.id === stackItemId);
         if (stackIndex !== -1) {
           stack.splice(stackIndex, 1);
-          console.log(`[triggers] Removed bounce land trigger from stack (id: ${stackItemId})`);
+          debug(2, `[triggers] Removed bounce land trigger from stack (id: ${stackItemId})`);
         }
       }
 
@@ -436,7 +437,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           stackItemId,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist bounceLandChoice event:", e);
+        debugWarn(1, "[triggers] Failed to persist bounceLandChoice event:", e);
       }
 
       // Bump sequence and broadcast
@@ -446,10 +447,10 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
 
       broadcastGame(io, game, gameId);
       
-      console.log(`[triggers] ${bounceLandName} returned ${returnedLandName} to hand for player ${playerId} in game ${gameId}`);
+      debug(2, `[triggers] ${bounceLandName} returned ${returnedLandName} to hand for player ${playerId} in game ${gameId}`);
       
     } catch (err: any) {
-      console.error(`[triggers] bounceLandChoice error:`, err);
+      debugError(1, `[triggers] bounceLandChoice error:`, err);
       socket.emit("error", {
         code: "BOUNCE_LAND_ERROR",
         message: err?.message ?? String(err),
@@ -542,7 +543,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           choice,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist resolveTrigger event:", e);
+        debugWarn(1, "[triggers] Failed to persist resolveTrigger event:", e);
       }
 
       // Bump sequence and broadcast
@@ -553,7 +554,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[triggers] resolveTrigger error:`, err);
+      debugError(1, `[triggers] resolveTrigger error:`, err);
       socket.emit("error", {
         code: "RESOLVE_TRIGGER_ERROR",
         message: err?.message ?? String(err),
@@ -603,7 +604,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[triggers] skipTrigger error:`, err);
+      debugError(1, `[triggers] skipTrigger error:`, err);
     }
   });
 
@@ -703,7 +704,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           orderedTriggerIds,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist orderTriggers event:", e);
+        debugWarn(1, "[triggers] Failed to persist orderTriggers event:", e);
       }
 
       // Bump sequence and broadcast
@@ -713,10 +714,10 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
 
       broadcastGame(io, game, gameId);
       
-      console.log(`[triggers] ${playerId} ordered ${triggersToStack.length} triggers onto stack in game ${gameId}`);
+      debug(2, `[triggers] ${playerId} ordered ${triggersToStack.length} triggers onto stack in game ${gameId}`);
       
     } catch (err: any) {
-      console.error(`[triggers] orderTriggers error:`, err);
+      debugError(1, `[triggers] orderTriggers error:`, err);
       socket.emit("error", {
         code: "ORDER_TRIGGERS_ERROR",
         message: err?.message ?? String(err),
@@ -828,7 +829,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           cardName,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist sacrificeUnlessPayChoice event:", e);
+        debugWarn(1, "[triggers] Failed to persist sacrificeUnlessPayChoice event:", e);
       }
 
       // Bump sequence and broadcast
@@ -838,10 +839,10 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
 
       broadcastGame(io, game, gameId);
       
-      console.log(`[triggers] ${payMana ? "Paid for" : "Sacrificed"} ${cardName} for player ${playerId} in game ${gameId}`);
+      debug(2, `[triggers] ${payMana ? "Paid for" : "Sacrificed"} ${cardName} for player ${playerId} in game ${gameId}`);
       
     } catch (err: any) {
-      console.error(`[triggers] sacrificeUnlessPayChoice error:`, err);
+      debugError(1, `[triggers] sacrificeUnlessPayChoice error:`, err);
       socket.emit("error", {
         code: "SACRIFICE_UNLESS_PAY_ERROR",
         message: err?.message ?? String(err),
@@ -927,7 +928,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           ts: Date.now(),
         });
         
-        console.log(`[triggers] ${playerId} revealed ${revealedName} for ${cardName} to enter untapped`);
+        debug(2, `[triggers] ${playerId} revealed ${revealedName} for ${cardName} to enter untapped`);
         
       } else {
         // Player chose not to reveal - land enters tapped
@@ -941,7 +942,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           ts: Date.now(),
         });
         
-        console.log(`[triggers] ${cardName} enters tapped for ${playerId} (no reveal)`);
+        debug(2, `[triggers] ${cardName} enters tapped for ${playerId} (no reveal)`);
       }
 
       // Persist the event
@@ -953,7 +954,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           cardName,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist revealLandChoice event:", e);
+        debugWarn(1, "[triggers] Failed to persist revealLandChoice event:", e);
       }
 
       // Bump sequence and broadcast
@@ -964,7 +965,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[triggers] revealLandChoice error:`, err);
+      debugError(1, `[triggers] revealLandChoice error:`, err);
       socket.emit("error", {
         code: "REVEAL_LAND_ERROR",
         message: err?.message ?? String(err),
@@ -1107,7 +1108,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           ts: Date.now(),
         });
         
-        console.log(`[triggers] ${playerId} played land ${cardName} via Kynaios choice`);
+        debug(2, `[triggers] ${playerId} played land ${cardName} via Kynaios choice`);
         
       } else if (choice === 'draw_card' && !isController) {
         // Opponent chose to draw instead of playing a land
@@ -1122,7 +1123,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           ts: Date.now(),
         });
         
-        console.log(`[triggers] ${playerId} chose to draw via Kynaios choice`);
+        debug(2, `[triggers] ${playerId} chose to draw via Kynaios choice`);
         
       } else if (choice === 'decline') {
         // Controller declined to play a land, or opponent declined (will draw)
@@ -1138,7 +1139,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           });
         }
         
-        console.log(`[triggers] ${playerId} declined Kynaios land play option`);
+        debug(2, `[triggers] ${playerId} declined Kynaios land play option`);
       }
       
       // Persist event
@@ -1150,7 +1151,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           landCardId,
         });
       } catch (e) {
-        console.warn("[triggers] Failed to persist kynaiosChoice event:", e);
+        debugWarn(1, "[triggers] Failed to persist kynaiosChoice event:", e);
       }
 
       // Bump sequence and broadcast
@@ -1161,7 +1162,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[triggers] kynaiosChoiceResponse error:`, err);
+      debugError(1, `[triggers] kynaiosChoiceResponse error:`, err);
       socket.emit("error", {
         code: "KYNAIOS_CHOICE_ERROR",
         message: err?.message ?? String(err),
@@ -1313,3 +1314,4 @@ export function emitDevotionManaPrompt(
     message: `${cardName} adds ${devotionCount} ${manaColor} mana (devotion)`,
   });
 }
+

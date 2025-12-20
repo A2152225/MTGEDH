@@ -5,6 +5,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -328,7 +329,7 @@ export function registerForTournament(
     if (err?.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
       return false; // Already registered
     }
-    console.error('[DB] registerForTournament failed:', err);
+    debugError(1, '[DB] registerForTournament failed:', err);
     return false;
   }
 }
@@ -744,3 +745,4 @@ export function cancelTournament(tournamentId: string): boolean {
   });
   return true;
 }
+

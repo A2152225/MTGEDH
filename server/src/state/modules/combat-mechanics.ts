@@ -42,6 +42,7 @@
  */
 
 import type { GameContext } from "../context.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 export interface CombatCreature {
   permanentId: string;
@@ -109,19 +110,19 @@ export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywo
     const rawKeywords = card?.keywords;
     
     // Always log keyword parsing for combat debugging
-    console.log(`[KEYWORDS] ========== Parsing keywords for: ${cardName} ==========`);
-    console.log(`[KEYWORDS] Raw keywords: type=${typeof rawKeywords}, isArray=${Array.isArray(rawKeywords)}`);
-    console.log(`[KEYWORDS] Raw value: ${rawKeywords ? JSON.stringify(rawKeywords) : 'undefined'}`);
+    debug(2, `[KEYWORDS] ========== Parsing keywords for: ${cardName} ==========`);
+    debug(2, `[KEYWORDS] Raw keywords: type=${typeof rawKeywords}, isArray=${Array.isArray(rawKeywords)}`);
+    debug(2, `[KEYWORDS] Raw value: ${rawKeywords ? JSON.stringify(rawKeywords) : 'undefined'}`);
     
     if (rawKeywords && !Array.isArray(rawKeywords)) {
-      console.warn(`[KEYWORDS] WARNING: keywords is not an array for ${cardName}: type=${typeof rawKeywords}`);
+      debugWarn(1, `[KEYWORDS] WARNING: keywords is not an array for ${cardName}: type=${typeof rawKeywords}`);
     }
     
     const keywords = Array.isArray(rawKeywords) 
       ? rawKeywords.filter((k: any) => typeof k === 'string').map((k: string) => k.toLowerCase())
       : [];
     
-    console.log(`[KEYWORDS] Normalized keywords array: [${keywords.join(', ')}]`);
+    debug(1, `[KEYWORDS] Normalized keywords array: [${keywords.join(', ')}]`);
     
     const hasKeyword = (kw: string) => {
       const inKeywords = keywords.includes(kw.toLowerCase());
@@ -157,16 +158,16 @@ export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywo
     
     // Always log the parsed result with active keywords
     const activeKeywords = Object.entries(result).filter(([_, v]) => v === true).map(([k]) => k);
-    console.log(`[KEYWORDS] ${cardName} ACTIVE ABILITIES: [${activeKeywords.length > 0 ? activeKeywords.join(', ') : 'none'}]`);
-    console.log(`[KEYWORDS] First Strike: ${result.firstStrike}, Double Strike: ${result.doubleStrike}`);
-    console.log(`[KEYWORDS] ========== End parsing for: ${cardName} ==========`);
+    debug(1, `[KEYWORDS] ${cardName} ACTIVE ABILITIES: [${activeKeywords.length > 0 ? activeKeywords.join(', ') : 'none'}]`);
+    debug(2, `[KEYWORDS] First Strike: ${result.firstStrike}, Double Strike: ${result.doubleStrike}`);
+    debug(2, `[KEYWORDS] ========== End parsing for: ${cardName} ==========`);
     
     return result;
   } catch (err) {
-    console.error(`[KEYWORDS] CRASH parsing ${card?.name}:`, err);
-    console.error(`[KEYWORDS] rawKeywords was:`, card?.keywords);
-    console.error(`[KEYWORDS] Card data:`, JSON.stringify(card, null, 2).slice(0, 1000));
-    console.error(`[KEYWORDS] Permanent data:`, permanent ? JSON.stringify(permanent, null, 2).slice(0, 500) : 'undefined');
+    debugError(1, `[KEYWORDS] CRASH parsing ${card?.name}:`, err);
+    debugError(1, `[KEYWORDS] rawKeywords was:`, card?.keywords);
+    debugError(1, `[KEYWORDS] Card data:`, JSON.stringify(card, null, 2).slice(0, 1000));
+    debugError(1, `[KEYWORDS] Permanent data:`, permanent ? JSON.stringify(permanent, null, 2).slice(0, 500) : 'undefined');
     throw err; // Re-throw to let caller handle
   }
 }
@@ -606,3 +607,4 @@ export function wouldDamageBePreventedByProtection(
   
   return false;
 }
+

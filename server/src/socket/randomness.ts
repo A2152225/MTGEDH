@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, getPlayerName } from "./util";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Roll a die with the specified number of sides.
@@ -51,7 +52,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       const playerName = getPlayerName(game, playerId);
       const timestamp = Date.now();
       
-      console.log(`[randomness] ${playerName} rolled d${sides}: ${result}`);
+      debug(2, `[randomness] ${playerName} rolled d${sides}: ${result}`);
       
       // Broadcast the result to all players
       io.to(gameId).emit("dieRollResult", {
@@ -73,7 +74,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       });
       
     } catch (err: any) {
-      console.error(`rollDie error for game ${gameId}:`, err);
+      debugError(1, `rollDie error for game ${gameId}:`, err);
       socket.emit("error", { code: "ROLL_DIE_ERROR", message: err?.message ?? String(err) });
     }
   });
@@ -96,7 +97,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       const playerName = getPlayerName(game, playerId);
       const timestamp = Date.now();
       
-      console.log(`[randomness] ${playerName} flipped a coin: ${result}`);
+      debug(2, `[randomness] ${playerName} flipped a coin: ${result}`);
       
       // Broadcast the result to all players
       io.to(gameId).emit("coinFlipResult", {
@@ -117,8 +118,9 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       });
       
     } catch (err: any) {
-      console.error(`flipCoin error for game ${gameId}:`, err);
+      debugError(1, `flipCoin error for game ${gameId}:`, err);
       socket.emit("error", { code: "FLIP_COIN_ERROR", message: err?.message ?? String(err) });
     }
   });
 }
+

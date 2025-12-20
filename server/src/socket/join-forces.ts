@@ -15,6 +15,7 @@ import { appendEvent } from "../db";
 import { isAIPlayer } from "./ai.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { getTokenImageUrls } from "../services/tokens.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Pending Join Forces effect waiting for player contributions
@@ -166,7 +167,7 @@ function calculateAIJoinForcesContribution(game: any, aiPlayerId: string, cardNa
   
   // If no mana available, can't contribute
   if (availableMana === 0) {
-    console.log(`[AI JoinForces] ${aiPlayerId} has no untapped lands, contributing 0`);
+    debug(1, `[AI JoinForces] ${aiPlayerId} has no untapped lands, contributing 0`);
     return 0;
   }
   
@@ -298,7 +299,7 @@ function calculateAIJoinForcesContribution(game: any, aiPlayerId: string, cardNa
   // Ensure we don't exceed available mana
   const finalContribution = Math.min(desiredContribution, availableMana);
   
-  console.log(`[AI JoinForces] ${aiPlayerId} for ${cardName}: contributing ${finalContribution}/${availableMana} (${reasoning})`);
+  debug(1, `[AI JoinForces] ${aiPlayerId} for ${cardName}: contributing ${finalContribution}/${availableMana} (${reasoning})`);
   
   return finalContribution;
 }
@@ -470,7 +471,7 @@ function shouldAIAcceptTemptingOffer(game: any, aiPlayerId: string, cardName: st
     reasoning = 'default decision';
   }
   
-  console.log(`[AI TemptingOffer] ${aiPlayerId} for ${cardName}: ${shouldAccept ? 'ACCEPTS' : 'DECLINES'} (${reasoning})`);
+  debug(2, `[AI TemptingOffer] ${aiPlayerId} for ${cardName}: ${shouldAccept ? 'ACCEPTS' : 'DECLINES'} (${reasoning})`);
   
   return shouldAccept;
 }
@@ -496,7 +497,7 @@ function processAIJoinForcesResponses(
     }
   }
   
-  console.log(`[joinForces] Processing AI responses for ${pending.cardName}: ${aiPlayerCount} AI players, ${nonAIPlayerCount} non-AI players remaining`);
+  debug(1, `[joinForces] Processing AI responses for ${pending.cardName}: ${aiPlayerCount} AI players, ${nonAIPlayerCount} non-AI players remaining`);
   
   for (const playerId of pending.players) {
     // Skip if already responded or not an AI
@@ -509,17 +510,17 @@ function processAIJoinForcesResponses(
     // Delay AI response for natural feel
     const delay = AI_RESPONSE_MIN_MS + Math.random() * (AI_RESPONSE_MAX_MS - AI_RESPONSE_MIN_MS);
     
-    console.log(`[joinForces] AI player ${playerId} will respond in ${Math.round(delay)}ms with contribution ${contribution}`);
+    debug(1, `[joinForces] AI player ${playerId} will respond in ${Math.round(delay)}ms with contribution ${contribution}`);
     
     setTimeout(() => {
       // Check if effect still pending
       const currentPending = pendingJoinForces.get(pending.id);
       if (!currentPending) {
-        console.log(`[joinForces] AI ${playerId} response skipped - effect no longer pending`);
+        debug(1, `[joinForces] AI ${playerId} response skipped - effect no longer pending`);
         return;
       }
       if (currentPending.responded.has(playerId)) {
-        console.log(`[joinForces] AI ${playerId} response skipped - already responded`);
+        debug(1, `[joinForces] AI ${playerId} response skipped - already responded`);
         return;
       }
       
@@ -527,7 +528,7 @@ function processAIJoinForcesResponses(
       currentPending.contributions[playerId] = contribution;
       currentPending.responded.add(playerId);
       
-      console.log(`[joinForces] AI ${playerId} contributed ${contribution} mana. Responded: ${currentPending.responded.size}/${currentPending.players.length}`);
+      debug(1, `[joinForces] AI ${playerId} contributed ${contribution} mana. Responded: ${currentPending.responded.size}/${currentPending.players.length}`);
       
       // Notify all players
       io.to(pending.gameId).emit("joinForcesUpdate", {
@@ -551,18 +552,18 @@ function processAIJoinForcesResponses(
       
       // Check if all players have responded
       if (allPlayersResponded(currentPending)) {
-        console.log(`[joinForces] All players responded - completing effect`);
+        debug(1, `[joinForces] All players responded - completing effect`);
         completeJoinForces(io, currentPending);
       }
     }, delay);
   }
   
-  console.log(`[joinForces] Scheduled ${aiPlayerCount} AI responses for effect ${pending.id}`);
+  debug(1, `[joinForces] Scheduled ${aiPlayerCount} AI responses for effect ${pending.id}`);
   
   // If all remaining players are AI and we scheduled responses, we're good
   // If no AI players were found but there are players, log a warning
   if (aiPlayerCount === 0 && nonAIPlayerCount > 0 && pending.players.length > pending.responded.size) {
-    console.warn(`[joinForces] Warning: No AI players detected for effect ${pending.id}, but ${nonAIPlayerCount} players haven't responded yet. Waiting for human responses.`);
+    debugWarn(1, `[joinForces] Warning: No AI players detected for effect ${pending.id}, but ${nonAIPlayerCount} players haven't responded yet. Waiting for human responses.`);
   }
 }
 
@@ -620,7 +621,7 @@ function processAITemptingOfferResponses(
       
       // Check if all opponents have responded
       if (currentPending.opponents.every((pid: string) => currentPending.responded.has(pid))) {
-        console.log(`[temptingOffer] All opponents responded - completing effect`);
+        debug(2, `[temptingOffer] All opponents responded - completing effect`);
         completeTemptingOffer(io, currentPending);
       }
     }, delay);
@@ -683,7 +684,7 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
             z.libraryCount = lib.length;
           }
           
-          console.log(`[joinForces] Minds Aglow: ${playerId} draws ${totalDraw} cards`);
+          debug(1, `[joinForces] Minds Aglow: ${playerId} draws ${totalDraw} cards`);
         }
         
         io.to(pending.gameId).emit("chat", {
@@ -744,7 +745,7 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
               },
             });
           }
-          console.log(`[joinForces] Alliance of Arms: ${playerId} creates ${total} Soldier tokens`);
+          debug(1, `[joinForces] Alliance of Arms: ${playerId} creates ${total} Soldier tokens`);
         }
         
         io.to(pending.gameId).emit("chat", {
@@ -773,7 +774,7 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
           z.libraryCount = lib.length;
           z.graveyardCount = (z.graveyard as any[]).length;
           
-          console.log(`[joinForces] Shared Trauma: ${playerId} mills ${total} cards`);
+          debug(1, `[joinForces] Shared Trauma: ${playerId} mills ${total} cards`);
         }
         
         io.to(pending.gameId).emit("chat", {
@@ -794,7 +795,7 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
       broadcastGame(io, game, pending.gameId);
     }
   } catch (err) {
-    console.error(`[joinForces] Error applying effect for ${pending.cardName}:`, err);
+    debugError(1, `[joinForces] Error applying effect for ${pending.cardName}:`, err);
   }
   
   // Notify all players of the result
@@ -831,7 +832,7 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
       });
     }
   } catch (e) {
-    console.warn("appendEvent(joinForcesComplete) failed:", e);
+    debugWarn(1, "appendEvent(joinForcesComplete) failed:", e);
   }
 }
 
@@ -874,7 +875,7 @@ export function registerPendingJoinForces(
     
     // Set timeout for auto-completion
     pending.timeout = setTimeout(() => {
-      console.log(`[joinForces] Timeout for ${effectId} - completing with partial responses`);
+      debug(1, `[joinForces] Timeout for ${effectId} - completing with partial responses`);
       const currentPending = pendingJoinForces.get(effectId);
       if (currentPending) {
         completeJoinForces(io, currentPending);
@@ -884,7 +885,7 @@ export function registerPendingJoinForces(
     // Register the pending effect
     pendingJoinForces.set(effectId, pending);
     
-    console.log(`[joinForces] Registered pending Join Forces ${effectId} for ${cardName}`);
+    debug(1, `[joinForces] Registered pending Join Forces ${effectId} for ${cardName}`);
     
     // Emit to all players
     io.to(gameId).emit("joinForcesRequest", {
@@ -903,7 +904,7 @@ export function registerPendingJoinForces(
     processAIJoinForcesResponses(io, pending, game);
     
   } catch (err) {
-    console.error(`[joinForces] Error registering pending effect:`, err);
+    debugError(1, `[joinForces] Error registering pending effect:`, err);
   }
 }
 
@@ -961,7 +962,7 @@ export function registerPendingTemptingOffer(
     
     // Set timeout for auto-completion
     pending.timeout = setTimeout(() => {
-      console.log(`[temptingOffer] Timeout for ${effectId} - completing with partial responses`);
+      debug(2, `[temptingOffer] Timeout for ${effectId} - completing with partial responses`);
       const currentPending = pendingTemptingOffers.get(effectId);
       if (currentPending) {
         completeTemptingOffer(io, currentPending);
@@ -971,7 +972,7 @@ export function registerPendingTemptingOffer(
     // Store in module-level map for proper tracking
     pendingTemptingOffers.set(effectId, pending);
     
-    console.log(`[temptingOffer] Registered pending Tempting Offer ${effectId} for ${cardName}, opponents: ${opponents.join(', ')}`);
+    debug(1, `[temptingOffer] Registered pending Tempting Offer ${effectId} for ${cardName}, opponents: ${opponents.join(', ')}`);
     
     // Emit to all players
     io.to(gameId).emit("temptingOfferRequest", {
@@ -998,7 +999,7 @@ export function registerPendingTemptingOffer(
     processAITemptingOfferResponses(io, pending, game, pendingTemptingOffers);
     
   } catch (err) {
-    console.error(`[temptingOffer] Error registering pending effect:`, err);
+    debugError(1, `[temptingOffer] Error registering pending effect:`, err);
   }
 }
 
@@ -1318,7 +1319,7 @@ function completeTemptingOffer(io: Server, pending: PendingTemptingOffer): void 
   const acceptedByArray = Array.from(pending.acceptedBy);
   const initiatorBonusCount = 1 + acceptedByArray.length; // Initiator gets effect once plus for each acceptor
   
-  console.log(`[temptingOffer] Completing ${pending.id}: ${acceptedByArray.length} accepted, initiator gets ${initiatorBonusCount}x`);
+  debug(2, `[temptingOffer] Completing ${pending.id}: ${acceptedByArray.length} accepted, initiator gets ${initiatorBonusCount}x`);
   
   // Apply the Tempting Offer effect
   const game = ensureGame(pending.gameId);
@@ -1326,7 +1327,7 @@ function completeTemptingOffer(io: Server, pending: PendingTemptingOffer): void 
     try {
       applyTemptingOfferEffect(io, game, pending, acceptedByArray, initiatorBonusCount);
     } catch (err) {
-      console.error(`[temptingOffer] Error applying effect for ${pending.cardName}:`, err);
+      debugError(1, `[temptingOffer] Error applying effect for ${pending.cardName}:`, err);
     }
   }
   
@@ -1415,7 +1416,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
       // Set timeout
       pending.timeout = setTimeout(() => {
         // Auto-complete with whatever contributions we have
-        console.log(`[joinForces] Timeout for ${id} - completing with partial responses`);
+        debug(1, `[joinForces] Timeout for ${id} - completing with partial responses`);
         completeJoinForces(io, pending);
       }, CONTRIBUTION_TIMEOUT_MS);
       
@@ -1454,10 +1455,10 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
           players,
         });
       } catch (e) {
-        console.warn("appendEvent(joinForcesInitiated) failed:", e);
+        debugWarn(1, "appendEvent(joinForcesInitiated) failed:", e);
       }
     } catch (err: any) {
-      console.error(`initiateJoinForces error for game ${gameId}:`, err);
+      debugError(1, `initiateJoinForces error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "JOIN_FORCES_ERROR",
         message: err?.message ?? String(err),
@@ -1533,7 +1534,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
         completeJoinForces(io, pending);
       }
     } catch (err: any) {
-      console.error(`contributeJoinForces error for game ${gameId}:`, err);
+      debugError(1, `contributeJoinForces error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CONTRIBUTE_ERROR",
         message: err?.message ?? String(err),
@@ -1623,7 +1624,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
       
       // Set timeout (60 seconds)
       pending.timeout = setTimeout(() => {
-        console.log(`[temptingOffer] Timeout for ${id} - completing with partial responses`);
+        debug(2, `[temptingOffer] Timeout for ${id} - completing with partial responses`);
         completeTemptingOffer(io, pending, game);
       }, 60000);
       
@@ -1662,10 +1663,10 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
           opponents,
         });
       } catch (e) {
-        console.warn("appendEvent(temptingOfferInitiated) failed:", e);
+        debugWarn(1, "appendEvent(temptingOfferInitiated) failed:", e);
       }
     } catch (err: any) {
-      console.error(`initiateTemptingOffer error for game ${gameId}:`, err);
+      debugError(1, `initiateTemptingOffer error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "TEMPTING_OFFER_ERROR",
         message: err?.message ?? String(err),
@@ -1756,7 +1757,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
         completeTemptingOffer(io, pending, game);
       }
     } catch (err: any) {
-      console.error(`respondTemptingOffer error for game ${gameId}:`, err);
+      debugError(1, `respondTemptingOffer error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "RESPOND_ERROR",
         message: err?.message ?? String(err),
@@ -1782,7 +1783,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
       try {
         applyTemptingOfferEffect(io, game, pending, acceptedByArray, initiatorBonusCount);
       } catch (err) {
-        console.error(`[temptingOffer] Error applying effect for ${pending.cardName}:`, err);
+        debugError(1, `[temptingOffer] Error applying effect for ${pending.cardName}:`, err);
       }
     }
     
@@ -1817,7 +1818,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
         initiatorBonusCount,
       });
     } catch (e) {
-      console.warn("appendEvent(temptingOfferComplete) failed:", e);
+      debugWarn(1, "appendEvent(temptingOfferComplete) failed:", e);
     }
     
     // Broadcast updated game state so clients see any pending library searches
@@ -1850,3 +1851,4 @@ export function hasPendingJoinForcesOrOffers(gameId: string): boolean {
 }
 
 export default registerJoinForcesHandlers;
+

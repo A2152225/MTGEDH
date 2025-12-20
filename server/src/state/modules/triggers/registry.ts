@@ -6,6 +6,7 @@
  */
 
 import type { GameContext, RegisteredTrigger, TriggerTiming } from "./types.js";
+import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 /**
  * Determines if a trigger effect is mandatory based on its text.
@@ -279,7 +280,7 @@ export function registerPermanentTriggers(ctx: GameContext, permanent: any): voi
   }
   
   if (triggers.length > 0) {
-    console.log(`[registerPermanentTriggers] Registered ${triggers.length} trigger(s) for ${card.name}`);
+    debug(2, `[registerPermanentTriggers] Registered ${triggers.length} trigger(s) for ${card.name}`);
   }
 }
 
@@ -345,3 +346,4 @@ export function groupTriggersByController(
   
   return grouped;
 }
+

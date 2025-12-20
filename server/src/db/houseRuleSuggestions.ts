@@ -7,6 +7,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 const SUGGESTIONS_FILE = path.join(DATA_DIR, 'house-rule-suggestions.json');
@@ -30,7 +31,7 @@ export function loadSuggestions(): HouseRuleSuggestion[] {
     const content = fs.readFileSync(SUGGESTIONS_FILE, 'utf-8');
     return JSON.parse(content);
   } catch (err) {
-    console.error('[HouseRuleSuggestions] Failed to load suggestions:', err);
+    debugError(1, '[HouseRuleSuggestions] Failed to load suggestions:', err);
     return [];
   }
 }
@@ -45,7 +46,7 @@ function saveSuggestions(suggestions: HouseRuleSuggestion[]): void {
     }
     fs.writeFileSync(SUGGESTIONS_FILE, JSON.stringify(suggestions, null, 2));
   } catch (err) {
-    console.error('[HouseRuleSuggestions] Failed to save suggestions:', err);
+    debugError(1, '[HouseRuleSuggestions] Failed to save suggestions:', err);
     throw err;
   }
 }
@@ -66,7 +67,7 @@ export function addSuggestion(suggestion: string): HouseRuleSuggestion {
   suggestions.push(newSuggestion);
   saveSuggestions(suggestions);
   
-  console.info('[HouseRuleSuggestions] New suggestion added:', newSuggestion.id);
+  debug(1, '[HouseRuleSuggestions] New suggestion added:', newSuggestion.id);
   
   return newSuggestion;
 }
@@ -101,3 +102,5 @@ export function updateSuggestionStatus(
   saveSuggestions(suggestions);
   return true;
 }
+
+

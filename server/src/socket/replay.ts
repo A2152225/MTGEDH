@@ -7,6 +7,7 @@ import { getEvents } from "../db";
 import { createInitialGameState } from "../state/index.js";
 import { transformDbEventsForReplay } from "./util";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Replay session state
@@ -197,7 +198,7 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
       try {
         dbEvents = getEvents(gameId);
       } catch (e) {
-        console.warn(`[replay] Failed to get events for game ${gameId}:`, e);
+        debugWarn(1, `[replay] Failed to get events for game ${gameId}:`, e);
         socket.emit("error", {
           code: "REPLAY_NO_EVENTS",
           message: "Could not load game events for replay",
@@ -241,9 +242,9 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
         state: generateReplayView(session, viewerId),
       });
       
-      console.log(`[replay] Started replay session for game ${gameId}, viewer ${viewerId}, ${events.length} events`);
+      debug(2, `[replay] Started replay session for game ${gameId}, viewer ${viewerId}, ${events.length} events`);
     } catch (err: any) {
-      console.error(`startReplay error for game ${gameId}:`, err);
+      debugError(1, `startReplay error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "REPLAY_START_ERROR",
         message: err?.message ?? String(err),
@@ -488,7 +489,7 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
     const viewerId = socket.id;
     cleanupSession(viewerId);
     socket.emit("replayStopped", {});
-    console.log(`[replay] Stopped replay session for viewer ${viewerId}`);
+    debug(2, `[replay] Stopped replay session for viewer ${viewerId}`);
   });
   
   /**
@@ -567,3 +568,4 @@ function getEventSummary(event: any): string {
       return event.type;
   }
 }
+
