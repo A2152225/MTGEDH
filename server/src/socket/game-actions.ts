@@ -3424,16 +3424,16 @@ export function registerGameActions(io: Server, socket: Socket) {
           const creatureColors = creatureCard.colors || [];
           
           // Initialize mana pool if needed
-          if (!game.state.manaPools) game.state.manaPools = {};
-          if (!game.state.manaPools[playerId]) {
-            game.state.manaPools[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+          if (!game.state.manaPool) game.state.manaPool = {};
+          if (!game.state.manaPool[playerId]) {
+            game.state.manaPool[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
           }
           
           // Use creature's first color if it has one, otherwise colorless
           // This is a simple heuristic - in a full implementation, players would choose
           let manaAdded = 'colorless';
           if (creatureColors.length > 0) {
-            const colorMap: Record<string, keyof typeof game.state.manaPools[typeof playerId]> = {
+            const colorMap: Record<string, 'white' | 'blue' | 'black' | 'red' | 'green'> = {
               'W': 'white',
               'U': 'blue', 
               'B': 'black',
@@ -3443,13 +3443,13 @@ export function registerGameActions(io: Server, socket: Socket) {
             const firstColor = creatureColors[0];
             if (firstColor in colorMap) {
               const manaColor = colorMap[firstColor];
-              game.state.manaPools[playerId][manaColor] += 1;
+              game.state.manaPool[playerId][manaColor] += 1;
               manaAdded = manaColor;
             } else {
-              game.state.manaPools[playerId].colorless += 1;
+              game.state.manaPool[playerId].colorless += 1;
             }
           } else {
-            game.state.manaPools[playerId].colorless += 1;
+            game.state.manaPool[playerId].colorless += 1;
           }
           
           console.log(`[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} ${manaAdded}`);

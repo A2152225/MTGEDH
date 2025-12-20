@@ -30,6 +30,7 @@ import { FloatingManaPool } from './FloatingManaPool';
 import { socket } from '../socket';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -1605,14 +1606,10 @@ export function TableLayout(props: {
                                     }}
                                     // Show card preview on hover
                                     onMouseEnter={(e) => {
-                                      import('./CardPreviewLayer').then(({ showCardPreview }) => {
-                                        showCardPreview(e.currentTarget as HTMLElement, card as any, { prefer: 'above', anchorPadding: 0 });
-                                      });
+                                      showCardPreview(e.currentTarget as HTMLElement, card as any, { prefer: 'above', anchorPadding: 0 });
                                     }}
                                     onMouseLeave={(e) => {
-                                      import('./CardPreviewLayer').then(({ hideCardPreview }) => {
-                                        hideCardPreview(e.currentTarget as HTMLElement);
-                                      });
+                                      hideCardPreview(e.currentTarget as HTMLElement);
                                     }}
                                   >
                                     {art ? (
