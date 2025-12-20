@@ -1255,7 +1255,12 @@ export function App() {
   // Bounce land prompt listener
   React.useEffect(() => {
     const handler = (payload: any) => {
+      console.log('[BounceLand] Received bounceLandPrompt event:', payload);
+      console.log('[BounceLand] Current safeView?.id:', safeView?.id);
+      console.log('[BounceLand] Payload gameId matches:', payload.gameId === safeView?.id);
+      
       if (payload.gameId === safeView?.id) {
+        console.log('[BounceLand] Setting modal data and opening modal');
         setBounceLandData({
           bounceLandId: payload.bounceLandId,
           bounceLandName: payload.bounceLandName,
@@ -1264,6 +1269,8 @@ export function App() {
           stackItemId: payload.stackItemId,
         });
         setBounceLandModalOpen(true);
+      } else {
+        console.log('[BounceLand] GameId mismatch - not opening modal');
       }
     };
     socket.on("bounceLandPrompt", handler);

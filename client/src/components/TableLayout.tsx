@@ -30,6 +30,7 @@ import { FloatingManaPool } from './FloatingManaPool';
 import { socket } from '../socket';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -1603,8 +1604,13 @@ export function TableLayout(props: {
                                       background: '#000',
                                       cursor: 'pointer',
                                     }}
-                                    // Let CardPreviewLayer hook this via dataset, same as other cards
-                                    data-preview-card={previewPayload}
+                                    // Show card preview on hover
+                                    onMouseEnter={(e) => {
+                                      showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above', anchorPadding: 0 });
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      hideCardPreview(e.currentTarget as HTMLElement);
+                                    }}
                                   >
                                     {art ? (
                                       <img

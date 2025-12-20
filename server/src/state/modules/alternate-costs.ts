@@ -46,7 +46,8 @@ export type AlternateCostType =
   | 'ninjutsu'
   | 'wubrg_external'
   | 'omniscience'
-  | 'wubrg_self';
+  | 'wubrg_self'
+  | 'alternate';
 
 /**
  * Represents an available alternate cost option

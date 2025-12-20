@@ -215,6 +215,22 @@ function checkPendingInteractions(ctx: GameContext): {
       result.details.pendingLinkedExileReturns = state.pendingLinkedExileReturns;
     }
     
+    // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
+    // These are stored as arrays that are populated when effects resolve
+    if (Array.isArray(state.pendingJoinForces) && state.pendingJoinForces.length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('join_forces');
+      result.details.pendingJoinForces = state.pendingJoinForces;
+    }
+    
+    // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
+    // These are stored as arrays that are populated when effects resolve
+    if (Array.isArray(state.pendingTemptingOffer) && state.pendingTemptingOffer.length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('tempting_offer');
+      result.details.pendingTemptingOffer = state.pendingTemptingOffer;
+    }
+    
     // Check for non-empty stack (spells/abilities waiting to resolve)
     // Note: This is a deliberate choice - if the stack has items, players should
     // explicitly pass priority to advance, not just click "next step"

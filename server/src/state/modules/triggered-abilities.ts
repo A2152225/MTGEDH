@@ -839,6 +839,18 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 }
 
 /**
+ * ETB pattern alternatives (static to avoid recreating on every function call)
+ */
+const ETB_STATIC_ALTERNATIVES = [
+  '~',
+  'this creature',
+  'this permanent',
+  'this land',
+  'this enchantment',
+  'this artifact'
+];
+
+/**
  * Detect ETB triggers from a card
  */
 export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[] {
@@ -892,7 +904,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // The ~ is used in some oracle text, but the actual card name is also used
   // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
   const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
+  // Combine static alternatives with dynamic card name
+  const etbAlternatives = [...ETB_STATIC_ALTERNATIVES, cardNameEscaped];
+  const etbPattern = new RegExp(`when\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     const effectText = etbMatch[1].trim();

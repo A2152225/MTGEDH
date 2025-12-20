@@ -2005,7 +2005,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // the stack and allow priority to pass before land selection
       // ========================================================================
       try {
+        console.log(`[playLand] Checking if ${cardName} is a bounce land: ${isBounceLand(cardName)}`);
         if (isBounceLand(cardName)) {
+          console.log(`[playLand] ${cardName} IS a bounce land, looking for permanent on battlefield`);
           // Find the permanent that was just played
           const battlefield = game.state?.battlefield || [];
           const bounceLandPerm = battlefield.find((p: any) => 
@@ -2013,13 +2015,17 @@ export function registerGameActions(io: Server, socket: Socket) {
             p.controller === playerId
           );
           
+          console.log(`[playLand] Found bounce land permanent: ${!!bounceLandPerm}, permanentId: ${bounceLandPerm?.id}`);
+          
           if (bounceLandPerm) {
             // Mark it as tapped (bounce lands always enter tapped)
             bounceLandPerm.tapped = true;
             
             // Detect the ETB trigger from the land's oracle text
             const etbTriggers = detectETBTriggers(cardInHand, bounceLandPerm);
+            console.log(`[playLand] detectETBTriggers returned ${etbTriggers.length} triggers for ${cardName}`);
             const bounceTrigger = etbTriggers.find(t => t.triggerType === 'etb_bounce_land');
+            console.log(`[playLand] Found bounce trigger: ${!!bounceTrigger}, trigger: ${JSON.stringify(bounceTrigger)}`);
             
             if (bounceTrigger) {
               console.log(`[playLand] Found bounce land ETB trigger for ${cardName}`);
@@ -2058,7 +2064,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               if ((game.state as any).stack.length > 0) {
                 (game.state as any).priority = (game.state as any).turnPlayer || playerId;
               }
+            } else {
+              console.warn(`[playLand] No bounce trigger found for ${cardName} despite being a bounce land!`);
             }
+          } else {
+            console.warn(`[playLand] Could not find bounce land permanent on battlefield for ${cardName}`);
           }
         }
       } catch (err) {
@@ -3414,16 +3424,16 @@ export function registerGameActions(io: Server, socket: Socket) {
           const creatureColors = creatureCard.colors || [];
           
           // Initialize mana pool if needed
-          if (!game.state.manaPools) game.state.manaPools = {};
-          if (!game.state.manaPools[playerId]) {
-            game.state.manaPools[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+          if (!game.state.manaPool) game.state.manaPool = {};
+          if (!game.state.manaPool[playerId]) {
+            game.state.manaPool[playerId] = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
           }
           
           // Use creature's first color if it has one, otherwise colorless
           // This is a simple heuristic - in a full implementation, players would choose
           let manaAdded = 'colorless';
           if (creatureColors.length > 0) {
-            const colorMap: Record<string, keyof typeof game.state.manaPools[typeof playerId]> = {
+            const colorMap: Record<string, 'white' | 'blue' | 'black' | 'red' | 'green'> = {
               'W': 'white',
               'U': 'blue', 
               'B': 'black',
@@ -3433,13 +3443,13 @@ export function registerGameActions(io: Server, socket: Socket) {
             const firstColor = creatureColors[0];
             if (firstColor in colorMap) {
               const manaColor = colorMap[firstColor];
-              game.state.manaPools[playerId][manaColor] += 1;
+              game.state.manaPool[playerId][manaColor] += 1;
               manaAdded = manaColor;
             } else {
-              game.state.manaPools[playerId].colorless += 1;
+              game.state.manaPool[playerId].colorless += 1;
             }
           } else {
-            game.state.manaPools[playerId].colorless += 1;
+            game.state.manaPool[playerId].colorless += 1;
           }
           
           console.log(`[castSpellFromHand] Convoke: tapped ${creatureCard.name} (colors: ${creatureColors.join(',') || 'none'}), added {1} ${manaAdded}`);
@@ -4157,7 +4167,51 @@ export function registerGameActions(io: Server, socket: Socket) {
               
               console.log(`[passPriority] Bounce land trigger resolving: prompting ${resolvedController} to return a land`);
               
-              // Don't resolve the stack item yet - wait for bounceLandChoice event
+              // Check if the player is AI and handle automatically
+              const resolvedPlayer = (game.state?.players || []).find((p: any) => p.id === resolvedController);
+              const isAIPlayer = resolvedPlayer && (resolvedPlayer as any).isAI;
+              console.log(`[passPriority] Bounce land - player ${resolvedController} isAI: ${isAIPlayer}`);
+              
+              if (isAIPlayer) {
+                console.log(`[passPriority] Player ${resolvedController} is AI, triggering automatic bounce land choice`);
+                // Dynamically import AI handler to avoid circular dependency
+                setTimeout(async () => {
+                  try {
+                    const aiModule = await import('./ai.js');
+                    // Call the AI handler function directly
+                    const bounceLandName = (topItem as any).sourceName || bounceLandPerm.card?.name || "Bounce Land";
+                    if (typeof (aiModule as any).handleBounceLandETB === 'function') {
+                      await (aiModule as any).handleBounceLandETB(game, resolvedController, bounceLandName);
+                      
+                      // Remove the stack item after AI handles it
+                      const stack = (game.state as any).stack || [];
+                      const stackIndex = stack.findIndex((item: any) => item.id === topItem.id);
+                      if (stackIndex !== -1) {
+                        stack.splice(stackIndex, 1);
+                        console.log(`[passPriority] Removed bounce land trigger from stack after AI choice`);
+                      }
+                      
+                      // Bump sequence and broadcast
+                      if (typeof game.bumpSeq === 'function') {
+                        game.bumpSeq();
+                      }
+                      broadcastGame(io, game, gameId);
+                      
+                      // Continue with AI priority handling
+                      if (typeof aiModule.handleAIGameFlow === 'function') {
+                        setTimeout(() => {
+                          aiModule.handleAIGameFlow(io, gameId, resolvedController as PlayerID).catch(console.error);
+                        }, 150);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[passPriority] Failed to handle AI bounce land choice:', err);
+                  }
+                }, 150);
+                return;
+              }
+              
+              // Don't resolve the stack item yet - wait for bounceLandChoice event from human player
               // Bump sequence and broadcast to show updated state
               if (typeof game.bumpSeq === 'function') {
                 game.bumpSeq();
