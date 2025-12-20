@@ -892,7 +892,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // The ~ is used in some oracle text, but the actual card name is also used
   // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
   const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
+  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|this land|this enchantment|this artifact|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     const effectText = etbMatch[1].trim();
