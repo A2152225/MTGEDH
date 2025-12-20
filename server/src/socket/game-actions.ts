@@ -4159,7 +4159,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               
               // Check if the player is AI and handle automatically
               const resolvedPlayer = (game.state?.players || []).find((p: any) => p.id === resolvedController);
-              if (resolvedPlayer && resolvedPlayer.isAI) {
+              if (resolvedPlayer && (resolvedPlayer as any).isAI) {
                 console.log(`[passPriority] Player ${resolvedController} is AI, triggering automatic bounce land choice`);
                 // Dynamically import AI handler to avoid circular dependency
                 setTimeout(async () => {
