@@ -16,18 +16,39 @@
 /**
  * Get the current debug level from environment variable
  * For Vite, use import.meta.env.VITE_DEBUG_STATE
+ * Cached after first read for performance
  * Defaults to 0 (no debug output)
  */
+let cachedDebugLevel: number | null = null;
+
 function getDebugLevel(): number {
+  // Cache the debug level to avoid repeated parsing
+  if (cachedDebugLevel !== null) {
+    return cachedDebugLevel;
+  }
+  
   // Check if we're in a Vite environment
   if (typeof import.meta !== 'undefined' && import.meta.env) {
     const level = import.meta.env.VITE_DEBUG_STATE;
-    if (level === undefined || level === '') return 0;
+    if (level === undefined || level === '') {
+      cachedDebugLevel = 0;
+      return 0;
+    }
     const parsed = parseInt(level, 10);
-    return isNaN(parsed) ? 0 : parsed;
+    
+    // Validate the level is within expected range (0-2)
+    if (isNaN(parsed) || parsed < 0) {
+      cachedDebugLevel = 0;
+      return 0;
+    }
+    
+    // Cap at level 2 (verbose)
+    cachedDebugLevel = Math.min(parsed, 2);
+    return cachedDebugLevel;
   }
   
   // Fallback for non-Vite environments
+  cachedDebugLevel = 0;
   return 0;
 }
 
