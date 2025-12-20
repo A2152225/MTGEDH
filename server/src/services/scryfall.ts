@@ -15,6 +15,8 @@
  * This improves resolving names like "surge spanner" when exact match fails.
  */
 
+import { debug, debugWarn, debugError } from "../utils/debug.js";
+
 export type ParsedLine = { name: string; count: number };
 
 export type ScryfallCard = {
@@ -506,7 +508,7 @@ export async function fetchCardsFromSetByColorIdentity(
       });
       
       if (!resp.ok) {
-        console.warn(`Scryfall search failed for "${query}": ${resp.status}`);
+        debugWarn(1, `Scryfall search failed for "${query}": ${resp.status}`);
         break;
       }
       
@@ -525,7 +527,7 @@ export async function fetchCardsFromSetByColorIdentity(
       }
     }
   } catch (err) {
-    console.error(`Error fetching cards from set ${setCode}:`, err);
+    debugError(1, `Error fetching cards from set ${setCode}:`, err);
   }
   
   return results;
@@ -679,7 +681,7 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
   
   // Log raw response structure for debugging (keys only, not the full data)
   const dataKeys = Object.keys(data);
-  console.log(`[fetchDeckFromMoxfield] Response keys: ${dataKeys.join(', ')}`);
+  debug(1, `[fetchDeckFromMoxfield] Response keys: ${dataKeys.join(', ')}`);
   
   // Handle alternative API response structure where data might be nested in 'boards'
   const boardsData = data.boards || data;
@@ -693,7 +695,7 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
   // Log section sizes for debugging
   const commandersSectionSize = Object.keys(commandersSection).length;
   const mainboardSectionSize = Object.keys(mainboardSection).length;
-  console.log(`[fetchDeckFromMoxfield] Commanders section: ${commandersSectionSize} entries, Mainboard section: ${mainboardSectionSize} entries`);
+  debug(2, `[fetchDeckFromMoxfield] Commanders section: ${commandersSectionSize} entries, Mainboard section: ${mainboardSectionSize} entries`);
   
   // Extract commanders
   const commanders: string[] = [];
@@ -711,7 +713,7 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
   // Helper function to add cards from a section
   const addCardsFromSection = (section: Record<string, MoxfieldCardEntry> | undefined, sectionName: string) => {
     if (!section || typeof section !== 'object') {
-      console.log(`[fetchDeckFromMoxfield] Section "${sectionName}" is empty or invalid`);
+      debug(2, `[fetchDeckFromMoxfield] Section "${sectionName}" is empty or invalid`);
       return;
     }
     
@@ -733,7 +735,7 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
     }
     
     if (addedCount > 0) {
-      console.log(`[fetchDeckFromMoxfield] Added ${addedCount} cards from "${sectionName}" section`);
+      debug(2, `[fetchDeckFromMoxfield] Added ${addedCount} cards from "${sectionName}" section`);
     }
   };
   
@@ -749,12 +751,12 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
   
   // Log total card count for debugging
   const totalCards = cards.reduce((sum, c) => sum + c.count, 0);
-  console.log(`[fetchDeckFromMoxfield] Deck "${data.name}": ${cards.length} unique cards, ${totalCards} total cards`);
+  debug(2, `[fetchDeckFromMoxfield] Deck "${data.name}": ${cards.length} unique cards, ${totalCards} total cards`);
   
   // Warn if we only got commanders (likely an API issue)
   if (cards.length === commanders.length && commanders.length > 0) {
-    console.warn(`[fetchDeckFromMoxfield] Warning: Only commanders found in deck "${data.name}". Mainboard may be empty or API response format may have changed.`);
-    console.warn(`[fetchDeckFromMoxfield] Response structure: ${JSON.stringify(dataKeys)}`);
+    debugWarn(1, `[fetchDeckFromMoxfield] Warning: Only commanders found in deck "${data.name}". Mainboard may be empty or API response format may have changed.`);
+    debugWarn(2, `[fetchDeckFromMoxfield] Response structure: ${JSON.stringify(dataKeys)}`);
   }
   
   return {

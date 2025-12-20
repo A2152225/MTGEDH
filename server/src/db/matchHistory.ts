@@ -5,6 +5,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -273,7 +274,7 @@ export function addMatchParticipant(matchId: string, userId: string, deckName?: 
     });
     return true;
   } catch (err) {
-    console.error('[DB] addMatchParticipant failed:', err);
+    debugError(1, '[DB] addMatchParticipant failed:', err);
     return false;
   }
 }
@@ -315,7 +316,7 @@ export function endMatch(
     
     return true;
   } catch (err) {
-    console.error('[DB] endMatch failed:', err);
+    debugError(1, '[DB] endMatch failed:', err);
     return false;
   }
 }
@@ -335,7 +336,7 @@ export function abandonMatch(matchId: string): boolean {
     });
     return true;
   } catch (err) {
-    console.error('[DB] abandonMatch failed:', err);
+    debugError(1, '[DB] abandonMatch failed:', err);
     return false;
   }
 }
@@ -406,7 +407,7 @@ export function saveMatchReplay(matchId: string, events: any[], initialState?: a
     });
     return true;
   } catch (err) {
-    console.error('[DB] saveMatchReplay failed:', err);
+    debugError(1, '[DB] saveMatchReplay failed:', err);
     return false;
   }
 }
@@ -424,7 +425,7 @@ export function getMatchReplay(matchId: string): { events: any[]; initialState?:
       initialState: row.initial_state ? JSON.parse(row.initial_state) : undefined,
     };
   } catch (err) {
-    console.error('[DB] getMatchReplay parse failed:', err);
+    debugError(1, '[DB] getMatchReplay parse failed:', err);
     return null;
   }
 }
@@ -486,3 +487,4 @@ export function getUnreadMessageCount(userId: string): number {
 export function getRecentConversations(userId: string, limit: number = 20): Conversation[] {
   return getRecentConversationsStmt.all(userId, userId, userId, limit) as Conversation[];
 }
+

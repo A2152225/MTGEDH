@@ -15,6 +15,7 @@ import type {
 import { games } from "./socket.js";
 import GameManager from "../GameManager.js";
 import { canRespond, canAct } from "../state/modules/can-respond.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Register automation-related socket handlers
@@ -41,7 +42,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Decision submitted: ${decisionId} by ${playerId}`);
+    debug(2, `[Automation] Decision submitted: ${decisionId} by ${playerId}`);
     
     try {
       // Process the decision
@@ -84,7 +85,7 @@ export function registerAutomationHandlers(
         }
       }
     } catch (err) {
-      console.error("[Automation] Error processing decision:", err);
+      debugError(1, "[Automation] Error processing decision:", err);
       socket.emit("error", { message: "Failed to process decision" });
     }
   });
@@ -110,7 +111,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Spell cast by ${playerId}: ${cardId}`);
+    debug(2, `[Automation] Spell cast by ${playerId}: ${cardId}`);
     
     try {
       const result = await processCastSpell(gameId, playerId, {
@@ -147,7 +148,7 @@ export function registerAutomationHandlers(
         io.to(gameId).emit("state", { view: automationResult.state });
       }
     } catch (err) {
-      console.error("[Automation] Error casting spell:", err);
+      debugError(1, "[Automation] Error casting spell:", err);
       socket.emit("error", { message: "Failed to cast spell" });
     }
   });
@@ -170,7 +171,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}`);
+    debug(2, `[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}`);
     
     try {
       const result = await processActivateAbility(gameId, playerId, {
@@ -208,7 +209,7 @@ export function registerAutomationHandlers(
         io.to(gameId).emit("state", { view: automationResult.state });
       }
     } catch (err) {
-      console.error("[Automation] Error activating ability:", err);
+      debugError(1, "[Automation] Error activating ability:", err);
       socket.emit("error", { message: "Failed to activate ability" });
     }
   });
@@ -225,7 +226,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Mulligan decision by ${playerId}: ${keep ? "keep" : "mulligan"}`);
+    debug(1, `[Automation] Mulligan decision by ${playerId}: ${keep ? "keep" : "mulligan"}`);
     
     try {
       const result = await processMulliganDecision(gameId, playerId, keep);
@@ -249,7 +250,7 @@ export function registerAutomationHandlers(
         io.to(gameId).emit("state", { view: automationResult.state });
       }
     } catch (err) {
-      console.error("[Automation] Error processing mulligan:", err);
+      debugError(1, "[Automation] Error processing mulligan:", err);
       socket.emit("error", { message: "Failed to process mulligan" });
     }
   });
@@ -266,7 +267,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Mulligan bottom cards by ${playerId}: ${cardIds.length} cards`);
+    debug(1, `[Automation] Mulligan bottom cards by ${playerId}: ${cardIds.length} cards`);
     
     try {
       const result = await processMulliganBottom(gameId, playerId, cardIds);
@@ -282,7 +283,7 @@ export function registerAutomationHandlers(
         io.to(gameId).emit("state", { view: automationResult.state });
       }
     } catch (err) {
-      console.error("[Automation] Error processing mulligan bottom:", err);
+      debugError(1, "[Automation] Error processing mulligan bottom:", err);
       socket.emit("error", { message: "Failed to put cards on bottom" });
     }
   });
@@ -299,7 +300,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Auto-pass ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
+    debug(2, `[Automation] Auto-pass ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
     
     // Store auto-pass preference (would be in game state or automation config)
     const game = games.get(gameId);
@@ -318,7 +319,7 @@ export function registerAutomationHandlers(
           const justSkipped = (game.state as any).justSkippedToPhase;
           if (justSkipped && justSkipped.playerId === playerId) {
             delete (game.state as any).justSkippedToPhase;
-            console.log(`[Automation] Cleared justSkippedToPhase for ${playerId} (re-enabled auto-pass)`);
+            debug(2, `[Automation] Cleared justSkippedToPhase for ${playerId} (re-enabled auto-pass)`);
           }
         }
       } else {
@@ -327,7 +328,7 @@ export function registerAutomationHandlers(
       (game.state as any).autoPassPlayers = autoPassPlayers;
       
       // Log the current state
-      console.log(`[Automation] Auto-pass players in game ${gameId}:`, Array.from(autoPassPlayers));
+      debug(2, `[Automation] Auto-pass players in game ${gameId}:`, Array.from(autoPassPlayers));
       
       // Confirm the change back to the client
       socket.emit("autoPassToggled", { 
@@ -345,7 +346,7 @@ export function registerAutomationHandlers(
       // CRITICAL FIX: If player enabled auto-pass and has priority, immediately check for auto-pass
       // This fixes the bug where enabling auto-pass didn't immediately pass priority
       if (enabled && (game.state as any).priority === playerId) {
-        console.log(`[Automation] Player ${playerId} has priority - triggering auto-pass check`);
+        debug(2, `[Automation] Player ${playerId} has priority - triggering auto-pass check`);
         
         // Import broadcastGame dynamically to trigger auto-pass check
         import('./util.js').then((utilModule) => {
@@ -354,11 +355,11 @@ export function registerAutomationHandlers(
             utilModule.broadcastGame(io, game, gameId);
           }
         }).catch((err) => {
-          console.error(`[Automation] Failed to import util module:`, err);
+          debugError(1, `[Automation] Failed to import util module:`, err);
         });
       }
     } else {
-      console.warn(`[Automation] Failed to toggle auto-pass: game ${gameId} not found or has no state`);
+      debugWarn(1, `[Automation] Failed to toggle auto-pass: game ${gameId} not found or has no state`);
       socket.emit("error", { message: "Game not found" });
     }
   });
@@ -375,7 +376,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Auto-pass for turn ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
+    debug(2, `[Automation] Auto-pass for turn ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
     
     const game = games.get(gameId);
     if (game && game.state) {
@@ -392,13 +393,13 @@ export function registerAutomationHandlers(
         const justSkipped = stateAny.justSkippedToPhase;
         if (justSkipped && justSkipped.playerId === playerId) {
           delete stateAny.justSkippedToPhase;
-          console.log(`[Automation] Cleared justSkippedToPhase for ${playerId} (enabled auto-pass for turn)`);
+          debug(2, `[Automation] Cleared justSkippedToPhase for ${playerId} (enabled auto-pass for turn)`);
         }
       } else {
         delete stateAny.autoPassForTurn[playerId];
       }
       
-      console.log(`[Automation] Auto-pass for turn state in game ${gameId}:`, stateAny.autoPassForTurn);
+      debug(2, `[Automation] Auto-pass for turn state in game ${gameId}:`, stateAny.autoPassForTurn);
       
       // Bump sequence to trigger state update
       if (typeof (game as any).bumpSeq === 'function') {
@@ -408,7 +409,7 @@ export function registerAutomationHandlers(
       // CRITICAL FIX: If player enabled auto-pass and has priority, immediately pass it
       // This fixes the bug where toggling "Auto-Pass Rest of Turn" didn't pass priority
       if (enabled && stateAny.priority === playerId) {
-        console.log(`[Automation] Player ${playerId} has priority - immediately auto-passing`);
+        debug(2, `[Automation] Player ${playerId} has priority - immediately auto-passing`);
         
         // Import broadcastGame dynamically to trigger auto-pass check
         import('./util.js').then((utilModule) => {
@@ -417,11 +418,11 @@ export function registerAutomationHandlers(
             utilModule.broadcastGame(io, game, gameId);
           }
         }).catch((err) => {
-          console.error(`[Automation] Failed to import util module:`, err);
+          debugError(1, `[Automation] Failed to import util module:`, err);
         });
       }
     } else {
-      console.warn(`[Automation] Failed to toggle auto-pass for turn: game ${gameId} not found or has no state`);
+      debugWarn(1, `[Automation] Failed to toggle auto-pass for turn: game ${gameId} not found or has no state`);
       socket.emit("error", { message: "Game not found" });
     }
   });
@@ -445,7 +446,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Player ${playerId} claimed priority in game ${gameId}`);
+    debug(2, `[Automation] Player ${playerId} claimed priority in game ${gameId}`);
     
     // Mark that this player has claimed priority for this step
     // This will prevent auto-pass from passing them immediately
@@ -493,9 +494,9 @@ export function registerAutomationHandlers(
         canAct: playerCanAct,
       });
       
-      console.log(`[Automation] Player ${playerId} can respond: ${playerCanRespond}`);
+      debug(2, `[Automation] Player ${playerId} can respond: ${playerCanRespond}`);
     } catch (err) {
-      console.error("[Automation] Error in checkCanRespond:", err);
+      debugError(1, "[Automation] Error in checkCanRespond:", err);
       socket.emit("canRespondResponse", { 
         canRespond: true, // Default to true on error to be safe
         canAct: true,
@@ -516,7 +517,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Stop at ${phase} ${enabled ? "enabled" : "disabled"} for ${playerId}`);
+    debug(2, `[Automation] Stop at ${phase} ${enabled ? "enabled" : "disabled"} for ${playerId}`);
     
     // Store stop preference
     const game = games.get(gameId);
@@ -569,7 +570,7 @@ export function registerAutomationHandlers(
     const effectiveId = cardId || permanentId;
     const effectiveZone = zone || 'battlefield';
     
-    console.log(`[Automation] Ignoring card ${cardName} (${effectiveId}) in ${effectiveZone} for auto-pass by ${playerId}`);
+    debug(2, `[Automation] Ignoring card ${cardName} (${effectiveId}) in ${effectiveZone} for auto-pass by ${playerId}`);
     
     // Initialize ignored cards structure if needed
     const stateAny = game.state as any;
@@ -628,7 +629,7 @@ export function registerAutomationHandlers(
       (game as any).bumpSeq();
     }
     
-    console.log(`[Automation] Ignored cards for ${playerId}:`, Object.keys(stateAny.ignoredCardsForAutoPass[playerId]));
+    debug(2, `[Automation] Ignored cards for ${playerId}:`, Object.keys(stateAny.ignoredCardsForAutoPass[playerId]));
   });
   
   /**
@@ -661,7 +662,7 @@ export function registerAutomationHandlers(
       const zone = ignoredCards[effectiveId].zone || 'battlefield';
       delete ignoredCards[effectiveId];
       
-      console.log(`[Automation] Unignored card ${cardName} (${effectiveId}) from ${zone} for ${playerId}`);
+      debug(2, `[Automation] Unignored card ${cardName} (${effectiveId}) from ${zone} for ${playerId}`);
       
       // Broadcast updated ignored cards list with zone info
       const ignoredList = Object.entries(ignoredCards).map(([id, data]: [string, any]) => ({
@@ -708,7 +709,7 @@ export function registerAutomationHandlers(
       const count = Object.keys(stateAny.ignoredCardsForAutoPass[playerId]).length;
       stateAny.ignoredCardsForAutoPass[playerId] = {};
       
-      console.log(`[Automation] Cleared ${count} ignored cards for ${playerId}`);
+      debug(2, `[Automation] Cleared ${count} ignored cards for ${playerId}`);
       
       // Broadcast empty list
       socket.emit("ignoredCardsUpdated" as any, {
@@ -1130,3 +1131,4 @@ async function runAutomationStep(
     stateChanged: true,
   };
 }
+

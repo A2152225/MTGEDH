@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { socket } from "../socket";
+import { debug, debugWarn, debugError } from "./utils/debug";
+
 
 /** Delay before fallback refresh after socket-based game deletion (ms) */
 const GAME_DELETE_FALLBACK_DELAY_MS = 500;
@@ -45,7 +47,7 @@ export default function GameList(props: GameListProps) {
       const json = await res.json();
       setGames(Array.isArray(json.games) ? json.games : []);
     } catch (err) {
-      console.warn("GameList fetch failed:", err);
+      debugWarn(1, "GameList fetch failed:", err);
     } finally {
       setLoading(false);
       if (onRefresh) onRefresh();
@@ -61,7 +63,7 @@ export default function GameList(props: GameListProps) {
   // Listen for real-time game deletion events to update immediately
   useEffect(() => {
     const handleGameDeleted = (payload: { gameId: string }) => {
-      console.log("[GameList] Game deleted event received:", payload.gameId);
+      debug(2, "[GameList] Game deleted event received:", payload.gameId);
       // Remove the deleted game from the list immediately
       setGames(prev => prev.filter(g => g.id !== payload.gameId));
     };
@@ -135,7 +137,7 @@ export default function GameList(props: GameListProps) {
         }, GAME_DELETE_FALLBACK_DELAY_MS);
       }
     } catch (err) {
-      console.error("Delete failed:", err);
+      debugError(1, "Delete failed:", err);
       alert("Delete failed");
     } finally {
       setDeleting(null);

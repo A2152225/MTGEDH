@@ -48,6 +48,7 @@ import { pushStack, resolveTopOfStack, playLand, exileEntireStack } from "./modu
 import { viewFor } from "./modules/view";
 import { applyEvent, replay, reset, skip, unskip, remove } from "./modules/applyEvent";
 import { mulberry32 } from "../utils/rng";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 // Export the unified ResolutionQueue system
 export { ResolutionQueueManager, ResolutionStepType, ResolutionStepStatus } from "./resolution/index";
@@ -108,7 +109,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
           ctx.seq && (ctx.seq as any).value !== undefined ? (ctx.seq as any).value++ : (ctx as any).seq++;
         }
       } catch (err) {
-        console.warn("grantSpectatorAccess fallback failed:", err);
+        debugWarn(1, "grantSpectatorAccess fallback failed:", err);
       }
     },
     revokeSpectatorAccess: (owner: PlayerID, spectator: PlayerID) => {
@@ -122,7 +123,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
           ctx.seq && (ctx.seq as any).value !== undefined ? (ctx.seq as any).value++ : (ctx as any).seq++;
         }
       } catch (err) {
-        console.warn("revokeSpectatorAccess fallback failed:", err);
+        debugWarn(1, "revokeSpectatorAccess fallback failed:", err);
       }
     },
 

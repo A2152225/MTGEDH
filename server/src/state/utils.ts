@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from "../../../shared/src/types.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -442,7 +443,7 @@ export function applyLifeGain(
   }
   
   if (appliedReplacements.length > 0) {
-    console.log(`[applyLifeGain] Life gain modified by replacements: ${amount} -> ${modifiedAmount} (${appliedReplacements.join(', ')})`);
+    debug(1, `[applyLifeGain] Life gain modified by replacements: ${amount} -> ${modifiedAmount} (${appliedReplacements.join(', ')})`);
   }
   
   // Normal life gain (with modifiers applied)
@@ -462,10 +463,10 @@ export function applyLifeGain(
   try {
     const lifeGainTriggers = triggerLifeGainEffects(gameState, playerId, modifiedAmount);
     if (lifeGainTriggers.length > 0) {
-      console.log(`[applyLifeGain] Triggered ${lifeGainTriggers.length} life gain effect(s)`);
+      debug(2, `[applyLifeGain] Triggered ${lifeGainTriggers.length} life gain effect(s)`);
     }
   } catch (err) {
-    console.warn('[applyLifeGain] Error triggering life gain effects:', err);
+    debugWarn(1, '[applyLifeGain] Error triggering life gain effects:', err);
   }
   
   if (appliedReplacements.length > 0) {
@@ -684,7 +685,7 @@ export function triggerLifeGainEffects(
         permanent: perm.card.name || perm.id, 
         effect: `Added +1/+1 counter (${perm.counters['+1/+1']} total)` 
       });
-      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter from life gain`);
+      debug(2, `[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter from life gain`);
       continue; // Don't double-trigger
     }
     
@@ -698,7 +699,7 @@ export function triggerLifeGainEffects(
         permanent: perm.card.name || perm.id, 
         effect: `Added ${amountGained} +1/+1 counter(s) (${perm.counters['+1/+1']} total)` 
       });
-      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from life gain`);
+      debug(2, `[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from life gain`);
       continue;
     }
     
@@ -717,7 +718,7 @@ export function triggerLifeGainEffects(
         permanent: perm.card.name || perm.id, 
         effect: 'Added +1/+1 counter to each creature you control' 
       });
-      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} added +1/+1 counters to all creatures`);
+      debug(2, `[triggerLifeGainEffects] ${perm.card.name || perm.id} added +1/+1 counters to all creatures`);
       continue;
     }
     
@@ -737,7 +738,7 @@ export function triggerLifeGainEffects(
         permanent: perm.card.name || perm.id, 
         effect: 'Each opponent lost 1 life' 
       });
-      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused each opponent to lose 1 life`);
+      debug(2, `[triggerLifeGainEffects] ${perm.card.name || perm.id} caused each opponent to lose 1 life`);
       continue;
     }
     
@@ -757,7 +758,7 @@ export function triggerLifeGainEffects(
           permanent: perm.card.name || perm.id, 
           effect: `Target opponent lost ${amountGained} life` 
         });
-        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused opponent to lose ${amountGained} life`);
+        debug(2, `[triggerLifeGainEffects] ${perm.card.name || perm.id} caused opponent to lose ${amountGained} life`);
       }
       continue;
     }
@@ -773,7 +774,7 @@ export function triggerLifeGainEffects(
           permanent: perm.card.name || perm.id, 
           effect: `Added +1/+1 counter to self` 
         });
-        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter`);
+        debug(2, `[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter`);
       }
     }
   }
@@ -805,7 +806,7 @@ export function triggerLifeGainEffects(
           permanent: `${perm.card.name || perm.id} (via ${aura.card.name || 'Aura'})`, 
           effect: `Added ${amountGained} +1/+1 counter(s)` 
         });
-        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from ${aura.card.name || 'Aura'}`);
+        debug(2, `[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from ${aura.card.name || 'Aura'}`);
       }
     }
   }
@@ -2598,7 +2599,7 @@ export function addEnergyCounters(
   const energy = gameState.energy = gameState.energy || {};
   energy[playerId] = (energy[playerId] || 0) + amount;
   
-  console.log(`[addEnergyCounters] ${playerId} gained ${amount} energy${source ? ` from ${source}` : ''} (total: ${energy[playerId]})`);
+  debug(2, `[addEnergyCounters] ${playerId} gained ${amount} energy${source ? ` from ${source}` : ''} (total: ${energy[playerId]})`);
   
   return energy[playerId];
 }
@@ -2622,12 +2623,12 @@ export function spendEnergyCounters(
   const currentEnergy = energy[playerId] || 0;
   
   if (currentEnergy < amount) {
-    console.log(`[spendEnergyCounters] ${playerId} cannot spend ${amount} energy (only has ${currentEnergy})`);
+    debug(2, `[spendEnergyCounters] ${playerId} cannot spend ${amount} energy (only has ${currentEnergy})`);
     return false;
   }
   
   energy[playerId] = currentEnergy - amount;
-  console.log(`[spendEnergyCounters] ${playerId} spent ${amount} energy (remaining: ${energy[playerId]})`);
+  debug(2, `[spendEnergyCounters] ${playerId} spent ${amount} energy (remaining: ${energy[playerId]})`);
   
   return true;
 }
@@ -2733,3 +2734,4 @@ export function createCardNameRegex(cardName: string): RegExp {
   // No title - match full name or tilde/this
   return new RegExp(`(?:~|this creature|this permanent|${fullName})`, 'i');
 }
+

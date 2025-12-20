@@ -5,6 +5,7 @@
 import type { PlayerID, KnownCardRef } from "../types";
 import type { GameContext } from "../context";
 import { shuffleLibrary, drawCards } from "./zones";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
  * Commander handling: snapshot commander metadata, remove from library,
@@ -67,27 +68,27 @@ export function setCommander(
     let changed = false;
     const indicesToRemove: number[] = [];
     
-    console.log(`[setCommander] Library size before commander removal: ${lib.length}, Commander IDs to remove:`, info.commanderIds);
+    debug(2, `[setCommander] Library size before commander removal: ${lib.length}, Commander IDs to remove:`, info.commanderIds);
     
     // Collect indices of all commanders in the library
     for (const cid of info.commanderIds || []) {
       const idx = lib.findIndex((c: any) => c && c.id === cid);
       if (idx >= 0) {
         const cardName = lib[idx]?.name || 'unknown';
-        console.log(`[setCommander] Found commander "${cardName}" (${cid}) in library at index ${idx}`);
+        debug(2, `[setCommander] Found commander "${cardName}" (${cid}) in library at index ${idx}`);
         indicesToRemove.push(idx);
       } else {
-        console.warn(`[setCommander] Commander ${cid} not found in library (library size: ${lib.length}). This may indicate a card ID mismatch.`);
+        debugWarn(2, `[setCommander] Commander ${cid} not found in library (library size: ${lib.length}). This may indicate a card ID mismatch.`);
         // Log first few cards in library to help debug
         const sample = lib.slice(0, 5).map((c: any) => ({ id: c?.id, name: c?.name }));
-        console.warn(`[setCommander] First 5 cards in library:`, JSON.stringify(sample));
+        debugWarn(2, `[setCommander] First 5 cards in library:`, JSON.stringify(sample));
       }
     }
     
     // Check for duplicate indices (shouldn't happen, but let's be defensive)
     const uniqueIndices = Array.from(new Set(indicesToRemove));
     if (uniqueIndices.length !== indicesToRemove.length) {
-      console.error(`[setCommander] Duplicate indices detected! Original:`, indicesToRemove, `Unique:`, uniqueIndices);
+      debugError(1, `[setCommander] Duplicate indices detected! Original:`, indicesToRemove, `Unique:`, uniqueIndices);
       indicesToRemove.length = 0;
       indicesToRemove.push(...uniqueIndices);
     }
@@ -95,27 +96,27 @@ export function setCommander(
     // Remove from highest index to lowest to prevent index shifting issues
     if (indicesToRemove.length > 0) {
       indicesToRemove.sort((a, b) => b - a); // Sort descending
-      console.log(`[setCommander] Removing ${indicesToRemove.length} commander(s) from library at indices:`, indicesToRemove, `library size before: ${lib.length}`);
+      debug(2, `[setCommander] Removing ${indicesToRemove.length} commander(s) from library at indices:`, indicesToRemove, `library size before: ${lib.length}`);
       
       for (const idx of indicesToRemove) {
         const removed = lib.splice(idx, 1)[0];
-        console.log(`[setCommander] Removed card at index ${idx}: ${removed?.name} (${removed?.id})`);
+        debug(2, `[setCommander] Removed card at index ${idx}: ${removed?.name} (${removed?.id})`);
         changed = true;
       }
       
-      console.log(`[setCommander] Library size after removal: ${lib.length}`);
+      debug(2, `[setCommander] Library size after removal: ${lib.length}`);
     } else {
-      console.warn(`[setCommander] No commanders found in library to remove. Commanders may have already been removed or IDs don't match.`);
+      debugWarn(2, `[setCommander] No commanders found in library to remove. Commanders may have already been removed or IDs don't match.`);
     }
     
     if (changed) {
       libraries.set(playerId, lib);
       zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 } as any;
       zones[playerId]!.libraryCount = lib.length;
-      console.log(`[setCommander] Updated zones[${playerId}].libraryCount to ${lib.length}`);
+      debug(2, `[setCommander] Updated zones[${playerId}].libraryCount to ${lib.length}`);
     }
   } else {
-    console.log(`[setCommander] Library is empty or null for player ${playerId}`);
+    debug(2, `[setCommander] Library is empty or null for player ${playerId}`);
   }
 
   (info as any).commanderCards = built;
@@ -147,7 +148,7 @@ export function setCommander(
         bumpSeq();
       }
     } catch (err) {
-      console.warn("setCommander: failed to perform opening draw for", playerId, err);
+      debugWarn(1, "setCommander: failed to perform opening draw for", playerId, err);
     }
   } else {
     bumpSeq();
@@ -161,13 +162,13 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
   // Check if the commander is in the command zone
   const inCZ = (info as any).inCommandZone as string[] || [];
   if (!inCZ.includes(commanderId)) {
-    console.warn(`[castCommander] Commander ${commanderId} is not in command zone for player ${playerId}`);
+    debugWarn(2, `[castCommander] Commander ${commanderId} is not in command zone for player ${playerId}`);
     return; // Don't allow casting if not in command zone
   }
   
   // Remove commander from inCommandZone
   (info as any).inCommandZone = inCZ.filter((id: string) => id !== commanderId);
-  console.log(`[castCommander] Removed commander ${commanderId} from command zone. Remaining in CZ:`, (info as any).inCommandZone);
+  debug(2, `[castCommander] Removed commander ${commanderId} from command zone. Remaining in CZ:`, (info as any).inCommandZone);
   
   if (!info.taxById) info.taxById = {};
   info.taxById[commanderId] = (info.taxById[commanderId] ?? 0) + 2;
@@ -188,7 +189,7 @@ export function moveCommanderToCZ(ctx: GameContext, playerId: PlayerID, commande
   
   // Only add if it's a valid commander for this player
   if (!info.commanderIds.includes(commanderId)) {
-    console.warn(`[moveCommanderToCZ] ${commanderId} is not a commander for player ${playerId}`);
+    debugWarn(2, `[moveCommanderToCZ] ${commanderId} is not a commander for player ${playerId}`);
     return;
   }
   
@@ -197,7 +198,7 @@ export function moveCommanderToCZ(ctx: GameContext, playerId: PlayerID, commande
   if (!inCZ.includes(commanderId)) {
     inCZ.push(commanderId);
     (info as any).inCommandZone = inCZ;
-    console.log(`[moveCommanderToCZ] Added commander ${commanderId} back to command zone for player ${playerId}`);
+    debug(2, `[moveCommanderToCZ] Added commander ${commanderId} back to command zone for player ${playerId}`);
   }
   
   commandZone[playerId] = info;

@@ -20,6 +20,7 @@
  */
 
 import type { BattlefieldPermanent, PlayerID } from '../../../../../shared/src/types';
+import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 // ============================================================================
 // Control Change Effect Types
@@ -499,5 +500,6 @@ export function logControlChange(
   toPlayer: string,
   reason: string = 'effect'
 ): void {
-  console.log(`[control-change] ${cardName} control changed from ${fromPlayer} to ${toPlayer} (${reason})`);
+  debug(2, `[control-change] ${cardName} control changed from ${fromPlayer} to ${toPlayer} (${reason})`);
 }
+

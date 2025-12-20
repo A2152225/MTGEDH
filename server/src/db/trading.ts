@@ -5,6 +5,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -305,7 +306,7 @@ export function addToCollection(
     });
     return true;
   } catch (err) {
-    console.error('[DB] addToCollection failed:', err);
+    debugError(1, '[DB] addToCollection failed:', err);
     return false;
   }
 }
@@ -386,7 +387,7 @@ export function addToWishlist(
     });
     return true;
   } catch (err) {
-    console.error('[DB] addToWishlist failed:', err);
+    debugError(1, '[DB] addToWishlist failed:', err);
     return false;
   }
 }
@@ -467,7 +468,7 @@ export function addTradeItems(
     }
     return true;
   } catch (err) {
-    console.error('[DB] addTradeItems failed:', err);
+    debugError(1, '[DB] addTradeItems failed:', err);
     return false;
   }
 }
@@ -578,7 +579,7 @@ export function addToBinder(
     });
     return true;
   } catch (err) {
-    console.error('[DB] addToBinder failed:', err);
+    debugError(1, '[DB] addToBinder failed:', err);
     return false;
   }
 }
@@ -611,3 +612,4 @@ export function searchTradeBinders(cardName: string): TradeBinderEntry[] {
     foil: !!row.foil,
   }));
 }
+

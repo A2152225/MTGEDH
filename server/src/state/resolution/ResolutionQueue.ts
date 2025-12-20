@@ -13,6 +13,7 @@
 
 import type { PlayerID } from '../../../../shared/src/types.js';
 import type { ChoiceEvent, ChoiceResponse } from '../../../../rules-engine/src/choiceEvents.js';
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import {
   ResolutionStepStatus,
   ResolutionStepType,
@@ -391,7 +392,7 @@ export function importLegacyPending(
 ): void {
   const stepType = LEGACY_PENDING_TO_STEP_TYPE[pendingFieldName];
   if (!stepType) {
-    console.warn(`[ResolutionQueue] Unknown legacy pending field: ${pendingFieldName}`);
+    debugWarn(2, `[ResolutionQueue] Unknown legacy pending field: ${pendingFieldName}`);
     return;
   }
 
@@ -533,3 +534,4 @@ export default {
   clearStepsForPlayer,
   clearAllSteps,
 };
+

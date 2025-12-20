@@ -45,6 +45,7 @@
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { grantTelepathyForPlayer, revokeTelepathyForPlayer } from "./telepathy.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
  * Check if a permanent is an actual Treasure token/artifact (not just a card that creates treasures)
@@ -1043,7 +1044,7 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number
     if (lowerText.includes("three additional land")) {
       return { lands: 3, affectsAll };
     }
-    console.log(`[detectAdditionalLandPlayFromOracle] Found "play an additional land" pattern, granting +1 land (affectsAll: ${affectsAll})`);
+    debug(2, `[detectAdditionalLandPlayFromOracle] Found "play an additional land" pattern, granting +1 land (affectsAll: ${affectsAll})`);
     return { lands: 1, affectsAll };
   }
   
@@ -1055,7 +1056,7 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number
       'one': 1, 'two': 2, 'three': 3, 'four': 4, 'an': 1, 'a': 1
     };
     const lands = wordToNum[countWord] || 1;
-    console.log(`[detectAdditionalLandPlayFromOracle] Found multi-land pattern: "${countWord}" -> ${lands} lands (affectsAll: ${affectsAll})`);
+    debug(2, `[detectAdditionalLandPlayFromOracle] Found multi-land pattern: "${countWord}" -> ${lands} lands (affectsAll: ${affectsAll})`);
     return { lands, affectsAll };
   }
   
@@ -1103,7 +1104,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
   const battlefield = getActivePermanents(ctx);
   const checkedPermanentIds = new Set<string>(); // Avoid double-counting
   
-  console.log(`[calculateMaxLandsPerTurn] Calculating for player ${playerId}, battlefield has ${battlefield.length} permanents`);
+  debug(2, `[calculateMaxLandsPerTurn] Calculating for player ${playerId}, battlefield has ${battlefield.length} permanents`);
   
   for (const perm of battlefield) {
     if (checkedPermanentIds.has(perm.id)) continue;
@@ -1122,7 +1123,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
           maxLands += effect.lands;
           checkedPermanentIds.add(perm.id);
           foundInKnownList = true;
-          console.log(`[calculateMaxLandsPerTurn] ${perm.card?.name} grants +${effect.lands} lands to ${playerId} (controller: ${perm.controller}, affectsAll: ${effect.affectsAll})`);
+          debug(2, `[calculateMaxLandsPerTurn] ${perm.card?.name} grants +${effect.lands} lands to ${playerId} (controller: ${perm.controller}, affectsAll: ${effect.affectsAll})`);
           break; // Only count once per permanent
         }
       }
@@ -1137,7 +1138,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
         if (isController || dynamicResult.affectsAll) {
           maxLands += dynamicResult.lands;
           checkedPermanentIds.add(perm.id);
-          console.log(`[calculateMaxLandsPerTurn] Detected +${dynamicResult.lands} lands from ${perm.card?.name} via oracle text (controller: ${perm.controller}, affectsAll: ${dynamicResult.affectsAll})`);
+          debug(2, `[calculateMaxLandsPerTurn] Detected +${dynamicResult.lands} lands from ${perm.card?.name} via oracle text (controller: ${perm.controller}, affectsAll: ${dynamicResult.affectsAll})`);
         }
       }
     }
@@ -1148,10 +1149,10 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
   const temporaryBonus = (ctx.state as any)?.additionalLandsThisTurn?.[playerId] || 0;
   if (temporaryBonus > 0) {
     maxLands += temporaryBonus;
-    console.log(`[calculateMaxLandsPerTurn] Added +${temporaryBonus} temporary lands for ${playerId} (spell effect)`);
+    debug(2, `[calculateMaxLandsPerTurn] Added +${temporaryBonus} temporary lands for ${playerId} (spell effect)`);
   }
   
-  console.log(`[calculateMaxLandsPerTurn] Final result for ${playerId}: ${maxLands} lands per turn`);
+  debug(2, `[calculateMaxLandsPerTurn] Final result for ${playerId}: ${maxLands} lands per turn`);
   return maxLands;
 }
 
@@ -1176,7 +1177,7 @@ export function applyTemporaryLandBonus(ctx: GameContext, playerId: string, addi
   const current = (ctx.state as any).additionalLandsThisTurn[playerId] || 0;
   (ctx.state as any).additionalLandsThisTurn[playerId] = current + additionalLands;
   
-  console.log(`[applyTemporaryLandBonus] ${playerId} can now play ${additionalLands} additional lands this turn (total bonus: ${current + additionalLands})`);
+  debug(2, `[applyTemporaryLandBonus] ${playerId} can now play ${additionalLands} additional lands this turn (total bonus: ${current + additionalLands})`);
   
   // Also update maxLandsPerTurn immediately for the game state
   const newMax = calculateMaxLandsPerTurn(ctx, playerId);
@@ -1196,7 +1197,7 @@ export function applyTemporaryLandBonus(ctx: GameContext, playerId: string, addi
 export function clearTemporaryLandBonuses(ctx: GameContext): void {
   if ((ctx.state as any)?.additionalLandsThisTurn) {
     (ctx.state as any).additionalLandsThisTurn = {};
-    console.log(`[clearTemporaryLandBonuses] Cleared all temporary land bonuses`);
+    debug(2, `[clearTemporaryLandBonuses] Cleared all temporary land bonuses`);
   }
 }
 
@@ -1628,7 +1629,7 @@ function recalculateHandVisibility(ctx: GameContext): void {
     grantTelepathyForPlayer(ctx, telepath);
   }
   
-  console.log(`[recalculateHandVisibility] Players with hand reveal effects: ${Array.from(playersWithHandReveal).join(', ') || 'none'}`);
+  debug(1, `[recalculateHandVisibility] Players with hand reveal effects: ${Array.from(playersWithHandReveal).join(', ') || 'none'}`);
 }
 
 /**
@@ -2730,5 +2731,6 @@ export function applyTokenCreationReplacements(
   const result = applyBeneficialReplacements(baseCount, effects);
   return { finalCount: result.finalAmount, appliedEffects: result.appliedEffects };
 }
+
 
 

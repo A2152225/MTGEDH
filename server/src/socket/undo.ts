@@ -5,6 +5,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
 import GameManager from "../GameManager";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Undo request state
@@ -218,7 +219,7 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     try {
       eventCount = getEventCount(gameId);
     } catch (e) {
-      console.warn(`[undo] Failed to get event count for game ${gameId}:`, e);
+      debugWarn(1, `[undo] Failed to get event count for game ${gameId}:`, e);
       return { success: false, error: "Database not available" };
     }
     
@@ -229,13 +230,13 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     // Calculate how many events to keep
     const eventsToKeep = Math.max(0, eventCount - actionsToUndo);
     
-    console.log(`[undo] Performing undo for game ${gameId}: keeping ${eventsToKeep} of ${eventCount} events`);
+    debug(2, `[undo] Performing undo for game ${gameId}: keeping ${eventsToKeep} of ${eventCount} events`);
     
     // Truncate the event log in the database
     try {
       truncateEventsForUndo(gameId, eventsToKeep);
     } catch (e) {
-      console.error(`[undo] Failed to truncate events for game ${gameId}:`, e);
+      debugError(1, `[undo] Failed to truncate events for game ${gameId}:`, e);
       return { success: false, error: "Failed to truncate event log" };
     }
     
@@ -244,7 +245,7 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     try {
       remainingEvents = getEvents(gameId);
     } catch (e) {
-      console.warn(`[undo] Failed to get events after truncation:`, e);
+      debugWarn(1, `[undo] Failed to get events after truncation:`, e);
       remainingEvents = [];
     }
     
@@ -253,7 +254,7 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     const existingGame = GameManager.getGame(gameId);
     
     if (!existingGame) {
-      console.error(`[undo] Game ${gameId} not found in GameManager`);
+      debugError(1, `[undo] Game ${gameId} not found in GameManager`);
       return { success: false, error: "Game not found" };
     }
     
@@ -268,7 +269,7 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
         }));
       }
     } catch (e) {
-      console.warn('[undo] Failed to save participants:', e);
+      debugWarn(1, '[undo] Failed to save participants:', e);
     }
     
     // Reset the game state while preserving player roster
@@ -277,13 +278,13 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     if (typeof existingGame.reset === 'function') {
       try {
         existingGame.reset(true); // preservePlayers = true
-        console.log(`[undo] Reset game state for ${gameId}`);
+        debug(2, `[undo] Reset game state for ${gameId}`);
       } catch (resetErr) {
-        console.error(`[undo] Reset failed for game ${gameId}:`, resetErr);
+        debugError(1, `[undo] Reset failed for game ${gameId}:`, resetErr);
         return { success: false, error: "Failed to reset game state" };
       }
     } else {
-      console.error(`[undo] Game ${gameId} does not have reset method`);
+      debugError(1, `[undo] Game ${gameId} does not have reset method`);
       return { success: false, error: "Game does not support reset" };
     }
     
@@ -301,13 +302,13 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
       
       try {
         existingGame.replay(replayEvents);
-        console.log(`[undo] Replayed ${replayEvents.length} events for game ${gameId}`);
+        debug(2, `[undo] Replayed ${replayEvents.length} events for game ${gameId}`);
       } catch (replayErr) {
-        console.error(`[undo] Replay failed for game ${gameId}:`, replayErr);
+        debugError(1, `[undo] Replay failed for game ${gameId}:`, replayErr);
         return { success: false, error: "Failed to replay events" };
       }
     } else if (remainingEvents.length === 0) {
-      console.log(`[undo] No events to replay for game ${gameId} (undid all actions)`);
+      debug(2, `[undo] No events to replay for game ${gameId} (undid all actions)`);
     }
     
     // Restore participant socket mappings if they were lost during reset
@@ -321,20 +322,20 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
         
         // If participants were lost during reset, try to restore them
         if (currentParticipants.length === 0 && savedParticipants.length > 0) {
-          console.log(`[undo] Restoring ${savedParticipants.length} participant(s) for game ${gameId}`);
+          debug(2, `[undo] Restoring ${savedParticipants.length} participant(s) for game ${gameId}`);
           for (const p of savedParticipants) {
             if (p.socketId && p.playerId) {
               try {
                 existingGame.join(p.socketId, p.playerId, p.spectator, p.playerId);
               } catch (joinErr) {
-                console.warn(`[undo] Failed to restore participant ${p.playerId}:`, joinErr);
+                debugWarn(1, `[undo] Failed to restore participant ${p.playerId}:`, joinErr);
               }
             }
           }
         }
       }
     } catch (e) {
-      console.warn('[undo] Failed to restore participants:', e);
+      debugWarn(1, '[undo] Failed to restore participants:', e);
     }
     
     // Bump seq to trigger UI updates
@@ -344,7 +345,7 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     
     return { success: true };
   } catch (err: any) {
-    console.error(`[undo] performUndo failed for game ${gameId}:`, err);
+    debugError(1, `[undo] performUndo failed for game ${gameId}:`, err);
     return { success: false, error: err?.message || "Unknown error" };
   }
 }
@@ -508,7 +509,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       }, UNDO_TIMEOUT_MS);
 
     } catch (err: any) {
-      console.error(`requestUndo error for game ${gameId}:`, err);
+      debugError(1, `requestUndo error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "UNDO_REQUEST_ERROR",
         message: err?.message ?? String(err),
@@ -632,7 +633,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       }
 
     } catch (err: any) {
-      console.error(`respondUndo error for game ${gameId}:`, err);
+      debugError(1, `respondUndo error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "UNDO_RESPONSE_ERROR",
         message: err?.message ?? String(err),
@@ -682,7 +683,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       });
 
     } catch (err: any) {
-      console.error(`cancelUndo error for game ${gameId}:`, err);
+      debugError(1, `cancelUndo error for game ${gameId}:`, err);
     }
   });
 
@@ -696,7 +697,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       try {
         eventCount = getEventCount(gameId);
       } catch (e) {
-        console.warn(`[getUndoCount] Failed to get event count for game ${gameId}:`, e);
+        debugWarn(1, `[getUndoCount] Failed to get event count for game ${gameId}:`, e);
       }
 
       socket.emit("undoCountUpdate", {
@@ -704,7 +705,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         eventCount,
       });
     } catch (err: any) {
-      console.error(`getUndoCount error for game ${gameId}:`, err);
+      debugError(1, `getUndoCount error for game ${gameId}:`, err);
     }
   });
 
@@ -718,7 +719,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       try {
         events = getEvents(gameId);
       } catch (e) {
-        console.warn(`[getSmartUndoCounts] Failed to get events for game ${gameId}:`, e);
+        debugWarn(1, `[getSmartUndoCounts] Failed to get events for game ${gameId}:`, e);
       }
 
       const stepCount = calculateUndoToStep(events);
@@ -733,7 +734,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         totalCount: events.length,
       });
     } catch (err: any) {
-      console.error(`getSmartUndoCounts error for game ${gameId}:`, err);
+      debugError(1, `getSmartUndoCounts error for game ${gameId}:`, err);
     }
   });
 
@@ -744,7 +745,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       try {
         events = getEvents(gameId);
       } catch (e) {
-        console.warn(`[requestUndoToStep] Failed to get events:`, e);
+        debugWarn(1, `[requestUndoToStep] Failed to get events:`, e);
         return;
       }
 
@@ -754,7 +755,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         socket.emit("requestUndo", { gameId, actionsToUndo });
       }
     } catch (err: any) {
-      console.error(`requestUndoToStep error for game ${gameId}:`, err);
+      debugError(1, `requestUndoToStep error for game ${gameId}:`, err);
     }
   });
 
@@ -765,7 +766,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       try {
         events = getEvents(gameId);
       } catch (e) {
-        console.warn(`[requestUndoToPhase] Failed to get events:`, e);
+        debugWarn(1, `[requestUndoToPhase] Failed to get events:`, e);
         return;
       }
 
@@ -775,7 +776,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         socket.emit("requestUndo", { gameId, actionsToUndo });
       }
     } catch (err: any) {
-      console.error(`requestUndoToPhase error for game ${gameId}:`, err);
+      debugError(1, `requestUndoToPhase error for game ${gameId}:`, err);
     }
   });
 
@@ -786,7 +787,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       try {
         events = getEvents(gameId);
       } catch (e) {
-        console.warn(`[requestUndoToTurn] Failed to get events:`, e);
+        debugWarn(1, `[requestUndoToTurn] Failed to get events:`, e);
         return;
       }
 
@@ -796,7 +797,8 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         socket.emit("requestUndo", { gameId, actionsToUndo });
       }
     } catch (err: any) {
-      console.error(`requestUndoToTurn error for game ${gameId}:`, err);
+      debugError(1, `requestUndoToTurn error for game ${gameId}:`, err);
     }
   });
 }
+

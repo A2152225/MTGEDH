@@ -87,6 +87,8 @@ import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
 import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
 import { DraggableSettingsPanel } from "./components/DraggableSettingsPanel";
+import { debug, debugWarn, debugError } from "./utils/debug";
+
 
 /* App component */
 export function App() {
@@ -899,7 +901,7 @@ export function App() {
     }) => {
       // Only update if it's for this game and this player
       if (data.gameId === safeView?.id && data.playerId === you && data.success) {
-        console.log('[AutoPass] Server confirmed toggle:', data.enabled ? 'enabled' : 'disabled');
+        debug(2, '[AutoPass] Server confirmed toggle:', data.enabled ? 'enabled' : 'disabled');
         // The UI state is already updated from the user action
         // This confirms the server processed it correctly
         // If the server state doesn't match, we could sync here
@@ -1255,12 +1257,12 @@ export function App() {
   // Bounce land prompt listener
   React.useEffect(() => {
     const handler = (payload: any) => {
-      console.log('[BounceLand] Received bounceLandPrompt event:', payload);
-      console.log('[BounceLand] Current safeView?.id:', safeView?.id);
-      console.log('[BounceLand] Payload gameId matches:', payload.gameId === safeView?.id);
+      debug(2, '[BounceLand] Received bounceLandPrompt event:', payload);
+      debug(2, '[BounceLand] Current safeView?.id:', safeView?.id);
+      debug(2, '[BounceLand] Payload gameId matches:', payload.gameId === safeView?.id);
       
       if (payload.gameId === safeView?.id) {
-        console.log('[BounceLand] Setting modal data and opening modal');
+        debug(2, '[BounceLand] Setting modal data and opening modal');
         setBounceLandData({
           bounceLandId: payload.bounceLandId,
           bounceLandName: payload.bounceLandName,
@@ -1270,7 +1272,7 @@ export function App() {
         });
         setBounceLandModalOpen(true);
       } else {
-        console.log('[BounceLand] GameId mismatch - not opening modal');
+        debug(2, '[BounceLand] GameId mismatch - not opening modal');
       }
     };
     socket.on("bounceLandPrompt", handler);
@@ -3522,9 +3524,9 @@ export function App() {
   const handleCastSpellConfirm = (payment: PaymentItem[], _alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => {
     if (!safeView || !spellToCast) return;
     
-    console.log(`[Client] Casting ${spellToCast.isCommander ? 'commander' : 'spell'}: ${spellToCast.cardName} with payment:`, payment);
+    debug(2, `[Client] Casting ${spellToCast.isCommander ? 'commander' : 'spell'}: ${spellToCast.cardName} with payment:`, payment);
     if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
-      console.log(`[Client] Convoke: tapping ${convokeTappedCreatures.length} creature(s):`, convokeTappedCreatures);
+      debug(2, `[Client] Convoke: tapping ${convokeTappedCreatures.length} creature(s):`, convokeTappedCreatures);
     }
     
     if (spellToCast.isCommander) {
@@ -4026,7 +4028,7 @@ export function App() {
       faceIndex = parseInt(faceId.replace('face_', ''), 10);
       // Validate faceIndex bounds
       if (faceIndex < 0 || faceIndex >= cardFaces.length) {
-        console.error(`[handleSplitCardChoose] Invalid faceIndex: ${faceIndex}`);
+        debugError(1, `[handleSplitCardChoose] Invalid faceIndex: ${faceIndex}`);
         return;
       }
     }
@@ -6606,3 +6608,4 @@ export function App() {
 }
 
 export default App;
+

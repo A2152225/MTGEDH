@@ -18,6 +18,7 @@ import {
   KNOWN_BEGINNING_COMBAT_TRIGGERS,
 } from "./card-data-tables.js";
 import type { BeginningOfCombatTrigger, EndOfCombatTrigger } from "./types.js";
+import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 // ============================================================================
 // Local Type Definitions (compatible with types.ts but with additional fields)
@@ -544,7 +545,7 @@ export function getBeginningOfCombatTriggers(
     if (!permanent || !permanent.card) continue;
     
     if (triggerCount >= MAX_TRIGGERS_PER_STEP) {
-      console.error(`[getBeginningOfCombatTriggers] SAFETY LIMIT: Stopped after ${MAX_TRIGGERS_PER_STEP} triggers`);
+      debugError(1, `[getBeginningOfCombatTriggers] SAFETY LIMIT: Stopped after ${MAX_TRIGGERS_PER_STEP} triggers`);
       break;
     }
     
@@ -628,3 +629,4 @@ export function getEndOfCombatTriggers(
   
   return triggers;
 }
+

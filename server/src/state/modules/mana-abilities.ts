@@ -1,4 +1,6 @@
 /**
+
+
  * mana-abilities.ts
  * 
  * Handles mana ability modifications from static effects:
@@ -24,6 +26,8 @@
  * - Mirari's Wake: Lands add extra mana
  */
 
+
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 /**
  * Calculate effective power for a permanent (including counters, modifiers, etc.)
  * This is a simplified version for use in mana ability calculations
@@ -453,7 +457,7 @@ export function getManaAbilitiesForPermanent(
     if (artifactCount < 3) {
       // Metalcraft is not active - return no mana abilities for this permanent
       // (or only colorless if the card has a non-metalcraft ability)
-      console.log(`[getManaAbilitiesForPermanent] Metalcraft not active for ${card.name} (${artifactCount}/3 artifacts)`);
+      debug(2, `[getManaAbilitiesForPermanent] Metalcraft not active for ${card.name} (${artifactCount}/3 artifacts)`);
       return abilities; // Return empty - no mana abilities available
     }
   }
@@ -912,7 +916,7 @@ export function calculateDevotion(
   }
   
   if (color === 'G') {
-    console.log(`[calculateDevotion] Green devotion for ${playerId}:`, {
+    debug(2, `[calculateDevotion] Green devotion for ${playerId}:`, {
       totalDevotion: devotion,
       permanents: devotedPermanents,
       battlefieldCount: battlefield.filter((p: any) => p?.controller === playerId).length,
@@ -934,7 +938,7 @@ export function getDevotionManaAmount(
   const cardName = (permanent?.card?.name || "").toLowerCase();
   const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
   
-  console.log(`[getDevotionManaAmount] Checking ${cardName}:`, {
+  debug(2, `[getDevotionManaAmount] Checking ${cardName}:`, {
     hasKarametra: cardName.includes("karametra"),
     hasAcolyte: cardName.includes("acolyte"),
     fullCardName: cardName,
@@ -944,7 +948,7 @@ export function getDevotionManaAmount(
   for (const [knownName, info] of Object.entries(KNOWN_DEVOTION_MANA_CARDS)) {
     if (cardName.includes(knownName)) {
       const devotion = calculateDevotion(gameState, playerId, info.color);
-      console.log(`[getDevotionManaAmount] Matched ${knownName}, devotion=${devotion}`);
+      debug(2, `[getDevotionManaAmount] Matched ${knownName}, devotion=${devotion}`);
       // Devotion-based mana abilities produce 0 if devotion is 0
       // minDevotion is only used for special cases, default is 0
       return {
@@ -954,7 +958,7 @@ export function getDevotionManaAmount(
     }
   }
   
-  console.log(`[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection`);
+  debug(2, `[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection`);
   
   // Dynamic detection: "Add an amount of {G} equal to your devotion to green"
   const devotionManaMatch = oracleText.match(
@@ -1301,7 +1305,7 @@ export function getCreatureCountManaAmount(
     // ========== GENERIC FALLBACK ==========
     else {
       // Log for debugging unknown patterns
-      console.log(`[getCreatureCountManaAmount] Unknown "add an amount of" condition: "${condition}"`);
+      debug(2, `[getCreatureCountManaAmount] Unknown "add an amount of" condition: "${condition}"`);
       amount = 1; // Default to 1 if we can't determine the amount
     }
     
@@ -1436,3 +1440,5 @@ export function getCreatureCountManaAmount(
   
   return null;
 }
+
+

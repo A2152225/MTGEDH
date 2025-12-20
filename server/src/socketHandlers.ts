@@ -2,6 +2,7 @@ import { Socket, Server } from 'socket.io';
 import GameManager from './GameManager';
 import { GameActionType, GameAction, AutomationErrorReport } from '../../shared/src';
 import { v4 as uuidv4 } from 'uuid';
+import { debug, debugWarn, debugError } from "./utils/debug.js";
 
 // Note: This file uses GameManager methods that may not exist on all implementations.
 // The actual socket handlers are registered in src/socket/*.ts
@@ -58,7 +59,7 @@ export function setupSocketHandlers(socket: Socket, gameManager: any, io: Server
     };
     
     // Save to database for review
-    console.log('🚨 Automation Error Reported:', fullReport);
+    debug(1, '🚨 Automation Error Reported:', fullReport);
     
     // Notify all players in the game
     io.to(report.gameId).emit('automationErrorReported', {
@@ -79,3 +80,4 @@ export function setupSocketHandlers(socket: Socket, gameManager: any, io: Server
     }
   });
 }
+

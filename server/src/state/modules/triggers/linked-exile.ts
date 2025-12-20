@@ -9,6 +9,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 /**
  * Represents a linked exile - a permanent that has exiled another permanent
@@ -149,7 +150,7 @@ export function registerLinkedExile(
   
   state.linkedExiles.push(linkedExile);
   
-  console.log(`[registerLinkedExile] ${exilingPermanentName} (${exilingPermanentId}) exiled ${linkedExile.exiledCardName} - will return when it leaves`);
+  debug(2, `[registerLinkedExile] ${exilingPermanentName} (${exilingPermanentId}) exiled ${linkedExile.exiledCardName} - will return when it leaves`);
   
   return linkId;
 }
@@ -179,7 +180,7 @@ export function processLinkedExileReturns(
   const returns: { returnedCards: any[]; owner: string }[] = [];
   
   for (const linked of linkedToReturn) {
-    console.log(`[processLinkedExileReturns] ${linked.exilingPermanentName} left - returning ${linked.exiledCardName} to battlefield`);
+    debug(2, `[processLinkedExileReturns] ${linked.exilingPermanentName} left - returning ${linked.exiledCardName} to battlefield`);
     
     // Return the exiled card to the battlefield under its owner's control
     // Per MTG rules for linked exile effects, cards exiled "until ~ leaves the 
@@ -241,7 +242,7 @@ function triggerETBEffectsForReturnedPermanent(ctx: GameContext, permanent: any,
   
   // The ETB system should handle this via the normal ETB detection
   // We just log it for now - the main ETB processing happens in stack.ts
-  console.log(`[triggerETBEffectsForReturnedPermanent] ${card.name} returned from exile - ETB triggers may fire`);
+  debug(2, `[triggerETBEffectsForReturnedPermanent] ${card.name} returned from exile - ETB triggers may fire`);
 }
 
 /**
@@ -267,3 +268,4 @@ export function isCardLinkedExile(ctx: GameContext, exiledCardId: string): Linke
     (le: LinkedExile) => le.exiledCardId === exiledCardId
   ) || null;
 }
+

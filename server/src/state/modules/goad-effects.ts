@@ -10,6 +10,7 @@
  */
 
 import type { BattlefieldPermanent, PlayerID } from '../../../../shared/src/types';
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
  * Apply goad to a single creature (Rule 701.15)
@@ -220,5 +221,6 @@ export function logGoadApplication(
   expiryTurn: number,
   reason: string = 'effect'
 ): void {
-  console.log(`[goad] ${creatureName} goaded by ${goaderId} until turn ${expiryTurn} (${reason})`);
+  debug(2, `[goad] ${creatureName} goaded by ${goaderId} until turn ${expiryTurn} (${reason})`);
 }
+

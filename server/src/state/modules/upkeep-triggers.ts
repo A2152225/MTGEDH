@@ -13,6 +13,7 @@
  */
 
 import type { GameContext } from "../context.js";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 export interface UpkeepTrigger {
   permanentId: string;
@@ -607,7 +608,7 @@ export function addLoreCounter(ctx: GameContext, permanentId: string): {
   // not when the lore counter is added. We return this flag to let the caller handle timing.
   const atFinalChapter = newLoreCount >= maxChapter;
   
-  console.log(`[addLoreCounter] ${permanent.card?.name || permanentId} now has ${newLoreCount} lore counter(s)${atFinalChapter ? ' (final chapter)' : ''}`);
+  debug(2, `[addLoreCounter] ${permanent.card?.name || permanentId} now has ${newLoreCount} lore counter(s)${atFinalChapter ? ' (final chapter)' : ''}`);
   
   ctx.bumpSeq();
   
@@ -725,3 +726,4 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
   
   return processed;
 }
+

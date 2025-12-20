@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
 import type { SavedDeckSummary, SavedDeckDetail, DeckFolder } from '../../../shared/src/decks';
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -32,17 +33,17 @@ try {
   const hasResolvedCards = tableInfo.some(col => col.name === 'resolved_cards');
   if (!hasResolvedCards) {
     db.exec(`ALTER TABLE decks ADD COLUMN resolved_cards TEXT`);
-    console.log('[DB] Added resolved_cards column to decks table');
+    debug(2, '[DB] Added resolved_cards column to decks table');
   }
   const hasFolder = tableInfo.some(col => col.name === 'folder');
   if (!hasFolder) {
     db.exec(`ALTER TABLE decks ADD COLUMN folder TEXT DEFAULT ''`);
-    console.log('[DB] Added folder column to decks table');
+    debug(2, '[DB] Added folder column to decks table');
   }
   // Always ensure folder index exists (safe for new and migrated databases)
   db.exec(`CREATE INDEX IF NOT EXISTS decks_folder_idx ON decks(folder)`);
 } catch (e) {
-  console.warn('[DB] Migration check failed:', e);
+  debugWarn(1, '[DB] Migration check failed:', e);
 }
 
 const insertStmt = db.prepare(`
@@ -216,7 +217,7 @@ export function getDeck(id: string): SavedDeckDetail | null {
     try {
       cachedCards = JSON.parse(row.resolved_cards);
     } catch (e) {
-      console.warn('[DB] Failed to parse resolved_cards for deck', id, e);
+      debugWarn(1, '[DB] Failed to parse resolved_cards for deck', id, e);
     }
   }
   

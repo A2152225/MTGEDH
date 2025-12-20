@@ -45,6 +45,7 @@ import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
 import { evaluateAction } from "../../rules-engine/index";
 import { mulberry32 } from "../../utils/rng";
+import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /* -------- Helpers ---------- */
 
@@ -92,7 +93,7 @@ export function reset(ctx: any, preservePlayers = false): void {
       ctx.reset(preservePlayers);
       return;
     } catch (err) {
-      console.warn("reset: ctx.reset threw, falling back:", err);
+      debugWarn(2, "reset: ctx.reset threw, falling back:", err);
     }
   }
 
@@ -204,7 +205,7 @@ export function reset(ctx: any, preservePlayers = false): void {
       // ignore
     }
   } catch (err) {
-    console.warn("reset fallback failed:", err);
+    debugWarn(1, "reset fallback failed:", err);
   }
 }
 
@@ -221,7 +222,7 @@ export function skip(ctx: any, playerId: PlayerID): void {
     (ctx as any).inactive.add(playerId);
     if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
   } catch (err) {
-    console.warn("skip fallback failed:", err);
+    debugWarn(1, "skip fallback failed:", err);
   }
 }
 
@@ -236,7 +237,7 @@ export function unskip(ctx: any, playerId: PlayerID): void {
       (ctx as any).inactive.delete(playerId);
     if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
   } catch (err) {
-    console.warn("unskip fallback failed:", err);
+    debugWarn(1, "unskip fallback failed:", err);
   }
 }
 
@@ -279,7 +280,7 @@ export function remove(ctx: any, playerId: PlayerID): void {
       if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
     } catch {}
   } catch (err) {
-    console.warn("remove fallback failed:", err);
+    debugWarn(1, "remove fallback failed:", err);
   }
 }
 
@@ -386,7 +387,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           
           // Zones will be normalized by reconcileZonesConsistency after replay.
         } catch (err) {
-          console.warn("applyEvent(join): failed to rebuild player", err);
+          debugWarn(1, "applyEvent(join): failed to rebuild player", err);
         }
         break;
       }
@@ -546,7 +547,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // (graveyard, exile, etc.) - no additional action needed
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(commanderZoneChoice): failed", err);
+          debugWarn(1, "applyEvent(commanderZoneChoice): failed", err);
         }
         break;
       }
@@ -695,7 +696,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             runSBA(ctx as any);
             ctx.bumpSeq();
           } catch (err) {
-            console.warn('[applyEvent] resolveSpell failed:', err);
+            debugWarn(1, '[applyEvent] resolveSpell failed:', err);
           }
         }
         break;
@@ -759,7 +760,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(skipToPhase): failed", err);
+          debugWarn(1, "applyEvent(skipToPhase): failed", err);
         }
         break;
       }
@@ -828,7 +829,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           shuffleLibrary(ctx as any, pid);
           drawCards(ctx as any, pid, 7);
         } catch (err) {
-          console.warn("applyEvent(mulligan): failed", err);
+          debugWarn(1, "applyEvent(mulligan): failed", err);
         }
         break;
       }
@@ -845,7 +846,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           state.mulliganState[pid].hasKeptHand = true;
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(keepHand): failed", err);
+          debugWarn(1, "applyEvent(keepHand): failed", err);
         }
         break;
       }
@@ -885,7 +886,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(mulliganPutToBottom): failed", err);
+          debugWarn(1, "applyEvent(mulliganPutToBottom): failed", err);
         }
         break;
       }
@@ -907,7 +908,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn(`applyEvent(${e.type}): failed`, err);
+          debugWarn(1, `applyEvent(${e.type}): failed`, err);
         }
         break;
       }
@@ -940,7 +941,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           z.graveyardCount = graveyard.length;
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(cleanupDiscard): failed", err);
+          debugWarn(1, "applyEvent(cleanupDiscard): failed", err);
         }
         break;
       }
@@ -970,7 +971,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.libraries.set(pid, lib);
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(mill): failed", err);
+          debugWarn(1, "applyEvent(mill): failed", err);
         }
         break;
       }
@@ -989,7 +990,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ctx.bumpSeq();
           }
         } catch (err) {
-          console.warn(`applyEvent(${e.type}): failed`, err);
+          debugWarn(1, `applyEvent(${e.type}): failed`, err);
         }
         break;
       }
@@ -1001,7 +1002,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           removePermanent(ctx as any, permId);
         } catch (err) {
-          console.warn("applyEvent(sacrificePermanent): failed", err);
+          debugWarn(1, "applyEvent(sacrificePermanent): failed", err);
         }
         break;
       }
@@ -1015,7 +1016,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             removePermanent(ctx as any, permId);
           }
         } catch (err) {
-          console.warn("applyEvent(sacrificeSelected): failed", err);
+          debugWarn(1, "applyEvent(sacrificeSelected): failed", err);
         }
         break;
       }
@@ -1039,7 +1040,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(declareAttackers): failed", err);
+          debugWarn(1, "applyEvent(declareAttackers): failed", err);
         }
         break;
       }
@@ -1070,7 +1071,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(declareBlockers): failed", err);
+          debugWarn(1, "applyEvent(declareBlockers): failed", err);
         }
         break;
       }
@@ -1097,12 +1098,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               runSBA(ctx as any);
             } catch (sbaErr) {
               // SBA may not be available during replay - this is expected
-              console.info("applyEvent(fight): SBA skipped during replay:", sbaErr);
+              debug(1, "applyEvent(fight): SBA skipped during replay:", sbaErr);
             }
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(fight): failed", err);
+          debugWarn(1, "applyEvent(fight): failed", err);
         }
         break;
       }
@@ -1115,7 +1116,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           try {
             removePermanent(ctx as any, permId);
           } catch (err) {
-            console.warn("applyEvent(activateFetchland): failed", err);
+            debugWarn(1, "applyEvent(activateFetchland): failed", err);
           }
         }
         break;
@@ -1143,14 +1144,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const controllerId = (perm as any).controller;
                 (ctx.state as any).yunaNextCreatureFlags = (ctx.state as any).yunaNextCreatureFlags || {};
                 (ctx.state as any).yunaNextCreatureFlags[controllerId] = true;
-                console.log(`[activateManaAbility] Yuna, Grand Summoner's Grand Summon activated - next creature will enter with +2 counters`);
+                debug(2, `[activateManaAbility] Yuna, Grand Summoner's Grand Summon activated - next creature will enter with +2 counters`);
               }
             }
           }
           // Mana pool updates are typically ephemeral, but we bump seq for state sync
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(activateManaAbility): failed", err);
+          debugWarn(1, "applyEvent(activateManaAbility): failed", err);
         }
         break;
       }
@@ -1170,7 +1171,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(activatePlaneswalkerAbility): failed", err);
+          debugWarn(1, "applyEvent(activatePlaneswalkerAbility): failed", err);
         }
         break;
       }
@@ -1199,7 +1200,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(activateGraveyardAbility): failed", err);
+          debugWarn(1, "applyEvent(activateGraveyardAbility): failed", err);
         }
         break;
       }
@@ -1223,7 +1224,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(shockLandChoice): failed", err);
+          debugWarn(1, "applyEvent(shockLandChoice): failed", err);
         }
         break;
       }
@@ -1283,7 +1284,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(moxDiamondChoice): failed", err);
+          debugWarn(1, "applyEvent(moxDiamondChoice): failed", err);
         }
         break;
       }
@@ -1309,7 +1310,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(bounceLandChoice): failed", err);
+          debugWarn(1, "applyEvent(bounceLandChoice): failed", err);
         }
         break;
       }
@@ -1355,7 +1356,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(librarySearchSelect): failed", err);
+          debugWarn(1, "applyEvent(librarySearchSelect): failed", err);
         }
         break;
       }
@@ -1374,7 +1375,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(creatureTypeSelected): failed", err);
+          debugWarn(1, "applyEvent(creatureTypeSelected): failed", err);
         }
         break;
       }
@@ -1410,7 +1411,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(playOpeningHandCards): failed", err);
+          debugWarn(1, "applyEvent(playOpeningHandCards): failed", err);
         }
         break;
       }
@@ -1450,7 +1451,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(setHouseRules): failed", err);
+          debugWarn(1, "applyEvent(setHouseRules): failed", err);
         }
         break;
       }
@@ -1477,7 +1478,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // Check if this trigger is already on the stack (idempotency for replay)
           const existingTrigger = (ctx.state.stack || []).find((s: any) => s.id === triggerId);
           if (existingTrigger) {
-            console.info(`applyEvent(pushTriggeredAbility): trigger ${triggerId} already on stack, skipping (replay idempotency)`);
+            debug(1, `applyEvent(pushTriggeredAbility): trigger ${triggerId} already on stack, skipping (replay idempotency)`);
             break;
           }
           
@@ -1494,10 +1495,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             mandatory: true,
           } as any);
           
-          console.log(`[applyEvent] Pushed triggered ability: ${sourceName} - ${description}`);
+          debug(2, `[applyEvent] Pushed triggered ability: ${sourceName} - ${description}`);
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(pushTriggeredAbility): failed", err);
+          debugWarn(1, "applyEvent(pushTriggeredAbility): failed", err);
         }
         break;
       }
@@ -1512,10 +1513,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           // The actual effect execution is handled by resolveTopOfStack
           // This event just records that the trigger was resolved
-          console.log(`[applyEvent] Resolved triggered ability: ${sourceName} - ${effect}`);
+          debug(2, `[applyEvent] Resolved triggered ability: ${sourceName} - ${effect}`);
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(resolveTriggeredAbility): failed", err);
+          debugWarn(1, "applyEvent(resolveTriggeredAbility): failed", err);
         }
         break;
       }
@@ -1538,7 +1539,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 // Check if token already exists (replay idempotency)
                 const existingToken = ctx.state.battlefield.find((p: any) => p.id === tokenId);
                 if (existingToken) {
-                  console.info(`applyEvent(executeEffect/createToken): token ${tokenId} already exists, skipping`);
+                  debug(1, `applyEvent(executeEffect/createToken): token ${tokenId} already exists, skipping`);
                   break;
                 }
                 
@@ -1564,7 +1565,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     zone: 'battlefield',
                   },
                 } as any);
-                console.log(`[applyEvent] Created token: ${tokenData.name} for ${controllerId}`);
+                debug(2, `[applyEvent] Created token: ${tokenData.name} for ${controllerId}`);
               }
               break;
             }
@@ -1576,7 +1577,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ctx.state.life = ctx.state.life || {};
                 ctx.state.life[targetId] = (ctx.state.life[targetId] ?? 40) + delta;
                 player.life = ctx.state.life[targetId];
-                console.log(`[applyEvent] ${targetId} ${effectType === 'gainLife' ? 'gained' : 'lost'} ${amount} life`);
+                debug(1, `[applyEvent] ${targetId} ${effectType === 'gainLife' ? 'gained' : 'lost'} ${amount} life`);
               }
               break;
             }
@@ -1597,14 +1598,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 }
                 zones.libraryCount = zones.library.length;
                 zones.graveyardCount = (zones.graveyard || []).length;
-                console.log(`[applyEvent] ${targetId} milled ${amount} card(s)`);
+                debug(2, `[applyEvent] ${targetId} milled ${amount} card(s)`);
               }
               break;
             }
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(executeEffect): failed", err);
+          debugWarn(1, "applyEvent(executeEffect): failed", err);
         }
         break;
       }
@@ -1638,7 +1639,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(foretellCard): failed", err);
+          debugWarn(1, "applyEvent(foretellCard): failed", err);
         }
         break;
       }
@@ -1659,7 +1660,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(phaseOutPermanents): failed", err);
+          debugWarn(1, "applyEvent(phaseOutPermanents): failed", err);
         }
         break;
       }
@@ -1693,7 +1694,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(equipPermanent): failed", err);
+          debugWarn(1, "applyEvent(equipPermanent): failed", err);
         }
         break;
       }
@@ -1712,7 +1713,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(concede): failed", err);
+          debugWarn(1, "applyEvent(concede): failed", err);
         }
         break;
       }
@@ -1761,7 +1762,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(additionalCostConfirm): failed", err);
+          debugWarn(1, "applyEvent(additionalCostConfirm): failed", err);
         }
         break;
       }
@@ -1827,7 +1828,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           z.graveyardCount = graveyard.length;
           ctx.bumpSeq();
         } catch (err) {
-          console.warn("applyEvent(confirmGraveyardTargets): failed", err);
+          debugWarn(1, "applyEvent(confirmGraveyardTargets): failed", err);
         }
         break;
       }
@@ -1839,7 +1840,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
     }
   } catch (err) {
-    console.warn("applyEvent: failed to apply event", (e as any).type, err);
+    debugWarn(1, "applyEvent: failed to apply event", (e as any).type, err);
   }
 }
 
@@ -1890,7 +1891,7 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
           if (typeof passPriority === "function")
             passPriority(ctx as any, (e as any).by);
         } catch (err) {
-          console.warn("replay: passPriority failed", err);
+          debugWarn(1, "replay: passPriority failed", err);
         }
         continue;
       }
@@ -1913,7 +1914,7 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
             : 0;
           
           if (handCount === 0) {
-            console.info("[replay] Backward compat: performing opening draw after setCommander for", pid);
+            debug(1, "[replay] Backward compat: performing opening draw after setCommander for", pid);
             try {
               if (needsShuffle) {
                 shuffleLibrary(ctx as any, pid);
@@ -1922,7 +1923,7 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
                 drawCards(ctx as any, pid, 7);
               }
             } catch (err) {
-              console.warn("[replay] Backward compat: opening draw failed for", pid, err);
+              debugWarn(1, "[replay] Backward compat: opening draw failed for", pid, err);
             }
           }
         }
@@ -1939,3 +1940,5 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
     (ctx as any).isReplaying = false;
   }
 }
+
+

@@ -10,6 +10,8 @@
  * - Additional cost detection for spells
  */
 
+import { debug, debugWarn, debugError } from "../utils/debug.js";
+
 // ============================================================================
 // Additional Cost Detection
 // ============================================================================
@@ -325,7 +327,7 @@ export function evaluateConditionalLandETB(
         }
       }
       actualBasicLandCount = basicTypes.size;
-      console.warn('[evaluateConditionalLandETB] Battle land check using fallback - may be incorrect for dual lands');
+      debugWarn(2, '[evaluateConditionalLandETB] Battle land check using fallback - may be incorrect for dual lands');
     }
     
     const shouldTap = actualBasicLandCount < 2;
@@ -525,3 +527,4 @@ export function getLandSubtypes(typeLine: string): string[] {
   
   return subtypes;
 }
+

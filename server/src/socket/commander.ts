@@ -20,6 +20,7 @@ import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaCol
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../../shared/src";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 // Type helper for socket data
 interface SocketWithData extends Socket {
@@ -156,19 +157,19 @@ export function emitImportedDeckCandidatesToPlayer(
           /* ignore per-socket errors */
         }
       }
-      console.info("[commander] emitImportedDeckCandidatesToPlayer", {
+      debug(1, "[commander] emitImportedDeckCandidatesToPlayer", {
         gameId,
         playerId: pid,
         candidatesCount: candidates.length,
       });
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         "emitImportedDeckCandidatesToPlayer: iterating sockets failed",
         e
       );
     }
   } catch (err) {
-    console.error("emitImportedDeckCandidatesToPlayer failed:", err);
+    debugError(1, "emitImportedDeckCandidatesToPlayer failed:", err);
   }
 }
 
@@ -196,13 +197,13 @@ export function emitSuggestCommandersToPlayer(
         /* ignore per-socket errors */
       }
     }
-    console.info("[commander] emitSuggestCommandersToPlayer", {
+    debug(1, "[commander] emitSuggestCommandersToPlayer", {
       gameId,
       playerId: pid,
       names: payload.names,
     });
   } catch (err) {
-    console.error("emitSuggestCommandersToPlayer failed:", err);
+    debugError(1, "emitSuggestCommandersToPlayer failed:", err);
   }
 }
 
@@ -224,7 +225,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
 
       const gameId = payload.gameId;
-      console.info("[commander] setCommander incoming", {
+      debug(1, "[commander] setCommander incoming", {
         gameId,
         from: pid,
         commanderNames: payload.commanderNames || payload.names,
@@ -265,14 +266,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               resolvedIds[i] = map.get(key) || "";
             }
           }
-          console.info("[commander] setCommander local buffer resolution", {
+          debug(1, "[commander] setCommander local buffer resolution", {
             gameId,
             playerId: pid,
             names,
             resolvedIds,
           });
         } catch (err) {
-          console.warn("setCommander: local import buffer lookup error:", err);
+          debugWarn(1, "setCommander: local import buffer lookup error:", err);
         }
 
         if (names.length && resolvedIds.filter(Boolean).length < names.length) {
@@ -282,14 +283,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             try {
               const card = await fetchCardByExactNameStrict(nm);
               resolvedIds[i] = card && card.id ? card.id : "";
-              console.info("[commander] setCommander scryfall resolution", {
+              debug(1, "[commander] setCommander scryfall resolution", {
                 gameId,
                 playerId: pid,
                 name: nm,
                 resolvedId: resolvedIds[i],
               });
             } catch (err) {
-              console.warn(
+              debugWarn(1, 
                 `setCommander: scryfall resolution failed for "${nm}"`,
                 err
               );
@@ -304,7 +305,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           ? providedIds.filter(Boolean)
           : (resolvedIds || []).filter(Boolean);
 
-      console.info("[commander] setCommander idsToApply", {
+      debug(1, "[commander] setCommander idsToApply", {
         gameId,
         playerId: pid,
         names,
@@ -314,7 +315,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Use the engine's setCommander function which handles all the logic
       try {
         if (typeof (game as any).setCommander === "function") {
-          console.log(`[commander-socket] Calling game.setCommander for player ${pid} with names:`, names, 'ids:', idsToApply);
+          debug(2, `[commander-socket] Calling game.setCommander for player ${pid} with names:`, names, 'ids:', idsToApply);
           
           // Check if we'll do the opening draw (hand empty and pending flag set)
           const pendingSet = (game as any).pendingInitialDraw as Set<string> | undefined;
@@ -338,20 +339,20 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             if (doingOpeningDraw) {
               appendEvent(gameId, game.seq, "shuffleLibrary", { playerId: pid });
               appendEvent(gameId, game.seq, "drawCards", { playerId: pid, count: 7 });
-              console.info("[commander] Persisted opening draw events (shuffle + draw 7) for player", pid);
+              debug(1, "[commander] Persisted opening draw events (shuffle + draw 7) for player", pid);
             }
           } catch (err) {
-            console.warn("appendEvent(setCommander) failed:", err);
+            debugWarn(1, "appendEvent(setCommander) failed:", err);
           }
         } else {
-          console.error("[commander-socket] game.setCommander is not available on game object!");
+          debugError(1, "[commander-socket] game.setCommander is not available on game object!");
           socket.emit("error", {
             message: "Commander functionality not available (engine not loaded)"
           });
           return;
         }
       } catch (err) {
-        console.error("[commander-socket] game.setCommander failed:", err);
+        debugError(1, "[commander-socket] game.setCommander failed:", err);
         socket.emit("error", {
           message: `Failed to set commander: ${err}`
         });
@@ -372,7 +373,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           null;
         const libArr = z && Array.isArray(z.library) ? z.library : [];
         const top = libArr[0];
-        console.info("[DEBUG_CMD] after setCommander", {
+        debug(1, "[DEBUG_CMD] after setCommander", {
           gameId,
           playerId: pid,
           commanderIds: cz?.commanderIds,
@@ -387,13 +388,13 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             : null,
         });
       } catch (e) {
-        console.warn("[DEBUG_CMD] logging failed", e);
+        debugWarn(1, "[DEBUG_CMD] logging failed", e);
       }
 
       try {
         broadcastGame(io, game, gameId);
       } catch (err) {
-        console.error("setCommander: broadcastGame failed:", err);
+        debugError(1, "setCommander: broadcastGame failed:", err);
       }
 
       // NEW: Always send a unicast state to the initiating socket as well,
@@ -402,10 +403,10 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       try {
         emitStateToSocket(io, gameId, socket.id, pid);
       } catch (e) {
-        console.warn("setCommander: emitStateToSocket failed", e);
+        debugWarn(1, "setCommander: emitStateToSocket failed", e);
       }
     } catch (err) {
-      console.error("Unhandled error in setCommander handler:", err);
+      debugError(1, "Unhandled error in setCommander handler:", err);
       socket.emit("error", { message: "Failed to set commander" });
     }
   });
@@ -530,7 +531,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Log floating mana if any
       const floatingMana = Object.entries(existingPool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
       if (floatingMana) {
-        console.log(`[castCommander] Floating mana available in pool: ${floatingMana}`);
+        debug(2, `[castCommander] Floating mana available in pool: ${floatingMana}`);
       }
       
       // Calculate total required cost
@@ -554,11 +555,11 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         }
       }
       
-      console.info(`[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
+      debug(1, `[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
       
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       if (payment && payment.length > 0) {
-        console.log(`[castCommander] Processing payment for ${commanderCard.name}:`, payment);
+        debug(2, `[castCommander] Processing payment for ${commanderCard.name}:`, payment);
         
         // Get player's battlefield
         const zones = game.state?.zones?.[pid];
@@ -588,7 +589,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           
           // Tap the permanent
           (permanent as any).tapped = true;
-          console.log(`[castCommander] Tapped ${(permanent as any).card?.name || permanentId} for ${mana} mana`);
+          debug(2, `[castCommander] Tapped ${(permanent as any).card?.name || permanentId} for ${mana} mana`);
           
           // Add mana to player's mana pool (already initialized via getOrInitManaPool above)
           const manaColorMap: Record<string, string> = {
@@ -655,14 +656,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         
         broadcastGame(io, game, gameId);
       } catch (err: any) {
-        console.error(`[castCommander] Failed to push commander to stack:`, err);
+        debugError(1, `[castCommander] Failed to push commander to stack:`, err);
         socket.emit("error", {
           code: "CAST_COMMANDER_FAILED",
           message: err?.message ?? String(err),
         });
       }
     } catch (err: any) {
-      console.error(`castCommander error:`, err);
+      debugError(1, `castCommander error:`, err);
       socket.emit("error", {
         code: "CAST_COMMANDER_ERROR",
         message: err?.message ?? String(err),
@@ -768,7 +769,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       );
       if (bfIdx >= 0) {
         battlefield.splice(bfIdx, 1);
-        console.log(`[moveCommanderToCommandZone] Removed commander ${commanderId} from battlefield`);
+        debug(2, `[moveCommanderToCommandZone] Removed commander ${commanderId} from battlefield`);
       }
       
       // Remove from stack if present
@@ -778,7 +779,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       );
       if (stackIdx >= 0) {
         stack.splice(stackIdx, 1);
-        console.log(`[moveCommanderToCommandZone] Removed commander ${commanderId} from stack`);
+        debug(2, `[moveCommanderToCommandZone] Removed commander ${commanderId} from stack`);
       }
       
       appendEvent(gameId, game.seq, "moveCommanderToCZ", { playerId: pid, commanderId });
@@ -793,7 +794,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`moveCommanderToCommandZone error:`, err);
+      debugError(1, `moveCommanderToCommandZone error:`, err);
       socket.emit("error", {
         code: "MOVE_COMMANDER_ERROR",
         message: err?.message ?? String(err),
@@ -903,7 +904,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         
-        console.log(`[commanderZoneChoice] ${pid} chose command zone for ${commanderName} (was going to ${destinationZone})`);
+        debug(2, `[commanderZoneChoice] ${pid} chose command zone for ${commanderName} (was going to ${destinationZone})`);
         
       } else {
         // Player chose to let commander go to the destination zone
@@ -982,7 +983,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               (game as any).shuffleLibrary(pid);
             } else {
               // Fallback: manual shuffle (non-deterministic) and set library
-              console.warn("[commanderZoneChoice] game.shuffleLibrary not available, using Math.random");
+              debugWarn(2, "[commanderZoneChoice] game.shuffleLibrary not available, using Math.random");
               for (let i = lib.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [lib[i], lib[j]] = [lib[j], lib[i]];
@@ -1007,7 +1008,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           }
         }
         
-        console.log(`[commanderZoneChoice] ${pid} chose to let ${commanderName} go to ${destinationZone}`);
+        debug(2, `[commanderZoneChoice] ${pid} chose to let ${commanderName} go to ${destinationZone}`);
       }
       
       // Bump sequence and broadcast
@@ -1025,7 +1026,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`commanderZoneChoice error:`, err);
+      debugError(1, `commanderZoneChoice error:`, err);
       socket.emit("error", {
         code: "COMMANDER_ZONE_CHOICE_ERROR",
         message: err?.message ?? String(err),
@@ -1069,7 +1070,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         ...extractScryfallData(card),
       }));
       
-      console.info("[debug] dumpLibrary", {
+      debug(1, "[debug] dumpLibrary", {
         gameId,
         playerId: pid,
         libraryCount: libraryWithScryfall.length,
@@ -1082,7 +1083,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         cards: libraryWithScryfall,
       });
     } catch (err) {
-      console.error("dumpLibrary handler failed:", err);
+      debugError(1, "dumpLibrary handler failed:", err);
       socket.emit("debugLibraryDump", { error: String(err) });
     }
   });
@@ -1122,7 +1123,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Extract full Scryfall data for each card using shared utility (with extended data)
       const cardsWithScryfall = importedCards.map((card) => extractScryfallData(card, true));
       
-      console.info("[debug] dumpImportedDeckBuffer", {
+      debug(1, "[debug] dumpImportedDeckBuffer", {
         gameId,
         playerId: pid,
         cardCount: cardsWithScryfall.length,
@@ -1135,7 +1136,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         cards: cardsWithScryfall,
       });
     } catch (err) {
-      console.error("dumpImportedDeckBuffer handler failed:", err);
+      debugError(1, "dumpImportedDeckBuffer handler failed:", err);
       socket.emit("debugImportedDeckBuffer", { error: String(err) });
     }
   });
@@ -1212,7 +1213,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               : [])
         : [];
       
-      console.info("[debug] dumpCommanderState", {
+      debug(1, "[debug] dumpCommanderState", {
         gameId,
         playerId: pid,
         playerCount: Object.keys(allCommanderStates).length,
@@ -1230,8 +1231,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         commanderStates: allCommanderStates,
       });
     } catch (err) {
-      console.error("dumpCommanderState handler failed:", err);
+      debugError(1, "dumpCommanderState handler failed:", err);
       socket.emit("debugCommanderState", { error: String(err) });
     }
   });
 }
+

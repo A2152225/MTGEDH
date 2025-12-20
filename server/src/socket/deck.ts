@@ -28,6 +28,7 @@ import { GamePhase } from "../../../shared/src";
 import { COMMANDER_PRECONS } from "../../../shared/src/precons";
 
 // NEW: helpers to push candidate/suggest events to player's sockets
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 import {
   emitImportedDeckCandidatesToPlayer,
   emitSuggestCommandersToPlayer,
@@ -105,7 +106,7 @@ function broadcastConfirmUpdate(
       responses: p.responses,
     });
   } catch (err) {
-    console.warn("broadcastConfirmUpdate failed", err);
+    debugWarn(1, "broadcastConfirmUpdate failed", err);
   }
 }
 
@@ -123,13 +124,13 @@ function addPendingInitialDrawFlag(game: any, pid: PlayerID) {
         (game as any).pendingInitialDraw || new Set<PlayerID>();
       (game as any).pendingInitialDraw.add(pid);
     }
-    console.info("[deck] addPendingInitialDrawFlag", {
+    debug(1, "[deck] addPendingInitialDrawFlag", {
       gameId: game?.id ?? game?.state?.id ?? null,
       playerId: pid,
       pendingInitialDrawSize: (game as any).pendingInitialDraw?.size ?? null,
     });
   } catch (e) {
-    console.warn("addPendingInitialDrawFlag failed:", e);
+    debugWarn(1, "addPendingInitialDrawFlag failed:", e);
   }
 }
 function removePendingInitialDrawFlag(game: any, pid: PlayerID) {
@@ -150,13 +151,13 @@ function removePendingInitialDrawFlag(game: any, pid: PlayerID) {
         )
       );
     }
-    console.info("[deck] removePendingInitialDrawFlag", {
+    debug(1, "[deck] removePendingInitialDrawFlag", {
       gameId: game?.id ?? game?.state?.id ?? null,
       playerId: pid,
       pendingInitialDrawSize: (game as any).pendingInitialDraw?.size ?? null,
     });
   } catch (e) {
-    console.warn("removePendingInitialDrawFlag failed:", e);
+    debugWarn(1, "removePendingInitialDrawFlag failed:", e);
   }
 }
 
@@ -185,7 +186,7 @@ function restoreSnapshotIfPresent(io: Server, confirmId: string) {
         game.state = (game.state || {}) as GameState;
         (game.state as any).phase = p.snapshotPhase;
       } catch (e) {
-        console.warn("restoreSnapshotIfPresent: failed to restore phase", e);
+        debugWarn(1, "restoreSnapshotIfPresent: failed to restore phase", e);
       }
     }
 
@@ -193,7 +194,7 @@ function restoreSnapshotIfPresent(io: Server, confirmId: string) {
     try {
       removePendingInitialDrawFlag(game, p.initiator);
     } catch (e) {
-      console.warn(
+      debugWarn(1, 
         "restoreSnapshotIfPresent: failed to remove pendingInitialDraw flag",
         e
       );
@@ -205,7 +206,7 @@ function restoreSnapshotIfPresent(io: Server, confirmId: string) {
       /* best-effort */
     }
   } catch (err) {
-    console.warn("restoreSnapshotIfPresent failed", err);
+    debugWarn(1, "restoreSnapshotIfPresent failed", err);
   }
 }
 
@@ -229,7 +230,7 @@ function cancelConfirmation(
     try {
       restoreSnapshotIfPresent(io, confirmId);
     } catch (e) {
-      console.warn("cancelConfirmation: restoreSnapshotIfPresent failed", e);
+      debugWarn(1, "cancelConfirmation: restoreSnapshotIfPresent failed", e);
     }
 
     io.to(p.gameId).emit("importWipeCancelled", {
@@ -239,7 +240,7 @@ function cancelConfirmation(
       reason,
     });
   } catch (e) {
-    console.warn("cancelConfirmation emit failed", e);
+    debugWarn(1, "cancelConfirmation emit failed", e);
   }
   pendingImportConfirmations.delete(confirmId);
 }
@@ -271,12 +272,12 @@ function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
       /* ignore */
     }
 
-    console.info("[deck] clearPlayerTransientZonesForImport", {
+    debug(1, "[deck] clearPlayerTransientZonesForImport", {
       gameId: game?.id ?? game?.state?.id ?? null,
       playerId: pid,
     });
   } catch (e) {
-    console.warn("clearPlayerTransientZonesForImport failed:", e);
+    debugWarn(1, "clearPlayerTransientZonesForImport failed:", e);
   }
 }
 
@@ -337,7 +338,7 @@ function getActivePlayerIds(
       /* ignore */
     }
   } catch (e) {
-    console.warn("getActivePlayerIds failed:", e);
+    debugWarn(1, "getActivePlayerIds failed:", e);
   }
   return [];
 }
@@ -391,7 +392,7 @@ async function applyConfirmedImport(
 ) {
   const p = pendingImportConfirmations.get(confirmId);
   if (!p) {
-    console.warn("[import] applyConfirmedImport called with missing confirmId", {
+    debugWarn(1, "[import] applyConfirmedImport called with missing confirmId", {
       confirmId,
     });
     return;
@@ -409,7 +410,7 @@ async function applyConfirmedImport(
   try {
     const game = ensureGame(p.gameId);
     if (!game) {
-      console.warn("[import] applyConfirmedImport: game not found", {
+      debugWarn(1, "[import] applyConfirmedImport: game not found", {
         gameId: p.gameId,
         confirmId,
       });
@@ -431,7 +432,7 @@ async function applyConfirmedImport(
 
     try {
       if ((game as any)._importApplying) {
-        console.info(
+        debug(1, 
           "[import] applyConfirmedImport skipped - another apply in progress",
           {
             gameId: p.gameId,
@@ -445,7 +446,7 @@ async function applyConfirmedImport(
       const lastBy = (game as any)._lastImportAppliedBy;
       const lastAt = (game as any)._lastImportAppliedAt || 0;
       if (lastBy === p.initiator && Date.now() - lastAt < REPEAT_WINDOW_MS) {
-        console.info("[import] applyConfirmedImport dedupe skip recent apply", {
+        debug(1, "[import] applyConfirmedImport dedupe skip recent apply", {
           gameId: p.gameId,
           initiator: p.initiator,
           confirmId,
@@ -457,10 +458,10 @@ async function applyConfirmedImport(
       }
       (game as any)._importApplying = true;
     } catch (e) {
-      console.warn("applyConfirmedImport: could not set _importApplying guard", e);
+      debugWarn(2, "applyConfirmedImport: could not set _importApplying guard", e);
     }
 
-    console.info("[import] applyConfirmedImport start", {
+    debug(1, "[import] applyConfirmedImport start", {
       gameId: p.gameId,
       initiator: p.initiator,
       cards: p.resolvedCards.length,
@@ -479,15 +480,15 @@ async function applyConfirmedImport(
           } catch {
             /* ignore */
           }
-          console.info("[import] reset(true) applied", { gameId: p.gameId });
+          debug(1, "[import] reset(true) applied", { gameId: p.gameId });
         } else {
-          console.warn("applyConfirmedImport: game.reset not available");
+          debugWarn(2, "applyConfirmedImport: game.reset not available");
         }
       } catch (e) {
-        console.warn("applyConfirmedImport: reset failed", e);
+        debugWarn(1, "applyConfirmedImport: reset failed", e);
       }
     } else {
-      console.info("[import] importer-only apply: skipping full reset", {
+      debug(1, "[import] importer-only apply: skipping full reset", {
         gameId: p.gameId,
       });
     }
@@ -500,12 +501,12 @@ async function applyConfirmedImport(
           (game as any).importDeckResolved(p.initiator, p.resolvedCards);
         }
       }
-      console.info("[import] importDeckResolved attempted", {
+      debug(1, "[import] importDeckResolved attempted", {
         gameId: p.gameId,
         playerId: p.initiator,
       });
     } catch (err) {
-      console.error("applyConfirmedImport: game.importDeckResolved failed", err);
+      debugError(1, "applyConfirmedImport: game.importDeckResolved failed", err);
     }
 
     try {
@@ -517,13 +518,13 @@ async function applyConfirmedImport(
       if (L && typeof L.set === "function") {
         try {
           L.set(p.initiator, mapped);
-          console.info("[import] libraries.set overwrite", {
+          debug(1, "[import] libraries.set overwrite", {
             gameId: p.gameId,
             playerId: p.initiator,
             count: mapped.length,
           });
         } catch (e) {
-          console.warn("applyConfirmedImport: libraries.set overwrite failed", e);
+          debugWarn(1, "applyConfirmedImport: libraries.set overwrite failed", e);
         }
       } else {
         try {
@@ -544,17 +545,17 @@ async function applyConfirmedImport(
             typeof p.parsedCount === "number"
               ? p.parsedCount
               : mapped.length;
-          console.info("[import] state.zones libraryCount update (no library array duplication)", {
+          debug(1, "[import] state.zones libraryCount update (no library array duplication)", {
             gameId: p.gameId,
             playerId: p.initiator,
             libraryCount: game.state.zones[p.initiator].libraryCount,
           });
         } catch (e) {
-          console.warn("applyConfirmedImport: state.zones update failed", e);
+          debugWarn(1, "applyConfirmedImport: state.zones update failed", e);
         }
       }
     } catch (e) {
-      console.warn("applyConfirmedImport: forced library overwrite failed", e);
+      debugWarn(1, "applyConfirmedImport: forced library overwrite failed", e);
     }
 
     try {
@@ -576,7 +577,7 @@ async function applyConfirmedImport(
           graveyardCount: 0,
         };
     } catch (e) {
-      console.warn("applyConfirmedImport: defensive life/zones init failed", e);
+      debugWarn(1, "applyConfirmedImport: defensive life/zones init failed", e);
     }
 
     try {
@@ -586,7 +587,7 @@ async function applyConfirmedImport(
         importerOnly,
       });
     } catch (err) {
-      console.warn("applyConfirmedImport: appendEvent failed", err);
+      debugWarn(1, "applyConfirmedImport: appendEvent failed", err);
     }
 
     // Flag pendingInitialDraw and emit suggestions/candidates
@@ -595,7 +596,7 @@ async function applyConfirmedImport(
       try {
         broadcastGame(io, game, p.gameId);
       } catch (e) {
-        console.warn(
+        debugWarn(1, 
           "applyConfirmedImport: broadcastGame failed (pre-suggest)",
           e
         );
@@ -626,7 +627,7 @@ async function applyConfirmedImport(
           new Map<PlayerID, string[]>();
         (game as any)._lastImportedDecksNames.set(p.initiator, names);
       } catch (e) {
-        console.warn(
+        debugWarn(1, 
           "applyConfirmedImport: could not persist _lastImportedDecks metadata",
           e
         );
@@ -637,7 +638,7 @@ async function applyConfirmedImport(
           try {
             emitImportedDeckCandidatesToPlayer(io, p.gameId, p.initiator);
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "applyConfirmedImport: emitImportedDeckCandidatesToPlayer failed (importerSocket)",
               e
             );
@@ -649,13 +650,13 @@ async function applyConfirmedImport(
               p.initiator,
               names
             );
-            console.info("[import] suggestCommanders emitted (importerSocket)", {
+            debug(1, "[import] suggestCommanders emitted (importerSocket)", {
               gameId: p.gameId,
               playerId: p.initiator,
               names,
             });
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "applyConfirmedImport: emitSuggestCommandersToPlayer failed (importerSocket)",
               e
             );
@@ -681,12 +682,12 @@ async function applyConfirmedImport(
                 /* ignore per-socket errors */
               }
             }
-            console.info("[import] importApplied sent to player sockets", {
+            debug(1, "[import] importApplied sent to player sockets", {
               gameId: p.gameId,
               playerId: p.initiator,
             });
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "applyConfirmedImport: importApplied emit to player sockets failed",
               e
             );
@@ -703,14 +704,14 @@ async function applyConfirmedImport(
             }
           }
         } catch (e) {
-          console.warn("applyConfirmedImport: importerSocket branch failed", e);
+          debugWarn(1, "applyConfirmedImport: importerSocket branch failed", e);
         }
       } else {
         try {
           try {
             emitImportedDeckCandidatesToPlayer(io, p.gameId, p.initiator);
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "applyConfirmedImport: emitImportedDeckCandidatesToPlayer failed",
               e
             );
@@ -723,13 +724,13 @@ async function applyConfirmedImport(
               p.initiator,
               names
             );
-            console.info("[import] suggestCommanders emitted (player sockets)", {
+            debug(1, "[import] suggestCommanders emitted (player sockets)", {
               gameId: p.gameId,
               playerId: p.initiator,
               names,
             });
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "applyConfirmedImport: emitSuggestCommandersToPlayer failed",
               e
             );
@@ -738,7 +739,7 @@ async function applyConfirmedImport(
                 gameId: p.gameId,
                 names,
               });
-              console.info(
+              debug(1, 
                 "[import] suggestCommanders broadcast to room",
                 {
                   gameId: p.gameId,
@@ -746,14 +747,14 @@ async function applyConfirmedImport(
                 }
               );
             } catch (e2) {
-              console.warn(
+              debugWarn(1, 
                 "applyConfirmedImport: fallback suggestCommanders broadcast failed",
                 e2
               );
             }
           }
         } catch (e) {
-          console.warn("applyConfirmedImport: suggestCommanders block failed", e);
+          debugWarn(1, "applyConfirmedImport: suggestCommanders block failed", e);
         }
       }
 
@@ -771,7 +772,7 @@ async function applyConfirmedImport(
           Array.isArray(cz.commanderIds) &&
           cz.commanderIds.length > 0;
         if (hasCommanderAlready || !isCommanderFmt) {
-          console.info(
+          debug(1, 
             "[import] applyConfirmedImport -> immediate shuffle/draw path",
             {
               gameId: p.gameId,
@@ -803,12 +804,12 @@ async function applyConfirmedImport(
                   appendEvent(p.gameId, game.seq, "shuffleLibrary", {
                     playerId: p.initiator,
                   });
-                  console.info("[import] immediate shuffleLibrary", {
+                  debug(1, "[import] immediate shuffleLibrary", {
                     gameId: p.gameId,
                     playerId: p.initiator,
                   });
                 } catch (e) {
-                  console.warn(
+                  debugWarn(1, 
                     "applyConfirmedImport: shuffleLibrary failed",
                     e
                   );
@@ -821,12 +822,12 @@ async function applyConfirmedImport(
                     playerId: p.initiator,
                     count: 7,
                   });
-                  console.info("[import] immediate drawCards(7)", {
+                  debug(1, "[import] immediate drawCards(7)", {
                     gameId: p.gameId,
                     playerId: p.initiator,
                   });
                 } catch (e) {
-                  console.warn(
+                  debugWarn(1, 
                     "applyConfirmedImport: drawCards failed",
                     e
                   );
@@ -841,7 +842,7 @@ async function applyConfirmedImport(
           }
         }
       } catch (e) {
-        console.warn(
+        debugWarn(1, 
           "applyConfirmedImport: attempted immediate shuffle/draw failed",
           e
         );
@@ -850,13 +851,13 @@ async function applyConfirmedImport(
       try {
         broadcastGame(io, game, p.gameId);
       } catch (e) {
-        console.warn(
+        debugWarn(1, 
           "applyConfirmedImport: broadcastGame failed (post-suggest)",
           e
         );
       }
     } catch (err) {
-      console.warn("applyConfirmedImport: opening draw flow failed", err);
+      debugWarn(1, "applyConfirmedImport: opening draw flow failed", err);
     }
 
     if (p.save === true && p.deckName && p.deckName.trim()) {
@@ -879,7 +880,7 @@ async function applyConfirmedImport(
           decks: listDecks(),
         });
       } catch (e) {
-        console.warn("applyConfirmedImport: auto-save failed", e);
+        debugWarn(1, "applyConfirmedImport: auto-save failed", e);
       }
     }
 
@@ -892,7 +893,7 @@ async function applyConfirmedImport(
             by: p.initiator,
           });
         } catch (e) {
-          console.warn(
+          debugWarn(1, 
             "applyConfirmedImport: importWipeConfirmed emit failed",
             e
           );
@@ -904,7 +905,7 @@ async function applyConfirmedImport(
         /* ignore */
       }
     } catch (err) {
-      console.warn("applyConfirmedImport: final broadcast/notify failed", err);
+      debugWarn(1, "applyConfirmedImport: final broadcast/notify failed", err);
     }
 
     try {
@@ -921,7 +922,7 @@ async function applyConfirmedImport(
       /* ignore */
     }
     pendingImportConfirmations.delete(confirmId);
-    console.info("[import] applyConfirmedImport complete", {
+    debug(1, "[import] applyConfirmedImport complete", {
       gameId: p.gameId,
       initiator: p.initiator,
       confirmId,
@@ -956,7 +957,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           seqVal === 0 ||
           seqVal === null;
 
-        console.info("[deck] canImportWithoutWipe", {
+        debug(1, "[deck] canImportWithoutWipe", {
           gameId,
           phaseStr,
           seqVal,
@@ -966,7 +967,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         if (typeof cb === "function")
           cb({ importerOnly: isPreGame, phase: phaseStr, seq: seqVal });
       } catch (err) {
-        console.warn("canImportWithoutWipe handler failed:", err);
+        debugWarn(1, "canImportWithoutWipe handler failed:", err);
         if (typeof cb === "function") cb({ error: String(err) });
       }
     }
@@ -986,7 +987,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       deckName?: string;
       save?: boolean;
     }) => {
-      console.info("[deck] importDeck called", {
+      debug(1, "[deck] importDeck called", {
         gameId,
         playerId: socket.data.playerId,
       });
@@ -1002,7 +1003,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
       // Check if the list is actually a Moxfield URL - fetch the deck first
       if (list && isMoxfieldUrl(list.trim())) {
-        console.info("[deck] importDeck detected Moxfield URL, will fetch deck from Moxfield", {
+        debug(1, "[deck] importDeck detected Moxfield URL, will fetch deck from Moxfield", {
           gameId,
           url: list.trim(),
         });
@@ -1048,7 +1049,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             ts: Date.now(),
           });
         } catch (err) {
-          console.error("Failed to fetch deck from Moxfield:", err);
+          debugError(1, "Failed to fetch deck from Moxfield:", err);
           socket.emit("deckError", {
             gameId,
             message: `Failed to fetch deck from Moxfield: ${err instanceof Error ? err.message : String(err)}`,
@@ -1166,7 +1167,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         resolvedCards.length > 1
           ? resolvedCards[resolvedCards.length - 1]
           : null;
-      console.info("[deck] importDeck resolved cards", {
+      debug(1, "[deck] importDeck resolved cards", {
         gameId,
         playerId: pid,
         resolvedCount: resolvedCards.length,
@@ -1206,7 +1207,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           }))
         );
       } catch (e) {
-        console.warn(
+        debugWarn(1, 
           "Could not set _lastImportedDecks on game object for importDeck:",
           e
         );
@@ -1239,7 +1240,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             });
           }
           
-          console.info("[deck] Validation result", {
+          debug(1, "[deck] Validation result", {
             gameId,
             format,
             illegalCount: validation.illegal.length,
@@ -1257,7 +1258,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           });
         }
       } catch (e) {
-        console.warn("[deck] Deck validation failed:", e);
+        debugWarn(1, "[deck] Deck validation failed:", e);
       }
 
       if (missing.length) {
@@ -1273,7 +1274,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             ts: Date.now(),
           });
         } catch (e) {
-          console.warn("emit deckImportMissing failed", e);
+          debugWarn(1, "emit deckImportMissing failed", e);
         }
       }
 
@@ -1288,7 +1289,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         seqVal === 0 ||
         seqVal === null;
 
-      console.info("[deck] importDeck pregame-check", {
+      debug(1, "[deck] importDeck pregame-check", {
         gameId,
         playerId: pid,
         phaseStr,
@@ -1344,7 +1345,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             /* best-effort */
           }
         } catch (e) {
-          console.warn(
+          debugWarn(1, 
             "importDeck (pre-game): clearing transient zones/flags failed",
             e
           );
@@ -1352,7 +1353,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         try {
           const names = suggestCommanderNames(resolvedCards);
-          console.info("[deck] importDeck (pre-game) emitting suggestCommanders", {
+          debug(1, "[deck] importDeck (pre-game) emitting suggestCommanders", {
             gameId,
             playerId: pid,
             names,
@@ -1368,7 +1369,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         setTimeout(() => {
           applyConfirmedImport(io, confirmId, socket).catch((err) => {
-            console.error("immediate applyConfirmedImport failed:", err);
+            debugError(1, "immediate applyConfirmedImport failed:", err);
             cancelConfirmation(io, confirmId, "apply_failed");
           });
         }, 200);
@@ -1439,7 +1440,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           /* best-effort */
         }
       } catch (e) {
-        console.warn("importDeck: clearing transient zones failed", e);
+        debugWarn(1, "importDeck: clearing transient zones failed", e);
       }
 
       try {
@@ -1450,11 +1451,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           /* best-effort */
         }
       } catch (e) {
-        console.warn("importDeck: addPendingInitialDrawFlag failed", e);
+        debugWarn(1, "importDeck: addPendingInitialDrawFlag failed", e);
       }
 
       try {
-        console.info("[deck] emitting importWipeConfirmRequest", {
+        debug(1, "[deck] emitting importWipeConfirmRequest", {
           gameId,
           confirmId,
           initiator: pid,
@@ -1472,26 +1473,26 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           timeoutMs: TIMEOUT_MS,
         });
       } catch (err) {
-        console.warn("importDeck: emit importWipeConfirmRequest failed", err);
+        debugWarn(1, "importDeck: emit importWipeConfirmRequest failed", err);
       }
 
       broadcastConfirmUpdate(io, confirmId, pendingConfirm);
 
       try {
         if (players.length <= 1) {
-          console.info("[deck] auto-applyConfirmedImport for single player", {
+          debug(1, "[deck] auto-applyConfirmedImport for single player", {
             gameId,
             confirmId,
           });
           setTimeout(() => {
             applyConfirmedImport(io, confirmId).catch((err) => {
-              console.error("auto applyConfirmedImport failed:", err);
+              debugError(1, "auto applyConfirmedImport failed:", err);
               cancelConfirmation(io, confirmId, "apply_failed");
             });
           }, 250);
         }
       } catch (e) {
-        console.warn("importDeck: auto-apply single-player failed", e);
+        debugWarn(1, "importDeck: auto-apply single-player failed", e);
       }
     }
   );
@@ -1542,7 +1543,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
 
         pending.responses[pid] = accept ? "yes" : "no";
-        console.info("[deck] confirmImportResponse", {
+        debug(1, "[deck] confirmImportResponse", {
           gameId,
           confirmId,
           playerId: pid,
@@ -1563,17 +1564,17 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           (v) => v === "yes"
         );
         if (allYes) {
-          console.info("[deck] all players accepted import", {
+          debug(1, "[deck] all players accepted import", {
             gameId,
             confirmId,
           });
           applyConfirmedImport(io, confirmId).catch((err) => {
-            console.error("applyConfirmedImport failed:", err);
+            debugError(1, "applyConfirmedImport failed:", err);
             cancelConfirmation(io, confirmId, "apply_failed");
           });
         }
       } catch (err) {
-        console.error("confirmImportResponse handler failed:", err);
+        debugError(1, "confirmImportResponse handler failed:", err);
       }
     }
   );
@@ -1607,14 +1608,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         oracle_text: c.oracle_text,
         image_uris: c.image_uris,
       }));
-      console.info("[deck] getImportedDeckCandidates", {
+      debug(1, "[deck] getImportedDeckCandidates", {
         gameId,
         playerId: pid,
         candidatesCount: candidates.length,
       });
       socket.emit("importedDeckCandidates", { gameId, candidates });
     } catch (err) {
-      console.warn("getImportedDeckCandidates failed:", err);
+      debugWarn(1, "getImportedDeckCandidates failed:", err);
       socket.emit("importedDeckCandidates", { gameId, candidates: [] });
     }
   });
@@ -1624,7 +1625,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     "useSavedDeck",
     async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
       try {
-        console.info("[deck] useSavedDeck called", {
+        debug(1, "[deck] useSavedDeck called", {
           gameId,
           deckId,
           playerId: socket.data.playerId,
@@ -1697,7 +1698,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             layout: c.layout,
           }));
           usedCache = true;
-          console.info("[deck] useSavedDeck using cached cards", {
+          debug(1, "[deck] useSavedDeck using cached cards", {
             gameId,
             deckId,
             cachedCount: resolvedCards.length,
@@ -1783,7 +1784,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           resolvedCards.length > 1
             ? resolvedCards[resolvedCards.length - 1]
             : null;
-        console.info("[deck] useSavedDeck resolved cards", {
+        debug(1, "[deck] useSavedDeck resolved cards", {
           gameId,
           deckId,
           playerId: pid,
@@ -1819,7 +1820,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               ts: Date.now(),
             });
           } catch (e) {
-            console.warn("useSavedDeck: emit deckImportMissing failed", e);
+            debugWarn(1, "useSavedDeck: emit deckImportMissing failed", e);
           }
         }
 
@@ -1834,7 +1835,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           seqVal === 0 ||
           seqVal === null;
 
-        console.info("[deck] useSavedDeck pregame-check", {
+        debug(1, "[deck] useSavedDeck pregame-check", {
           gameId,
           deckId,
           playerId: pid,
@@ -1863,7 +1864,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             }))
           );
         } catch (e) {
-          console.warn(
+          debugWarn(1, 
             "useSavedDeck: could not set _lastImportedDecks on game object",
             e
           );
@@ -1919,7 +1920,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               /* best-effort */
             }
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "useSavedDeck (pre-game): clearing transient zones/flags failed",
               e
             );
@@ -1929,12 +1930,12 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             const names = suggestCommanderNames(resolvedCards);
             socket.emit("suggestCommanders", { gameId, names });
           } catch (e) {
-            console.warn("useSavedDeck: suggestCommanders emit failed", e);
+            debugWarn(1, "useSavedDeck: suggestCommanders emit failed", e);
           }
 
           setTimeout(() => {
             applyConfirmedImport(io, confirmId, socket).catch((err) => {
-              console.error("useSavedDeck immediate applyConfirmedImport failed:", err);
+              debugError(1, "useSavedDeck immediate applyConfirmedImport failed:", err);
               cancelConfirmation(io, confirmId, "apply_failed");
             });
           }, 200);
@@ -2008,7 +2009,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             /* best-effort */
           }
         } catch (e) {
-          console.warn("useSavedDeck: clearing transient zones/flags failed", e);
+          debugWarn(1, "useSavedDeck: clearing transient zones/flags failed", e);
         }
 
         try {
@@ -2023,29 +2024,29 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             timeoutMs: TIMEOUT_MS,
           });
         } catch (err) {
-          console.warn("useSavedDeck: emit importWipeConfirmRequest failed", err);
+          debugWarn(1, "useSavedDeck: emit importWipeConfirmRequest failed", err);
         }
 
         broadcastConfirmUpdate(io, confirmId, pendingConfirm);
 
         try {
           if (players.length <= 1) {
-            console.info("[deck] useSavedDeck auto-applyConfirmedImport for single player", {
+            debug(1, "[deck] useSavedDeck auto-applyConfirmedImport for single player", {
               gameId,
               confirmId,
             });
             setTimeout(() => {
               applyConfirmedImport(io, confirmId).catch((err) => {
-                console.error("useSavedDeck auto applyConfirmedImport failed:", err);
+                debugError(1, "useSavedDeck auto applyConfirmedImport failed:", err);
                 cancelConfirmation(io, confirmId, "apply_failed");
               });
             }, 250);
           }
         } catch (e) {
-          console.warn("useSavedDeck: auto-apply single-player failed", e);
+          debugWarn(1, "useSavedDeck: auto-apply single-player failed", e);
         }
       } catch (err) {
-        console.error("useSavedDeck handler failed:", err);
+        debugError(1, "useSavedDeck handler failed:", err);
         try {
           socket.emit("deckError", {
             gameId,
@@ -2076,7 +2077,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }) => {
       (async () => {
         try {
-          console.info("[deck] saveDeck called", {
+          debug(1, "[deck] saveDeck called", {
             gameId,
             name,
             cacheCards,
@@ -2122,7 +2123,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             parsed = parseDecklist(list);
             cardCount = parsed.reduce((sum, p) => sum + (p.count || 0), 0);
           } catch (e) {
-            console.warn("saveDeck: parseDecklist failed, using line count estimate", e);
+            debugWarn(1, "saveDeck: parseDecklist failed, using line count estimate", e);
             // Fallback: count non-empty, non-comment, non-section-header lines
             const lines = list.split(/\r?\n/).filter((l) => !shouldSkipDeckLine(l));
             cardCount = lines.length;
@@ -2168,14 +2169,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 }
                 if (resolvedCards.length > 0) {
                   resolvedCardsJson = JSON.stringify(resolvedCards);
-                  console.info("[deck] saveDeck caching resolved cards", {
+                  debug(1, "[deck] saveDeck caching resolved cards", {
                     deckId,
                     resolvedCount: resolvedCards.length,
                   });
                 }
               }
             } catch (e) {
-              console.warn("saveDeck: failed to resolve cards for caching", e);
+              debugWarn(1, "saveDeck: failed to resolve cards for caching", e);
               // Continue without caching - still save the deck
             }
           }
@@ -2191,7 +2192,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             folder: folder || '',
           });
 
-          console.info("[deck] saveDeck saved", {
+          debug(1, "[deck] saveDeck saved", {
             gameId,
             deckId,
             name: name.trim(),
@@ -2210,7 +2211,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             folders: buildFolderTree(allDecks),
           });
         } catch (err) {
-          console.error("saveDeck handler failed:", err);
+          debugError(1, "saveDeck handler failed:", err);
           socket.emit("deckError", {
             gameId,
             message: "Failed to save deck.",
@@ -2223,7 +2224,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // listSavedDecks - get all saved decks
   socket.on("listSavedDecks", ({ gameId, folder }: { gameId: string; folder?: string }) => {
     try {
-      console.info("[deck] listSavedDecks called", {
+      debug(1, "[deck] listSavedDecks called", {
         gameId,
         folder,
         playerId: socket.data.playerId,
@@ -2245,7 +2246,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         currentFolder: folder || ''
       });
     } catch (err) {
-      console.error("listSavedDecks handler failed:", err);
+      debugError(1, "listSavedDecks handler failed:", err);
       socket.emit("deckError", {
         gameId,
         message: "Failed to list decks.",
@@ -2258,7 +2259,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     "getSavedDeck",
     ({ gameId, deckId }: { gameId: string; deckId: string }) => {
       try {
-        console.info("[deck] getSavedDeck called", {
+        debug(1, "[deck] getSavedDeck called", {
           gameId,
           deckId,
           playerId: socket.data.playerId,
@@ -2282,7 +2283,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         socket.emit("savedDeckDetail", { gameId, deck });
       } catch (err) {
-        console.error("getSavedDeck handler failed:", err);
+        debugError(1, "getSavedDeck handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to get deck details.",
@@ -2304,7 +2305,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       name: string;
     }) => {
       try {
-        console.info("[deck] renameSavedDeck called", {
+        debug(1, "[deck] renameSavedDeck called", {
           gameId,
           deckId,
           newName: name,
@@ -2340,7 +2341,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           decks: listDecks(),
         });
       } catch (err) {
-        console.error("renameSavedDeck handler failed:", err);
+        debugError(1, "renameSavedDeck handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to rename deck.",
@@ -2354,7 +2355,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     "deleteSavedDeck",
     ({ gameId, deckId }: { gameId: string; deckId: string }) => {
       try {
-        console.info("[deck] deleteSavedDeck called", {
+        debug(1, "[deck] deleteSavedDeck called", {
           gameId,
           deckId,
           playerId: socket.data.playerId,
@@ -2384,7 +2385,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           decks: listDecks(),
         });
       } catch (err) {
-        console.error("deleteSavedDeck handler failed:", err);
+        debugError(1, "deleteSavedDeck handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to delete deck.",
@@ -2398,7 +2399,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     "cacheSavedDeck",
     async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
       try {
-        console.info("[deck] cacheSavedDeck called", {
+        debug(1, "[deck] cacheSavedDeck called", {
           gameId,
           deckId,
           playerId: socket.data.playerId,
@@ -2461,7 +2462,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         try {
           byName = await fetchCardsByExactNamesBatch(requestedNames);
         } catch (e) {
-          console.warn("cacheSavedDeck: fetchCardsByExactNamesBatch failed", e);
+          debugWarn(1, "cacheSavedDeck: fetchCardsByExactNamesBatch failed", e);
           socket.emit("deckError", {
             gameId,
             message: "Failed to fetch card data from Scryfall.",
@@ -2519,7 +2520,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        console.info("[deck] cacheSavedDeck completed", {
+        debug(1, "[deck] cacheSavedDeck completed", {
           gameId,
           deckId,
           cachedCount: resolvedCards.length,
@@ -2535,7 +2536,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           folders: buildFolderTree(allDecks),
         });
       } catch (err) {
-        console.error("cacheSavedDeck handler failed:", err);
+        debugError(1, "cacheSavedDeck handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to cache deck.",
@@ -2549,7 +2550,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     "moveDeckToFolder",
     ({ gameId, deckId, folder }: { gameId: string; deckId: string; folder: string }) => {
       try {
-        console.info("[deck] moveDeckToFolder called", {
+        debug(1, "[deck] moveDeckToFolder called", {
           gameId,
           deckId,
           folder,
@@ -2572,7 +2573,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        console.info("[deck] moveDeckToFolder completed", {
+        debug(1, "[deck] moveDeckToFolder completed", {
           gameId,
           deckId,
           folder,
@@ -2588,7 +2589,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           folders: buildFolderTree(allDecks),
         });
       } catch (err) {
-        console.error("moveDeckToFolder handler failed:", err);
+        debugError(1, "moveDeckToFolder handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to move deck.",
@@ -2620,7 +2621,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       colorIdentity?: string;
     }) => {
       try {
-        console.info("[deck] importPreconDeck called", {
+        debug(1, "[deck] importPreconDeck called", {
           gameId,
           deckName,
           setName,
@@ -2703,7 +2704,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               });
             }
           } catch (e) {
-            console.warn(`Failed to fetch commander "${commanderName}":`, e);
+            debugWarn(1, `Failed to fetch commander "${commanderName}":`, e);
           }
         }
 
@@ -2763,13 +2764,13 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                     }
                   }
                 } catch (e) {
-                  console.warn(`Failed to fetch card "${parsedCard.name}":`, e);
+                  debugWarn(1, `Failed to fetch card "${parsedCard.name}":`, e);
                 }
               }
               
               fetchedFullDeck = resolvedCards.length > 10;
               
-              console.info("[deck] importPreconDeck fetched cards from Moxfield", {
+              debug(1, "[deck] importPreconDeck fetched cards from Moxfield", {
                 gameId,
                 deckName,
                 moxfieldUrl: preconDecklistUrl,
@@ -2777,7 +2778,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               });
             }
           } catch (e) {
-            console.warn("importPreconDeck: failed to fetch from Moxfield, falling back to set cards", e);
+            debugWarn(1, "importPreconDeck: failed to fetch from Moxfield, falling back to set cards", e);
           }
         }
 
@@ -2791,7 +2792,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         if (resolvedCards.length > MAX_COMMANDER_DECK_SIZE) {
           const originalCount = resolvedCards.length;
           resolvedCards = resolvedCards.slice(0, MAX_COMMANDER_DECK_SIZE);
-          console.info("[deck] importPreconDeck truncated deck from", originalCount, "to", resolvedCards.length, "cards");
+          debug(1, "[deck] importPreconDeck truncated deck from", originalCount, "to", resolvedCards.length, "cards");
         }
 
         // Emit status message
@@ -2820,7 +2821,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
           (game as any)._lastImportedDecks.set(pid, resolvedCards);
         } catch (e) {
-          console.warn("importPreconDeck: could not set _lastImportedDecks", e);
+          debugWarn(2, "importPreconDeck: could not set _lastImportedDecks", e);
         }
 
         // If we got a full deck, apply it like a normal import
@@ -2884,7 +2885,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 /* best-effort */
               }
             } catch (e) {
-              console.warn(
+              debugWarn(1, 
                 "importPreconDeck (pre-game): clearing transient zones/flags failed",
                 e
               );
@@ -2898,7 +2899,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
             setTimeout(() => {
               applyConfirmedImport(io, confirmId, socket).catch((err) => {
-                console.error("importPreconDeck applyConfirmedImport failed:", err);
+                debugError(1, "importPreconDeck applyConfirmedImport failed:", err);
                 cancelConfirmation(io, confirmId, "apply_failed");
               });
             }, 200);
@@ -2938,7 +2939,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         });
 
       } catch (err) {
-        console.error("importPreconDeck handler failed:", err);
+        debugError(1, "importPreconDeck handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to import precon deck.",
@@ -2960,7 +2961,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       save?: boolean;
     }) => {
       try {
-        console.info("[deck] importDeckFromUrl called", {
+        debug(1, "[deck] importDeckFromUrl called", {
           gameId,
           url,
           playerId: socket.data.playerId,
@@ -3014,7 +3015,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         try {
           moxfieldDeck = await fetchDeckFromMoxfield(url);
         } catch (err) {
-          console.error("Failed to fetch deck from Moxfield:", err);
+          debugError(1, "Failed to fetch deck from Moxfield:", err);
           socket.emit("deckError", {
             gameId,
             message: `Failed to fetch deck from Moxfield: ${err instanceof Error ? err.message : String(err)}`,
@@ -3024,7 +3025,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         const { name: deckName, commanders, cards: parsed } = moxfieldDeck;
 
-        console.info("[deck] importDeckFromUrl fetched from Moxfield", {
+        debug(1, "[deck] importDeckFromUrl fetched from Moxfield", {
           gameId,
           deckName,
           commanders,
@@ -3108,7 +3109,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           }
         }
 
-        console.info("[deck] importDeckFromUrl resolved cards", {
+        debug(1, "[deck] importDeckFromUrl resolved cards", {
           gameId,
           playerId: pid,
           resolvedCount: resolvedCards.length,
@@ -3134,7 +3135,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             }))
           );
         } catch (e) {
-          console.warn(
+          debugWarn(1, 
             "Could not set _lastImportedDecks on game object for importDeckFromUrl:",
             e
           );
@@ -3176,7 +3177,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             });
           }
         } catch (e) {
-          console.warn("[deck] Deck validation failed:", e);
+          debugWarn(1, "[deck] Deck validation failed:", e);
         }
 
         if (missing.length) {
@@ -3192,7 +3193,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               ts: Date.now(),
             });
           } catch (e) {
-            console.warn("emit deckImportMissing failed", e);
+            debugWarn(1, "emit deckImportMissing failed", e);
           }
         }
 
@@ -3207,7 +3208,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           seqVal === 0 ||
           seqVal === null;
 
-        console.info("[deck] importDeckFromUrl pregame-check", {
+        debug(1, "[deck] importDeckFromUrl pregame-check", {
           gameId,
           playerId: pid,
           phaseStr,
@@ -3263,14 +3264,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               /* best-effort */
             }
           } catch (e) {
-            console.warn(
+            debugWarn(1, 
               "importDeckFromUrl (pre-game): clearing transient zones/flags failed",
               e
             );
           }
 
           try {
-            console.info("[deck] importDeckFromUrl (pre-game) emitting suggestCommanders", {
+            debug(1, "[deck] importDeckFromUrl (pre-game) emitting suggestCommanders", {
               gameId,
               playerId: pid,
               names: commanders,
@@ -3294,7 +3295,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
           setTimeout(() => {
             applyConfirmedImport(io, confirmId, socket).catch((err) => {
-              console.error("immediate applyConfirmedImport failed:", err);
+              debugError(1, "immediate applyConfirmedImport failed:", err);
               cancelConfirmation(io, confirmId, "apply_failed");
             });
           }, 200);
@@ -3366,7 +3367,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             /* best-effort */
           }
         } catch (e) {
-          console.warn("importDeckFromUrl: clearing transient zones failed", e);
+          debugWarn(1, "importDeckFromUrl: clearing transient zones failed", e);
         }
 
         try {
@@ -3377,11 +3378,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             /* best-effort */
           }
         } catch (e) {
-          console.warn("importDeckFromUrl: addPendingInitialDrawFlag failed", e);
+          debugWarn(1, "importDeckFromUrl: addPendingInitialDrawFlag failed", e);
         }
 
         try {
-          console.info("[deck] emitting importWipeConfirmRequest", {
+          debug(1, "[deck] emitting importWipeConfirmRequest", {
             gameId,
             confirmId,
             initiator: pid,
@@ -3399,29 +3400,29 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             timeoutMs: TIMEOUT_MS,
           });
         } catch (err) {
-          console.warn("importDeckFromUrl: emit importWipeConfirmRequest failed", err);
+          debugWarn(1, "importDeckFromUrl: emit importWipeConfirmRequest failed", err);
         }
 
         broadcastConfirmUpdate(io, confirmId, pendingConfirm);
 
         try {
           if (players.length <= 1) {
-            console.info("[deck] auto-applyConfirmedImport for single player", {
+            debug(1, "[deck] auto-applyConfirmedImport for single player", {
               gameId,
               confirmId,
             });
             setTimeout(() => {
               applyConfirmedImport(io, confirmId).catch((err) => {
-                console.error("auto applyConfirmedImport failed:", err);
+                debugError(1, "auto applyConfirmedImport failed:", err);
                 cancelConfirmation(io, confirmId, "apply_failed");
               });
             }, 250);
           }
         } catch (e) {
-          console.warn("importDeckFromUrl: auto-apply single-player failed", e);
+          debugWarn(1, "importDeckFromUrl: auto-apply single-player failed", e);
         }
       } catch (err) {
-        console.error("importDeckFromUrl handler failed:", err);
+        debugError(1, "importDeckFromUrl handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to import deck from URL.",
@@ -3430,3 +3431,5 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }
   );
 }
+
+

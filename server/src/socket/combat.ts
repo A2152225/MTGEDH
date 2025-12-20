@@ -12,6 +12,7 @@ import type { PlayerID } from "../../../shared/src/types.js";
 import { getAttackTriggersForCreatures, getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Process tap triggers for attacking creatures
@@ -60,7 +61,7 @@ function processTapTriggersForAttackers(
     
     // Push tap triggers to stack and notify clients
     if (allTapTriggers.length > 0) {
-      console.log(`[combat] Found ${allTapTriggers.length} tap trigger(s) for game ${gameId}`);
+      debug(2, `[combat] Found ${allTapTriggers.length} tap trigger(s) for game ${gameId}`);
       
       for (const trigger of allTapTriggers) {
         // Push trigger onto stack
@@ -99,14 +100,14 @@ function processTapTriggersForAttackers(
           mandatory: trigger.mandatory,
         });
         
-        console.log(`[combat] Tap trigger: ${trigger.cardName} - ${trigger.description}`);
+        debug(2, `[combat] Tap trigger: ${trigger.cardName} - ${trigger.description}`);
       }
       
       // Broadcast the updated game state after adding triggers
       broadcastGame(io, game, gameId);
     }
   } catch (e) {
-    console.error("[combat] Failed to process tap triggers:", e);
+    debugError(1, "[combat] Failed to process tap triggers:", e);
   }
 }
 
@@ -841,7 +842,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               game.state.manaPool[playerId].colorless += manaProduced;
               manaNeeded -= manaProduced;
               
-              console.log(`[combat] Auto-tapped ${perm.card.name} for ${manaProduced} mana to pay attack cost`);
+              debug(2, `[combat] Auto-tapped ${perm.card.name} for ${manaProduced} mana to pay attack cost`);
             }
           }
         }
@@ -875,7 +876,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         game.state.manaPool[playerId] = poolCopy;
         
         // Log the payment
-        console.log(`[combat] Player ${playerId} paid {${totalAttackCostRequired}} to attack (${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')})`);
+        debug(1, `[combat] Player ${playerId} paid {${totalAttackCostRequired}} to attack (${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')})`);
         
         // Broadcast mana pool update
         broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Paid attack cost`, game);
@@ -988,7 +989,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         try {
           (game as any).declareAttackers(playerId, attackerIds);
         } catch (e) {
-          console.warn("[combat] game.declareAttackers failed:", e);
+          debugWarn(1, "[combat] game.declareAttackers failed:", e);
         }
       }
 
@@ -999,7 +1000,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           attackers,
         });
       } catch (e) {
-        console.warn("[combat] Failed to persist declareAttackers event:", e);
+        debugWarn(1, "[combat] Failed to persist declareAttackers event:", e);
       }
 
       // Broadcast chat message
@@ -1041,7 +1042,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           
           // Push triggers to stack and notify clients
           if (triggers.length > 0) {
-            console.log(`[combat] Found ${triggers.length} attack trigger(s) for game ${gameId}`);
+            debug(2, `[combat] Found ${triggers.length} attack trigger(s) for game ${gameId}`);
             
             for (const trigger of triggers) {
               // Check if this is an optional mana payment trigger
@@ -1077,7 +1078,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   description: trigger.description,
                 });
                 
-                console.log(`[combat] Attack trigger with mana payment for ${trigger.cardName}: ${trigger.manaCost} to ${trigger.effect}`);
+                debug(2, `[combat] Attack trigger with mana payment for ${trigger.cardName}: ${trigger.manaCost} to ${trigger.effect}`);
               } else if ((trigger.triggerType as string) === 'firebending') {
                 // Firebending - add red mana immediately, lasts until end of combat
                 const manaAmount = typeof trigger.value === 'number' ? trigger.value : 1;
@@ -1106,7 +1107,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 
                 broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Firebending from ${trigger.cardName}`, game);
                 
-                console.log(`[combat] Firebending trigger from ${trigger.cardName}: added ${manaAmount} red mana`);
+                debug(2, `[combat] Firebending trigger from ${trigger.cardName}: added ${manaAmount} red mana`);
               } else {
                 // Regular trigger - push onto stack immediately
                 game.state.stack = game.state.stack || [];
@@ -1155,7 +1156,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           }
         }
       } catch (triggerErr) {
-        console.warn("[combat] Error processing attack triggers:", triggerErr);
+        debugWarn(1, "[combat] Error processing attack triggers:", triggerErr);
       }
 
       // Bump sequence and broadcast
@@ -1175,7 +1176,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         })),
       });
 
-      console.log(`[combat] Player ${playerId} declared ${attackerCount} attackers in game ${gameId}`);
+      debug(2, `[combat] Player ${playerId} declared ${attackerCount} attackers in game ${gameId}`);
 
       // NOTE: Do NOT auto-advance the step here!
       // Per MTG rules, after attackers are declared, all players get priority
@@ -1184,7 +1185,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // The client should emit "passPriority" or "nextStep" when ready to proceed.
       
     } catch (err: any) {
-      console.error(`[combat] declareAttackers error for game ${gameId}:`, err);
+      debugError(1, `[combat] declareAttackers error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "DECLARE_ATTACKERS_ERROR",
         message: err?.message ?? String(err),
@@ -1342,7 +1343,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
         broadcastGame(io, game, gameId);
         
-        console.log(`[combat] ${playerId} paid ${manaCost} for ${cardName}'s attack trigger`);
+        debug(2, `[combat] ${playerId} paid ${manaCost} for ${cardName}'s attack trigger`);
       } else {
         // Player chose not to pay
         io.to(gameId).emit("chat", {
@@ -1353,11 +1354,11 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           ts: Date.now(),
         });
         
-        console.log(`[combat] ${playerId} declined to pay for ${cardName}'s attack trigger`);
+        debug(2, `[combat] ${playerId} declined to pay for ${cardName}'s attack trigger`);
       }
       
     } catch (err: any) {
-      console.error(`[combat] respondAttackTriggerPayment error:`, err);
+      debugError(1, `[combat] respondAttackTriggerPayment error:`, err);
       socket.emit("error", {
         code: "PAYMENT_ERROR",
         message: err?.message ?? String(err),
@@ -1534,7 +1535,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         try {
           (game as any).declareBlockers(playerId, blockers);
         } catch (e) {
-          console.warn("[combat] game.declareBlockers failed:", e);
+          debugWarn(1, "[combat] game.declareBlockers failed:", e);
         }
       }
 
@@ -1545,7 +1546,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           blockers,
         });
       } catch (e) {
-        console.warn("[combat] Failed to persist declareBlockers event:", e);
+        debugWarn(1, "[combat] Failed to persist declareBlockers event:", e);
       }
 
       // Broadcast chat message
@@ -1575,7 +1576,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         })),
       });
 
-      console.log(`[combat] Player ${playerId} declared ${blockerCount} blockers in game ${gameId}`);
+      debug(2, `[combat] Player ${playerId} declared ${blockerCount} blockers in game ${gameId}`);
 
       // NOTE: Do NOT auto-advance the step here!
       // Per MTG rules, after blockers are declared, all players get priority
@@ -1584,7 +1585,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // The client should emit "passPriority" or "nextStep" when ready to proceed.
       
     } catch (err: any) {
-      console.error(`[combat] declareBlockers error for game ${gameId}:`, err);
+      debugError(1, `[combat] declareBlockers error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "DECLARE_BLOCKERS_ERROR",
         message: err?.message ?? String(err),
@@ -1632,7 +1633,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[combat] skipDeclareAttackers error:`, err);
+      debugError(1, `[combat] skipDeclareAttackers error:`, err);
     }
   });
 
@@ -1668,7 +1669,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[combat] skipDeclareBlockers error:`, err);
+      debugError(1, `[combat] skipDeclareBlockers error:`, err);
     }
   });
 
@@ -1743,10 +1744,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         mode: controlsAttackers ? 'attackers' : 'blockers',
       });
 
-      console.log(`[combat] Player ${playerId} gained combat control via ${sourceName} in game ${gameId}`);
+      debug(2, `[combat] Player ${playerId} gained combat control via ${sourceName} in game ${gameId}`);
       
     } catch (err: any) {
-      console.error(`[combat] applyCombatControl error for game ${gameId}:`, err);
+      debugError(1, `[combat] applyCombatControl error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "COMBAT_CONTROL_ERROR",
         message: err?.message ?? String(err),
@@ -1894,7 +1895,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           combatControl: combatControl.sourceName,
         });
       } catch (e) {
-        console.warn("[combat] Failed to persist declareControlledAttackers event:", e);
+        debugWarn(1, "[combat] Failed to persist declareControlledAttackers event:", e);
       }
 
       // Broadcast chat message
@@ -1932,10 +1933,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         combatControl,
       });
 
-      console.log(`[combat] Player ${playerId} declared ${attackers.length} controlled attackers in game ${gameId}`);
+      debug(2, `[combat] Player ${playerId} declared ${attackers.length} controlled attackers in game ${gameId}`);
       
     } catch (err: any) {
-      console.error(`[combat] declareControlledAttackers error for game ${gameId}:`, err);
+      debugError(1, `[combat] declareControlledAttackers error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CONTROLLED_ATTACKERS_ERROR",
         message: err?.message ?? String(err),
@@ -2118,7 +2119,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           combatControl: combatControl.sourceName,
         });
       } catch (e) {
-        console.warn("[combat] Failed to persist declareControlledBlockers event:", e);
+        debugWarn(1, "[combat] Failed to persist declareControlledBlockers event:", e);
       }
 
       // Broadcast chat message
@@ -2147,10 +2148,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         combatControl,
       });
 
-      console.log(`[combat] Player ${playerId} declared ${blockers.length} controlled blockers in game ${gameId}`);
+      debug(2, `[combat] Player ${playerId} declared ${blockers.length} controlled blockers in game ${gameId}`);
       
     } catch (err: any) {
-      console.error(`[combat] declareControlledBlockers error for game ${gameId}:`, err);
+      debugError(1, `[combat] declareControlledBlockers error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CONTROLLED_BLOCKERS_ERROR",
         message: err?.message ?? String(err),
@@ -2181,7 +2182,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
       
     } catch (err: any) {
-      console.error(`[combat] clearCombatControl error:`, err);
+      debugError(1, `[combat] clearCombatControl error:`, err);
     }
   });
 }
+

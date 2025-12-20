@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Color choice selection handlers
@@ -54,7 +55,7 @@ export function requestColorChoice(
     const matchesSpell = spellId && pending.spellId === spellId;
     
     if ((matchesPermanent || matchesSpell) && pending.gameId === gameId) {
-      console.log(`[colorChoice] Choice already pending for ${cardName} (${existingConfirmId}), skipping duplicate request`);
+      debug(2, `[colorChoice] Choice already pending for ${cardName} (${existingConfirmId}), skipping duplicate request`);
       return existingConfirmId;
     }
   }
@@ -79,7 +80,7 @@ export function requestColorChoice(
     const p = pendingChoices.get(confirmId);
     if (p) {
       pendingChoices.delete(confirmId);
-      console.warn(`[colorChoice] Choice timed out for ${cardName} (${confirmId})`);
+      debugWarn(2, `[colorChoice] Choice timed out for ${cardName} (${confirmId})`);
       // Emit cancellation
       io.to(gameId).emit("colorChoiceCancelled", {
         confirmId,
@@ -108,7 +109,7 @@ export function requestColorChoice(
     }
   }
   
-  console.log(`[colorChoice] Requested color choice for ${cardName} (${confirmId}) from player ${playerId}`);
+  debug(2, `[colorChoice] Requested color choice for ${cardName} (${confirmId}) from player ${playerId}`);
   return confirmId;
 }
 
@@ -205,7 +206,7 @@ export function registerColorChoiceHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    console.log(`[colorChoice] ${getPlayerName(game, playerId)} chose ${selectedColor} for ${pending.cardName}`);
+    debug(2, `[colorChoice] ${getPlayerName(game, playerId)} chose ${selectedColor} for ${pending.cardName}`);
     
     // Apply the color choice to the permanent or spell
     if (pending.permanentId) {
@@ -244,7 +245,7 @@ export function registerColorChoiceHandlers(io: Server, socket: Socket) {
             selectedColor,
           });
         } catch (e) {
-          console.warn('appendEvent(colorChoice) failed:', e);
+          debugWarn(1, 'appendEvent(colorChoice) failed:', e);
         }
       }
     } else if (pending.spellId) {
@@ -296,7 +297,7 @@ export function registerColorChoiceHandlers(io: Server, socket: Socket) {
       reason: "player_cancelled",
     });
     
-    console.log(`[colorChoice] ${playerId} cancelled color choice for ${pending.cardName}`);
+    debug(2, `[colorChoice] ${playerId} cancelled color choice for ${pending.cardName}`);
   });
 }
 
@@ -332,3 +333,4 @@ export function clearPendingChoicesForGame(gameId: string) {
     }
   }
 }
+

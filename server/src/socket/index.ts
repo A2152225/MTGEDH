@@ -24,6 +24,7 @@ import { registerReplayHandlers } from "./replay.js";
 import { registerOpponentMayPayHandlers } from "./opponent-may-pay.js";
 import { registerResolutionHandlers } from "./resolution.js";
 import { GameManager } from "../GameManager.js";
+import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
  * Registers all Socket.IO event handlers for the server,
@@ -34,10 +35,10 @@ export function registerSocketHandlers(
 ) {
   // Set the IO server instance in GameManager for RulesBridge integration
   (GameManager as any).setIOServer(io);
-  console.log('[Socket] GameManager configured with IO server for rules engine integration');
+  debug(2, '[Socket] GameManager configured with IO server for rules engine integration');
 
   io.on("connection", (socket) => {
-    console.log(`Socket connected: ${socket.id}`);
+    debug(2, `Socket connected: ${socket.id}`);
 
     // Register modular event handlers
     registerJoinHandlers(io, socket);
@@ -65,7 +66,7 @@ export function registerSocketHandlers(
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {
-      console.log(`Socket disconnected: ${socket.id}. Reason: ${reason}`);
+      debug(1, `Socket disconnected: ${socket.id}. Reason: ${reason}`);
     });
   });
 }
