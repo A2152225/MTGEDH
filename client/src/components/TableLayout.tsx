@@ -1606,7 +1606,7 @@ export function TableLayout(props: {
                                     }}
                                     // Show card preview on hover
                                     onMouseEnter={(e) => {
-                                      showCardPreview(e.currentTarget as HTMLElement, card as any, { prefer: 'above', anchorPadding: 0 });
+                                      showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above', anchorPadding: 0 });
                                     }}
                                     onMouseLeave={(e) => {
                                       hideCardPreview(e.currentTarget as HTMLElement);
