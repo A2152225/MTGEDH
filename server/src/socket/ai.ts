@@ -2828,7 +2828,11 @@ async function executeAIPlayLand(
  * 2. Tapped lands
  * 3. Lands that don't produce needed colors
  */
-async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName: string): Promise<void> {
+/**
+ * Handle AI automatic bounce land choice
+ * Called when a bounce land ETB trigger resolves for an AI player
+ */
+export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName: string): Promise<void> {
   // Ensure battlefield exists on game state
   game.state = (game.state || {}) as any;
   game.state.battlefield = game.state.battlefield || [];

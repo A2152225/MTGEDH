@@ -4157,7 +4157,48 @@ export function registerGameActions(io: Server, socket: Socket) {
               
               console.log(`[passPriority] Bounce land trigger resolving: prompting ${resolvedController} to return a land`);
               
-              // Don't resolve the stack item yet - wait for bounceLandChoice event
+              // Check if the player is AI and handle automatically
+              const resolvedPlayer = (game.state?.players || []).find((p: any) => p.id === resolvedController);
+              if (resolvedPlayer && resolvedPlayer.isAI) {
+                console.log(`[passPriority] Player ${resolvedController} is AI, triggering automatic bounce land choice`);
+                // Dynamically import AI handler to avoid circular dependency
+                setTimeout(async () => {
+                  try {
+                    const aiModule = await import('./ai.js');
+                    // Call the AI handler function directly
+                    const bounceLandName = (topItem as any).sourceName || bounceLandPerm.card?.name || "Bounce Land";
+                    if (typeof (aiModule as any).handleBounceLandETB === 'function') {
+                      await (aiModule as any).handleBounceLandETB(game, resolvedController, bounceLandName);
+                      
+                      // Remove the stack item after AI handles it
+                      const stack = (game.state as any).stack || [];
+                      const stackIndex = stack.findIndex((item: any) => item.id === topItem.id);
+                      if (stackIndex !== -1) {
+                        stack.splice(stackIndex, 1);
+                        console.log(`[passPriority] Removed bounce land trigger from stack after AI choice`);
+                      }
+                      
+                      // Bump sequence and broadcast
+                      if (typeof game.bumpSeq === 'function') {
+                        game.bumpSeq();
+                      }
+                      broadcastGame(io, game, gameId);
+                      
+                      // Continue with AI priority handling
+                      if (typeof aiModule.handleAIGameFlow === 'function') {
+                        setTimeout(() => {
+                          aiModule.handleAIGameFlow(io, gameId, resolvedController as PlayerID).catch(console.error);
+                        }, 150);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[passPriority] Failed to handle AI bounce land choice:', err);
+                  }
+                }, 150);
+                return;
+              }
+              
+              // Don't resolve the stack item yet - wait for bounceLandChoice event from human player
               // Bump sequence and broadcast to show updated state
               if (typeof game.bumpSeq === 'function') {
                 game.bumpSeq();
