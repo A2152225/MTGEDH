@@ -2005,7 +2005,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // the stack and allow priority to pass before land selection
       // ========================================================================
       try {
+        console.log(`[playLand] Checking if ${cardName} is a bounce land: ${isBounceLand(cardName)}`);
         if (isBounceLand(cardName)) {
+          console.log(`[playLand] ${cardName} IS a bounce land, looking for permanent on battlefield`);
           // Find the permanent that was just played
           const battlefield = game.state?.battlefield || [];
           const bounceLandPerm = battlefield.find((p: any) => 
@@ -2013,13 +2015,17 @@ export function registerGameActions(io: Server, socket: Socket) {
             p.controller === playerId
           );
           
+          console.log(`[playLand] Found bounce land permanent: ${!!bounceLandPerm}, permanentId: ${bounceLandPerm?.id}`);
+          
           if (bounceLandPerm) {
             // Mark it as tapped (bounce lands always enter tapped)
             bounceLandPerm.tapped = true;
             
             // Detect the ETB trigger from the land's oracle text
             const etbTriggers = detectETBTriggers(cardInHand, bounceLandPerm);
+            console.log(`[playLand] detectETBTriggers returned ${etbTriggers.length} triggers for ${cardName}`);
             const bounceTrigger = etbTriggers.find(t => t.triggerType === 'etb_bounce_land');
+            console.log(`[playLand] Found bounce trigger: ${!!bounceTrigger}, trigger: ${JSON.stringify(bounceTrigger)}`);
             
             if (bounceTrigger) {
               console.log(`[playLand] Found bounce land ETB trigger for ${cardName}`);
@@ -2058,7 +2064,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               if ((game.state as any).stack.length > 0) {
                 (game.state as any).priority = (game.state as any).turnPlayer || playerId;
               }
+            } else {
+              console.warn(`[playLand] No bounce trigger found for ${cardName} despite being a bounce land!`);
             }
+          } else {
+            console.warn(`[playLand] Could not find bounce land permanent on battlefield for ${cardName}`);
           }
         }
       } catch (err) {
