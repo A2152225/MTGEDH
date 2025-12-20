@@ -184,6 +184,11 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   const autoPassPlayers = stateAny.autoPassPlayers || new Set();
   const turnPlayer = state.turnPlayer as PlayerID;
   
+  // Ensure priorityPassedBy is initialized
+  if (!stateAny.priorityPassedBy || !(stateAny.priorityPassedBy instanceof Set)) {
+    stateAny.priorityPassedBy = new Set<string>();
+  }
+  
   // IMPORTANT: Do not run auto-pass loop during pre_game phase
   // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
   // Auto-pass should not interfere with these setup steps.
