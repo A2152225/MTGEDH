@@ -69,6 +69,7 @@ export enum ResolutionStepType {
   MODAL_CHOICE = 'modal_choice',
   MANA_COLOR_SELECTION = 'mana_color_selection',
   LIBRARY_SEARCH = 'library_search',
+  BOUNCE_LAND_CHOICE = 'bounce_land_choice',
   FLICKER_RETURNS = 'flicker_returns',
   LINKED_EXILE_RETURNS = 'linked_exile_returns',
   JOIN_FORCES = 'join_forces',
@@ -128,6 +129,7 @@ export const LEGACY_PENDING_TO_STEP_TYPE: Record<string, ResolutionStepType> = {
   pendingModalChoice: ResolutionStepType.MODAL_CHOICE,
   pendingManaColorSelection: ResolutionStepType.MANA_COLOR_SELECTION,
   pendingLibrarySearch: ResolutionStepType.LIBRARY_SEARCH,
+  pendingBounceLandChoice: ResolutionStepType.BOUNCE_LAND_CHOICE,
   pendingCreatureTypeSelection: ResolutionStepType.CREATURE_TYPE_CHOICE,
   pendingFlickerReturns: ResolutionStepType.FLICKER_RETURNS,
   pendingLinkedExileReturns: ResolutionStepType.LINKED_EXILE_RETURNS,
@@ -322,6 +324,23 @@ export interface TemptingOfferStep extends BaseResolutionStep {
 }
 
 /**
+ * Bounce Land Choice resolution step
+ * When a bounce land enters the battlefield, the controller must return a land to hand.
+ * Player selects which land to return (including the bounce land itself).
+ */
+export interface BounceLandChoiceStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.BOUNCE_LAND_CHOICE;
+  readonly bounceLandId: string;
+  readonly bounceLandName: string;
+  readonly landsToChoose: readonly { 
+    permanentId: string; 
+    cardName: string; 
+    imageUrl?: string; 
+  }[];
+  readonly stackItemId?: string;
+}
+
+/**
  * Union of all resolution step types
  */
 export type ResolutionStep = 
@@ -337,6 +356,7 @@ export type ResolutionStep =
   | KynaiosChoiceStep
   | JoinForcesStep
   | TemptingOfferStep
+  | BounceLandChoiceStep
   | BaseResolutionStep;
 
 /**

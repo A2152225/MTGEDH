@@ -5383,7 +5383,7 @@ function hasPendingBounceLandChoice(game: any): boolean {
  */
 function checkPendingModals(game: any, gameId: string): { hasPending: boolean; reason?: string } {
   // CRITICAL: Check the resolution queue first (new system)
-  // This ensures Join Forces, Tempting Offer, and other resolution steps block phase changes
+  // This ensures Join Forces, Tempting Offer, Bounce Land choices, and other resolution steps block phase changes
   const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
   if (queueSummary.hasPending) {
     const pendingTypes = queueSummary.pendingTypes.join(', ');
@@ -5391,11 +5391,9 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
   }
   
   // Check legacy pending* fields for backward compatibility
+  // Note: Bounce land choices now use the resolution queue
   if (hasPendingLibrarySearch(game)) {
     return { hasPending: true, reason: 'players have pending library searches' };
-  }
-  if (hasPendingBounceLandChoice(game)) {
-    return { hasPending: true, reason: 'players have pending bounce land choices' };
   }
   if (hasPendingColorChoices(gameId)) {
     return { hasPending: true, reason: 'players have pending color choice modals' };

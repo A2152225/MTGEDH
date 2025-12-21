@@ -2819,8 +2819,9 @@ export function resolveTopOfStack(ctx: GameContext) {
     debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
     
     // ========================================================================
-    // BOUNCE LAND ETB TRIGGER: Prompt player to select a land to return
+    // BOUNCE LAND ETB TRIGGER: Add resolution step for player to select a land to return
     // This must happen BEFORE executing the trigger effect
+    // Uses the resolution queue instead of legacy pendingBounceLandChoice
     // ========================================================================
     if (triggerType === 'etb_bounce_land') {
       const permanentId = (item as any).permanentId;
@@ -2837,21 +2838,28 @@ export function resolveTopOfStack(ctx: GameContext) {
         });
         
         if (availableLands.length > 0) {
-          // Set up pending bounce land choice - the socket layer will send the prompt
-          (state as any).pendingBounceLandChoice = (state as any).pendingBounceLandChoice || {};
-          (state as any).pendingBounceLandChoice[triggerController] = {
+          // Add resolution step to the queue
+          const gameId = (ctx as any).gameId || 'unknown';
+          
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+            playerId: triggerController as PlayerID,
+            description: `${sourceName}: Return a land you control to its owner's hand`,
+            mandatory: true,
+            sourceId: bounceLandPerm.id,
+            sourceName: sourceName,
+            sourceImage: bounceLandPerm.card?.image_uris?.small || bounceLandPerm.card?.image_uris?.normal,
             bounceLandId: bounceLandPerm.id,
             bounceLandName: sourceName,
-            imageUrl: bounceLandPerm.card?.image_uris?.small || bounceLandPerm.card?.image_uris?.normal,
             landsToChoose: availableLands.map((p: any) => ({
               permanentId: p.id,
               cardName: p.card?.name || 'Land',
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
             })),
             stackItemId: item.id,
-          };
+          });
           
-          debug(2, `[resolveTopOfStack] Bounce land trigger: set up pending choice for ${triggerController} to return a land`);
+          debug(2, `[resolveTopOfStack] Bounce land trigger: added resolution step for ${triggerController} to return a land`);
           
           // DON'T execute the trigger effect yet - wait for player choice
           // DON'T bump sequence here - it will be bumped after choice is made
