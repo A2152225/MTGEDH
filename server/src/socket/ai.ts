@@ -2143,9 +2143,12 @@ export async function handleAIPriority(
     return;
   }
   
-  // CRITICAL FIX: Check if there are pending resolution steps for this player
-  // If the player has pending choices (bounce land, Join Forces, etc.), the AI should NOT act
-  // This prevents infinite loops where the AI keeps getting priority while waiting for modal responses
+  // CRITICAL FIX: Check if THIS AI player has pending resolution steps
+  // This is a player-specific check using playerHasPendingSteps(), which only looks at
+  // steps assigned to this particular AI. This prevents the AI from acting while it's
+  // waiting for its own modal responses (bounce land choice, Join Forces, etc.).
+  // Note: The priority module (priority.ts) uses getPendingSummary() to check for ANY
+  // pending steps across ALL players, which enforces MTG Rule 608.2 more broadly.
   if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) {
     debug(1, '[AI] AI player has pending resolution steps, skipping priority handling:', { gameId, playerId });
     return;

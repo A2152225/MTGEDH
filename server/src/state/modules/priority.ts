@@ -49,8 +49,11 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
   if (n === 0) return { changed: false, resolvedNow: false, advanceStep: false };
   
   // CRITICAL FIX: Check if there are pending resolution steps that need to be completed
-  // before priority can be passed. This prevents the game from cycling priority while
-  // players have pending modal choices (bounce lands, Join Forces, etc.)
+  // before priority can be passed. This enforces MTG Rule 608.2: "Players do not receive
+  // priority while a spell or ability is resolving." This blocks priority passing when
+  // ANY player (not just the current player) has pending resolution steps like bounce land
+  // choices, Join Forces decisions, etc. The game must wait for all resolution steps to
+  // complete before priority can be passed.
   const gameId = ctx.gameId;
   const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
   if (pendingSummary.hasPending) {
@@ -204,7 +207,10 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   }
   
   // CRITICAL FIX: Check if there are pending resolution steps
-  // If so, don't auto-pass anyone - wait for the resolution steps to complete
+  // If so, don't auto-pass anyone - wait for the resolution steps to complete.
+  // This enforces MTG Rule 608.2: "Players do not receive priority while a spell
+  // or ability is resolving." Auto-passing would effectively grant priority, which
+  // violates this rule when resolution steps (choices) are still pending.
   const gameId = ctx.gameId;
   const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
   if (pendingSummary.hasPending) {
