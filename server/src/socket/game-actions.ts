@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingBounceLandChoice, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate, handlePendingCascade, millUntilLand } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
+import { processPendingCascades } from "./resolution.js";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -3880,7 +3881,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
-      handlePendingCascade(io, game, gameId);
+            // Process any cascade triggers      await processPendingCascades(io, game, gameId);
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `castSpell error for game ${gameId}:`, err);
@@ -3895,7 +3896,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
   // Called after both target selection and payment are complete
   // =====================================================================
-  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId, convokeTappedCreatures }: { 
+  socket.on("completeCastSpell", async ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -4080,7 +4081,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   socket.on("castSpellFromHand", handleCastSpellFromHand);
 
   // Pass priority
-  socket.on("passPriority", ({ gameId, isAutoPass }: { gameId: string; isAutoPass?: boolean }) => {
+  socket.on("passPriority", async ({ gameId, isAutoPass }: { gameId: string; isAutoPass?: boolean }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -4220,26 +4221,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           gameId,
           from: "system",
           message: "Top of stack resolved.",
+                // Process any cascade triggers        await processPendingCascades(io, game, gameId);
           ts: Date.now(),
         });
-        
-        // Check for pending library search from resolved triggered abilities (e.g., Knight of the White Orchid)
-        handlePendingLibrarySearch(io, game, gameId);
-        
-        // Check for pending bounce land choice (when bounce land ETB trigger resolves)
-        handlePendingBounceLandChoice(io, game, gameId);
-        
-        // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
-        handlePendingJoinForces(io, game, gameId);
-        
-        // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
-        handlePendingTemptingOffer(io, game, gameId);
-        
-        // Check for pending Ponder-style effects (Ponder, Index, Telling Time, etc.)
-        handlePendingPonder(io, game, gameId);
-        
-        // Check for pending Cascade prompts
-        handlePendingCascade(io, game, gameId);
         
         // ========================================================================
         // CRITICAL: Check if there's a pending phase skip that was interrupted
@@ -4926,6 +4910,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           gameId,
           from: "system",
           message: "Top of stack resolved.",
+                // Process any cascade triggers        await processPendingCascades(io, game, gameId);
           ts: Date.now(),
         });
       }

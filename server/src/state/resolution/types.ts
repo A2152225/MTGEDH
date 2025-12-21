@@ -341,6 +341,20 @@ export interface BounceLandChoiceStep extends BaseResolutionStep {
 }
 
 /**
+ * Cascade resolution step
+ * When a cascade spell is cast, exile cards until hitting a nonland card with lower mana value
+ */
+export interface CascadeStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.CASCADE;
+  readonly cascadeNumber: number;
+  readonly totalCascades: number;
+  readonly manaValue: number;
+  readonly hitCard?: KnownCardRef;
+  readonly exiledCards: readonly KnownCardRef[];
+  readonly effectId: string;
+}
+
+/**
  * Union of all resolution step types
  */
 export type ResolutionStep = 
@@ -357,6 +371,7 @@ export type ResolutionStep =
   | JoinForcesStep
   | TemptingOfferStep
   | BounceLandChoiceStep
+  | CascadeStep
   | BaseResolutionStep;
 
 /**

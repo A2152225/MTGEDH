@@ -16,6 +16,7 @@ import {
 import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB } from "./ai.js";
+import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 
 /**
@@ -149,7 +150,7 @@ async function handleAIResolutionStep(
       const success = ResolutionQueueManager.completeStep(gameId, step.id, response);
       if (success) {
         // Trigger the response handler
-        handleStepResponse(io, game, gameId, step, response);
+        await handleStepResponse(io, game, gameId, step, response);
         broadcastGame(io, game, gameId);
       }
     }
@@ -221,7 +222,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   /**
    * Submit a response to a resolution step
    */
-  socket.on("submitResolutionResponse", ({ 
+  socket.on("submitResolutionResponse", async ({ 
     gameId, 
     stepId, 
     selections,
@@ -282,7 +283,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       debug(2, `[Resolution] Step ${stepId} completed by ${pid}: ${completedStep.type}`);
       
       // Handle the response based on step type
-      handleStepResponse(io, game, gameId, completedStep, response);
+      await handleStepResponse(io, game, gameId, completedStep, response);
       
       // Broadcast updated game state
       broadcastGame(io, game, gameId);
@@ -539,6 +540,15 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('landsToChoose' in step) fields.landsToChoose = step.landsToChoose;
       if ('stackItemId' in step) fields.stackItemId = step.stackItemId;
       break;
+      
+    case ResolutionStepType.CASCADE:
+      if ('cascadeNumber' in step) fields.cascadeNumber = step.cascadeNumber;
+      if ('totalCascades' in step) fields.totalCascades = step.totalCascades;
+      if ('manaValue' in step) fields.manaValue = step.manaValue;
+      if ('hitCard' in step) fields.hitCard = step.hitCard;
+      if ('exiledCards' in step) fields.exiledCards = step.exiledCards;
+      if ('effectId' in step) fields.effectId = step.effectId;
+      break;
   }
   
   return fields;
@@ -548,13 +558,13 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
  * Handle the response to a completed resolution step
  * This executes the game logic based on the player's choice
  */
-function handleStepResponse(
+async function handleStepResponse(
   io: Server,
   game: any,
   gameId: string,
   step: ResolutionStep,
   response: ResolutionStepResponse
-): void {
+): Promise<void> {
   if (response.cancelled) {
     // Step was cancelled - no action needed
     return;
@@ -593,6 +603,10 @@ function handleStepResponse(
       
     case ResolutionStepType.BOUNCE_LAND_CHOICE:
       handleBounceLandChoiceResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.CASCADE:
+      await handleCascadeResponse(io, game, gameId, step, response);
       break;
       
     // Add more handlers as needed
@@ -1377,6 +1391,214 @@ function handleBounceLandChoiceResponse(
     (game as any).bumpSeq();
   }
 }
+
+/**
+ * Handle cascade resolution response
+ * Player chooses whether to cast the hit card or decline
+ */
+async function handleCascadeResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  // selections can be true (legacy), 'cast', or 'decline'
+  const cast = response.selections === true || 
+    (typeof response.selections === 'string' && response.selections === 'cast');
+  
+  const cascadeStep = step as any;
+  const effectId = cascadeStep.effectId;
+  const hitCard = cascadeStep.hitCard;
+  const exiledCards = cascadeStep.exiledCards || [];
+  
+  debug(2, `[Resolution] Cascade response: player=${pid}, cast=${cast}, effectId=${effectId}`);
+  
+  // Get library and zones
+  const lib = (game as any).libraries?.get(pid) || [];
+  const zones = game.state.zones = game.state.zones || {};
+  const z = zones[pid] = zones[pid] || { 
+    hand: [], 
+    handCount: 0, 
+    libraryCount: lib.length, 
+    graveyard: [], 
+    graveyardCount: 0 
+  };
+  
+  // Bottom the exiled cards (excluding hit card if casting)
+  const randomized = [...exiledCards];
+  for (let i = randomized.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
+  }
+  
+  for (const card of randomized) {
+    if (cast && hitCard && card.id === hitCard.id) continue;
+    lib.push({ ...card, zone: 'library' });
+  }
+  z.libraryCount = lib.length;
+  
+  // Cast the hit card if chosen
+  if (cast && hitCard) {
+    if (typeof game.applyEvent === 'function') {
+      game.applyEvent({
+        type: "castSpell",
+        playerId: pid,
+        card: { ...hitCard },
+      });
+    }
+    
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { 
+        playerId: pid, 
+        cardId: hitCard.id, 
+        card: hitCard, 
+        cascade: true 
+      });
+    } catch {
+      // ignore persistence failures
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} casts ${hitCard.name} via Cascade.`,
+      ts: Date.now(),
+    });
+  } else if (hitCard) {
+    // Declined casting - put the hit card on bottom as well
+    lib.push({ ...hitCard, zone: 'library' });
+    z.libraryCount = lib.length;
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} declines to cast ${hitCard.name} via Cascade.`,
+      ts: Date.now(),
+    });
+  }
+  
+  // Emit cascade complete
+  io.to(gameId).emit("cascadeComplete", { gameId, effectId });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Process pending cascade triggers and migrate them to the resolution queue
+ * This is called after spell resolution to check for cascades
+ */
+export async function processPendingCascades(
+  io: Server,
+  game: any,
+  gameId: string
+): Promise<void> {
+  try {
+    const pending = (game.state as any).pendingCascade;
+    if (!pending) return;
+    
+    const { cardManaValue, uid } = await import("../state/utils.js");
+    
+    for (const playerId of Object.keys(pending)) {
+      const queue = pending[playerId];
+      if (!Array.isArray(queue) || queue.length === 0) continue;
+      
+      const entry = queue[0];
+      if (!entry || entry.awaiting) continue;
+      
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      const exiled: any[] = [];
+      let hitCard: any | null = null;
+      while (lib.length > 0) {
+        const card = lib.shift() as any;
+        if (!card) break;
+        exiled.push(card);
+        const tl = (card.type_line || "").toLowerCase();
+        const isLand = tl.includes("land");
+        const mv = cardManaValue(card);
+        if (!isLand && mv < entry.manaValue) {
+          hitCard = card;
+          break;
+        }
+      }
+      
+      const zones = game.state.zones = game.state.zones || {};
+      const z = zones[playerId] = zones[playerId] || { 
+        hand: [], 
+        handCount: 0, 
+        libraryCount: lib.length, 
+        graveyard: [], 
+        graveyardCount: 0 
+      };
+      z.libraryCount = lib.length;
+      
+      // If nothing hit, bottom exiled and continue
+      if (!hitCard) {
+        for (const card of exiled) {
+          lib.push({ ...card, zone: "library" });
+        }
+        z.libraryCount = lib.length;
+        queue.shift();
+        continue;
+      }
+      
+      // Mark as awaiting and prepare step data
+      entry.awaiting = true;
+      entry.hitCard = hitCard;
+      entry.exiledCards = exiled;
+      if (!entry.effectId) {
+        entry.effectId = uid("cascade");
+      }
+      
+      // Convert to KnownCardRef format for resolution queue
+      const exiledRefs = exiled.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      
+      const hitRef = {
+        id: hitCard.id,
+        name: hitCard.name,
+        type_line: hitCard.type_line,
+        oracle_text: hitCard.oracle_text,
+        imageUrl: hitCard.image_uris?.normal,
+        mana_cost: hitCard.mana_cost,
+        cmc: hitCard.cmc,
+      };
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CASCADE,
+        playerId,
+        description: `Cascade - Cast ${hitCard.name}?`,
+        mandatory: true,
+        sourceId: entry.sourceCardId,
+        sourceName: entry.sourceName || "Cascade",
+        cascadeNumber: entry.instance || 1,
+        totalCascades: queue.length,
+        manaValue: entry.manaValue,
+        hitCard: hitRef,
+        exiledCards: exiledRefs,
+        effectId: entry.effectId,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingCascades] Error:", err);
+  }
+}
+
 
 export default { registerResolutionHandlers };
 

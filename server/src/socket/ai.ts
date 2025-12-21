@@ -13,7 +13,7 @@
 import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
-import { ensureGame, broadcastGame, handlePendingJoinForces, handlePendingTemptingOffer } from "./util.js";
+import { ensureGame, broadcastGame } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
@@ -4084,20 +4084,10 @@ async function executePassPriority(
       // For AI players, we auto-select an opponent to give control to
       await handlePendingControlChangesAfterResolution(io, game, gameId);
       
-      // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
-      // These require all players to contribute mana
-      handlePendingJoinForces(io, game, gameId);
-      
-      // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
-      // These require opponents to choose whether to accept
-      // NOTE: Tempting Offer effects (like Tempt with Discovery) may CREATE pending library searches
-      // when they resolve, so this must be called BEFORE handlePendingLibrarySearchAfterResolution
-      handlePendingTemptingOffer(io, game, gameId);
-      
-      // Check for pending library search (from tutor spells AND from Tempting Offer effects)
+      // Check for pending library search (from tutor spells and other effects)
       // For AI players, we auto-select the best card; for human players, emit the request
-      // NOTE: This must be called AFTER handlePendingTemptingOffer because cards like
-      // Tempt with Discovery create library searches when they resolve
+      // NOTE: Library search is called LAST because some effects (like Tempting Offer cards)
+      // create pendingLibrarySearch when they resolve, so this must be called AFTER them
       await handlePendingLibrarySearchAfterResolution(io, game, gameId);
       
       // Persist the resolution event

@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, resolveCascadeSelection, handlePendingCascade } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
@@ -1064,19 +1064,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  // Resolve cascade prompt
-  socket.on("resolveCascade", ({ gameId, effectId, cast }: { gameId: string; effectId: string; cast: boolean }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    resolveCascadeSelection(io, game, gameId, pid, effectId, cast);
-    handlePendingCascade(io, game, gameId);
-    broadcastGame(io, game, gameId);
-  });
 
   // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
   socket.on("beginExplore", ({ gameId, permanentId }) => {
