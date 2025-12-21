@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate, handlePendingCascade, millUntilLand } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingBounceLandChoice, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate, handlePendingCascade, millUntilLand } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -4134,94 +4134,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
         
-        // Check for bounce land ETB trigger resolution
-        // When the trigger resolves, prompt the player to select a land to return
-        const isBounceLandTrigger = topItem?.type === 'triggered_ability' && (topItem as any)?.triggerType === 'etb_bounce_land';
-        if (isBounceLandTrigger && resolvedController) {
-          // Find the bounce land permanent
-          const battlefield = game.state?.battlefield || [];
-          const bounceLandPerm = battlefield.find((p: any) => p.id === (topItem as any).permanentId);
-          
-          if (bounceLandPerm) {
-            // Find all lands the player controls, INCLUDING the bounce land itself.
-            // Per MTG rules, the bounce land can return itself to hand.
-            const availableLands = battlefield.filter((p: any) => {
-              if (p.controller !== resolvedController) return false;
-              const typeLine = (p.card?.type_line || '').toLowerCase();
-              return typeLine.includes('land');
-            });
-            
-            if (availableLands.length > 0) {
-              // Emit bounce land prompt to the player
-              emitToPlayer(io, resolvedController as string, "bounceLandPrompt", {
-                gameId,
-                bounceLandId: bounceLandPerm.id,
-                bounceLandName: (topItem as any).sourceName || bounceLandPerm.card?.name || "Bounce Land",
-                imageUrl: bounceLandPerm.card?.image_uris?.small || bounceLandPerm.card?.image_uris?.normal,
-                landsToChoose: availableLands.map((p: any) => ({
-                  permanentId: p.id,
-                  cardName: p.card?.name || "Land",
-                  imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-                })),
-                stackItemId: topItem.id,  // Include stack item ID for resolution tracking
-              });
-              
-              debug(2, `[passPriority] Bounce land trigger resolving: prompting ${resolvedController} to return a land`);
-              
-              // Check if the player is AI and handle automatically
-              const resolvedPlayer = (game.state?.players || []).find((p: any) => p.id === resolvedController);
-              const isAIPlayer = resolvedPlayer && (resolvedPlayer as any).isAI;
-              debug(2, `[passPriority] Bounce land - player ${resolvedController} isAI: ${isAIPlayer}`);
-              
-              if (isAIPlayer) {
-                debug(2, `[passPriority] Player ${resolvedController} is AI, triggering automatic bounce land choice`);
-                // Dynamically import AI handler to avoid circular dependency
-                setTimeout(async () => {
-                  try {
-                    const aiModule = await import('./ai.js');
-                    // Call the AI handler function directly
-                    const bounceLandName = (topItem as any).sourceName || bounceLandPerm.card?.name || "Bounce Land";
-                    if (typeof (aiModule as any).handleBounceLandETB === 'function') {
-                      await (aiModule as any).handleBounceLandETB(game, resolvedController, bounceLandName);
-                      
-                      // Remove the stack item after AI handles it
-                      const stack = (game.state as any).stack || [];
-                      const stackIndex = stack.findIndex((item: any) => item.id === topItem.id);
-                      if (stackIndex !== -1) {
-                        stack.splice(stackIndex, 1);
-                        debug(2, `[passPriority] Removed bounce land trigger from stack after AI choice`);
-                      }
-                      
-                      // Bump sequence and broadcast
-                      if (typeof game.bumpSeq === 'function') {
-                        game.bumpSeq();
-                      }
-                      broadcastGame(io, game, gameId);
-                      
-                      // Continue with AI priority handling
-                      if (typeof aiModule.handleAIGameFlow === 'function') {
-                        setTimeout(() => {
-                          aiModule.handleAIGameFlow(io, gameId, resolvedController as PlayerID).catch(err => debugError(1, err));
-                        }, 150);
-                      }
-                    }
-                  } catch (err) {
-                    debugError(1, '[passPriority] Failed to handle AI bounce land choice:', err);
-                  }
-                }, 150);
-                return;
-              }
-              
-              // Don't resolve the stack item yet - wait for bounceLandChoice event from human player
-              // Bump sequence and broadcast to show updated state
-              if (typeof game.bumpSeq === 'function') {
-                game.bumpSeq();
-              }
-              broadcastGame(io, game, gameId);
-              return;
-            }
-          }
-        }
         
         // Directly call resolveTopOfStack to ensure the spell resolves
         // (appendGameEvent may fail silently if applyEvent has issues)
@@ -4313,6 +4225,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Check for pending library search from resolved triggered abilities (e.g., Knight of the White Orchid)
         handlePendingLibrarySearch(io, game, gameId);
+        
+        // Check for pending bounce land choice (when bounce land ETB trigger resolves)
+        handlePendingBounceLandChoice(io, game, gameId);
         
         // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
         handlePendingJoinForces(io, game, gameId);
