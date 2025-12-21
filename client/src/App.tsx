@@ -3791,23 +3791,18 @@ export function App() {
   const handleProliferateConfirm = (selectedIds: string[]) => {
     if (!safeView || !proliferateData) return;
     
-    // Check if this is using the new resolution system (has stepId)
-    if (proliferateData.stepId) {
-      // Use the new resolution system
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId: proliferateData.stepId,
-        selections: selectedIds,
-        cancelled: false,
-      });
-    } else {
-      // Fall back to legacy event for backward compatibility
-      socket.emit("proliferateConfirm", {
-        gameId: safeView.id,
-        proliferateId: proliferateData.proliferateId,
-        selectedTargetIds: selectedIds,
-      });
+    // Use the resolution queue system
+    if (!proliferateData.stepId) {
+      console.error('[Proliferate] Missing stepId - must use resolution queue');
+      return;
     }
+    
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: proliferateData.stepId,
+      selections: selectedIds,
+      cancelled: false,
+    });
     
     setProliferateModalOpen(false);
     setProliferateData(null);
@@ -5137,40 +5132,28 @@ export function App() {
           onConfirm={(res) => {
             if (!view) return;
             
-            // Check if this is using the new resolution system (has stepId)
-            if (peek.stepId) {
-              // Use the new resolution system
-              const selections = peek.mode === "scry" 
-                ? {
-                    keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                    bottomOrder: (res.bottomOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                  }
-                : {
-                    keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                    toGraveyard: (res.toGraveyard || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                  };
-              
-              socket.emit("submitResolutionResponse", {
-                gameId: view.id,
-                stepId: peek.stepId,
-                selections,
-                cancelled: false,
-              });
-            } else {
-              // Fall back to legacy events for backward compatibility
-              if (peek.mode === "scry")
-                socket.emit("confirmScry", {
-                  gameId: view.id,
-                  keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
-                  bottomOrder: (res.bottomOrder || []).map(id => ({ id })),
-                });
-              else
-                socket.emit("confirmSurveil", {
-                  gameId: view.id,
-                  keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
-                  toGraveyard: (res.toGraveyard || []).map(id => ({ id })),
-                });
+            // Use the resolution queue system
+            if (!peek.stepId) {
+              console.error('[Scry/Surveil] Missing stepId - must use resolution queue');
+              return;
             }
+            
+            const selections = peek.mode === "scry" 
+              ? {
+                  keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                  bottomOrder: (res.bottomOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                }
+              : {
+                  keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                  toGraveyard: (res.toGraveyard || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                };
+            
+            socket.emit("submitResolutionResponse", {
+              gameId: view.id,
+              stepId: peek.stepId,
+              selections,
+              cancelled: false,
+            });
             
             setPeek(null);
           }}

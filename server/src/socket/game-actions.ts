@@ -1947,7 +1947,16 @@ export function registerGameActions(io: Server, socket: Socket) {
       const oracleText = (cardInHand as any)?.oracle_text || '';
       const scryAmount = detectScryOnETB(oracleText);
       if (scryAmount && scryAmount > 0) {
-        // Emit scry prompt to the player
+        // Set pendingScry state - will be processed by processPendingScry() after stack resolution
+        const scryId = `scry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        (game.state as any).pendingScry = (game.state as any).pendingScry || {};
+        (game.state as any).pendingScry[scryId] = {
+          playerId,
+          count: scryAmount,
+          sourceId: cardId,
+          sourceName: cardName,
+        };
+        
         debug(2, `[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
         
         io.to(gameId).emit("chat", {
@@ -1958,13 +1967,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         
-        // Emit scry event to the player - triggers the scry UI
-        emitToPlayer(io, playerId as string, "beginScryPrompt", {
-          gameId,
-          count: scryAmount,
-          sourceName: cardName,
-          sourceId: cardId,
-        });
+        // Legacy beginScryPrompt emission removed - now handled by processPendingScry()
       }
 
       // Check for "sacrifice unless you pay" ETB triggers (Transguild Promenade, Gateway Plaza, etc.)
