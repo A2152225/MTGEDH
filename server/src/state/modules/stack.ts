@@ -2884,8 +2884,22 @@ export function resolveTopOfStack(ctx: GameContext) {
     const tl = (effectiveTypeLine || "").toLowerCase();
     const isCreature = /\bcreature\b/.test(tl);
     const isPlaneswalker = /\bplaneswalker\b/.test(tl);
-    const baseP = isCreature ? parsePT((effectiveCard as any).power) : undefined;
-    const baseT = isCreature ? parsePT((effectiveCard as any).toughness) : undefined;
+    
+    // Check if this was cast with morph (face-down)
+    const wasCastWithMorph = (item as any).wasCastWithMorph || false;
+    const morphCost = wasCastWithMorph ? (item as any).morphCost : undefined;
+    
+    let baseP: number | undefined;
+    let baseT: number | undefined;
+    
+    if (wasCastWithMorph) {
+      // Face-down creatures are always 2/2 colorless
+      baseP = 2;
+      baseT = 2;
+    } else {
+      baseP = isCreature ? parsePT((effectiveCard as any).power) : undefined;
+      baseT = isCreature ? parsePT((effectiveCard as any).toughness) : undefined;
+    }
     
     // Check if the creature has haste from any source (own text or battlefield effects)
     // Rule 702.10: Haste allows ignoring summoning sickness
@@ -2969,7 +2983,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     const modifiedCounters = applyCounterModifications(state, newPermId, initialCounters);
     state.battlefield.pop(); // Remove temp permanent
     
-    const newPermanent = {
+    const newPermanent: any = {
       id: newPermId,
       controller,
       owner: controller,
@@ -2978,8 +2992,23 @@ export function resolveTopOfStack(ctx: GameContext) {
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,
-      card: { ...effectiveCard, zone: "battlefield" },
-    } as any;
+      card: wasCastWithMorph ? { 
+        // Face-down card - show generic 2/2 colorless creature
+        name: "Face-down Creature",
+        type_line: "Creature",
+        zone: "battlefield",
+        power: "2",
+        toughness: "2",
+      } : { ...effectiveCard, zone: "battlefield" },
+    };
+    
+    // Store face-down information
+    if (wasCastWithMorph) {
+      newPermanent.isFaceDown = true;
+      newPermanent.faceDownType = 'morph';
+      newPermanent.faceUpCard = effectiveCard; // Store the actual card hidden
+      newPermanent.morphCost = morphCost;
+    }
     
     state.battlefield.push(newPermanent);
     
@@ -5939,6 +5968,67 @@ export function exileEntireStack(ctx: GameContext, invokedBy?: PlayerID): number
   } catch (err) {
     debugWarn(1, "exileEntireStack failed:", err);
     return 0;
+  }
+}
+
+/**
+ * Manifest a card onto the battlefield face-down as a 2/2 colorless creature
+ * Used by cards like: Cloudform, Lightform, Soul Summons, Whisperwood Elemental
+ * 
+ * Rule 701.34: To manifest a card, turn it face down. It becomes a 2/2 face-down creature card 
+ * with no text, no name, no subtypes, and no mana cost.
+ * 
+ * @param ctx - Game context
+ * @param card - The card to manifest
+ * @param controller - The player who controls the manifested permanent
+ * @returns The permanent ID of the manifested creature
+ */
+export function manifestCard(ctx: GameContext, card: any, controller: string): string | null {
+  try {
+    const state = (ctx as any).state;
+    if (!state) return null;
+    
+    const battlefield = state.battlefield = state.battlefield || [];
+    const newPermId = uid("perm");
+    
+    // Determine if the face-up card is a creature (can be turned face-up for mana cost)
+    const actualTypeLine = (card.type_line || '').toLowerCase();
+    const isActuallyCreature = actualTypeLine.includes('creature');
+    
+    const newPermanent: any = {
+      id: newPermId,
+      controller,
+      owner: controller,
+      tapped: false,
+      basePower: 2,
+      baseToughness: 2,
+      summoningSickness: true, // Manifested creatures enter with summoning sickness
+      card: {
+        name: "Face-down Creature",
+        type_line: "Creature",
+        zone: "battlefield",
+        power: "2",
+        toughness: "2",
+      },
+      isFaceDown: true,
+      faceDownType: 'manifest',
+      faceUpCard: card, // Store the actual card hidden
+      // If it's a creature card, it can be turned face-up for its mana cost
+      canTurnFaceUp: isActuallyCreature,
+    };
+    
+    battlefield.push(newPermanent);
+    
+    debug(2, `[manifestCard] Manifested ${card.name} as face-down 2/2 creature (${isActuallyCreature ? 'can turn face-up' : 'cannot turn face-up'})`);
+    
+    // Trigger ETB effects for the manifested creature
+    // Note: Face-down creatures don't trigger abilities based on their actual card type
+    triggerETBEffectsForPermanent(ctx, newPermanent, controller);
+    
+    return newPermId;
+  } catch (err) {
+    debugWarn(1, "[manifestCard] Failed to manifest card:", err);
+    return null;
   }
 }
 
