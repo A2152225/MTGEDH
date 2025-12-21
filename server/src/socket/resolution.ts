@@ -762,14 +762,46 @@ function handleCommanderZoneResponse(
     (Array.isArray(selection) && selection.includes('command'));
   
   // Get the commander info from step
-  const commanderId = (step as any).commanderId;
-  const commanderName = (step as any).commanderName || 'Commander';
-  const fromZone = (step as any).fromZone || 'graveyard';
+  const stepData = step as any;
+  const commanderId = stepData.commanderId;
+  const commanderName = stepData.commanderName || 'Commander';
+  const fromZone = stepData.fromZone || 'graveyard';
+  const card = stepData.card;
   
   if (goToCommandZone) {
-    // Move commander to command zone
-    // Implementation depends on existing game state structure
-    debug(2, `[Resolution] Moving ${commanderName} to command zone`);
+    // Actually move commander to command zone
+    const zones = game.state?.zones?.[pid];
+    if (zones && card) {
+      // Remove from source zone
+      const sourceZone = zones[fromZone];
+      if (Array.isArray(sourceZone)) {
+        const cardIndex = sourceZone.findIndex((c: any) => c.id === commanderId || c.id === card.id);
+        if (cardIndex !== -1) {
+          sourceZone.splice(cardIndex, 1);
+          // Update zone count
+          const countKey = `${fromZone}Count` as keyof typeof zones;
+          if (typeof zones[countKey] === 'number') {
+            (zones[countKey] as number)--;
+          }
+        }
+      }
+      
+      // Add to command zone
+      zones.commandZone = zones.commandZone || [];
+      zones.commandZone.push({ ...card, zone: 'command' });
+      zones.commandZoneCount = zones.commandZone.length;
+    }
+    
+    // Also remove from battlefield if present
+    const battlefield = game.state?.battlefield || [];
+    const permIndex = battlefield.findIndex((p: any) => 
+      p.id === commanderId || p.card?.id === commanderId || p.card?.id === card?.id
+    );
+    if (permIndex !== -1) {
+      battlefield.splice(permIndex, 1);
+    }
+    
+    debug(2, `[Resolution] Moved ${commanderName} from ${fromZone} to command zone`);
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -820,15 +852,51 @@ function handleTargetSelectionResponse(
   const pid = response.playerId;
   const selections = response.selections as string[];
   
+  if (!Array.isArray(selections)) {
+    debugWarn(1, `[Resolution] Invalid target selections: not an array`);
+    return;
+  }
+  
+  // Get target step data for validation
+  const targetStep = step as any;
+  const validTargets = targetStep.validTargets || [];
+  const minTargets = targetStep.minTargets || 0;
+  const maxTargets = targetStep.maxTargets || Infinity;
+  
+  // Validate selection count is within bounds
+  if (selections.length < minTargets || selections.length > maxTargets) {
+    debugWarn(1, `[Resolution] Invalid target count: got ${selections.length}, expected ${minTargets}-${maxTargets}`);
+    return;
+  }
+  
+  // Validate all selected targets are in valid targets list
+  const validTargetIds = new Set(validTargets.map((t: any) => t.id));
+  for (const targetId of selections) {
+    if (!validTargetIds.has(targetId)) {
+      debugWarn(1, `[Resolution] Invalid target selection: ${targetId} not in valid targets`);
+      return;
+    }
+  }
+  
+  // Store the validated targets on the stack item that needs them
+  // The spell/ability on the stack will use these targets when it resolves
+  const sourceId = step.sourceId;
+  if (sourceId && game.state?.stack) {
+    const stackItem = game.state.stack.find((item: any) => item.id === sourceId);
+    if (stackItem) {
+      stackItem.targets = selections;
+      debug(2, `[Resolution] Stored targets for ${sourceId}: ${selections.join(', ')}`);
+    } else {
+      debugWarn(2, `[Resolution] Stack item ${sourceId} not found to store targets`);
+    }
+  }
+  
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
   
   // Clear legacy pending state if present
   if (game.state.pendingTargets?.[pid]) {
     delete game.state.pendingTargets[pid];
   }
-  
-  // The actual target handling depends on what spell/ability needs the targets
-  // This would typically be handled by the stack resolution system
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
@@ -848,15 +916,66 @@ function handleTriggerOrderResponse(
   const pid = response.playerId;
   const orderedTriggerIds = response.selections as string[];
   
+  if (!Array.isArray(orderedTriggerIds)) {
+    debugWarn(1, `[Resolution] Invalid trigger order: not an array`);
+    return;
+  }
+  
+  // Get trigger step data for validation
+  const triggerStep = step as any;
+  const triggers = triggerStep.triggers || [];
+  const requireAll = triggerStep.requireAll !== false; // default true
+  
+  // Validate all trigger IDs are in the triggers list
+  const validTriggerIds = new Set(triggers.map((t: any) => t.id));
+  for (const triggerId of orderedTriggerIds) {
+    if (!validTriggerIds.has(triggerId)) {
+      debugWarn(1, `[Resolution] Invalid trigger ID in order: ${triggerId} not in valid triggers`);
+      return;
+    }
+  }
+  
+  // If requireAll is true, ensure all triggers are included
+  if (requireAll && orderedTriggerIds.length !== triggers.length) {
+    debugWarn(1, `[Resolution] Invalid trigger order: expected all ${triggers.length} triggers, got ${orderedTriggerIds.length}`);
+    return;
+  }
+  
+  // Actually reorder the triggers on the stack
+  // Triggers are put on the stack in the order specified (first in list = first to resolve = last on stack)
+  // So we need to reverse the order when putting on stack
+  const stack = game.state?.stack || [];
+  
+  // Find the trigger items on the stack
+  const triggerItems = orderedTriggerIds.map(id => 
+    stack.find((item: any) => item.id === id || item.triggerId === id)
+  ).filter(Boolean);
+  
+  if (triggerItems.length > 0) {
+    // Remove all these triggers from stack
+    for (const trigger of triggerItems) {
+      const idx = stack.indexOf(trigger);
+      if (idx !== -1) {
+        stack.splice(idx, 1);
+      }
+    }
+    
+    // Add them back in reverse order (last chosen = top of stack = resolves first)
+    for (let i = triggerItems.length - 1; i >= 0; i--) {
+      stack.unshift(triggerItems[i]);
+    }
+    
+    debug(1, `[Resolution] Reordered ${triggerItems.length} triggers on stack`);
+  } else {
+    debugWarn(2, `[Resolution] No trigger items found on stack to reorder`);
+  }
+  
   debug(1, `[Resolution] Trigger order: ${orderedTriggerIds?.join(', ')}`);
   
   // Clear legacy pending state if present
   if (game.state.pendingTriggerOrdering?.[pid]) {
     delete game.state.pendingTriggerOrdering[pid];
   }
-  
-  // The trigger ordering would be used to reorder triggers on the stack
-  // This is typically handled by the stack system
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
@@ -1033,8 +1152,8 @@ function handleJoinForcesResponse(
   
   // Validate contribution doesn't exceed available mana
   if (contribution > availableMana) {
-    debugWarn(1, `[Resolution] Join Forces: contribution ${contribution} exceeds available mana ${availableMana}`);
-    contribution = availableMana; // Cap at available
+    debugWarn(1, `[Resolution] Join Forces: contribution ${contribution} exceeds available mana ${availableMana} for player ${pid}`);
+    return; // Reject invalid contribution
   }
   
   debug(1, `[Resolution] Join Forces: player=${pid} contributed ${contribution} mana to ${cardName}`);
