@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
-import { processPendingCascades, processPendingScry, processPendingSurveil, processPendingProliferate, processPendingFateseal, processPendingClash, processPendingVote } from "./resolution.js";
+import { processPendingCascades, processPendingScry, processPendingSurveil, processPendingProliferate, processPendingFateseal, processPendingClash, processPendingVote, processPendingPonder } from "./resolution.js";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -3817,6 +3817,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             // Process any pending scry effects
             processPendingScry(io, game, gameId);
             
+            // Process any pending ponder effects
+            processPendingPonder(io, game, gameId);
+            
             // Process any pending surveil effects
             processPendingSurveil(io, game, gameId);
             
@@ -4178,6 +4181,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process any pending scry effects
         processPendingScry(io, game, gameId);
+        
+        // Process any pending ponder effects
+        processPendingPonder(io, game, gameId);
         
         // Process any pending surveil effects
         processPendingSurveil(io, game, gameId);
@@ -4902,6 +4908,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process any pending vote effects
         processPendingVote(io, game, gameId);
+        
+        // Process any pending ponder effects
+        processPendingPonder(io, game, gameId);
       }
 
       // If all players passed priority with empty stack, advance to next step

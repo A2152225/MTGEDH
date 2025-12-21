@@ -531,6 +531,7 @@ export function App() {
     targetPlayerId?: string;
     targetPlayerName?: string;
     isOwnLibrary: boolean;
+    stepId?: string;  // For resolution queue integration
   } | null>(null);
   
   // Cascade modal state
@@ -2588,6 +2589,25 @@ export function App() {
           sourceName: step.sourceName || 'Vote',
         });
         setVoteModalOpen(true);
+      }
+      
+      // Handle Ponder Effect resolution step
+      else if (step.type === 'ponder_effect') {
+        setPonderRequest({
+          effectId: step.id,
+          cardName: step.sourceName || 'Ponder',
+          cardImageUrl: step.sourceImage,
+          cards: step.cards || [],
+          variant: step.variant || 'ponder',
+          canShuffle: step.mayShuffleAfter !== false,
+          drawAfter: step.drawAfter || false,
+          pickToHand: 0,  // Will be determined by variant
+          targetPlayerId: step.targetPlayerId || step.playerId,
+          targetPlayerName: step.targetPlayerName,
+          isOwnLibrary: step.playerId === (step.targetPlayerId || step.playerId),
+          stepId: step.id,  // Store for resolution response
+        });
+        setPonderModalOpen(true);
       }
     };
     
@@ -6517,13 +6537,24 @@ export function App() {
           isOwnLibrary={ponderRequest.isOwnLibrary}
           onConfirm={(payload) => {
             if (!safeView?.id || !ponderRequest) return;
-            socket.emit("confirmPonder", {
+            
+            // Use the resolution queue system
+            if (!ponderRequest.stepId) {
+              console.error('[Ponder] Missing stepId - must use resolution queue');
+              return;
+            }
+            
+            socket.emit("submitResolutionResponse", {
               gameId: safeView.id,
-              effectId: ponderRequest.effectId,
-              newOrder: payload.newOrder,
-              shouldShuffle: payload.shouldShuffle,
-              toHand: payload.toHand,
+              stepId: ponderRequest.stepId,
+              selections: {
+                newOrder: payload.newOrder,
+                shouldShuffle: payload.shouldShuffle,
+                toHand: payload.toHand,
+              },
+              cancelled: false,
             });
+            
             setPonderModalOpen(false);
             setPonderRequest(null);
           }}
