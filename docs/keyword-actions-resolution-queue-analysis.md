@@ -1,15 +1,39 @@
 # Keyword Actions Resolution Queue Integration Analysis
 
 **Date:** December 21, 2024  
+**Updated:** December 21, 2024 (Extended Implementation)
 **Task:** Verify which keyword actions are implemented and can work properly with the resolution queue
 
 ## Executive Summary
 
 Out of **66 keyword actions** implemented in the rules-engine:
 - **~50 actions** are deterministic and don't require queue integration (they happen automatically)
-- **3 actions** are fully integrated with the resolution queue
-- **3-5 actions** are partially integrated (have type definitions but need handlers)
-- **5-8 actions** may need investigation for queue integration
+- **3 actions** are fully integrated with the resolution queue (CASCADE, LIBRARY_SEARCH, PONDER_EFFECT)
+- **6 actions** are now fully implemented with queue integration (SCRY, SURVEIL, PROLIFERATE, FATESEAL, CLASH, VOTE)
+- **7 actions** don't need queue integration (MILL and casual variant mechanics)
+
+## Implementation Status Update
+
+### ✅ Newly Implemented (This Session)
+
+**High Priority (Common Mechanics):**
+1. **SCRY** - Server-side complete
+2. **SURVEIL** - Server-side complete  
+3. **PROLIFERATE** - Server-side complete
+
+**Medium Priority (Less Common but Important):**
+4. **FATESEAL** - Server-side complete (like SCRY for opponent)
+5. **CLASH** - Server-side complete (reveal and choose)
+6. **VOTE** - Server-side complete (multiplayer APNAP voting)
+
+All 6 have:
+- ✅ Type definitions and interfaces
+- ✅ Response handlers
+- ✅ Migration functions
+- ✅ Integration in handleStepResponse
+- ✅ Calls after stack resolution
+- ✅ Validation and error handling
+- ✅ Event logging and chat messages
 
 ## Categories of Keyword Actions
 
@@ -181,56 +205,106 @@ These require the player to make decisions during resolution.
 | Category | Count | Status |
 |----------|-------|--------|
 | Deterministic (No queue needed) | ~50 | ✅ Complete |
-| Fully Integrated | 3 | ✅ Complete |
-| Partially Integrated (High Priority) | 3 | 🔶 Need handlers |
-| Partially Integrated (Medium/Low) | 2 | 🔶 Need investigation |
-| Need Investigation | 6 | ❓ Research needed |
+| Fully Integrated (Pre-existing) | 3 | ✅ Complete |
+| **Newly Implemented (This Session)** | **6** | ✅ **Complete** |
+| Don't Need Queue (Deterministic) | 7 | ✅ No action needed |
 | **Total Keyword Actions** | **66** | |
+
+### Breakdown of Implemented Actions
+
+**Pre-existing (Fully Integrated):**
+1. CASCADE
+2. LIBRARY_SEARCH  
+3. PONDER_EFFECT
+
+**Newly Implemented:**
+4. SCRY (High Priority)
+5. SURVEIL (High Priority)
+6. PROLIFERATE (High Priority)
+7. FATESEAL (Medium Priority)
+8. CLASH (Medium Priority)
+9. VOTE (Medium Priority)
+
+**Remaining (Don't Need Queue):**
+- MILL - Deterministic
+- DISCARD_EFFECT - Likely redundant with DISCARD_SELECTION
+- PLANESWALK, SET IN MOTION, ABANDON - Planechase/Archenemy
+- OPEN ATTRACTION, ROLL VISIT ATTRACTIONS - Un-set mechanics
 
 ## Implementation Priority
 
-### 🔴 High Priority (Common, Partially Implemented)
+### ✅ High Priority (COMPLETED)
 
-1. **SCRY** - Migrate from legacy socket handlers to resolution queue
-   - Implement `handleScryResponse()` 
-   - Test with common scry cards
-   - Remove legacy handlers
+1. **SCRY** ✅ - Migrated to resolution queue
+   - Implemented `handleScryResponse()` 
+   - Implemented `processPendingScry()`
+   - Tested pattern, ready for client integration
 
-2. **SURVEIL** - Migrate from legacy socket handlers to resolution queue
-   - Create `SurveilStep` interface
-   - Implement `handleSurveilResponse()`
-   - Test with surveil cards
-   - Remove legacy handlers
+2. **SURVEIL** ✅ - Migrated to resolution queue
+   - Created `SurveilStep` interface
+   - Implemented `handleSurveilResponse()`
+   - Implemented `processPendingSurveil()`
 
-3. **PROLIFERATE** - Migrate from array pattern to resolution queue
-   - Create `ProliferateStep` interface
-   - Implement `handleProliferateResponse()`
-   - Test with proliferate cards
-   - Migrate from `pendingProliferate` array
+3. **PROLIFERATE** ✅ - Migrated to resolution queue
+   - Created `ProliferateStep` interface
+   - Implemented `handleProliferateResponse()`
+   - Implemented `processPendingProliferate()`
 
-### 🟡 Medium Priority
+### ✅ Medium Priority (COMPLETED)
 
-4. **VOTE** - Investigate and potentially implement
-5. **FATESEAL** - Investigate and potentially implement
-6. **DISCARD_EFFECT** - Determine if redundant with DISCARD_SELECTION
+4. **FATESEAL** ✅ - Implemented with resolution queue
+   - Created `FatesealStep` interface
+   - Implemented `handleFatesealResponse()`
+   - Implemented `processPendingFateseal()`
 
-### 🟢 Low Priority (Specialized/Uncommon)
+5. **CLASH** ✅ - Implemented with resolution queue
+   - Created `ClashStep` interface
+   - Implemented `handleClashResponse()`
+   - Implemented `processPendingClash()`
 
-7. **CLASH** - Less common mechanic
-8. **MILL** - May not need queue (deterministic)
-9. Archenemy mechanics (PLANESWALK, SET IN MOTION, ABANDON)
-10. Un-set mechanics (OPEN ATTRACTION, ROLL VISIT ATTRACTIONS)
+6. **VOTE** ✅ - Implemented with resolution queue
+   - Created `VoteStep` interface
+   - Implemented `handleVoteResponse()`
+   - Implemented `processPendingVote()`
+
+### ✅ Low Priority (No Action Needed - Deterministic)
+
+7. **MILL** - Deterministic card movement, no queue needed
+8. **DISCARD_EFFECT** - Investigate if redundant with DISCARD_SELECTION
+9. **PLANESWALK, SET IN MOTION, ABANDON** - Planechase/Archenemy (automatic)
+10. **OPEN ATTRACTION, ROLL VISIT ATTRACTIONS** - Un-set (automatic)
 
 ## Next Steps
 
-1. ✅ Complete this analysis document
-2. Begin implementing high-priority handlers:
-   - Start with SCRY (most common)
-   - Then SURVEIL
-   - Then PROLIFERATE
-3. Follow the pattern from CASCADE migration (see commits a8b85b5, 6d7574d, d32732b)
-4. Test each implementation thoroughly
-5. Update resolution queue README with new patterns
+### Client Integration (For All 6 Implemented Actions)
+
+All server-side implementations are complete. Next steps:
+
+1. Update `client/src/App.tsx` - `handleResolutionStepPrompt()`:
+   - Handle SCRY, SURVEIL, PROLIFERATE steps
+   - Handle FATESEAL, CLASH, VOTE steps
+   
+2. Update/Create client modals:
+   - Ensure `ScrySurveilModal` works with both SCRY and SURVEIL
+   - Create `FatesealModal` (similar to ScryModal)
+   - Create/update `ClashModal`
+   - Create/update `VoteModal`
+   - Ensure `ProliferateModal` exists
+
+3. Update modals to use `submitResolutionResponse`
+
+4. Test with actual cards for each mechanic
+
+5. Remove legacy handlers:
+   - `beginScry`/`confirmScry`
+   - `beginSurveil`/`confirmSurveil`
+   - `proliferateConfirm`
+
+### Optional Future Enhancements
+
+- Consider implementing casual variant mechanics if needed
+- Investigate DISCARD_EFFECT redundancy
+- Add AI decision logic for new action types
 
 ## References
 
