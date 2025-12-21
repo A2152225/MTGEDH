@@ -2,7 +2,8 @@ import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { canAct, canRespond } from "./can-respond";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { ResolutionQueueManager } from "../resolution/ResolutionQueueManager.js";
+import { ResolutionQueueManager, ResolutionQueueEvent } from "../resolution/ResolutionQueueManager.js";
+import type { ResolutionStep } from "../resolution/types.js";
 
 /**
  * Normalize phase and step strings for comparison.
@@ -43,6 +44,14 @@ function advancePriorityClockwise(ctx: GameContext, from: PlayerID): PlayerID {
 
 export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: boolean): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
   const { state, passesInRow, bumpSeq } = ctx;
+  
+  // CRITICAL: During resolution (MTG Rule 608.2), priority is null
+  // No one can pass priority because priority doesn't exist during resolution
+  if (state.priority === null) {
+    debug(1, `[priority] Cannot pass priority - currently in resolution mode (priority doesn't exist per Rule 608.2)`);
+    return { changed: false, resolvedNow: false, advanceStep: false };
+  }
+  
   if (state.priority !== playerId) return { changed: false, resolvedNow: false, advanceStep: false };
   const active = activePlayersClockwise(ctx);
   const n = active.length;
@@ -54,6 +63,9 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
   // ANY player (not just the current player) has pending resolution steps like bounce land
   // choices, Join Forces decisions, etc. The game must wait for all resolution steps to
   // complete before priority can be passed.
+  // 
+  // NOTE: This check is redundant with the priority === null check above (which is now the
+  // primary mechanism), but we keep it as defense-in-depth.
   const gameId = ctx.gameId;
   const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
   if (pendingSummary.hasPending) {
@@ -368,4 +380,51 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
 export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
   ctx.state.turnDirection = dir;
   ctx.bumpSeq();
+}
+
+/**
+ * Enter resolution mode: Clear priority per MTG Rule 608.2
+ * This is called when the first resolution step is added to an empty queue
+ * 
+ * Per MTG Rule 608.2: "Players do not receive priority while a spell or ability is resolving"
+ * We set state.priority = null to represent that priority doesn't exist during resolution
+ */
+export function enterResolutionMode(ctx: GameContext): void {
+  const { state } = ctx;
+  const stateAny = state as any;
+  
+  // Save who will get priority after resolution completes (always the active player)
+  // Per MTG Rule 117.3b: "After a spell or ability finishes resolving, the active player receives priority"
+  if (!stateAny._priorityAfterResolution) {
+    stateAny._priorityAfterResolution = state.turnPlayer;
+    debug(1, `[priority] Entering resolution mode - priority will return to ${state.turnPlayer} after resolution completes`);
+  }
+  
+  // Set priority to null to represent that priority doesn't exist during resolution
+  state.priority = null as any;
+  
+  // Clear any tracked priority passes since priority doesn't exist
+  stateAny.priorityPassedBy = new Set<string>();
+}
+
+/**
+ * Exit resolution mode: Restore priority per MTG Rule 117.3b
+ * This is called when the last resolution step completes
+ * 
+ * Per MTG Rule 117.3b: "After a spell or ability finishes resolving, the active player receives priority"
+ */
+export function exitResolutionMode(ctx: GameContext): void {
+  const { state } = ctx;
+  const stateAny = state as any;
+  
+  // Restore priority to the saved player (or turn player as fallback)
+  const priorityPlayer = stateAny._priorityAfterResolution || state.turnPlayer;
+  state.priority = priorityPlayer as PlayerID;
+  debug(1, `[priority] Exiting resolution mode - priority restored to ${priorityPlayer}`);
+  
+  // Clear the saved priority holder
+  delete stateAny._priorityAfterResolution;
+  
+  // Reset priority tracking so all players must pass again
+  stateAny.priorityPassedBy = new Set<string>();
 }
