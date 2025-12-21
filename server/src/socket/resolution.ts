@@ -871,11 +871,9 @@ function handleTargetSelectionResponse(
   
   // Validate all selected targets are in valid targets list
   const validTargetIds = new Set(validTargets.map((t: any) => t.id));
-  for (const targetId of selections) {
-    if (!validTargetIds.has(targetId)) {
-      debugWarn(1, `[Resolution] Invalid target selection: ${targetId} not in valid targets`);
-      return;
-    }
+  if (!selections.every(id => validTargetIds.has(id))) {
+    debugWarn(1, `[Resolution] Invalid target selection: one or more targets not in valid targets list`);
+    return;
   }
   
   // Store the validated targets on the stack item that needs them
@@ -946,14 +944,15 @@ function handleTriggerOrderResponse(
   // So we need to reverse the order when putting on stack
   const stack = game.state?.stack || [];
   
-  // Find the trigger items on the stack
-  const triggerItems = orderedTriggerIds.map(id => 
+  // Find the trigger items on the stack by ID or triggerId
+  // We check both because triggers might be stored with either field
+  const foundTriggerItems = orderedTriggerIds.map(id => 
     stack.find((item: any) => item.id === id || item.triggerId === id)
   ).filter(Boolean);
   
-  if (triggerItems.length > 0) {
+  if (foundTriggerItems.length > 0) {
     // Remove all these triggers from stack
-    for (const trigger of triggerItems) {
+    for (const trigger of foundTriggerItems) {
       const idx = stack.indexOf(trigger);
       if (idx !== -1) {
         stack.splice(idx, 1);
@@ -961,11 +960,11 @@ function handleTriggerOrderResponse(
     }
     
     // Add them back in reverse order (last chosen = top of stack = resolves first)
-    for (let i = triggerItems.length - 1; i >= 0; i--) {
-      stack.unshift(triggerItems[i]);
+    for (let i = foundTriggerItems.length - 1; i >= 0; i--) {
+      stack.unshift(foundTriggerItems[i]);
     }
     
-    debug(1, `[Resolution] Reordered ${triggerItems.length} triggers on stack`);
+    debug(1, `[Resolution] Reordered ${foundTriggerItems.length} triggers on stack`);
   } else {
     debugWarn(2, `[Resolution] No trigger items found on stack to reorder`);
   }
@@ -1549,8 +1548,8 @@ function handleBounceLandChoiceResponse(
   debug(2, `[Resolution] Bounce land choice: player=${pid} returns land ${returnPermanentId}`);
   
   // Validate that the selected land is in the list of valid choices
-  const isValidChoice = landsToChoose.some((land: any) => land.permanentId === returnPermanentId);
-  if (!isValidChoice) {
+  const validLandIds = new Set(landsToChoose.map((land: any) => land.permanentId));
+  if (!validLandIds.has(returnPermanentId)) {
     debugWarn(1, `[Resolution] Invalid bounce land choice: ${returnPermanentId} not in valid options`);
     return;
   }
