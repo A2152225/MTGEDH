@@ -2143,6 +2143,17 @@ export async function handleAIPriority(
     return;
   }
   
+  // CRITICAL FIX: Check if THIS AI player has pending resolution steps
+  // This is a player-specific check using playerHasPendingSteps(), which only looks at
+  // steps assigned to this particular AI. This prevents the AI from acting while it's
+  // waiting for its own modal responses (bounce land choice, Join Forces, etc.).
+  // Note: The priority module (priority.ts) uses getPendingSummary() to check for ANY
+  // pending steps across ALL players, which enforces MTG Rule 608.2 more broadly.
+  if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) {
+    debug(1, '[AI] AI player has pending resolution steps, skipping priority handling:', { gameId, playerId });
+    return;
+  }
+  
   const phase = String(game.state.phase || '').toLowerCase();
   const step = String((game.state as any).step || '').toLowerCase();
   const isAITurn = game.state.turnPlayer === playerId;

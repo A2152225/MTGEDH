@@ -440,6 +440,51 @@ export function initializeAIResolutionHandler(io: Server): void {
 }
 
 /**
+ * Initialize global priority management handler
+ * Manages priority state during resolution per MTG Rule 608.2
+ * Should be called once when server starts
+ */
+export function initializePriorityResolutionHandler(io: Server): void {
+  // Import priority management functions
+  import("../state/modules/priority.js").then(({ enterResolutionMode, exitResolutionMode }) => {
+    const priorityHandler = (
+      event: ResolutionQueueEvent,
+      gameId: string,
+      step?: ResolutionStep
+    ) => {
+      const game = ensureGame(gameId);
+      if (!game) return;
+      
+      const ctx = (game as any).ctx || game;
+      if (!ctx) return;
+      
+      // When first step is added, enter resolution mode (set priority = null)
+      if (event === ResolutionQueueEvent.STEP_ADDED) {
+        const summary = ResolutionQueueManager.getPendingSummary(gameId);
+        // If this is the first step (count = 1), enter resolution mode
+        if (summary.pendingCount === 1 && ctx.state.priority !== null) {
+          enterResolutionMode(ctx);
+          broadcastGame(io, game, gameId);
+        }
+      }
+      
+      // When last step completes, exit resolution mode (restore priority)
+      if (event === ResolutionQueueEvent.STEP_COMPLETED) {
+        const summary = ResolutionQueueManager.getPendingSummary(gameId);
+        // If no more pending steps, exit resolution mode
+        if (!summary.hasPending && ctx.state.priority === null) {
+          exitResolutionMode(ctx);
+          broadcastGame(io, game, gameId);
+        }
+      }
+    };
+    
+    ResolutionQueueManager.on(priorityHandler);
+    debug(1, '[Resolution] Priority management handler initialized');
+  });
+}
+
+/**
  * Get type-specific fields for a resolution step
  */
 function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
