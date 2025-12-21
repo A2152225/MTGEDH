@@ -300,6 +300,18 @@ export interface ScryStep extends BaseResolutionStep {
 }
 
 /**
+ * Surveil resolution step
+ * 
+ * Similar to scry but cards can go to graveyard instead of bottom of library.
+ * Reference: Rule 701.25 - Surveil
+ */
+export interface SurveilStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.SURVEIL;
+  readonly cards: readonly KnownCardRef[];
+  readonly surveilCount: number;
+}
+
+/**
  * Kynaios and Tiro style choice resolution step
  * Player may put a land onto the battlefield, or (for opponents) draw a card
  */
@@ -424,6 +436,7 @@ export type ResolutionStep =
   | OptionChoiceStep
   | PonderEffectStep
   | ScryStep
+  | SurveilStep
   | KynaiosChoiceStep
   | JoinForcesStep
   | TemptingOfferStep

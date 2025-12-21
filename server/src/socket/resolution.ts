@@ -562,6 +562,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('scryCount' in step) fields.scryCount = step.scryCount;
       break;
       
+    case ResolutionStepType.SURVEIL:
+      if ('cards' in step) fields.cards = step.cards;
+      if ('surveilCount' in step) fields.surveilCount = step.surveilCount;
+      break;
+      
     case ResolutionStepType.KYNAIOS_CHOICE:
       if ('isController' in step) fields.isController = step.isController;
       if ('sourceController' in step) fields.sourceController = step.sourceController;
@@ -684,6 +689,10 @@ async function handleStepResponse(
       
     case ResolutionStepType.SCRY:
       handleScryResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.SURVEIL:
+      handleSurveilResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.LIBRARY_SEARCH:
@@ -1851,6 +1860,95 @@ function handleScryResponse(
 }
 
 /**
+ * Handle Surveil resolution response
+ * 
+ * Player looks at the top N cards of their library and decides which to keep
+ * on top (in order) and which to put in the graveyard.
+ * 
+ * Reference: Rule 701.25 - Surveil
+ */
+function handleSurveilResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: { keepTopOrder: KnownCardRef[], toGraveyard: KnownCardRef[] }
+  const keepTopOrder = selections?.keepTopOrder || [];
+  const toGraveyard = selections?.toGraveyard || [];
+  
+  const surveilStep = step as any;
+  const surveilCount = surveilStep.surveilCount || 0;
+  const cards = surveilStep.cards || [];
+  
+  debug(2, `[Resolution] Surveil response: player=${pid}, surveilCount=${surveilCount}, keepTop=${keepTopOrder.length}, toGY=${toGraveyard.length}`);
+  
+  // Validate that all cards are accounted for
+  const totalCards = keepTopOrder.length + toGraveyard.length;
+  if (totalCards !== surveilCount && totalCards !== cards.length) {
+    debugWarn(2, `[Resolution] Surveil card count mismatch: expected ${surveilCount}, got ${totalCards}`);
+  }
+  
+  // Validate that the cards match what was shown
+  const selectedIds = [...keepTopOrder, ...toGraveyard].map((c: any) => c.id);
+  const cardIds = cards.map((c: any) => c.id);
+  const allMatch = selectedIds.every((id: string) => cardIds.includes(id));
+  
+  if (!allMatch) {
+    debugWarn(2, `[Resolution] Surveil selection contains cards not in original set`);
+  }
+  
+  // Apply the surveil event to the game
+  if (typeof game.applyEvent === 'function') {
+    game.applyEvent({
+      type: "surveilResolve",
+      playerId: pid,
+      keepTopOrder,
+      toGraveyard,
+    });
+  }
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "surveilResolve", { 
+      playerId: pid, 
+      keepTopOrder, 
+      toGraveyard 
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  // Emit chat message
+  const topCount = keepTopOrder.length;
+  const gyCount = toGraveyard.length;
+  let message = `${getPlayerName(game, pid)} surveils ${surveilCount}`;
+  if (topCount > 0 && gyCount > 0) {
+    message += ` (${topCount} on top, ${gyCount} to graveyard)`;
+  } else if (topCount > 0) {
+    message += ` (all on top)`;
+  } else if (gyCount > 0) {
+    message += ` (all to graveyard)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
  * Handle Library Search resolution response
  * Generic handler for effects that reveal/search library and select cards
  * Used for: Genesis Wave, tutors, Impulse, etc.
@@ -2517,6 +2615,81 @@ export function processPendingScry(
     }
   } catch (err) {
     debugWarn(1, "[processPendingScry] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending surveil from legacy state and migrate to resolution queue
+ * 
+ * This is called after stack resolution or when surveil effects are created.
+ * Migrates from pendingSurveil state to the resolution queue system.
+ */
+export function processPendingSurveil(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingSurveil;
+    if (!pending || typeof pending !== 'object') return;
+    
+    for (const surveilId of Object.keys(pending)) {
+      const data = pending[surveilId];
+      if (!data || typeof data !== 'object') continue;
+      
+      const playerId = data.playerId;
+      const surveilCount = data.count || 0;
+      
+      if (!playerId || surveilCount <= 0) {
+        delete pending[surveilId];
+        continue;
+      }
+      
+      // Get library
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      // Peek at the top N cards
+      const actualCount = Math.min(surveilCount, lib.length);
+      if (actualCount === 0) {
+        // No cards to surveil, skip
+        delete pending[surveilId];
+        continue;
+      }
+      
+      const cards = lib.slice(0, actualCount).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.SURVEIL,
+        playerId,
+        description: `Surveil ${actualCount}`,
+        mandatory: true,
+        sourceId: data.sourceId,
+        sourceName: data.sourceName || 'Surveil',
+        cards,
+        surveilCount: actualCount,
+      });
+      
+      // Clear from pending state
+      delete pending[surveilId];
+    }
+    
+    // Clean up empty pending object
+    if (Object.keys(pending).length === 0) {
+      delete (game.state as any).pendingSurveil;
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingSurveil] Error:", err);
   }
 }
 
