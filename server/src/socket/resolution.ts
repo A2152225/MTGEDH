@@ -15,6 +15,148 @@ import {
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { handleBounceLandETB } from "./ai.js";
+import type { PlayerID } from "../../../shared/src/types.js";
+
+/**
+ * Handle AI player resolution steps automatically
+ * This is called when a step is added to check if it's for an AI player
+ */
+async function handleAIResolutionStep(
+  io: Server,
+  gameId: string,
+  step: ResolutionStep
+): Promise<void> {
+  try {
+    const game = ensureGame(gameId);
+    if (!game) return;
+    
+    const player = (game.state?.players || []).find((p: any) => p.id === step.playerId);
+    const isAI = player && (player as any).isAI;
+    
+    if (!isAI) return; // Not an AI player, skip
+    
+    debug(2, `[Resolution] AI player ${step.playerId} auto-resolving step: ${step.type}`);
+    
+    let response: ResolutionStepResponse | null = null;
+    
+    switch (step.type) {
+      case ResolutionStepType.BOUNCE_LAND_CHOICE: {
+        const stepData = step as any;
+        const landsToChoose = stepData.landsToChoose || [];
+        
+        if (landsToChoose.length === 0) {
+          debugWarn(1, `[Resolution] AI bounce land choice: no lands available`);
+          break;
+        }
+        
+        // Use existing AI logic to choose which land to return
+        // We need to score the lands and pick the best one to return
+        const battlefield = game.state.battlefield || [];
+        const playerId = step.playerId;
+        const bounceLandName = stepData.bounceLandName || 'Bounce Land';
+        
+        // Check for landfall synergy
+        const hasLandfallSynergy = battlefield.some((perm: any) => {
+          if (perm.controller !== playerId) return false;
+          const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+          return oracleText.includes('landfall') || 
+                 oracleText.includes('whenever a land enters') ||
+                 oracleText.includes('whenever you play a land');
+        });
+        
+        // Score each land option
+        const scoredLands = landsToChoose.map((landOption: any) => {
+          const perm = battlefield.find((p: any) => p.id === landOption.permanentId);
+          if (!perm) return { landOption, score: 1000 }; // Not found, don't choose
+          
+          let score = 50; // Base score
+          const card = perm.card;
+          const typeLine = (card?.type_line || '').toLowerCase();
+          const permName = (card?.name || '').toLowerCase();
+          
+          // The bounce land itself
+          if (permName === bounceLandName.toLowerCase()) {
+            if (landsToChoose.length === 1) {
+              score = 0; // Only option
+            } else {
+              score += hasLandfallSynergy ? 10 : 30;
+              if (perm.tapped) score -= 10;
+            }
+            return { landOption, score };
+          }
+          
+          // Basic lands are least valuable
+          if (typeLine.includes('basic')) {
+            score -= 30;
+            if (hasLandfallSynergy) score -= 10;
+          }
+          
+          // Tapped lands are good to return
+          if (perm.tapped) score -= 10;
+          
+          return { landOption, score };
+        });
+        
+        // Sort by score (lowest first = return first)
+        scoredLands.sort((a: any, b: any) => a.score - b.score);
+        const chosenLand = scoredLands[0]?.landOption;
+        
+        if (chosenLand) {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: chosenLand.permanentId,
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI chose to return land: ${chosenLand.cardName}`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.JOIN_FORCES: {
+        // AI declines to contribute to Join Forces (simple strategy)
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: 0,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI declines to contribute to Join Forces`);
+        break;
+      }
+      
+      case ResolutionStepType.TEMPTING_OFFER: {
+        // AI declines tempting offers (simple strategy)
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: false,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI declines tempting offer`);
+        break;
+      }
+      
+      // Add more AI handlers as needed
+    }
+    
+    if (response) {
+      // Complete the step with the AI's response
+      const success = ResolutionQueueManager.completeStep(gameId, step.id, response);
+      if (success) {
+        // Trigger the response handler
+        handleStepResponse(io, game, gameId, step, response);
+        broadcastGame(io, game, gameId);
+      }
+    }
+  } catch (error) {
+    debugError(1, `[Resolution] Error handling AI resolution step:`, error);
+  }
+}
 
 /**
  * Register Resolution System socket handlers
@@ -274,6 +416,29 @@ function sanitizeStepForClient(step: ResolutionStep): any {
 }
 
 /**
+ * Initialize global AI resolution handler
+ * Should be called once when server starts
+ */
+export function initializeAIResolutionHandler(io: Server): void {
+  // Set up global handler for AI steps
+  const aiHandler = (
+    event: ResolutionQueueEvent,
+    gameId: string,
+    step?: ResolutionStep
+  ) => {
+    if (event === ResolutionQueueEvent.STEP_ADDED && step) {
+      // Process AI steps asynchronously
+      handleAIResolutionStep(io, gameId, step).catch(err => {
+        debugError(1, `[Resolution] AI handler error:`, err);
+      });
+    }
+  };
+  
+  ResolutionQueueManager.on(aiHandler);
+  debug(1, '[Resolution] AI handler initialized');
+}
+
+/**
  * Get type-specific fields for a resolution step
  */
 function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
@@ -367,6 +532,13 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('initiator' in step) fields.initiator = step.initiator;
       if ('isOpponent' in step) fields.isOpponent = step.isOpponent;
       break;
+      
+    case ResolutionStepType.BOUNCE_LAND_CHOICE:
+      if ('bounceLandId' in step) fields.bounceLandId = step.bounceLandId;
+      if ('bounceLandName' in step) fields.bounceLandName = step.bounceLandName;
+      if ('landsToChoose' in step) fields.landsToChoose = step.landsToChoose;
+      if ('stackItemId' in step) fields.stackItemId = step.stackItemId;
+      break;
   }
   
   return fields;
@@ -417,6 +589,10 @@ function handleStepResponse(
       
     case ResolutionStepType.TEMPTING_OFFER:
       handleTemptingOfferResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.BOUNCE_LAND_CHOICE:
+      handleBounceLandChoiceResponse(io, game, gameId, step, response);
       break;
       
     // Add more handlers as needed
@@ -1106,6 +1282,100 @@ function applyTemptingOfferEffect(
     initiator,
     initiatorBonusCount,
   });
+}
+
+/**
+ * Handle Bounce Land Choice response
+ * Player selects which land to return to hand when a bounce land enters the battlefield
+ */
+function handleBounceLandChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selection = response.selections;
+  
+  // Extract selected permanent ID from selection
+  let returnPermanentId = '';
+  if (typeof selection === 'string') {
+    returnPermanentId = selection;
+  } else if (Array.isArray(selection) && selection.length > 0) {
+    returnPermanentId = selection[0];
+  } else if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+    returnPermanentId = (selection as any).permanentId || (selection as any).returnPermanentId || '';
+  }
+  
+  if (!returnPermanentId) {
+    debugWarn(1, `[Resolution] Bounce land choice: no land selected by ${pid}`);
+    return;
+  }
+  
+  const stepData = step as any;
+  const bounceLandId = stepData.bounceLandId;
+  const bounceLandName = stepData.bounceLandName || 'Bounce Land';
+  const stackItemId = stepData.stackItemId;
+  
+  debug(2, `[Resolution] Bounce land choice: player=${pid} returns land ${returnPermanentId}`);
+  
+  // Ensure game state and battlefield exist
+  game.state = (game.state || {}) as any;
+  game.state.battlefield = game.state.battlefield || [];
+  
+  const battlefield = game.state.battlefield;
+  
+  // Find the land to return
+  const landToReturn = battlefield.find((p: any) => 
+    p.id === returnPermanentId && p.controller === pid
+  );
+  
+  if (!landToReturn) {
+    debugWarn(1, `[Resolution] Land to return not found: ${returnPermanentId}`);
+    return;
+  }
+  
+  const returnedLandName = (landToReturn as any).card?.name || "Land";
+  
+  // Remove the land from battlefield
+  const idx = battlefield.indexOf(landToReturn);
+  if (idx !== -1) {
+    battlefield.splice(idx, 1);
+  }
+  
+  // Add the land to player's hand
+  const zones = game.state?.zones?.[pid];
+  if (zones) {
+    zones.hand = zones.hand || [];
+    const returnedCard = { ...(landToReturn as any).card, zone: 'hand' };
+    (zones.hand as any[]).push(returnedCard);
+    zones.handCount = (zones.hand as any[]).length;
+  }
+  
+  // If this was triggered from the stack, remove the stack item
+  if (stackItemId) {
+    const stack = (game.state as any).stack || [];
+    const stackIndex = stack.findIndex((item: any) => item.id === stackItemId);
+    if (stackIndex !== -1) {
+      stack.splice(stackIndex, 1);
+      debug(2, `[Resolution] Removed bounce land trigger from stack (id: ${stackItemId})`);
+    }
+  }
+  
+  // Send chat message
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, pid)}'s ${bounceLandName} returns ${returnedLandName} to hand.`,
+    ts: Date.now(),
+  });
+  
+  // Bump sequence
+  if (typeof (game as any).bumpSeq === "function") {
+    (game as any).bumpSeq();
+  }
 }
 
 export default { registerResolutionHandlers };

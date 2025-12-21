@@ -22,7 +22,7 @@ import { registerGameManagementHandlers } from "./game-management.js";
 import { registerRandomnessHandlers } from "./randomness.js";
 import { registerReplayHandlers } from "./replay.js";
 import { registerOpponentMayPayHandlers } from "./opponent-may-pay.js";
-import { registerResolutionHandlers } from "./resolution.js";
+import { registerResolutionHandlers, initializeAIResolutionHandler } from "./resolution.js";
 import { GameManager } from "../GameManager.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
@@ -36,6 +36,9 @@ export function registerSocketHandlers(
   // Set the IO server instance in GameManager for RulesBridge integration
   (GameManager as any).setIOServer(io);
   debug(2, '[Socket] GameManager configured with IO server for rules engine integration');
+
+  // Initialize global AI resolution handler (once per server)
+  initializeAIResolutionHandler(io);
 
   io.on("connection", (socket) => {
     debug(2, `Socket connected: ${socket.id}`);
