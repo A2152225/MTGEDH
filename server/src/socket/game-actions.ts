@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
+import { processPendingCascades } from "./resolution.js";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -3880,6 +3881,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
+            // Process any cascade triggers      await processPendingCascades(io, game, gameId);
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `castSpell error for game ${gameId}:`, err);
@@ -3894,7 +3896,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
   // Called after both target selection and payment are complete
   // =====================================================================
-  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId, convokeTappedCreatures }: { 
+  socket.on("completeCastSpell", async ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -4079,7 +4081,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   socket.on("castSpellFromHand", handleCastSpellFromHand);
 
   // Pass priority
-  socket.on("passPriority", ({ gameId, isAutoPass }: { gameId: string; isAutoPass?: boolean }) => {
+  socket.on("passPriority", async ({ gameId, isAutoPass }: { gameId: string; isAutoPass?: boolean }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -4219,6 +4221,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           gameId,
           from: "system",
           message: "Top of stack resolved.",
+                // Process any cascade triggers        await processPendingCascades(io, game, gameId);
           ts: Date.now(),
         });
         
@@ -4907,6 +4910,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           gameId,
           from: "system",
           message: "Top of stack resolved.",
+                // Process any cascade triggers        await processPendingCascades(io, game, gameId);
           ts: Date.now(),
         });
       }

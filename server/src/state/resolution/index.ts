@@ -61,6 +61,7 @@ export {
   type OptionChoiceStep,
   type PonderEffectStep,
   type ScryStep,
+  type CascadeStep,
 } from './types.js';
 
 // Export queue operations
