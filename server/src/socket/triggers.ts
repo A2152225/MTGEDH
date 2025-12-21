@@ -417,12 +417,6 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         }
       }
       
-      // Clear pending bounce land choice for this player
-      if ((game.state as any)?.pendingBounceLandChoice && (game.state as any).pendingBounceLandChoice[playerId]) {
-        delete (game.state as any).pendingBounceLandChoice[playerId];
-        debug(2, `[triggers] Cleared pendingBounceLandChoice for player ${playerId}`);
-      }
-
       // Send chat message
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,

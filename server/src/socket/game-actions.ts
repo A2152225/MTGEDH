@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingBounceLandChoice, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate, handlePendingCascade, millUntilLand } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -3880,7 +3880,6 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
-      handlePendingCascade(io, game, gameId);
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `castSpell error for game ${gameId}:`, err);
@@ -4222,24 +4221,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: "Top of stack resolved.",
           ts: Date.now(),
         });
-        
-        // Check for pending library search from resolved triggered abilities (e.g., Knight of the White Orchid)
-        handlePendingLibrarySearch(io, game, gameId);
-        
-        // Check for pending bounce land choice (when bounce land ETB trigger resolves)
-        handlePendingBounceLandChoice(io, game, gameId);
-        
-        // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
-        handlePendingJoinForces(io, game, gameId);
-        
-        // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
-        handlePendingTemptingOffer(io, game, gameId);
-        
-        // Check for pending Ponder-style effects (Ponder, Index, Telling Time, etc.)
-        handlePendingPonder(io, game, gameId);
-        
-        // Check for pending Cascade prompts
-        handlePendingCascade(io, game, gameId);
         
         // ========================================================================
         // CRITICAL: Check if there's a pending phase skip that was interrupted

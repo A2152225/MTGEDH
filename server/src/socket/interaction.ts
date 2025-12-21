@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, resolveCascadeSelection, handlePendingCascade } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, resolveCascadeSelection } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
@@ -1074,7 +1074,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     resolveCascadeSelection(io, game, gameId, pid, effectId, cast);
-    handlePendingCascade(io, game, gameId);
     broadcastGame(io, game, gameId);
   });
 
