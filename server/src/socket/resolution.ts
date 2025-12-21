@@ -1431,13 +1431,9 @@ function handleBounceLandChoiceResponse(
     ts: Date.now(),
   });
   
-  // Restore priority to the active player after bounce land resolution
-  // This ensures the game can continue normally
-  const turnPlayer = game.state.turnPlayer;
-  if (turnPlayer) {
-    game.state.priority = turnPlayer;
-    debug(2, `[Resolution] Restored priority to turn player ${turnPlayer} after bounce land choice`);
-  }
+  // NOTE: Priority restoration is handled automatically by the ResolutionQueue system
+  // via the priority management handler (initializePriorityResolutionHandler).
+  // When the last resolution step completes, exitResolutionMode() is called automatically.
   
   // Bump sequence
   if (typeof (game as any).bumpSeq === "function") {
