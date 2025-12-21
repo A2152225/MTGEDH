@@ -2411,7 +2411,7 @@ export function App() {
     };
   }, [safeView?.id, temptingOfferRequest?.id]);
   
-  // Resolution Queue system handler for Kynaios, Join Forces, and Tempting Offer
+  // Resolution Queue system handler for Kynaios, Join Forces, Tempting Offer, and Bounce Land
   // Listens for resolution step prompts and opens the appropriate modals
   React.useEffect(() => {
     const handleResolutionStepPrompt = (payload: { gameId: string; step: any }) => {
@@ -2435,6 +2435,20 @@ export function App() {
         
         setKynaiosChoiceRequest(request);
         setKynaiosChoiceModalOpen(true);
+      }
+      
+      // Handle Bounce Land choice resolution step
+      else if (step.type === 'bounce_land_choice') {
+        debug(2, '[BounceLand] Received bounce land choice from resolution queue:', step);
+        setBounceLandData({
+          bounceLandId: step.bounceLandId,
+          bounceLandName: step.bounceLandName || step.sourceName || 'Bounce Land',
+          imageUrl: step.sourceImage || step.sourceImageUrl,
+          landsToChoose: step.landsToChoose || [],
+          stackItemId: step.stackItemId,
+          stepId: step.id,  // Store the step ID for resolution response
+        });
+        setBounceLandModalOpen(true);
       }
       
       // Handle Join Forces resolution step
@@ -3703,12 +3717,28 @@ export function App() {
   // Bounce land handler - player selects which land to return
   const handleBounceLandSelect = (permanentId: string) => {
     if (!safeView || !bounceLandData) return;
-    socket.emit("bounceLandChoice", {
-      gameId: safeView.id,
-      bounceLandId: bounceLandData.bounceLandId,
-      returnPermanentId: permanentId,
-      stackItemId: bounceLandData.stackItemId,
-    });
+    
+    // Check if this is a resolution queue step (has stepId)
+    if ((bounceLandData as any).stepId) {
+      // Use the resolution system
+      socket.emit("completeResolutionStep", {
+        gameId: safeView.id,
+        stepId: (bounceLandData as any).stepId,
+        selections: permanentId,
+        cancelled: false,
+      });
+      debug(2, '[BounceLand] Completed resolution step via resolution queue');
+    } else {
+      // Use legacy bounceLandChoice event (for backward compatibility)
+      socket.emit("bounceLandChoice", {
+        gameId: safeView.id,
+        bounceLandId: bounceLandData.bounceLandId,
+        returnPermanentId: permanentId,
+        stackItemId: bounceLandData.stackItemId,
+      });
+      debug(2, '[BounceLand] Completed via legacy bounceLandChoice event');
+    }
+    
     setBounceLandModalOpen(false);
     setBounceLandData(null);
   };
