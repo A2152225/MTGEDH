@@ -312,6 +312,25 @@ export interface SurveilStep extends BaseResolutionStep {
 }
 
 /**
+ * Proliferate resolution step
+ * 
+ * Player chooses any number of permanents and/or players with counters
+ * and adds one counter of each kind already there.
+ * 
+ * Reference: Rule 701.28 - Proliferate
+ */
+export interface ProliferateStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.PROLIFERATE;
+  readonly proliferateId: string; // Unique ID for this proliferate effect
+  readonly availableTargets: readonly {
+    id: string;
+    name: string;
+    counters: Record<string, number>;
+    isPlayer: boolean;
+  }[];
+}
+
+/**
  * Kynaios and Tiro style choice resolution step
  * Player may put a land onto the battlefield, or (for opponents) draw a card
  */
@@ -437,6 +456,7 @@ export type ResolutionStep =
   | PonderEffectStep
   | ScryStep
   | SurveilStep
+  | ProliferateStep
   | KynaiosChoiceStep
   | JoinForcesStep
   | TemptingOfferStep

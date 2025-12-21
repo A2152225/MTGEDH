@@ -567,6 +567,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('surveilCount' in step) fields.surveilCount = step.surveilCount;
       break;
       
+    case ResolutionStepType.PROLIFERATE:
+      if ('proliferateId' in step) fields.proliferateId = step.proliferateId;
+      if ('availableTargets' in step) fields.availableTargets = step.availableTargets;
+      break;
+      
     case ResolutionStepType.KYNAIOS_CHOICE:
       if ('isController' in step) fields.isController = step.isController;
       if ('sourceController' in step) fields.sourceController = step.sourceController;
@@ -693,6 +698,10 @@ async function handleStepResponse(
       
     case ResolutionStepType.SURVEIL:
       handleSurveilResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.PROLIFERATE:
+      handleProliferateResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.LIBRARY_SEARCH:
@@ -1949,6 +1958,98 @@ function handleSurveilResponse(
 }
 
 /**
+ * Handle Proliferate resolution response
+ * 
+ * Player chooses any number of permanents and/or players with counters
+ * and adds one counter of each kind already there.
+ * 
+ * Reference: Rule 701.28 - Proliferate
+ */
+function handleProliferateResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: string[] (array of target IDs to proliferate)
+  const selectedTargetIds = Array.isArray(selections) ? selections : (selections?.selectedTargetIds || []);
+  
+  const proliferateStep = step as any;
+  const proliferateId = proliferateStep.proliferateId;
+  
+  debug(2, `[Resolution] Proliferate response: player=${pid}, targets=${selectedTargetIds.length}`);
+  
+  const battlefield = game.state?.battlefield || [];
+  const proliferatedTargets: string[] = [];
+  
+  // Process each selected target
+  for (const targetId of selectedTargetIds) {
+    // Check if it's a permanent
+    const permanent = battlefield.find((p: any) => p?.id === targetId);
+    if (permanent && permanent.counters) {
+      // Add one counter of each kind the permanent has
+      const counters = permanent.counters as Record<string, number>;
+      for (const counterType of Object.keys(counters)) {
+        if (counters[counterType] > 0) {
+          (permanent.counters as any)[counterType] = counters[counterType] + 1;
+        }
+      }
+      proliferatedTargets.push(permanent.card?.name || 'permanent');
+      continue;
+    }
+    
+    // Check if it's a player
+    const players = game.state?.players || [];
+    const player = players.find((p: any) => p.id === targetId);
+    if (player && player.counters) {
+      // Add one counter of each kind the player has
+      const counters = player.counters as Record<string, number>;
+      for (const counterType of Object.keys(counters)) {
+        if (counters[counterType] > 0) {
+          player.counters[counterType] = counters[counterType] + 1;
+        }
+      }
+      proliferatedTargets.push(getPlayerName(game, targetId));
+    }
+  }
+  
+  // Emit chat message
+  let message = `${getPlayerName(game, pid)} proliferates`;
+  if (proliferatedTargets.length > 0) {
+    message += `: ${proliferatedTargets.join(', ')}`;
+  } else {
+    message += ` (no targets chosen)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "proliferateResolve", { 
+      playerId: pid, 
+      targetIds: selectedTargetIds,
+      proliferateId,
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
  * Handle Library Search resolution response
  * Generic handler for effects that reveal/search library and select cards
  * Used for: Genesis Wave, tutors, Impulse, etc.
@@ -2690,6 +2791,85 @@ export function processPendingSurveil(
     }
   } catch (err) {
     debugWarn(1, "[processPendingSurveil] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending proliferate from legacy state and migrate to resolution queue
+ * 
+ * This is called after stack resolution or when proliferate effects are created.
+ * Migrates from pendingProliferate array to the resolution queue system.
+ */
+export function processPendingProliferate(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingProliferate;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    
+    const battlefield = game.state?.battlefield || [];
+    const players = game.state?.players || [];
+    
+    // Process each pending proliferate effect
+    for (const effect of pending) {
+      if (!effect || effect.prompted) continue;
+      
+      const playerId = effect.controller;
+      if (!playerId) continue;
+      
+      // Mark as prompted to avoid re-prompting
+      effect.prompted = true;
+      
+      // Collect all valid targets (permanents and players with counters)
+      const availableTargets: any[] = [];
+      
+      // Add permanents with counters
+      for (const permanent of battlefield) {
+        if (permanent?.counters && Object.keys(permanent.counters).length > 0) {
+          const hasCounters = Object.values(permanent.counters).some((count: any) => count > 0);
+          if (hasCounters) {
+            availableTargets.push({
+              id: permanent.id,
+              name: permanent.card?.name || 'Permanent',
+              counters: permanent.counters,
+              isPlayer: false,
+            });
+          }
+        }
+      }
+      
+      // Add players with counters
+      for (const player of players) {
+        if (player?.counters && Object.keys(player.counters).length > 0) {
+          const hasCounters = Object.values(player.counters).some((count: any) => count > 0);
+          if (hasCounters) {
+            availableTargets.push({
+              id: player.id,
+              name: player.username || player.id,
+              counters: player.counters,
+              isPlayer: true,
+            });
+          }
+        }
+      }
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.PROLIFERATE,
+        playerId,
+        description: 'Choose permanents and/or players to proliferate',
+        mandatory: false, // Proliferate is optional
+        sourceId: effect.sourceId,
+        sourceName: effect.sourceName || 'Proliferate',
+        proliferateId: effect.id,
+        availableTargets,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingProliferate] Error:", err);
   }
 }
 
