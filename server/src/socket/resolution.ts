@@ -14,6 +14,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
+import { parsePT } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB } from "./ai.js";
 import { appendEvent } from "../db/index.js";
@@ -2223,7 +2224,6 @@ function handleMorphTurnFaceUpResponse(
   creature.card = actualCard;
   
   // Update power/toughness from 2/2 to actual values
-  const { parsePT } = require("../state/utils.js");
   const tl = (actualCard.type_line || '').toLowerCase();
   const isCreature = tl.includes('creature');
   if (isCreature) {

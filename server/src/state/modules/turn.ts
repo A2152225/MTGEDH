@@ -32,7 +32,7 @@ import {
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
-import { calculateAllPTBonuses, parsePT } from "../utils.js";
+import { calculateAllPTBonuses, parsePT, uid } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
@@ -2718,7 +2718,6 @@ export function nextStep(ctx: GameContext) {
                 
                 // Cast the spell without paying its mana cost
                 // Add to stack as a spell
-                const uid = (await import("../utils.js")).uid;
                 const stackItem = {
                   id: uid("spell"),
                   type: 'spell',
@@ -2736,7 +2735,7 @@ export function nextStep(ctx: GameContext) {
                     id: `m_${Date.now()}`,
                     gameId: (ctx as any).gameId,
                     from: "system",
-                    message: `⏰ ${getPlayerName((ctx as any).game, turnPlayer)} casts ${card.name} from suspend!`,
+                    message: `⏰ ${card.name} cast from suspend!`,
                     ts: Date.now(),
                   });
                 }
