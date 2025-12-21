@@ -3700,7 +3700,7 @@ export function App() {
     // Check if this is a resolution queue step (has stepId)
     if ((bounceLandData as any).stepId) {
       // Use the resolution system
-      socket.emit("completeResolutionStep", {
+      socket.emit("submitResolutionResponse", {
         gameId: safeView.id,
         stepId: (bounceLandData as any).stepId,
         selections: permanentId,
