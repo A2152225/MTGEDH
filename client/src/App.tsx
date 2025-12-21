@@ -2628,56 +2628,6 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Ponder socket event handlers
-  React.useEffect(() => {
-    const handlePonderRequest = (payload: {
-      gameId: string;
-      effectId: string;
-      playerId: string;
-      targetPlayerId: string;
-      targetPlayerName?: string;
-      cardName: string;
-      cardImageUrl?: string;
-      cards: PeekCard[];
-      variant: PonderVariant;
-      canShuffle: boolean;
-      drawAfter: boolean;
-      pickToHand: number;
-    }) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setPonderRequest({
-          effectId: payload.effectId,
-          cardName: payload.cardName,
-          cardImageUrl: payload.cardImageUrl,
-          cards: payload.cards,
-          variant: payload.variant,
-          canShuffle: payload.canShuffle,
-          drawAfter: payload.drawAfter,
-          pickToHand: payload.pickToHand,
-          targetPlayerId: payload.targetPlayerId,
-          targetPlayerName: payload.targetPlayerName,
-          isOwnLibrary: payload.playerId === payload.targetPlayerId,
-        });
-        setPonderModalOpen(true);
-      }
-    };
-    
-    const handlePonderComplete = (payload: { effectId: string }) => {
-      if (ponderRequest?.effectId === payload.effectId) {
-        setPonderModalOpen(false);
-        setPonderRequest(null);
-      }
-    };
-    
-    socket.on("ponderRequest", handlePonderRequest);
-    socket.on("ponderComplete", handlePonderComplete);
-    
-    return () => {
-      socket.off("ponderRequest", handlePonderRequest);
-      socket.off("ponderComplete", handlePonderComplete);
-    };
-  }, [safeView?.id, you, ponderRequest?.effectId]);
-
   // Mutate target selection listener
   useEffect(() => {
     const handleMutateTargetsResponse = (data: {
