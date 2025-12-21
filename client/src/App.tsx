@@ -388,6 +388,7 @@ export function App() {
     toBattlefield?: number;
     toHand?: number;
     entersTapped?: boolean;
+    stepId?: string; // For resolution queue system
   } | null>(null);
   
   // Target selection modal state
@@ -2609,6 +2610,22 @@ export function App() {
         });
         setPonderModalOpen(true);
       }
+      
+      // Handle Library Search resolution step
+      else if (step.type === 'library_search') {
+        setLibrarySearchData({
+          cards: step.availableCards || [],
+          title: step.sourceName || 'Search Library',
+          description: step.description || step.searchCriteria || 'Search your library',
+          filter: {}, // Filter already applied on server
+          maxSelections: step.maxSelections || 1,
+          moveTo: step.destination || 'hand',
+          shuffleAfter: step.shuffleAfter !== false,
+          entersTapped: step.entersTapped || false,
+          stepId: step.id,  // Store for resolution response
+        });
+        setLibrarySearchModalOpen(true);
+      }
     };
     
     // Also listen for the legacy kynaiosChoice event for backward compatibility
@@ -3981,22 +3998,46 @@ export function App() {
     moveTo: string,
     splitAssignments?: { toBattlefield: string[]; toHand: string[] }
   ) => {
-    if (!safeView) return;
-    socket.emit("librarySearchSelect", {
-      gameId: safeView.id,
-      selectedCardIds: selectedCardIds,
-      moveTo: moveTo,
-      splitAssignments,
-    });
+    if (!safeView || !librarySearchData) return;
+    
+    // If we have a stepId, use the resolution queue system
+    if ((librarySearchData as any).stepId) {
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId: (librarySearchData as any).stepId,
+        selections: selectedCardIds,
+        cancelled: false,
+      });
+    } else {
+      // Legacy handler for backward compatibility
+      socket.emit("librarySearchSelect", {
+        gameId: safeView.id,
+        selectedCardIds: selectedCardIds,
+        moveTo: moveTo,
+        splitAssignments,
+      });
+    }
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };
 
   const handleLibrarySearchCancel = () => {
-    if (!safeView) return;
-    socket.emit("librarySearchCancel", {
-      gameId: safeView.id,
-    });
+    if (!safeView || !librarySearchData) return;
+    
+    // If we have a stepId, use the resolution queue system
+    if ((librarySearchData as any).stepId) {
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId: (librarySearchData as any).stepId,
+        selections: [],
+        cancelled: true,
+      });
+    } else {
+      // Legacy handler for backward compatibility
+      socket.emit("librarySearchCancel", {
+        gameId: safeView.id,
+      });
+    }
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };

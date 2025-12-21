@@ -3552,6 +3552,125 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
   }
 }
 
+/**
+ * Process pending library search effects into resolution queue
+ */
+export function processPendingLibrarySearch(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingLibrarySearch = (game.state as any)?.pendingLibrarySearch;
+    if (!pendingLibrarySearch || typeof pendingLibrarySearch !== 'object') return;
+    
+    for (const [playerId, searchData] of Object.entries(pendingLibrarySearch)) {
+      if (!searchData || typeof searchData !== 'object') continue;
+      
+      const data = searchData as any;
+      const {
+        type,
+        searchFor,
+        destination,
+        tapped,
+        optional,
+        source,
+        shuffleAfter,
+        filter,
+        maxSelections,
+        minSelections,
+        reveal,
+        remainderDestination,
+        discardRandomAfter,
+      } = data;
+      
+      // Get player's library
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (lib.length === 0) {
+        debug(2, `[processPendingLibrarySearch] Player ${playerId} has empty library, skipping search`);
+        delete pendingLibrarySearch[playerId];
+        continue;
+      }
+      
+      // Filter cards based on search criteria
+      let availableCards: any[] = [];
+      const searchCriteria = filter || {};
+      
+      for (const card of lib) {
+        let matches = true;
+        
+        // Check types
+        if (searchCriteria.types && searchCriteria.types.length > 0) {
+          const typeLine = (card.type_line || '').toLowerCase();
+          matches = searchCriteria.types.some((type: string) => typeLine.includes(type.toLowerCase()));
+        }
+        
+        // Check subtypes
+        if (matches && searchCriteria.subtypes && searchCriteria.subtypes.length > 0) {
+          const typeLine = (card.type_line || '').toLowerCase();
+          matches = searchCriteria.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
+        }
+        
+        // Check colors
+        if (matches && searchCriteria.colors && searchCriteria.colors.length > 0) {
+          const cardColors = card.colors || [];
+          matches = searchCriteria.colors.some((color: string) => cardColors.includes(color));
+        }
+        
+        // Check mana value
+        if (matches && typeof searchCriteria.maxManaValue === 'number') {
+          matches = (card.cmc || 0) <= searchCriteria.maxManaValue;
+        }
+        
+        if (matches) {
+          availableCards.push({
+            id: card.id,
+            name: card.name,
+            type_line: card.type_line,
+            oracle_text: card.oracle_text,
+            imageUrl: card.image_uris?.normal,
+            mana_cost: card.mana_cost,
+            cmc: card.cmc,
+            colors: card.colors,
+          });
+        }
+      }
+      
+      debug(2, `[processPendingLibrarySearch] Migrating library search for player ${playerId}, ${availableCards.length} matching cards`);
+      
+      // Create description
+      let description = searchFor || 'Search your library';
+      if (destination === 'battlefield') {
+        description += tapped ? ' (enters tapped)' : ' (enters untapped)';
+      }
+      
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: playerId as string,
+        description,
+        mandatory: !optional,
+        sourceName: source || 'Library Search',
+        searchCriteria: searchFor || 'any card',
+        minSelections: minSelections || 0,
+        maxSelections: maxSelections || 1,
+        destination: destination || 'hand',
+        reveal: reveal !== false,
+        shuffleAfter: shuffleAfter !== false,
+        availableCards,
+        entersTapped: tapped || false,
+        remainderDestination: remainderDestination || 'shuffle',
+        remainderRandomOrder: true,
+      });
+      
+      // Clear from pending state after creating step
+      delete pendingLibrarySearch[playerId];
+    }
+    
+    // Clean up empty pending object
+    if (Object.keys(pendingLibrarySearch).length === 0) {
+      delete (game.state as any).pendingLibrarySearch;
+    }
+  } catch (e) {
+    debugError(1, '[processPendingLibrarySearch] Error:', e);
+  }
+}
+
 
 export default { registerResolutionHandlers };
 
