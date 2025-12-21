@@ -2289,9 +2289,6 @@ function doAutoPass(
         debugWarn(1, "doAutoPass: failed to emit chat", err);
       }
       
-      // Check for pending library search (from tutor spells)
-      handlePendingLibrarySearch(io, game, gameId);
-      
       // Check for pending Entrapment Maneuver
       handlePendingEntrapmentManeuver(io, game, gameId);
     }
@@ -2414,6 +2411,8 @@ export function checkLibrarySearchRestrictions(
     paymentRequired,
   };
 }
+
+
 
 /**
  * Handle pending Entrapment Maneuver effects (target player sacrifices an attacking creature,
@@ -2548,6 +2547,71 @@ function parseSearchFilter(criteria: string): { types?: string[]; subtypes?: str
   
   return filter;
 }
+
+
+
+
+/**
+ * Complete a cascade instance by optionally casting the hit card and bottoming the rest.
+ */
+export function resolveCascadeSelection(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  effectId: string,
+  cast: boolean
+): void {
+  const pending = (game.state as any).pendingCascade?.[playerId];
+  if (!pending || pending.length === 0) return;
+  const entry = pending[0];
+  if (!entry || entry.effectId !== effectId) return;
+  
+  const lib = (game as any).libraries?.get(playerId) || [];
+  const toBottom = (entry.exiledCards as any[] | undefined) || [];
+  const zones = game.state.zones = game.state.zones || {};
+  const z = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 };
+  
+  // Bottom the exiled cards (excluding hit card if casting)
+  const randomized = [...toBottom];
+  for (let i = randomized.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
+  }
+  for (const card of randomized) {
+    if (cast && entry.hitCard && card.id === entry.hitCard.id) continue;
+    lib.push({ ...card, zone: 'library' });
+  }
+  z.libraryCount = lib.length;
+  
+  // Cast the hit card if chosen
+  if (cast && entry.hitCard) {
+    if (typeof game.applyEvent === 'function') {
+      game.applyEvent({
+        type: "castSpell",
+        playerId,
+        card: { ...entry.hitCard },
+      });
+    }
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { playerId, cardId: entry.hitCard.id, card: entry.hitCard, cascade: true });
+    } catch {
+      // ignore persistence failures
+    }
+  } else if (entry.hitCard) {
+    // Declined casting - put the hit card on bottom as well
+    lib.push({ ...entry.hitCard, zone: 'library' });
+    z.libraryCount = lib.length;
+  }
+  
+  pending.shift();
+  if (pending.length === 0) {
+    delete (game.state as any).pendingCascade[playerId];
+  }
+  
+  io.to(gameId).emit("cascadeComplete", { gameId, effectId });
+}
+
 
 /**
  * Maps mana color symbols to their human-readable names.
