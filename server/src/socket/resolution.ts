@@ -1376,8 +1376,16 @@ function handleBounceLandChoiceResponse(
   const bounceLandId = stepData.bounceLandId;
   const bounceLandName = stepData.bounceLandName || 'Bounce Land';
   const stackItemId = stepData.stackItemId;
+  const landsToChoose = stepData.landsToChoose || [];
   
   debug(2, `[Resolution] Bounce land choice: player=${pid} returns land ${returnPermanentId}`);
+  
+  // Validate that the selected land is in the list of valid choices
+  const isValidChoice = landsToChoose.some((land: any) => land.permanentId === returnPermanentId);
+  if (!isValidChoice) {
+    debugWarn(1, `[Resolution] Invalid bounce land choice: ${returnPermanentId} not in valid options`);
+    return;
+  }
   
   // Ensure game state and battlefield exist
   game.state = (game.state || {}) as any;

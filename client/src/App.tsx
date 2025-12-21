@@ -1258,33 +1258,6 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Bounce land prompt listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      debug(2, '[BounceLand] Received bounceLandPrompt event:', payload);
-      debug(2, '[BounceLand] Current safeView?.id:', safeView?.id);
-      debug(2, '[BounceLand] Payload gameId matches:', payload.gameId === safeView?.id);
-      
-      if (payload.gameId === safeView?.id) {
-        debug(2, '[BounceLand] Setting modal data and opening modal');
-        setBounceLandData({
-          bounceLandId: payload.bounceLandId,
-          bounceLandName: payload.bounceLandName,
-          imageUrl: payload.imageUrl,
-          landsToChoose: payload.landsToChoose || [],
-          stackItemId: payload.stackItemId,
-        });
-        setBounceLandModalOpen(true);
-      } else {
-        debug(2, '[BounceLand] GameId mismatch - not opening modal');
-      }
-    };
-    socket.on("bounceLandPrompt", handler);
-    return () => {
-      socket.off("bounceLandPrompt", handler);
-    };
-  }, [safeView?.id]);
-
   // Proliferate prompt listener
   React.useEffect(() => {
     const handler = (payload: any) => {
@@ -3697,26 +3670,19 @@ export function App() {
   const handleBounceLandSelect = (permanentId: string) => {
     if (!safeView || !bounceLandData) return;
     
-    // Check if this is a resolution queue step (has stepId)
-    if ((bounceLandData as any).stepId) {
-      // Use the resolution system
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId: (bounceLandData as any).stepId,
-        selections: permanentId,
-        cancelled: false,
-      });
-      debug(2, '[BounceLand] Completed resolution step via resolution queue');
-    } else {
-      // Use legacy bounceLandChoice event (for backward compatibility)
-      socket.emit("bounceLandChoice", {
-        gameId: safeView.id,
-        bounceLandId: bounceLandData.bounceLandId,
-        returnPermanentId: permanentId,
-        stackItemId: bounceLandData.stackItemId,
-      });
-      debug(2, '[BounceLand] Completed via legacy bounceLandChoice event');
+    const stepId = (bounceLandData as any).stepId;
+    if (!stepId) {
+      console.error('[BounceLand] Missing stepId - bounce lands must use resolution queue');
+      return;
     }
+    
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId,
+      selections: permanentId,
+      cancelled: false,
+    });
+    debug(2, '[BounceLand] Completed resolution step via resolution queue');
     
     setBounceLandModalOpen(false);
     setBounceLandData(null);
