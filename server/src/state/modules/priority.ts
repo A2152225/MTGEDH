@@ -2,6 +2,7 @@ import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { canAct, canRespond } from "./can-respond";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { ResolutionQueueManager } from "../resolution/ResolutionQueueManager.js";
 
 /**
  * Normalize phase and step strings for comparison.
@@ -46,6 +47,18 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
   const active = activePlayersClockwise(ctx);
   const n = active.length;
   if (n === 0) return { changed: false, resolvedNow: false, advanceStep: false };
+  
+  // CRITICAL FIX: Check if there are pending resolution steps that need to be completed
+  // before priority can be passed. This prevents the game from cycling priority while
+  // players have pending modal choices (bounce lands, Join Forces, etc.)
+  const gameId = ctx.gameId;
+  const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+  if (pendingSummary.hasPending) {
+    const pendingTypes = pendingSummary.pendingTypes.join(', ');
+    debug(1, `[priority] Cannot pass priority - pending resolution steps: ${pendingTypes}`);
+    // Don't change state, don't bump sequence - just block the priority pass
+    return { changed: false, resolvedNow: false, advanceStep: false };
+  }
   
   // Track that this player passed priority
   const stateAny = state as any;
@@ -188,6 +201,16 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   // Ensure priorityPassedBy is initialized
   if (!stateAny.priorityPassedBy || !(stateAny.priorityPassedBy instanceof Set)) {
     stateAny.priorityPassedBy = new Set<string>();
+  }
+  
+  // CRITICAL FIX: Check if there are pending resolution steps
+  // If so, don't auto-pass anyone - wait for the resolution steps to complete
+  const gameId = ctx.gameId;
+  const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+  if (pendingSummary.hasPending) {
+    const pendingTypes = pendingSummary.pendingTypes.join(', ');
+    debug(2, `[priority] autoPassLoop - blocking due to pending resolution steps: ${pendingTypes}`);
+    return { allPassed: false, resolved: false };
   }
   
   // IMPORTANT: Do not run auto-pass loop during pre_game phase
