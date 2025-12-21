@@ -562,6 +562,33 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('scryCount' in step) fields.scryCount = step.scryCount;
       break;
       
+    case ResolutionStepType.SURVEIL:
+      if ('cards' in step) fields.cards = step.cards;
+      if ('surveilCount' in step) fields.surveilCount = step.surveilCount;
+      break;
+      
+    case ResolutionStepType.PROLIFERATE:
+      if ('proliferateId' in step) fields.proliferateId = step.proliferateId;
+      if ('availableTargets' in step) fields.availableTargets = step.availableTargets;
+      break;
+      
+    case ResolutionStepType.FATESEAL:
+      if ('opponentId' in step) fields.opponentId = step.opponentId;
+      if ('cards' in step) fields.cards = step.cards;
+      if ('fatesealCount' in step) fields.fatesealCount = step.fatesealCount;
+      break;
+      
+    case ResolutionStepType.CLASH:
+      if ('revealedCard' in step) fields.revealedCard = step.revealedCard;
+      if ('opponentId' in step) fields.opponentId = step.opponentId;
+      break;
+      
+    case ResolutionStepType.VOTE:
+      if ('voteId' in step) fields.voteId = step.voteId;
+      if ('choices' in step) fields.choices = step.choices;
+      if ('votesSubmitted' in step) fields.votesSubmitted = step.votesSubmitted;
+      break;
+      
     case ResolutionStepType.KYNAIOS_CHOICE:
       if ('isController' in step) fields.isController = step.isController;
       if ('sourceController' in step) fields.sourceController = step.sourceController;
@@ -680,6 +707,34 @@ async function handleStepResponse(
       
     case ResolutionStepType.CASCADE:
       await handleCascadeResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.SCRY:
+      handleScryResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.SURVEIL:
+      handleSurveilResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.PROLIFERATE:
+      handleProliferateResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.FATESEAL:
+      handleFatesealResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.CLASH:
+      handleClashResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.VOTE:
+      handleVoteResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.PONDER_EFFECT:
+      handlePonderEffectResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.LIBRARY_SEARCH:
@@ -1758,6 +1813,534 @@ async function handleCascadeResponse(
 }
 
 /**
+ * Handle Scry resolution response
+ * 
+ * Player looks at the top N cards of their library and decides which to keep
+ * on top (in order) and which to put on the bottom (in order).
+ * 
+ * Reference: Rule 701.22 - Scry
+ */
+function handleScryResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: { keepTopOrder: KnownCardRef[], bottomOrder: KnownCardRef[] }
+  const keepTopOrder = selections?.keepTopOrder || [];
+  const bottomOrder = selections?.bottomOrder || [];
+  
+  const scryStep = step as any;
+  const scryCount = scryStep.scryCount || 0;
+  const cards = scryStep.cards || [];
+  
+  debug(2, `[Resolution] Scry response: player=${pid}, scryCount=${scryCount}, keepTop=${keepTopOrder.length}, bottom=${bottomOrder.length}`);
+  
+  // Validate that all cards are accounted for
+  const totalCards = keepTopOrder.length + bottomOrder.length;
+  if (totalCards !== scryCount && totalCards !== cards.length) {
+    debugWarn(2, `[Resolution] Scry card count mismatch: expected ${scryCount}, got ${totalCards}`);
+  }
+  
+  // Validate that the cards match what was shown
+  const selectedIds = [...keepTopOrder, ...bottomOrder].map((c: any) => c.id);
+  const cardIds = cards.map((c: any) => c.id);
+  const allMatch = selectedIds.every((id: string) => cardIds.includes(id));
+  
+  if (!allMatch) {
+    debugWarn(2, `[Resolution] Scry selection contains cards not in original set`);
+  }
+  
+  // Apply the scry event to the game
+  if (typeof game.applyEvent === 'function') {
+    game.applyEvent({
+      type: "scryResolve",
+      playerId: pid,
+      keepTopOrder,
+      bottomOrder,
+    });
+  }
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "scryResolve", { 
+      playerId: pid, 
+      keepTopOrder, 
+      bottomOrder 
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  // Emit chat message
+  const topCount = keepTopOrder.length;
+  const bottomCount = bottomOrder.length;
+  let message = `${getPlayerName(game, pid)} scries ${scryCount}`;
+  if (topCount > 0 && bottomCount > 0) {
+    message += ` (${topCount} on top, ${bottomCount} on bottom)`;
+  } else if (topCount > 0) {
+    message += ` (all on top)`;
+  } else if (bottomCount > 0) {
+    message += ` (all on bottom)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Surveil resolution response
+ * 
+ * Player looks at the top N cards of their library and decides which to keep
+ * on top (in order) and which to put in the graveyard.
+ * 
+ * Reference: Rule 701.25 - Surveil
+ */
+function handleSurveilResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: { keepTopOrder: KnownCardRef[], toGraveyard: KnownCardRef[] }
+  const keepTopOrder = selections?.keepTopOrder || [];
+  const toGraveyard = selections?.toGraveyard || [];
+  
+  const surveilStep = step as any;
+  const surveilCount = surveilStep.surveilCount || 0;
+  const cards = surveilStep.cards || [];
+  
+  debug(2, `[Resolution] Surveil response: player=${pid}, surveilCount=${surveilCount}, keepTop=${keepTopOrder.length}, toGY=${toGraveyard.length}`);
+  
+  // Validate that all cards are accounted for
+  const totalCards = keepTopOrder.length + toGraveyard.length;
+  if (totalCards !== surveilCount && totalCards !== cards.length) {
+    debugWarn(2, `[Resolution] Surveil card count mismatch: expected ${surveilCount}, got ${totalCards}`);
+  }
+  
+  // Validate that the cards match what was shown
+  const selectedIds = [...keepTopOrder, ...toGraveyard].map((c: any) => c.id);
+  const cardIds = cards.map((c: any) => c.id);
+  const allMatch = selectedIds.every((id: string) => cardIds.includes(id));
+  
+  if (!allMatch) {
+    debugWarn(2, `[Resolution] Surveil selection contains cards not in original set`);
+  }
+  
+  // Apply the surveil event to the game
+  if (typeof game.applyEvent === 'function') {
+    game.applyEvent({
+      type: "surveilResolve",
+      playerId: pid,
+      keepTopOrder,
+      toGraveyard,
+    });
+  }
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "surveilResolve", { 
+      playerId: pid, 
+      keepTopOrder, 
+      toGraveyard 
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  // Emit chat message
+  const topCount = keepTopOrder.length;
+  const gyCount = toGraveyard.length;
+  let message = `${getPlayerName(game, pid)} surveils ${surveilCount}`;
+  if (topCount > 0 && gyCount > 0) {
+    message += ` (${topCount} on top, ${gyCount} to graveyard)`;
+  } else if (topCount > 0) {
+    message += ` (all on top)`;
+  } else if (gyCount > 0) {
+    message += ` (all to graveyard)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Proliferate resolution response
+ * 
+ * Player chooses any number of permanents and/or players with counters
+ * and adds one counter of each kind already there.
+ * 
+ * Reference: Rule 701.28 - Proliferate
+ */
+function handleProliferateResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: string[] (array of target IDs to proliferate)
+  const selectedTargetIds = Array.isArray(selections) ? selections : (selections?.selectedTargetIds || []);
+  
+  const proliferateStep = step as any;
+  const proliferateId = proliferateStep.proliferateId;
+  
+  debug(2, `[Resolution] Proliferate response: player=${pid}, targets=${selectedTargetIds.length}`);
+  
+  const battlefield = game.state?.battlefield || [];
+  const proliferatedTargets: string[] = [];
+  
+  // Process each selected target
+  for (const targetId of selectedTargetIds) {
+    // Check if it's a permanent
+    const permanent = battlefield.find((p: any) => p?.id === targetId);
+    if (permanent && permanent.counters) {
+      // Add one counter of each kind the permanent has
+      const counters = permanent.counters as Record<string, number>;
+      for (const counterType of Object.keys(counters)) {
+        if (counters[counterType] > 0) {
+          (permanent.counters as any)[counterType] = counters[counterType] + 1;
+        }
+      }
+      proliferatedTargets.push(permanent.card?.name || 'permanent');
+      continue;
+    }
+    
+    // Check if it's a player
+    const players = game.state?.players || [];
+    const player = players.find((p: any) => p.id === targetId);
+    if (player && player.counters) {
+      // Add one counter of each kind the player has
+      const counters = player.counters as Record<string, number>;
+      for (const counterType of Object.keys(counters)) {
+        if (counters[counterType] > 0) {
+          player.counters[counterType] = counters[counterType] + 1;
+        }
+      }
+      proliferatedTargets.push(getPlayerName(game, targetId));
+    }
+  }
+  
+  // Emit chat message
+  let message = `${getPlayerName(game, pid)} proliferates`;
+  if (proliferatedTargets.length > 0) {
+    message += `: ${proliferatedTargets.join(', ')}`;
+  } else {
+    message += ` (no targets chosen)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "proliferateResolve", { 
+      playerId: pid, 
+      targetIds: selectedTargetIds,
+      proliferateId,
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Fateseal resolution response
+ * 
+ * Player looks at the top N cards of opponent's library and decides which to keep
+ * on top (in order) and which to put on the bottom (in order).
+ * 
+ * Reference: Rule 701.29 - Fateseal
+ */
+function handleFatesealResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: { keepTopOrder: KnownCardRef[], bottomOrder: KnownCardRef[] }
+  const keepTopOrder = selections?.keepTopOrder || [];
+  const bottomOrder = selections?.bottomOrder || [];
+  
+  const fatesealStep = step as any;
+  const fatesealCount = fatesealStep.fatesealCount || 0;
+  const cards = fatesealStep.cards || [];
+  const opponentId = fatesealStep.opponentId;
+  
+  debug(2, `[Resolution] Fateseal response: player=${pid}, opponent=${opponentId}, count=${fatesealCount}, keepTop=${keepTopOrder.length}, bottom=${bottomOrder.length}`);
+  
+  // Validate that all cards are accounted for
+  const totalCards = keepTopOrder.length + bottomOrder.length;
+  if (totalCards !== fatesealCount && totalCards !== cards.length) {
+    debugWarn(2, `[Resolution] Fateseal card count mismatch: expected ${fatesealCount}, got ${totalCards}`);
+  }
+  
+  // Get opponent's library
+  const lib = (game as any).libraries?.get(opponentId) || [];
+  
+  // Remove the fatesealed cards from top of library
+  lib.splice(0, totalCards);
+  
+  // Put cards back in chosen order (top cards go on top, bottom cards on bottom)
+  for (let i = keepTopOrder.length - 1; i >= 0; i--) {
+    lib.unshift({ ...keepTopOrder[i], zone: 'library' });
+  }
+  for (const card of bottomOrder) {
+    lib.push({ ...card, zone: 'library' });
+  }
+  
+  // Update library count
+  const zones = game.state.zones = game.state.zones || {};
+  const z = zones[opponentId] = zones[opponentId] || {};
+  z.libraryCount = lib.length;
+  
+  // Emit chat message
+  const topCount = keepTopOrder.length;
+  const bottomCount = bottomOrder.length;
+  let message = `${getPlayerName(game, pid)} fateseals ${fatesealCount} of ${getPlayerName(game, opponentId)}'s library`;
+  if (topCount > 0 && bottomCount > 0) {
+    message += ` (${topCount} on top, ${bottomCount} on bottom)`;
+  } else if (topCount > 0) {
+    message += ` (all on top)`;
+  } else if (bottomCount > 0) {
+    message += ` (all on bottom)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "fatesealResolve", { 
+      playerId: pid, 
+      opponentId,
+      keepTopOrder, 
+      bottomOrder 
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Clash resolution response
+ * 
+ * Player reveals top card and chooses whether to put it on bottom of library.
+ * 
+ * Reference: Rule 701.30 - Clash
+ */
+function handleClashResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: boolean (true = put on bottom, false = keep on top)
+  const putOnBottom = selections === true || selections?.putOnBottom === true;
+  
+  const clashStep = step as any;
+  const revealedCard = clashStep.revealedCard;
+  const opponentId = clashStep.opponentId;
+  
+  debug(2, `[Resolution] Clash response: player=${pid}, putOnBottom=${putOnBottom}`);
+  
+  if (!revealedCard) {
+    debugWarn(2, `[Resolution] Clash step missing revealed card`);
+    return;
+  }
+  
+  // Get player's library
+  const lib = (game as any).libraries?.get(pid) || [];
+  
+  if (putOnBottom) {
+    // Remove from top and put on bottom
+    if (lib.length > 0 && lib[0].id === revealedCard.id) {
+      const card = lib.shift();
+      if (card) {
+        lib.push({ ...card, zone: 'library' });
+      }
+    }
+  }
+  // If not putting on bottom, card stays on top (no action needed)
+  
+  // Update library count
+  const zones = game.state.zones = game.state.zones || {};
+  const z = zones[pid] = zones[pid] || {};
+  z.libraryCount = lib.length;
+  
+  // Emit chat message
+  let message = `${getPlayerName(game, pid)} clashes, revealing ${revealedCard.name}`;
+  if (opponentId) {
+    message = `${getPlayerName(game, pid)} clashes with ${getPlayerName(game, opponentId)}, revealing ${revealedCard.name}`;
+  }
+  if (putOnBottom) {
+    message += ` (put on bottom)`;
+  } else {
+    message += ` (kept on top)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "clashResolve", { 
+      playerId: pid, 
+      revealedCard,
+      putOnBottom,
+      opponentId
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Vote resolution response
+ * 
+ * Player votes for one of the available choices. Votes are collected in APNAP order.
+ * 
+ * Reference: Rule 701.38 - Vote
+ */
+function handleVoteResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: string (the chosen option) or { choice: string, voteCount?: number }
+  const choice = typeof selections === 'string' ? selections : selections?.choice;
+  const voteCount = typeof selections === 'object' ? (selections?.voteCount || 1) : 1;
+  
+  const voteStep = step as any;
+  const voteId = voteStep.voteId;
+  const choices = voteStep.choices || [];
+  const votesSubmitted = voteStep.votesSubmitted || [];
+  
+  debug(2, `[Resolution] Vote response: player=${pid}, choice=${choice}, voteCount=${voteCount}`);
+  
+  if (!choice || !choices.includes(choice)) {
+    debugWarn(2, `[Resolution] Invalid vote choice: ${choice}`);
+    return;
+  }
+  
+  // Store the vote (this would be used when all votes are collected)
+  const voteResult = {
+    playerId: pid,
+    choice,
+    voteCount,
+  };
+  
+  // Update game state with the vote
+  const voteState = (game.state as any).activeVotes = (game.state as any).activeVotes || {};
+  if (!voteState[voteId]) {
+    voteState[voteId] = {
+      choices,
+      votes: [],
+    };
+  }
+  voteState[voteId].votes.push(voteResult);
+  
+  // Emit chat message
+  let message = `${getPlayerName(game, pid)} votes for "${choice}"`;
+  if (voteCount > 1) {
+    message += ` (${voteCount} votes)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "voteSubmit", { 
+      playerId: pid, 
+      voteId,
+      choice,
+      voteCount
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
  * Handle Library Search resolution response
  * Generic handler for effects that reveal/search library and select cards
  * Used for: Genesis Wave, tutors, Impulse, etc.
@@ -2359,6 +2942,613 @@ export async function processPendingCascades(
     }
   } catch (err) {
     debugWarn(1, "[processPendingCascades] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending scry from legacy state and migrate to resolution queue
+ * 
+ * This is called after stack resolution or when scry effects are created.
+ * Migrates from pendingScry state to the resolution queue system.
+ */
+export function processPendingScry(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingScry;
+    if (!pending || typeof pending !== 'object') return;
+    
+    for (const playerId of Object.keys(pending)) {
+      const scryCount = pending[playerId];
+      if (typeof scryCount !== 'number' || scryCount <= 0) continue;
+      
+      // Get library
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      // Peek at the top N cards
+      const actualCount = Math.min(scryCount, lib.length);
+      if (actualCount === 0) {
+        // No cards to scry, skip
+        delete pending[playerId];
+        continue;
+      }
+      
+      const cards = lib.slice(0, actualCount).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.SCRY,
+        playerId,
+        description: `Scry ${actualCount}`,
+        mandatory: true,
+        cards,
+        scryCount: actualCount,
+      });
+      
+      // Clear from pending state
+      delete pending[playerId];
+    }
+    
+    // Clean up empty pending object
+    if (Object.keys(pending).length === 0) {
+      delete (game.state as any).pendingScry;
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingScry] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending surveil from legacy state and migrate to resolution queue
+ * 
+ * This is called after stack resolution or when surveil effects are created.
+ * Migrates from pendingSurveil state to the resolution queue system.
+ */
+export function processPendingSurveil(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingSurveil;
+    if (!pending || typeof pending !== 'object') return;
+    
+    for (const surveilId of Object.keys(pending)) {
+      const data = pending[surveilId];
+      if (!data || typeof data !== 'object') continue;
+      
+      const playerId = data.playerId;
+      const surveilCount = data.count || 0;
+      
+      if (!playerId || surveilCount <= 0) {
+        delete pending[surveilId];
+        continue;
+      }
+      
+      // Get library
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      // Peek at the top N cards
+      const actualCount = Math.min(surveilCount, lib.length);
+      if (actualCount === 0) {
+        // No cards to surveil, skip
+        delete pending[surveilId];
+        continue;
+      }
+      
+      const cards = lib.slice(0, actualCount).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.SURVEIL,
+        playerId,
+        description: `Surveil ${actualCount}`,
+        mandatory: true,
+        sourceId: data.sourceId,
+        sourceName: data.sourceName || 'Surveil',
+        cards,
+        surveilCount: actualCount,
+      });
+      
+      // Clear from pending state
+      delete pending[surveilId];
+    }
+    
+    // Clean up empty pending object
+    if (Object.keys(pending).length === 0) {
+      delete (game.state as any).pendingSurveil;
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingSurveil] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending proliferate from legacy state and migrate to resolution queue
+ * 
+ * This is called after stack resolution or when proliferate effects are created.
+ * Migrates from pendingProliferate array to the resolution queue system.
+ */
+export function processPendingProliferate(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingProliferate;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    
+    const battlefield = game.state?.battlefield || [];
+    const players = game.state?.players || [];
+    
+    // Process each pending proliferate effect
+    for (const effect of pending) {
+      if (!effect || effect.prompted) continue;
+      
+      const playerId = effect.controller;
+      if (!playerId) continue;
+      
+      // Mark as prompted to avoid re-prompting
+      effect.prompted = true;
+      
+      // Collect all valid targets (permanents and players with counters)
+      const availableTargets: any[] = [];
+      
+      // Add permanents with counters
+      for (const permanent of battlefield) {
+        if (permanent?.counters && Object.keys(permanent.counters).length > 0) {
+          const hasCounters = Object.values(permanent.counters).some((count: any) => count > 0);
+          if (hasCounters) {
+            availableTargets.push({
+              id: permanent.id,
+              name: permanent.card?.name || 'Permanent',
+              counters: permanent.counters,
+              isPlayer: false,
+            });
+          }
+        }
+      }
+      
+      // Add players with counters
+      for (const player of players) {
+        if (player?.counters && Object.keys(player.counters).length > 0) {
+          const hasCounters = Object.values(player.counters).some((count: any) => count > 0);
+          if (hasCounters) {
+            availableTargets.push({
+              id: player.id,
+              name: player.username || player.id,
+              counters: player.counters,
+              isPlayer: true,
+            });
+          }
+        }
+      }
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.PROLIFERATE,
+        playerId,
+        description: 'Choose permanents and/or players to proliferate',
+        mandatory: false, // Proliferate is optional
+        sourceId: effect.sourceId,
+        sourceName: effect.sourceName || 'Proliferate',
+        proliferateId: effect.id,
+        availableTargets,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingProliferate] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending fateseal from legacy state and migrate to resolution queue
+ * 
+ * Currently fateseal doesn't have legacy implementation, but this function
+ * is provided for future use if needed.
+ */
+export function processPendingFateseal(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingFateseal;
+    if (!pending || typeof pending !== 'object') return;
+    
+    for (const playerId of Object.keys(pending)) {
+      const data = pending[playerId];
+      if (!data || typeof data !== 'object') continue;
+      
+      const opponentId = data.opponentId;
+      const fatesealCount = data.count || 0;
+      
+      if (!opponentId || fatesealCount <= 0) {
+        delete pending[playerId];
+        continue;
+      }
+      
+      // Get opponent's library
+      const lib = (game as any).libraries?.get(opponentId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      // Peek at the top N cards of opponent's library
+      const actualCount = Math.min(fatesealCount, lib.length);
+      if (actualCount === 0) {
+        delete pending[playerId];
+        continue;
+      }
+      
+      const cards = lib.slice(0, actualCount).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.FATESEAL,
+        playerId,
+        description: `Fateseal ${actualCount} (${getPlayerName(game, opponentId)}'s library)`,
+        mandatory: true,
+        sourceId: data.sourceId,
+        sourceName: data.sourceName || 'Fateseal',
+        opponentId,
+        cards,
+        fatesealCount: actualCount,
+      });
+      
+      // Clear from pending state
+      delete pending[playerId];
+    }
+    
+    // Clean up empty pending object
+    if (Object.keys(pending).length === 0) {
+      delete (game.state as any).pendingFateseal;
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingFateseal] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending clash from legacy state and migrate to resolution queue
+ * 
+ * Currently clash doesn't have legacy implementation, but this function
+ * is provided for future use if needed.
+ */
+export function processPendingClash(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingClash;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    
+    for (const clashData of pending) {
+      if (!clashData || clashData.prompted) continue;
+      
+      const playerId = clashData.playerId;
+      if (!playerId) continue;
+      
+      // Mark as prompted
+      clashData.prompted = true;
+      
+      // Get player's library
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (lib.length === 0) continue;
+      
+      // Reveal top card
+      const revealedCard = {
+        id: lib[0].id,
+        name: lib[0].name,
+        type_line: lib[0].type_line,
+        oracle_text: lib[0].oracle_text,
+        imageUrl: lib[0].image_uris?.normal,
+        mana_cost: lib[0].mana_cost,
+        cmc: lib[0].cmc,
+      };
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CLASH,
+        playerId,
+        description: `Clash - Put ${revealedCard.name} on bottom?`,
+        mandatory: true,
+        sourceId: clashData.sourceId,
+        sourceName: clashData.sourceName || 'Clash',
+        revealedCard,
+        opponentId: clashData.opponentId,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingClash] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending vote from legacy state and migrate to resolution queue
+ * 
+ * Votes are processed in APNAP order. This creates resolution steps for each
+ * player who needs to vote.
+ */
+export function processPendingVote(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingVote;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    
+    const players = game.state?.players || [];
+    
+    for (const voteData of pending) {
+      if (!voteData || voteData.prompted) continue;
+      
+      const voteId = voteData.id;
+      const choices = voteData.choices || [];
+      const voters = voteData.voters || players.map((p: any) => p.id);
+      const votesSubmitted = voteData.votes || [];
+      
+      if (choices.length === 0 || voters.length === 0) continue;
+      
+      // Mark as prompted
+      voteData.prompted = true;
+      
+      // Find next voter who hasn't voted yet
+      const alreadyVoted = new Set(votesSubmitted.map((v: any) => v.playerId));
+      const nextVoter = voters.find((pid: string) => !alreadyVoted.has(pid));
+      
+      if (!nextVoter) {
+        // All players have voted, process results
+        continue;
+      }
+      
+      // Add resolution step for next voter
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.VOTE,
+        playerId: nextVoter,
+        description: `Vote: ${choices.join(' or ')}`,
+        mandatory: true,
+        sourceId: voteData.sourceId,
+        sourceName: voteData.sourceName || 'Vote',
+        voteId,
+        choices,
+        votesSubmitted,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingVote] Error:", err);
+  }
+}
+
+/**
+ * Handle PONDER_EFFECT response from client
+ */
+function handlePonderEffectResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: any,
+  response: ResolutionStepResponse
+): void {
+  try {
+    const { playerId } = step;
+    const { selections, cancelled } = response;
+    
+    if (cancelled) {
+      debug(2, `[handlePonderEffectResponse] ${playerId} cancelled ponder`);
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} cancelled their ponder effect.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+    
+    // selections should be: { newOrder: string[], shouldShuffle: boolean, toHand?: string[] }
+    const { newOrder, shouldShuffle, toHand } = selections as any;
+    const targetPid = step.targetPlayerId || playerId;
+    
+    // Get library for the target player
+    const lib = (game as any).libraries?.get(targetPid) || [];
+    
+    // Remove the top N cards that were being reordered
+    const cardCount = step.cardCount || step.cards?.length || 0;
+    const removedCards: any[] = [];
+    for (let i = 0; i < cardCount && lib.length > 0; i++) {
+      removedCards.push(lib.shift());
+    }
+    
+    const cardById = new Map(removedCards.map((c: any) => [c.id, c]));
+    
+    // Move cards to hand if specified (Telling Time style)
+    if (toHand && toHand.length > 0) {
+      const zones = (game.state as any).zones || {};
+      const z = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+      z.hand = z.hand || [];
+      
+      for (const cardId of toHand) {
+        const card = cardById.get(cardId);
+        if (card) {
+          (z.hand as any[]).push({ ...card, zone: 'hand' });
+          cardById.delete(cardId);
+        }
+      }
+      z.handCount = (z.hand as any[]).length;
+      
+      debug(2, `[handlePonderEffectResponse] ${playerId} put ${toHand.length} card(s) to hand`);
+    }
+    
+    if (shouldShuffle) {
+      // Shuffle the remaining cards back into library first
+      for (const card of cardById.values()) {
+        lib.push({ ...card, zone: 'library' });
+      }
+      
+      // Use game's shuffleLibrary for deterministic RNG if available
+      if (typeof (game as any).shuffleLibrary === "function") {
+        if ((game as any).libraries) {
+          (game as any).libraries.set(targetPid, lib);
+        }
+        (game as any).shuffleLibrary(targetPid);
+      } else {
+        debugWarn(2, "[handlePonderEffectResponse] game.shuffleLibrary not available, using Math.random");
+        for (let i = lib.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [lib[i], lib[j]] = [lib[j], lib[i]];
+        }
+        if ((game as any).libraries) {
+          (game as any).libraries.set(targetPid, lib);
+        }
+      }
+      
+      debug(2, `[handlePonderEffectResponse] ${targetPid} shuffled their library`);
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} shuffled their library.`,
+        ts: Date.now(),
+      });
+    } else {
+      // Put cards back in the specified order (newOrder has IDs from top to bottom)
+      for (let i = newOrder.length - 1; i >= 0; i--) {
+        const card = cardById.get(newOrder[i]);
+        if (card) {
+          lib.unshift({ ...card, zone: 'library' });
+        }
+      }
+      debug(2, `[handlePonderEffectResponse] ${targetPid} reordered top ${newOrder.length} cards`);
+    }
+    
+    // Update library count
+    const zones = (game.state as any).zones || {};
+    const targetZones = zones[targetPid] = zones[targetPid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    targetZones.libraryCount = lib.length;
+    
+    // Draw a card if specified (Ponder draws after reordering/shuffling)
+    let drawnCardName: string | undefined;
+    if (step.drawAfter && playerId === targetPid) {
+      if (lib.length > 0) {
+        const drawnCard = lib.shift();
+        const playerZones = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+        playerZones.hand = playerZones.hand || [];
+        (playerZones.hand as any[]).push({ ...drawnCard, zone: 'hand' });
+        playerZones.handCount = (playerZones.hand as any[]).length;
+        playerZones.libraryCount = lib.length;
+        drawnCardName = drawnCard.name;
+        
+        debug(2, `[handlePonderEffectResponse] ${playerId} drew ${drawnCardName}`);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} draws a card.`,
+          ts: Date.now(),
+        });
+      }
+    }
+    
+    // Clear pendingPonder state
+    if ((game.state as any).pendingPonder) {
+      delete (game.state as any).pendingPonder[playerId];
+    }
+    
+    // Log event
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, playerId)} completed ponder effect (${step.sourceName || 'unknown'})`,
+      ts: Date.now(),
+    });
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+  } catch (e) {
+    debugError(1, '[handlePonderEffectResponse] Error:', e);
+  }
+}
+
+/**
+ * Process pending ponder effects into resolution queue
+ */
+export function processPendingPonder(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingPonder = (game.state as any)?.pendingPonder;
+    if (!pendingPonder || typeof pendingPonder !== 'object') return;
+    
+    for (const [playerId, ponderData] of Object.entries(pendingPonder)) {
+      if (!ponderData || typeof ponderData !== 'object') continue;
+      
+      const data = ponderData as any;
+      const { effectId, cardCount, cardName, drawAfter, targetPlayerId, variant } = data;
+      
+      // Get the top cards for ponder
+      const targetPid = targetPlayerId || playerId;
+      const lib = (game as any).libraries?.get(targetPid) || [];
+      const actualCount = Math.min(cardCount || 3, lib.length);
+      const cards = lib.slice(0, actualCount);
+      
+      debug(2, `[processPendingPonder] Migrating ponder for player ${playerId}, ${actualCount} cards`);
+      
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.PONDER_EFFECT,
+        playerId: playerId as string,
+        description: `Ponder: ${cardName || 'Look at top cards'}`,
+        cards,
+        variant: variant || 'ponder',
+        cardCount: actualCount,
+        drawAfter: drawAfter || false,
+        mayShuffleAfter: true,
+        targetPlayerId: targetPid,
+        sourceName: cardName,
+        effectId,
+      });
+    }
+  } catch (e) {
+    debugError(1, '[processPendingPonder] Error:', e);
   }
 }
 

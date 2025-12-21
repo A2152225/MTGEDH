@@ -1,6 +1,6 @@
 # Keyword Implementation Status
 
-Generated: 2025-12-12T16:35:40.973Z
+Generated: 2025-12-21T19:53:37.494Z
 
 ## Keyword Abilities & Actions
 
