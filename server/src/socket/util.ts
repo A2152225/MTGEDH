@@ -2543,6 +2543,86 @@ export function handlePendingLibrarySearch(io: Server, game: any, gameId: string
 }
 
 /**
+ * Handle pending bounce land choices (when bounce land ETB trigger resolves)
+ * This checks the game state for pendingBounceLandChoice and emits bounceLandPrompt to the appropriate player.
+ * For AI players, automatically makes the bounce land choice.
+ */
+export async function handlePendingBounceLandChoice(io: Server, game: any, gameId: string): Promise<void> {
+  try {
+    const pending = game.state?.pendingBounceLandChoice;
+    if (!pending || typeof pending !== 'object') return;
+    
+    // Get the socket map for this game
+    const socketsByPlayer: Map<string, any> = (game as any).participantSockets || new Map();
+    
+    for (const [playerId, bounceInfo] of Object.entries(pending)) {
+      if (!bounceInfo) continue;
+      
+      const info = bounceInfo as any;
+      
+      // Check if this is an AI player
+      const player = (game.state?.players || []).find((p: any) => p.id === playerId);
+      const isAI = player && (player as any).isAI;
+      
+      if (isAI) {
+        // AI player: automatically select a land to return
+        debug(2, `[handlePendingBounceLandChoice] AI player ${playerId} auto-selecting land to return for ${info.bounceLandName}`);
+        
+        // Dynamically import AI module to avoid circular dependency
+        const aiModule = await import('./ai.js');
+        if (typeof (aiModule as any).handleBounceLandETB === 'function') {
+          await (aiModule as any).handleBounceLandETB(game, playerId, info.bounceLandName);
+        } else {
+          debugWarn(1, `[handlePendingBounceLandChoice] AI handleBounceLandETB function not found`);
+        }
+        
+        // Clear pending for this AI player after auto-selecting
+        delete (game.state as any).pendingBounceLandChoice[playerId];
+        continue;
+      }
+      
+      // Human player: emit prompt
+      const socket = socketsByPlayer.get(playerId);
+      
+      const bouncePrompt = {
+        gameId,
+        bounceLandId: info.bounceLandId,
+        bounceLandName: info.bounceLandName || 'Bounce Land',
+        imageUrl: info.imageUrl,
+        landsToChoose: info.landsToChoose || [],
+        stackItemId: info.stackItemId,
+      };
+      
+      if (socket) {
+        socket.emit("bounceLandPrompt", bouncePrompt);
+        debug(2, `[handlePendingBounceLandChoice] Sent bounce land prompt to ${playerId} for ${info.bounceLandName}`);
+      } else {
+        // Broadcast to the room and let client filter
+        io.to(gameId).emit("bounceLandPrompt", bouncePrompt);
+        debug(2, `[handlePendingBounceLandChoice] Broadcast bounce land prompt for ${playerId} for ${info.bounceLandName}`);
+      }
+      
+      // Emit chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${info.bounceLandName}'s triggered ability: ${getPlayerName(game, playerId)} must return a land to hand.`,
+        ts: Date.now(),
+      });
+    }
+    
+    // NOTE: Do NOT clear pendingBounceLandChoice here.
+    // AI player entries are cleared immediately after auto-selecting above.
+    // Human player entries are removed when each player makes their choice
+    // in the bounceLandChoice handler.
+    
+  } catch (err) {
+    debugWarn(1, '[handlePendingBounceLandChoice] Error:', err);
+  }
+}
+
+/**
  * Handle pending Entrapment Maneuver effects (target player sacrifices an attacking creature,
  * then caster creates tokens equal to toughness)
  */

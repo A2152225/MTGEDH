@@ -5370,6 +5370,14 @@ function hasPendingLibrarySearch(game: any): boolean {
 }
 
 /**
+ * Check if there are any pending bounce land choices for a game
+ */
+function hasPendingBounceLandChoice(game: any): boolean {
+  const pending = (game.state as any)?.pendingBounceLandChoice;
+  return pending && typeof pending === 'object' && Object.keys(pending).length > 0;
+}
+
+/**
  * Check if there are any pending modals that should block AI advancement.
  * Returns an object with a boolean flag and optional reason string.
  */
@@ -5385,6 +5393,9 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
   // Check legacy pending* fields for backward compatibility
   if (hasPendingLibrarySearch(game)) {
     return { hasPending: true, reason: 'players have pending library searches' };
+  }
+  if (hasPendingBounceLandChoice(game)) {
+    return { hasPending: true, reason: 'players have pending bounce land choices' };
   }
   if (hasPendingColorChoices(gameId)) {
     return { hasPending: true, reason: 'players have pending color choice modals' };

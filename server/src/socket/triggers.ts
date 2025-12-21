@@ -416,6 +416,12 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           debug(2, `[triggers] Removed bounce land trigger from stack (id: ${stackItemId})`);
         }
       }
+      
+      // Clear pending bounce land choice for this player
+      if ((game.state as any)?.pendingBounceLandChoice && (game.state as any).pendingBounceLandChoice[playerId]) {
+        delete (game.state as any).pendingBounceLandChoice[playerId];
+        debug(2, `[triggers] Cleared pendingBounceLandChoice for player ${playerId}`);
+      }
 
       // Send chat message
       io.to(gameId).emit("chat", {

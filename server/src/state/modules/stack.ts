@@ -2814,8 +2814,55 @@ export function resolveTopOfStack(ctx: GameContext) {
     const sourceName = (item as any).sourceName || 'Unknown';
     const description = (item as any).description || '';
     const triggerController = (item as any).controller || controller;
+    const triggerType = (item as any).triggerType;
     
     debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
+    
+    // ========================================================================
+    // BOUNCE LAND ETB TRIGGER: Prompt player to select a land to return
+    // This must happen BEFORE executing the trigger effect
+    // ========================================================================
+    if (triggerType === 'etb_bounce_land') {
+      const permanentId = (item as any).permanentId;
+      const battlefield = state.battlefield || [];
+      const bounceLandPerm = battlefield.find((p: any) => p.id === permanentId);
+      
+      if (bounceLandPerm) {
+        // Find all lands the controller controls (INCLUDING the bounce land itself)
+        // Per MTG rules, the bounce land can return itself to hand
+        const availableLands = battlefield.filter((p: any) => {
+          if (p.controller !== triggerController) return false;
+          const typeLine = (p.card?.type_line || '').toLowerCase();
+          return typeLine.includes('land');
+        });
+        
+        if (availableLands.length > 0) {
+          // Set up pending bounce land choice - the socket layer will send the prompt
+          (state as any).pendingBounceLandChoice = (state as any).pendingBounceLandChoice || {};
+          (state as any).pendingBounceLandChoice[triggerController] = {
+            bounceLandId: bounceLandPerm.id,
+            bounceLandName: sourceName,
+            imageUrl: bounceLandPerm.card?.image_uris?.small || bounceLandPerm.card?.image_uris?.normal,
+            landsToChoose: availableLands.map((p: any) => ({
+              permanentId: p.id,
+              cardName: p.card?.name || 'Land',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            })),
+            stackItemId: item.id,
+          };
+          
+          debug(2, `[resolveTopOfStack] Bounce land trigger: set up pending choice for ${triggerController} to return a land`);
+          
+          // DON'T execute the trigger effect yet - wait for player choice
+          // DON'T bump sequence here - it will be bumped after choice is made
+          return;
+        } else {
+          debugWarn(2, `[resolveTopOfStack] Bounce land trigger: ${triggerController} has no lands to return (shouldn't happen)`);
+        }
+      } else {
+        debugWarn(2, `[resolveTopOfStack] Bounce land trigger: permanent ${permanentId} not found on battlefield`);
+      }
+    }
     
     // Execute the triggered ability effect based on description
     executeTriggerEffect(ctx, triggerController, sourceName, description, item);
