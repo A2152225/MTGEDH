@@ -2001,81 +2001,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check for enchantment ETB triggers (e.g., Growing Rites of Itlimoc)
       checkEnchantmentETBTriggers(io, game, gameId);
 
-      // ========================================================================
-      // BOUNCE LAND ETB TRIGGERS: Queue bounce land triggers onto the stack
-      // Per MTG rules, bounce lands have a triggered ability that should go on
-      // the stack and allow priority to pass before land selection
-      // ========================================================================
-      try {
-        debug(2, `[playLand] Checking if ${cardName} is a bounce land: ${isBounceLand(cardName)}`);
-        if (isBounceLand(cardName)) {
-          debug(2, `[playLand] ${cardName} IS a bounce land, looking for permanent on battlefield`);
-          // Find the permanent that was just played
-          const battlefield = game.state?.battlefield || [];
-          const bounceLandPerm = battlefield.find((p: any) => 
-            p.card?.id === cardId && 
-            p.controller === playerId
-          );
-          
-          debug(2, `[playLand] Found bounce land permanent: ${!!bounceLandPerm}, permanentId: ${bounceLandPerm?.id}`);
-          
-          if (bounceLandPerm) {
-            // Mark it as tapped (bounce lands always enter tapped)
-            bounceLandPerm.tapped = true;
-            
-            // Detect the ETB trigger from the land's oracle text
-            const etbTriggers = detectETBTriggers(cardInHand, bounceLandPerm);
-            debug(2, `[playLand] detectETBTriggers returned ${etbTriggers.length} triggers for ${cardName}`);
-            const bounceTrigger = etbTriggers.find(t => t.triggerType === 'etb_bounce_land');
-            debug(2, `[playLand] Found bounce trigger: ${!!bounceTrigger}, trigger: ${JSON.stringify(bounceTrigger)}`);
-            
-            if (bounceTrigger) {
-              debug(2, `[playLand] Found bounce land ETB trigger for ${cardName}`);
-              
-              // Initialize stack if needed
-              (game.state as any).stack = (game.state as any).stack || [];
-              
-              // Push bounce land trigger onto the stack
-              const triggerId = `bounce_land_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-              (game.state as any).stack.push({
-                id: triggerId,
-                type: 'triggered_ability',
-                controller: playerId,
-                source: bounceLandPerm.id,
-                permanentId: bounceLandPerm.id,
-                sourceName: cardName,
-                description: bounceTrigger.effect,
-                triggerType: 'etb_bounce_land',
-                mandatory: true,
-                effect: bounceTrigger.effect,
-                requiresChoice: true,
-              });
-              
-              debug(2, `[playLand] ⚡ Pushed bounce land ETB trigger onto stack: ${cardName} - ${bounceTrigger.effect}`);
-              
-              // Emit chat message about the trigger
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message: `${cardName}'s triggered ability goes on the stack.`,
-                ts: Date.now(),
-              });
-              
-              // Give priority to active player to respond to triggers
-              if ((game.state as any).stack.length > 0) {
-                (game.state as any).priority = (game.state as any).turnPlayer || playerId;
-              }
-            } else {
-              debugWarn(2, `[playLand] No bounce trigger found for ${cardName} despite being a bounce land!`);
-            }
-          } else {
-            debugWarn(2, `[playLand] Could not find bounce land permanent on battlefield for ${cardName}`);
-          }
-        }
-      } catch (err) {
-        debugWarn(1, `[playLand] Failed to process bounce land ETB trigger:`, err);
-      }
+      // NOTE: Bounce land ETB triggers are now handled in stack.ts playLand function
+      // via the unified ETB trigger detection system. No need for duplicate handling here.
 
       // ========================================================================
       // LANDFALL TRIGGERS: Check for and process landfall triggers

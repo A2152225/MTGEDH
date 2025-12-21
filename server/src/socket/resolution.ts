@@ -1431,6 +1431,10 @@ function handleBounceLandChoiceResponse(
     ts: Date.now(),
   });
   
+  // NOTE: Priority restoration is handled automatically by the ResolutionQueue system
+  // via the priority management handler (initializePriorityResolutionHandler).
+  // When the last resolution step completes, exitResolutionMode() is called automatically.
+  
   // Bump sequence
   if (typeof (game as any).bumpSeq === "function") {
     (game as any).bumpSeq();

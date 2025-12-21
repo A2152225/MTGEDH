@@ -5614,18 +5614,20 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           continue;
         }
         
-        // Push trigger onto the stack
+        // Push trigger onto the stack as a triggered_ability (not etb-trigger)
+        // This ensures it's properly handled in resolveTopOfStack without going to graveyard
         state.stack.push({
           id: uid("trigger"),
-          type: 'etb-trigger',
+          type: 'triggered_ability',
           controller: playerId,
-          card: { id: card.id, name: card.name || 'Land', oracle_text: card.oracle_text || '' },
-          trigger: {
-            type: trigger.triggerType,
-            description: trigger.description || trigger.effect || '',
-            sourcePermanentId: newPermanent.id,
-            sourceCardName: card.name || 'Land',
-          },
+          source: newPermanent.id,
+          permanentId: newPermanent.id,
+          sourceName: card.name || 'Land',
+          description: trigger.description || trigger.effect || '',
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory !== false, // Default to true
+          effect: trigger.effect || trigger.description || '',
+          requiresChoice: trigger.requiresChoice,
           targets: [],
         } as any);
         
