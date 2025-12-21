@@ -682,6 +682,10 @@ async function handleStepResponse(
       await handleCascadeResponse(io, game, gameId, step, response);
       break;
       
+    case ResolutionStepType.SCRY:
+      handleScryResponse(io, game, gameId, step, response);
+      break;
+      
     case ResolutionStepType.LIBRARY_SEARCH:
       await handleLibrarySearchResponse(io, game, gameId, step, response);
       break;
@@ -1758,6 +1762,95 @@ async function handleCascadeResponse(
 }
 
 /**
+ * Handle Scry resolution response
+ * 
+ * Player looks at the top N cards of their library and decides which to keep
+ * on top (in order) and which to put on the bottom (in order).
+ * 
+ * Reference: Rule 701.22 - Scry
+ */
+function handleScryResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: { keepTopOrder: KnownCardRef[], bottomOrder: KnownCardRef[] }
+  const keepTopOrder = selections?.keepTopOrder || [];
+  const bottomOrder = selections?.bottomOrder || [];
+  
+  const scryStep = step as any;
+  const scryCount = scryStep.scryCount || 0;
+  const cards = scryStep.cards || [];
+  
+  debug(2, `[Resolution] Scry response: player=${pid}, scryCount=${scryCount}, keepTop=${keepTopOrder.length}, bottom=${bottomOrder.length}`);
+  
+  // Validate that all cards are accounted for
+  const totalCards = keepTopOrder.length + bottomOrder.length;
+  if (totalCards !== scryCount && totalCards !== cards.length) {
+    debugWarn(2, `[Resolution] Scry card count mismatch: expected ${scryCount}, got ${totalCards}`);
+  }
+  
+  // Validate that the cards match what was shown
+  const selectedIds = [...keepTopOrder, ...bottomOrder].map((c: any) => c.id);
+  const cardIds = cards.map((c: any) => c.id);
+  const allMatch = selectedIds.every((id: string) => cardIds.includes(id));
+  
+  if (!allMatch) {
+    debugWarn(2, `[Resolution] Scry selection contains cards not in original set`);
+  }
+  
+  // Apply the scry event to the game
+  if (typeof game.applyEvent === 'function') {
+    game.applyEvent({
+      type: "scryResolve",
+      playerId: pid,
+      keepTopOrder,
+      bottomOrder,
+    });
+  }
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "scryResolve", { 
+      playerId: pid, 
+      keepTopOrder, 
+      bottomOrder 
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  // Emit chat message
+  const topCount = keepTopOrder.length;
+  const bottomCount = bottomOrder.length;
+  let message = `${getPlayerName(game, pid)} scries ${scryCount}`;
+  if (topCount > 0 && bottomCount > 0) {
+    message += ` (${topCount} on top, ${bottomCount} on bottom)`;
+  } else if (topCount > 0) {
+    message += ` (all on top)`;
+  } else if (bottomCount > 0) {
+    message += ` (all on bottom)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
  * Handle Library Search resolution response
  * Generic handler for effects that reveal/search library and select cards
  * Used for: Genesis Wave, tutors, Impulse, etc.
@@ -2359,6 +2452,71 @@ export async function processPendingCascades(
     }
   } catch (err) {
     debugWarn(1, "[processPendingCascades] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending scry from legacy state and migrate to resolution queue
+ * 
+ * This is called after stack resolution or when scry effects are created.
+ * Migrates from pendingScry state to the resolution queue system.
+ */
+export function processPendingScry(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingScry;
+    if (!pending || typeof pending !== 'object') return;
+    
+    for (const playerId of Object.keys(pending)) {
+      const scryCount = pending[playerId];
+      if (typeof scryCount !== 'number' || scryCount <= 0) continue;
+      
+      // Get library
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      // Peek at the top N cards
+      const actualCount = Math.min(scryCount, lib.length);
+      if (actualCount === 0) {
+        // No cards to scry, skip
+        delete pending[playerId];
+        continue;
+      }
+      
+      const cards = lib.slice(0, actualCount).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.SCRY,
+        playerId,
+        description: `Scry ${actualCount}`,
+        mandatory: true,
+        cards,
+        scryCount: actualCount,
+      });
+      
+      // Clear from pending state
+      delete pending[playerId];
+    }
+    
+    // Clean up empty pending object
+    if (Object.keys(pending).length === 0) {
+      delete (game.state as any).pendingScry;
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingScry] Error:", err);
   }
 }
 
