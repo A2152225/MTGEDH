@@ -1404,7 +1404,9 @@ async function handleCascadeResponse(
   response: ResolutionStepResponse
 ): Promise<void> {
   const pid = response.playerId;
-  const cast = response.selections === true || (typeof response.selections === 'string' && response.selections === 'cast');
+  // selections can be true (legacy), 'cast', or 'decline'
+  const cast = response.selections === true || 
+    (typeof response.selections === 'string' && response.selections === 'cast');
   
   const cascadeStep = step as any;
   const effectId = cascadeStep.effectId;

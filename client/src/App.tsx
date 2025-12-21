@@ -2503,7 +2503,7 @@ export function App() {
       }
       
       // Handle Cascade resolution step
-      else if (step.type === 'cascade') {
+      else if (step.type === 'cascade') {  // Uses ResolutionStepType.CASCADE on server
         setCascadePrompt({
           gameId: payload.gameId,
           effectId: step.effectId,
@@ -6373,7 +6373,7 @@ export function App() {
             socket.emit("submitResolutionResponse", {
               gameId: safeView.id,
               stepId: cascadePrompt.stepId,
-              selections: true,  // Cast the card
+              selections: 'cast',  // String value for clarity
               cancelled: false,
             });
             setCascadeModalOpen(false);
@@ -6384,7 +6384,7 @@ export function App() {
             socket.emit("submitResolutionResponse", {
               gameId: safeView.id,
               stepId: cascadePrompt.stepId,
-              selections: false,  // Decline to cast
+              selections: 'decline',  // String value for clarity
               cancelled: false,
             });
             setCascadeModalOpen(false);
