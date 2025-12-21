@@ -4478,7 +4478,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       debug(2, `[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
     }
 
-    // Handle Genesis Wave: Reveal top X, put all permanents with mana value <= X onto battlefield, rest on bottom in random order
+    // Handle Genesis Wave: Reveal top X, you may put any number of permanents with MV <= X onto battlefield, rest to graveyard
     if ((effectiveCard.name || '').toLowerCase().includes('genesis wave')) {
       const xVal = typeof spellXValue === 'number' ? spellXValue : 0;
       const lib = ctx.libraries?.get(controller) || [];
@@ -4487,111 +4487,80 @@ export function resolveTopOfStack(ctx: GameContext) {
         revealed.push(lib.shift() as any);
       }
       
-      const toBattlefield: any[] = [];
-      const toBottom: any[] = [];
+      // Filter to only permanents with MV <= X
+      const eligiblePermanents: any[] = [];
+      const notEligible: any[] = [];
       for (const c of revealed) {
         const typeLine = (c.type_line || '').toLowerCase();
         const isPermanentCard = ['creature', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle'].some(t => typeLine.includes(t));
         const mv = cardManaValue(c);
         if (isPermanentCard && mv <= xVal) {
-          toBattlefield.push(c);
+          eligiblePermanents.push(c);
         } else {
-          toBottom.push(c);
+          notEligible.push(c);
         }
       }
       
-      // Put permanents onto battlefield
-      for (const cardToPut of toBattlefield) {
-        const tl = (cardToPut.type_line || '').toLowerCase();
-        const isCreature = tl.includes('creature');
-        const isPlaneswalker = tl.includes('planeswalker');
-        const baseP = isCreature ? parsePT((cardToPut as any).power) : undefined;
-        const baseT = isCreature ? parsePT((cardToPut as any).toughness) : undefined;
-        const hasHaste = isCreature && creatureWillHaveHaste(cardToPut, controller, state.battlefield || []);
-        const hasSummoningSickness = isCreature && !hasHaste;
-        let shouldEnterTapped = false;
-        if (isCreature) {
-          shouldEnterTapped = checkCreatureEntersTapped(state.battlefield || [], controller, cardToPut);
+      // If there are eligible permanents, create a resolution step for player to choose which to put onto battlefield
+      if (eligiblePermanents.length > 0) {
+        const gameId = (ctx as any).gameId || 'unknown';
+        
+        // Add resolution step using the generic LIBRARY_SEARCH type with Genesis Wave parameters
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.LIBRARY_SEARCH,
+          playerId: controller as PlayerID,
+          description: `Genesis Wave (X=${xVal}): Choose any number of permanents to put onto the battlefield`,
+          mandatory: false, // Optional - player may choose 0 permanents
+          sourceId: item.id,
+          sourceName: 'Genesis Wave',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          searchCriteria: `Permanent cards with mana value ${xVal} or less`,
+          minSelections: 0,
+          maxSelections: eligiblePermanents.length,
+          destination: 'battlefield' as const,
+          reveal: true,
+          shuffleAfter: false,
+          remainderDestination: 'graveyard' as const, // Genesis Wave: rest go to graveyard
+          remainderRandomOrder: false,
+          availableCards: eligiblePermanents.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type_line: c.type_line,
+            oracle_text: c.oracle_text,
+            imageUrl: c.image_uris?.normal || c.image_uris?.small,
+            mana_cost: c.mana_cost,
+            cmc: c.cmc,
+          })),
+          nonSelectableCards: notEligible.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type_line: c.type_line,
+            oracle_text: c.oracle_text,
+            imageUrl: c.image_uris?.normal || c.image_uris?.small,
+            mana_cost: c.mana_cost,
+            cmc: c.cmc,
+          })),
+          contextValue: xVal, // Store X value for display/reference
+          entersTapped: false,
+        });
+        
+        debug(2, `[resolveTopOfStack] Genesis Wave: Created LIBRARY_SEARCH step for ${eligiblePermanents.length} eligible permanents (X=${xVal})`);
+      } else {
+        // No eligible permanents, just put everything to graveyard
+        const zones = ctx.state.zones || {};
+        const z = zones[controller] || { graveyard: [], graveyardCount: 0 };
+        zones[controller] = z;
+        z.graveyard = z.graveyard || [];
+        
+        for (const c of revealed) {
+          z.graveyard.push({ ...c, zone: 'graveyard' });
         }
+        z.graveyardCount = z.graveyard.length;
         
-        const initialCounters: Record<string, number> = {};
-        if (isPlaneswalker && cardToPut.loyalty) {
-          const startingLoyalty = typeof cardToPut.loyalty === 'number' ? cardToPut.loyalty : parseInt(cardToPut.loyalty, 10);
-          if (!isNaN(startingLoyalty)) {
-            initialCounters.loyalty = startingLoyalty;
-          }
-        }
-        const etbCounters = detectEntersWithCounters(cardToPut);
-        for (const [counterType, count] of Object.entries(etbCounters)) {
-          initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
-        }
-        
-        const tempId = uid("perm");
-        const tempPerm = { id: tempId, controller, counters: {} };
-        state.battlefield = state.battlefield || [];
-        state.battlefield.push(tempPerm as any);
-        const modifiedCounters = applyCounterModifications(state, tempId, initialCounters);
-        state.battlefield.pop();
-        
-        const newPermanent = {
-          id: tempId,
-          controller,
-          owner: controller,
-          tapped: shouldEnterTapped,
-          counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
-          basePower: baseP,
-          baseToughness: baseT,
-          summoningSickness: hasSummoningSickness,
-          card: { ...cardToPut, zone: "battlefield" },
-        } as any;
-        
-        state.battlefield.push(newPermanent);
-        debug(2, `[resolveTopOfStack] Genesis Wave: Put ${cardToPut.name} onto the battlefield (MV ${cardManaValue(cardToPut)}, X=${xVal})`);
-        
-        // Self ETB triggers
-        const selfETBTriggerTypes = new Set([
-          'etb',
-          'etb_modal_choice',
-          'job_select',
-          'living_weapon',
-          'etb_sacrifice_unless_pay',
-          'etb_bounce_land',
-          'etb_gain_life',
-          'etb_draw',
-          'etb_search',
-          'etb_create_token',
-          'etb_counter',
-        ]);
-        const allTriggers = getETBTriggersForPermanent(cardToPut, newPermanent);
-        for (const trigger of allTriggers) {
-          if (selfETBTriggerTypes.has(trigger.triggerType)) {
-            state.stack = state.stack || [];
-            state.stack.push({
-              id: uid("trigger"),
-              type: 'triggered_ability',
-              controller,
-              source: newPermanent.id,
-              sourceName: trigger.cardName,
-              description: trigger.description,
-              triggerType: trigger.triggerType,
-              mandatory: trigger.mandatory,
-            } as any);
-          }
-        }
-        
-        // Triggers from other permanents
-        triggerETBEffectsForPermanent(ctx, newPermanent, controller);
-      }
-      
-      // Put the rest on bottom in random order
-      const shuffled = [...toBottom].sort(() => Math.random() - 0.5);
-      for (const c of shuffled) {
-        lib.push({ ...c, zone: 'library' });
-      }
-      const zones = ctx.state.zones || {};
-      const z = zones[controller];
-      if (z) {
+        // Update library count
         z.libraryCount = lib.length;
+        
+        debug(2, `[resolveTopOfStack] Genesis Wave: No eligible permanents, put ${revealed.length} cards to graveyard (X=${xVal})`);
       }
       
       bumpSeq();

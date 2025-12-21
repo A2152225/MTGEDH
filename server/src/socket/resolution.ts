@@ -528,10 +528,17 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       
     case ResolutionStepType.LIBRARY_SEARCH:
       if ('searchCriteria' in step) fields.searchCriteria = step.searchCriteria;
+      if ('minSelections' in step) fields.minSelections = step.minSelections;
       if ('maxSelections' in step) fields.maxSelections = step.maxSelections;
       if ('destination' in step) fields.destination = step.destination;
       if ('reveal' in step) fields.reveal = step.reveal;
       if ('shuffleAfter' in step) fields.shuffleAfter = step.shuffleAfter;
+      if ('remainderDestination' in step) fields.remainderDestination = step.remainderDestination;
+      if ('remainderRandomOrder' in step) fields.remainderRandomOrder = step.remainderRandomOrder;
+      if ('availableCards' in step) fields.availableCards = step.availableCards;
+      if ('nonSelectableCards' in step) fields.nonSelectableCards = step.nonSelectableCards;
+      if ('contextValue' in step) fields.contextValue = step.contextValue;
+      if ('entersTapped' in step) fields.entersTapped = step.entersTapped;
       break;
       
     case ResolutionStepType.OPTION_CHOICE:
@@ -652,6 +659,10 @@ async function handleStepResponse(
       
     case ResolutionStepType.CASCADE:
       await handleCascadeResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.LIBRARY_SEARCH:
+      await handleLibrarySearchResponse(io, game, gameId, step, response);
       break;
       
     // Add more handlers as needed
@@ -1711,6 +1722,291 @@ async function handleCascadeResponse(
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
   }
+}
+
+/**
+ * Handle Library Search resolution response
+ * Generic handler for effects that reveal/search library and select cards
+ * Used for: Genesis Wave, tutors, Impulse, etc.
+ * 
+ * The handler uses the step parameters to determine:
+ * - What cards are available (availableCards)
+ * - Where selected cards go (destination)
+ * - Where unselected cards go (remainderDestination)
+ * - Whether to shuffle after (shuffleAfter)
+ */
+async function handleLibrarySearchResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const selections = response.selections as string[]; // Array of card IDs selected
+  
+  const searchStep = step as any;
+  const availableCards = searchStep.availableCards || [];
+  const nonSelectableCards = searchStep.nonSelectableCards || [];
+  const destination = searchStep.destination || 'hand';
+  const remainderDestination = searchStep.remainderDestination || 'shuffle';
+  const remainderRandomOrder = searchStep.remainderRandomOrder !== false; // default true
+  const shuffleAfter = searchStep.shuffleAfter !== false; // default true
+  const contextValue = searchStep.contextValue;
+  const entersTapped = searchStep.entersTapped || false;
+  const sourceName = step.sourceName || 'Library Search';
+  
+  debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}`);
+  
+  // Validate selections if any
+  const selectedIds = Array.isArray(selections) ? selections : [];
+  const availableIds = new Set(availableCards.map((c: any) => c.id));
+  for (const cardId of selectedIds) {
+    if (!availableIds.has(cardId)) {
+      debugWarn(1, `[Resolution] Invalid library search selection: ${cardId} not in available cards`);
+      return;
+    }
+  }
+  
+  // Get game context and utilities
+  const { uid, parsePT, cardManaValue, applyCounterModifications } = await import("../state/utils.js");
+  const { getETBTriggersForPermanent, detectEntersWithCounters } = await import("../state/modules/triggered-abilities.js");
+  const { triggerETBEffectsForPermanent } = await import("../state/modules/stack.js");
+  const { creatureWillHaveHaste, checkCreatureEntersTapped } = await import("./land-helpers.js");
+  
+  const state = game.state || {};
+  const battlefield = state.battlefield = state.battlefield || [];
+  const zones = state.zones = state.zones || {};
+  const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+  const lib = (game as any).libraries?.get(pid) || [];
+  
+  // Create a map of card ID to full card data
+  const allRevealedCards = [...availableCards, ...nonSelectableCards];
+  const cardMap = new Map(allRevealedCards.map((c: any) => [c.id, c]));
+  
+  // Process selected cards based on destination
+  for (const cardId of selectedIds) {
+    const card = cardMap.get(cardId);
+    if (!card) continue;
+    
+    if (destination === 'battlefield') {
+      // Put onto battlefield (used by Genesis Wave, etc.)
+      await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game);
+      debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield`);
+    } else if (destination === 'hand') {
+      z.hand = z.hand || [];
+      z.hand.push({ ...card, zone: 'hand' });
+      z.handCount = z.hand.length;
+      debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand`);
+    } else if (destination === 'graveyard') {
+      z.graveyard = z.graveyard || [];
+      z.graveyard.push({ ...card, zone: 'graveyard' });
+      z.graveyardCount = z.graveyard.length;
+      debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
+    } else if (destination === 'exile') {
+      z.exile = z.exile || [];
+      z.exile.push({ ...card, zone: 'exile' });
+      z.exileCount = z.exile.length;
+      debug(2, `[Resolution] ${sourceName}: Exiled ${card.name}`);
+    } else if (destination === 'top') {
+      lib.unshift({ ...card, zone: 'library' });
+      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library`);
+    } else if (destination === 'bottom') {
+      lib.push({ ...card, zone: 'library' });
+      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on bottom of library`);
+    }
+  }
+  
+  // Handle unselected cards (remainder)
+  const unselectedCards = allRevealedCards.filter((c: any) => !selectedIds.includes(c.id));
+  
+  if (remainderDestination === 'graveyard') {
+    z.graveyard = z.graveyard || [];
+    for (const card of unselectedCards) {
+      z.graveyard.push({ ...card, zone: 'graveyard' });
+    }
+    z.graveyardCount = z.graveyard.length;
+    debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards into graveyard`);
+  } else if (remainderDestination === 'bottom') {
+    const cardsToBottom = remainderRandomOrder 
+      ? [...unselectedCards].sort(() => Math.random() - 0.5)
+      : unselectedCards;
+    for (const card of cardsToBottom) {
+      lib.push({ ...card, zone: 'library' });
+    }
+    debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on bottom${remainderRandomOrder ? ' in random order' : ''}`);
+  } else if (remainderDestination === 'top') {
+    const cardsToTop = remainderRandomOrder 
+      ? [...unselectedCards].sort(() => Math.random() - 0.5)
+      : unselectedCards;
+    for (const card of cardsToTop.reverse()) {
+      lib.unshift({ ...card, zone: 'library' });
+    }
+    debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on top${remainderRandomOrder ? ' in random order' : ''}`);
+  } else if (remainderDestination === 'shuffle' || remainderDestination === 'hand') {
+    // Put back in library and shuffle, or to hand
+    if (remainderDestination === 'hand') {
+      z.hand = z.hand || [];
+      for (const card of unselectedCards) {
+        z.hand.push({ ...card, zone: 'hand' });
+      }
+      z.handCount = z.hand.length;
+    } else {
+      for (const card of unselectedCards) {
+        lib.push({ ...card, zone: 'library' });
+      }
+    }
+  }
+  
+  // Shuffle if required
+  if (shuffleAfter && lib.length > 0) {
+    for (let i = lib.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [lib[i], lib[j]] = [lib[j], lib[i]];
+    }
+    debug(2, `[Resolution] ${sourceName}: Shuffled library`);
+  }
+  
+  // Update library count
+  z.libraryCount = lib.length;
+  
+  // Send appropriate chat message
+  const selectedCount = selectedIds.length;
+  const totalRevealed = allRevealedCards.length;
+  
+  let message = `${getPlayerName(game, pid)} `;
+  if (sourceName.toLowerCase().includes('genesis wave')) {
+    message += `revealed ${totalRevealed} cards with Genesis Wave (X=${contextValue || '?'}), put ${selectedCount} permanent(s) onto the battlefield`;
+    if (remainderDestination === 'graveyard') {
+      message += `, and ${unselectedCards.length} card(s) into the graveyard`;
+    }
+  } else {
+    message += `${sourceName}: selected ${selectedCount} of ${availableCards.length} card(s)`;
+    if (destination === 'hand') message += ' to hand';
+    else if (destination === 'battlefield') message += ' onto the battlefield';
+    else if (destination === 'graveyard') message += ' to graveyard';
+  }
+  message += '.';
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Helper function to put a card onto the battlefield
+ * Handles creatures, planeswalkers, and triggers
+ */
+async function putCardOntoBattlefield(
+  card: any,
+  controller: string,
+  entersTapped: boolean,
+  state: any,
+  battlefield: any[],
+  uid: any,
+  parsePT: any,
+  cardManaValue: any,
+  applyCounterModifications: any,
+  getETBTriggersForPermanent: any,
+  triggerETBEffectsForPermanent: any,
+  detectEntersWithCounters: any,
+  creatureWillHaveHaste: any,
+  checkCreatureEntersTapped: any,
+  game: any
+): Promise<void> {
+  const tl = (card.type_line || '').toLowerCase();
+  const isCreature = tl.includes('creature');
+  const isPlaneswalker = tl.includes('planeswalker');
+  const baseP = isCreature ? parsePT((card as any).power) : undefined;
+  const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
+  const hasHaste = isCreature && creatureWillHaveHaste(card, controller, battlefield);
+  const hasSummoningSickness = isCreature && !hasHaste;
+  let shouldEnterTapped = entersTapped;
+  if (isCreature && !entersTapped) {
+    shouldEnterTapped = checkCreatureEntersTapped(battlefield, controller, card);
+  }
+  
+  const initialCounters: Record<string, number> = {};
+  if (isPlaneswalker && card.loyalty) {
+    const startingLoyalty = typeof card.loyalty === 'number' ? card.loyalty : parseInt(card.loyalty, 10);
+    if (!isNaN(startingLoyalty)) {
+      initialCounters.loyalty = startingLoyalty;
+    }
+  }
+  const etbCounters = detectEntersWithCounters(card);
+  for (const [counterType, count] of Object.entries(etbCounters)) {
+    initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
+  }
+  
+  const tempId = uid("perm");
+  const tempPerm = { id: tempId, controller, counters: {} };
+  battlefield.push(tempPerm as any);
+  const modifiedCounters = applyCounterModifications(state, tempId, initialCounters);
+  battlefield.pop();
+  
+  const newPermanent = {
+    id: tempId,
+    controller,
+    owner: controller,
+    tapped: shouldEnterTapped,
+    counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
+    basePower: baseP,
+    baseToughness: baseT,
+    summoningSickness: hasSummoningSickness,
+    card: { ...card, zone: "battlefield" },
+  } as any;
+  
+  battlefield.push(newPermanent);
+  
+  // Self ETB triggers
+  const selfETBTriggerTypes = new Set([
+    'etb',
+    'etb_modal_choice',
+    'job_select',
+    'living_weapon',
+    'etb_sacrifice_unless_pay',
+    'etb_bounce_land',
+    'etb_gain_life',
+    'etb_draw',
+    'etb_search',
+    'etb_create_token',
+    'etb_counter',
+  ]);
+  const allTriggers = getETBTriggersForPermanent(card, newPermanent);
+  for (const trigger of allTriggers) {
+    if (selfETBTriggerTypes.has(trigger.triggerType)) {
+      state.stack = state.stack || [];
+      state.stack.push({
+        id: uid("trigger"),
+        type: 'triggered_ability',
+        controller,
+        source: newPermanent.id,
+        sourceName: trigger.cardName,
+        description: trigger.description,
+        triggerType: trigger.triggerType,
+        mandatory: trigger.mandatory,
+        permanentId: newPermanent.id,
+      } as any);
+    }
+  }
+  
+  // Triggers from other permanents (landfall, etc.)
+  const ctx = { 
+    state, 
+    gameId: (game as any).gameId,
+    inactive: new Set(), 
+    libraries: (game as any).libraries, 
+    players: state.players 
+  };
+  triggerETBEffectsForPermanent(ctx as any, newPermanent, controller);
 }
 
 /**
