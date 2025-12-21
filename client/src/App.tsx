@@ -3672,7 +3672,7 @@ export function App() {
     
     const stepId = (bounceLandData as any).stepId;
     if (!stepId) {
-      console.error('[BounceLand] Missing stepId - bounce lands must use resolution queue');
+      debug(1, '[BounceLand] Missing stepId - bounce lands must use resolution queue');
       return;
     }
     

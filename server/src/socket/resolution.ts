@@ -682,6 +682,26 @@ function handleDiscardResponse(
     return;
   }
   
+  // Get discard step data for validation
+  const discardStep = step as any;
+  const hand = discardStep.hand || [];
+  const discardCount = discardStep.discardCount;
+  
+  // Validate selection count matches required discard count
+  if (discardCount && selections.length !== discardCount) {
+    debugWarn(1, `[Resolution] Invalid discard count: expected ${discardCount}, got ${selections.length}`);
+    return;
+  }
+  
+  // Validate all selected cards are in the hand options
+  const validCardIds = new Set(hand.map((c: any) => c.id));
+  for (const cardId of selections) {
+    if (!validCardIds.has(cardId)) {
+      debugWarn(1, `[Resolution] Invalid discard selection: card ${cardId} not in hand`);
+      return;
+    }
+  }
+  
   // Get player zones
   const zones = game.state?.zones?.[pid];
   if (!zones || !zones.hand) {
@@ -875,10 +895,32 @@ function handleKynaiosChoiceResponse(
   const isController = stepData.isController || false;
   const sourceController = stepData.sourceController || pid;
   const sourceName = step.sourceName || 'Kynaios and Tiro of Meletis';
+  const canPlayLand = stepData.canPlayLand !== false; // default true if not specified
+  const landsInHand = stepData.landsInHand || [];
+  const options = stepData.options || ['play_land', 'draw_card', 'decline'];
+  
+  // Validate choice is in allowed options
+  if (!options.includes(choice as any)) {
+    debugWarn(1, `[Resolution] Invalid Kynaios choice: ${choice} not in allowed options`);
+    return;
+  }
   
   debug(2, `[Resolution] Kynaios choice: player=${pid}, choice=${choice}, landCardId=${landCardId}, isController=${isController}`);
   
   if (choice === 'play_land' && landCardId) {
+    // Validate player can play land
+    if (!canPlayLand) {
+      debugWarn(1, `[Resolution] Kynaios: player ${pid} cannot play land`);
+      return;
+    }
+    
+    // Validate landCardId is in landsInHand list
+    const isValidLand = landsInHand.some((land: any) => land.id === landCardId);
+    if (!isValidLand) {
+      debugWarn(1, `[Resolution] Invalid Kynaios land choice: ${landCardId} not in hand`);
+      return;
+    }
+    
     // Move the land from hand to battlefield
     const zones = game.state?.zones?.[pid];
     if (zones?.hand) {
@@ -987,6 +1029,13 @@ function handleJoinForcesResponse(
   const stepData = step as any;
   const cardName = stepData.cardName || step.sourceName || 'Join Forces';
   const initiator = stepData.initiator;
+  const availableMana = stepData.availableMana || 0;
+  
+  // Validate contribution doesn't exceed available mana
+  if (contribution > availableMana) {
+    debugWarn(1, `[Resolution] Join Forces: contribution ${contribution} exceeds available mana ${availableMana}`);
+    contribution = availableMana; // Cap at available
+  }
   
   debug(1, `[Resolution] Join Forces: player=${pid} contributed ${contribution} mana to ${cardName}`);
   
