@@ -395,12 +395,14 @@ export function enterResolutionMode(ctx: GameContext): void {
   
   // Save who will get priority after resolution completes (always the active player)
   // Per MTG Rule 117.3b: "After a spell or ability finishes resolving, the active player receives priority"
-  if (!stateAny._priorityAfterResolution) {
+  if (!stateAny._priorityAfterResolution && state.turnPlayer) {
     stateAny._priorityAfterResolution = state.turnPlayer;
     debug(1, `[priority] Entering resolution mode - priority will return to ${state.turnPlayer} after resolution completes`);
   }
   
   // Set priority to null to represent that priority doesn't exist during resolution
+  // NOTE: TypeScript types don't allow null, but we use it to correctly represent MTG rules
+  // The passPriority function explicitly checks for null and blocks priority passing
   state.priority = null as any;
   
   // Clear any tracked priority passes since priority doesn't exist
@@ -417,10 +419,18 @@ export function exitResolutionMode(ctx: GameContext): void {
   const { state } = ctx;
   const stateAny = state as any;
   
-  // Restore priority to the saved player (or turn player as fallback)
+  // Restore priority to the saved player, or turn player as fallback
   const priorityPlayer = stateAny._priorityAfterResolution || state.turnPlayer;
-  state.priority = priorityPlayer as PlayerID;
-  debug(1, `[priority] Exiting resolution mode - priority restored to ${priorityPlayer}`);
+  
+  // Type safety: Validate that we have a valid player ID before restoring
+  if (priorityPlayer) {
+    state.priority = priorityPlayer as PlayerID;
+    debug(1, `[priority] Exiting resolution mode - priority restored to ${priorityPlayer}`);
+  } else {
+    // Fallback: This shouldn't happen, but if it does, default to turn player
+    debugWarn(1, '[priority] exitResolutionMode: No priority player saved, defaulting to turn player');
+    state.priority = state.turnPlayer as PlayerID;
+  }
   
   // Clear the saved priority holder
   delete stateAny._priorityAfterResolution;
