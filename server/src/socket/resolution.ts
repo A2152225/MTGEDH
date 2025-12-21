@@ -601,6 +601,26 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('exiledCards' in step) fields.exiledCards = step.exiledCards;
       if ('effectId' in step) fields.effectId = step.effectId;
       break;
+      
+    case ResolutionStepType.DEVOUR_SELECTION:
+      if ('devourValue' in step) fields.devourValue = step.devourValue;
+      if ('creatureId' in step) fields.creatureId = step.creatureId;
+      if ('creatureName' in step) fields.creatureName = step.creatureName;
+      if ('availableCreatures' in step) fields.availableCreatures = step.availableCreatures;
+      break;
+      
+    case ResolutionStepType.SUSPEND_CAST:
+      if ('card' in step) fields.card = step.card;
+      if ('suspendCost' in step) fields.suspendCost = step.suspendCost;
+      if ('timeCounters' in step) fields.timeCounters = step.timeCounters;
+      break;
+      
+    case ResolutionStepType.MORPH_TURN_FACE_UP:
+      if ('permanentId' in step) fields.permanentId = step.permanentId;
+      if ('morphCost' in step) fields.morphCost = step.morphCost;
+      if ('actualCard' in step) fields.actualCard = step.actualCard;
+      if ('canAfford' in step) fields.canAfford = step.canAfford;
+      break;
   }
   
   return fields;
@@ -663,6 +683,18 @@ async function handleStepResponse(
       
     case ResolutionStepType.LIBRARY_SEARCH:
       await handleLibrarySearchResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.DEVOUR_SELECTION:
+      handleDevourSelectionResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.SUSPEND_CAST:
+      await handleSuspendCastResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.MORPH_TURN_FACE_UP:
+      handleMorphTurnFaceUpResponse(io, game, gameId, step, response);
       break;
       
     // Add more handlers as needed
@@ -2007,6 +2039,217 @@ async function putCardOntoBattlefield(
     players: state.players 
   };
   triggerETBEffectsForPermanent(ctx as any, newPermanent, controller);
+}
+
+/**
+ * Handle Devour Selection response
+ * Player chooses creatures to sacrifice when a creature with Devour X enters
+ */
+function handleDevourSelectionResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as string[]; // Array of creature IDs to sacrifice
+  
+  const devourStep = step as any;
+  const devourValue = devourStep.devourValue || 0;
+  const creatureId = devourStep.creatureId;
+  const availableCreatures = devourStep.availableCreatures || [];
+  
+  debug(2, `[Resolution] Devour selection: player=${pid}, devour=${devourValue}, selected ${Array.isArray(selections) ? selections.length : 0} creatures`);
+  
+  // Validate selections if any
+  const selectedIds = Array.isArray(selections) ? selections : [];
+  const availableIds = new Set(availableCreatures.map((c: any) => c.permanentId));
+  for (const creatureIdToSac of selectedIds) {
+    if (!availableIds.has(creatureIdToSac)) {
+      debugWarn(1, `[Resolution] Invalid devour selection: ${creatureIdToSac} not in available creatures`);
+      return;
+    }
+  }
+  
+  const state = game.state || {};
+  const battlefield = state.battlefield = state.battlefield || [];
+  
+  // Find the devouring creature
+  const devouringCreature = battlefield.find((p: any) => p.id === creatureId);
+  if (!devouringCreature) {
+    debugWarn(1, `[Resolution] Devour: creature ${creatureId} not found on battlefield`);
+    return;
+  }
+  
+  // Sacrifice selected creatures
+  for (const creatureIdToSac of selectedIds) {
+    const idx = battlefield.findIndex((p: any) => p.id === creatureIdToSac);
+    if (idx !== -1) {
+      const sacrificed = battlefield.splice(idx, 1)[0];
+      const sacCard = (sacrificed as any).card;
+      const owner = (sacrificed as any).owner || pid;
+      
+      // Move to graveyard
+      const zones = state.zones = state.zones || {};
+      const z = zones[owner] = zones[owner] || { graveyard: [], graveyardCount: 0 };
+      z.graveyard = z.graveyard || [];
+      z.graveyard.push({ ...sacCard, zone: 'graveyard' });
+      z.graveyardCount = z.graveyard.length;
+      
+      debug(2, `[Resolution] Devour: Sacrificed ${sacCard.name || 'creature'}`);
+      
+      // TODO: Trigger death effects for sacrificed creature
+    }
+  }
+  
+  // Add +1/+1 counters to the devouring creature
+  const countersToAdd = devourValue * selectedIds.length;
+  if (countersToAdd > 0) {
+    devouringCreature.counters = devouringCreature.counters || {};
+    devouringCreature.counters['+1/+1'] = (devouringCreature.counters['+1/+1'] || 0) + countersToAdd;
+    debug(2, `[Resolution] Devour: Added ${countersToAdd} +1/+1 counters to ${devourStep.creatureName}`);
+  }
+  
+  // Send chat message
+  const counterText = countersToAdd > 0 ? `, gaining ${countersToAdd} +1/+1 counter${countersToAdd > 1 ? 's' : ''}` : '';
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, pid)} sacrificed ${selectedIds.length} creature${selectedIds.length !== 1 ? 's' : ''} to ${devourStep.creatureName}${counterText}.`,
+    ts: Date.now(),
+  });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Suspend Cast response
+ * Player casts a spell with suspend (exile with time counters)
+ */
+async function handleSuspendCastResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const suspendStep = step as any;
+  const card = suspendStep.card;
+  const timeCounters = suspendStep.timeCounters || 0;
+  
+  debug(2, `[Resolution] Suspend cast: player=${pid}, card=${card.name}, timeCounters=${timeCounters}`);
+  
+  // Remove card from hand
+  const state = game.state || {};
+  const zones = state.zones = state.zones || {};
+  const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, exile: [], exileCount: 0 };
+  
+  const handIdx = (z.hand || []).findIndex((c: any) => c.id === card.id);
+  if (handIdx !== -1) {
+    z.hand.splice(handIdx, 1);
+    z.handCount = z.hand.length;
+  }
+  
+  // Exile the card with time counters
+  z.exile = z.exile || [];
+  z.exile.push({
+    ...card,
+    zone: 'exile',
+    isSuspended: true,
+    timeCounters: timeCounters,
+    suspendedBy: pid,
+  });
+  z.exileCount = z.exile.length;
+  
+  // Send chat message
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, pid)} suspended ${card.name} with ${timeCounters} time counter${timeCounters !== 1 ? 's' : ''}.`,
+    ts: Date.now(),
+  });
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Morph Turn Face-Up response
+ * Player turns a face-down creature face-up
+ */
+function handleMorphTurnFaceUpResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const morphStep = step as any;
+  const permanentId = morphStep.permanentId;
+  const actualCard = morphStep.actualCard;
+  
+  if (response.cancelled) {
+    debug(2, `[Resolution] Morph turn face-up cancelled for ${permanentId}`);
+    return;
+  }
+  
+  debug(2, `[Resolution] Morph turn face-up: player=${pid}, permanent=${permanentId}`);
+  
+  const state = game.state || {};
+  const battlefield = state.battlefield = state.battlefield || [];
+  
+  // Find the face-down creature
+  const creature = battlefield.find((p: any) => p.id === permanentId);
+  if (!creature) {
+    debugWarn(1, `[Resolution] Morph: creature ${permanentId} not found on battlefield`);
+    return;
+  }
+  
+  if (!creature.isFaceDown) {
+    debugWarn(1, `[Resolution] Morph: creature ${permanentId} is not face-down`);
+    return;
+  }
+  
+  // Turn face-up
+  creature.isFaceDown = false;
+  creature.card = actualCard;
+  
+  // Update power/toughness from 2/2 to actual values
+  const { parsePT } = require("../state/utils.js");
+  const tl = (actualCard.type_line || '').toLowerCase();
+  const isCreature = tl.includes('creature');
+  if (isCreature) {
+    creature.basePower = parsePT((actualCard as any).power);
+    creature.baseToughness = parsePT((actualCard as any).toughness);
+  }
+  
+  // Remove face-down specific properties
+  delete creature.faceDownType;
+  delete creature.morphCost;
+  delete creature.faceUpCard;
+  
+  // Send chat message
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, pid)} turned ${actualCard.name} face-up.`,
+    ts: Date.now(),
+  });
+  
+  // TODO: Trigger any morph/megamorph abilities
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
 }
 
 /**

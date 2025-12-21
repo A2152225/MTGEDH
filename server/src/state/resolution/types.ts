@@ -81,6 +81,9 @@ export enum ResolutionStepType {
   SURVEIL = 'surveil',
   DISCARD_EFFECT = 'discard_effect',
   MILL = 'mill',
+  DEVOUR_SELECTION = 'devour_selection',
+  SUSPEND_CAST = 'suspend_cast',
+  MORPH_TURN_FACE_UP = 'morph_turn_face_up',
 }
 
 /**
@@ -370,6 +373,45 @@ export interface CascadeStep extends BaseResolutionStep {
 }
 
 /**
+ * Devour Selection resolution step
+ * When a creature with Devour X enters, player chooses creatures to sacrifice
+ */
+export interface DevourSelectionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.DEVOUR_SELECTION;
+  readonly devourValue: number; // X in "Devour X"
+  readonly creatureId: string; // The devouring creature
+  readonly creatureName: string;
+  readonly availableCreatures: readonly {
+    permanentId: string;
+    cardName: string;
+    imageUrl?: string;
+  }[];
+}
+
+/**
+ * Suspend Cast resolution step
+ * Handles casting a spell with suspend (exile with time counters)
+ */
+export interface SuspendCastStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.SUSPEND_CAST;
+  readonly card: KnownCardRef;
+  readonly suspendCost: string;
+  readonly timeCounters: number;
+}
+
+/**
+ * Morph Turn Face-Up resolution step  
+ * When a player wants to turn a face-down creature face-up
+ */
+export interface MorphTurnFaceUpStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.MORPH_TURN_FACE_UP;
+  readonly permanentId: string;
+  readonly morphCost?: string;
+  readonly actualCard: KnownCardRef;
+  readonly canAfford: boolean;
+}
+
+/**
  * Union of all resolution step types
  */
 export type ResolutionStep = 
@@ -387,6 +429,9 @@ export type ResolutionStep =
   | TemptingOfferStep
   | BounceLandChoiceStep
   | CascadeStep
+  | DevourSelectionStep
+  | SuspendCastStep
+  | MorphTurnFaceUpStep
   | BaseResolutionStep;
 
 /**

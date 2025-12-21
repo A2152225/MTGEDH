@@ -3025,6 +3025,48 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     debug(2, `[resolveTopOfStack] Permanent ${effectiveCard.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
     
+    // Check for Devour X mechanic
+    const oracleText = (effectiveCard.oracle_text || '').toLowerCase();
+    const devourMatch = oracleText.match(/devour\s+(\d+)/);
+    if (devourMatch && isCreature) {
+      const devourValue = parseInt(devourMatch[1], 10);
+      const gameId = (ctx as any).gameId || 'unknown';
+      
+      // Get creatures the player controls (excluding the devouring creature itself)
+      const availableCreatures = state.battlefield
+        .filter((p: any) => 
+          p.controller === controller && 
+          p.id !== newPermId &&
+          p.card?.type_line?.toLowerCase().includes('creature')
+        )
+        .map((p: any) => ({
+          permanentId: p.id,
+          cardName: p.card?.name || 'Creature',
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
+      
+      if (availableCreatures.length > 0) {
+        // Add resolution step for devour selection
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.DEVOUR_SELECTION,
+          playerId: controller as PlayerID,
+          description: `Devour ${devourValue}: Choose any number of creatures to sacrifice`,
+          mandatory: false, // Optional - can sacrifice 0
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Creature',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          devourValue: devourValue,
+          creatureId: newPermId,
+          creatureName: effectiveCard.name || 'Creature',
+          availableCreatures: availableCreatures,
+        });
+        
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} has Devour ${devourValue}, created selection step with ${availableCreatures.length} available creatures`);
+      } else {
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} has Devour ${devourValue}, but no creatures to sacrifice`);
+      }
+    }
+    
     // Check for ETB control change effects (Xantcha, Akroan Horse, Vislor Turlough)
     // These permanents enter under an opponent's control or may give control to an opponent
     try {
