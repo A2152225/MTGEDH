@@ -81,6 +81,9 @@ export enum ResolutionStepType {
   SURVEIL = 'surveil',
   DISCARD_EFFECT = 'discard_effect',
   MILL = 'mill',
+  DEVOUR_SELECTION = 'devour_selection',
+  SUSPEND_CAST = 'suspend_cast',
+  MORPH_TURN_FACE_UP = 'morph_turn_face_up',
 }
 
 /**
@@ -239,15 +242,30 @@ export interface TriggerOrderStep extends BaseResolutionStep {
 
 /**
  * Library search resolution step
+ * Generic step for revealing/searching library and selecting cards
+ * Can be used for: Genesis Wave, library tutors, Impulse, etc.
  */
 export interface LibrarySearchStep extends BaseResolutionStep {
   readonly type: ResolutionStepType.LIBRARY_SEARCH;
   readonly searchCriteria: string;
+  readonly minSelections: number;
   readonly maxSelections: number;
   readonly mandatory: boolean;
-  readonly destination: 'hand' | 'battlefield' | 'top' | 'bottom';
+  readonly destination: 'hand' | 'battlefield' | 'top' | 'bottom' | 'graveyard' | 'exile';
   readonly reveal: boolean;
   readonly shuffleAfter: boolean;
+  /** What to do with cards that weren't selected */
+  readonly remainderDestination?: 'graveyard' | 'bottom' | 'top' | 'shuffle' | 'hand';
+  /** Whether remainder should be in random order */
+  readonly remainderRandomOrder?: boolean;
+  /** The actual cards available to choose from (for reveal effects) */
+  readonly availableCards?: readonly KnownCardRef[];
+  /** Cards that were revealed but aren't selectable (shown for info) */
+  readonly nonSelectableCards?: readonly KnownCardRef[];
+  /** Additional context like X value for Genesis Wave */
+  readonly contextValue?: number;
+  /** Whether selected cards enter tapped (for battlefield destination) */
+  readonly entersTapped?: boolean;
 }
 
 /**
@@ -355,6 +373,45 @@ export interface CascadeStep extends BaseResolutionStep {
 }
 
 /**
+ * Devour Selection resolution step
+ * When a creature with Devour X enters, player chooses creatures to sacrifice
+ */
+export interface DevourSelectionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.DEVOUR_SELECTION;
+  readonly devourValue: number; // X in "Devour X"
+  readonly creatureId: string; // The devouring creature
+  readonly creatureName: string;
+  readonly availableCreatures: readonly {
+    permanentId: string;
+    cardName: string;
+    imageUrl?: string;
+  }[];
+}
+
+/**
+ * Suspend Cast resolution step
+ * Handles casting a spell with suspend (exile with time counters)
+ */
+export interface SuspendCastStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.SUSPEND_CAST;
+  readonly card: KnownCardRef;
+  readonly suspendCost: string;
+  readonly timeCounters: number;
+}
+
+/**
+ * Morph Turn Face-Up resolution step  
+ * When a player wants to turn a face-down creature face-up
+ */
+export interface MorphTurnFaceUpStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.MORPH_TURN_FACE_UP;
+  readonly permanentId: string;
+  readonly morphCost?: string;
+  readonly actualCard: KnownCardRef;
+  readonly canAfford: boolean;
+}
+
+/**
  * Union of all resolution step types
  */
 export type ResolutionStep = 
@@ -372,6 +429,9 @@ export type ResolutionStep =
   | TemptingOfferStep
   | BounceLandChoiceStep
   | CascadeStep
+  | DevourSelectionStep
+  | SuspendCastStep
+  | MorphTurnFaceUpStep
   | BaseResolutionStep;
 
 /**

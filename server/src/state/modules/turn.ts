@@ -32,7 +32,7 @@ import {
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
-import { calculateAllPTBonuses, parsePT } from "../utils.js";
+import { calculateAllPTBonuses, parsePT, uid } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
@@ -2694,6 +2694,54 @@ export function nextStep(ctx: GameContext) {
                 .map(([type, amount]) => `${amount} ${type}`)
                 .join(', ');
               debug(2, `${ts()} [nextStep] ${item.cardName}: Added ${manaStr} (${item.ageCounters} age counters)`);
+            }
+          }
+          
+          // SECOND: Process suspended cards - remove time counters
+          const zones = (ctx as any).state.zones || {};
+          const playerZone = zones[turnPlayer];
+          if (playerZone && playerZone.exile) {
+            const suspendedCards = playerZone.exile.filter((c: any) => c.isSuspended && c.timeCounters > 0);
+            for (const card of suspendedCards) {
+              card.timeCounters--;
+              debug(2, `${ts()} [nextStep] Suspend: Removed time counter from ${card.name} (${card.timeCounters} remaining)`);
+              
+              // If last time counter was removed, cast the spell for free
+              if (card.timeCounters === 0) {
+                debug(2, `${ts()} [nextStep] Suspend: ${card.name} has no time counters remaining - will be cast`);
+                // Remove from exile
+                const exileIdx = playerZone.exile.indexOf(card);
+                if (exileIdx !== -1) {
+                  playerZone.exile.splice(exileIdx, 1);
+                  playerZone.exileCount = playerZone.exile.length;
+                }
+                
+                // Cast the spell without paying its mana cost
+                // Add to stack as a spell
+                const stackItem = {
+                  id: uid("spell"),
+                  type: 'spell',
+                  card: { ...card, zone: 'stack' },
+                  controller: turnPlayer,
+                  targets: [],
+                  wasCastFromSuspend: true, // Flag to indicate this was suspended
+                };
+                (ctx as any).state.stack = (ctx as any).state.stack || [];
+                (ctx as any).state.stack.push(stackItem);
+                
+                // Emit chat message
+                if ((ctx as any).io && (ctx as any).gameId) {
+                  (ctx as any).io.to((ctx as any).gameId).emit("chat", {
+                    id: `m_${Date.now()}`,
+                    gameId: (ctx as any).gameId,
+                    from: "system",
+                    message: `⏰ ${card.name} cast from suspend!`,
+                    ts: Date.now(),
+                  });
+                }
+                
+                debug(2, `${ts()} [nextStep] Suspend: Cast ${card.name} from suspend onto the stack`);
+              }
             }
           }
           
