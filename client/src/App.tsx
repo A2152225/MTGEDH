@@ -253,6 +253,7 @@ export function App() {
     imageUrl?: string;
     landsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
     stackItemId?: string;
+    stepId?: string;  // Resolution queue step ID
   } | null>(null);
   
   // Proliferate modal state
@@ -507,6 +508,9 @@ export function App() {
     totalCascades: number;
     hitCard: KnownCardRef;
     exiledCards: KnownCardRef[];
+    stepId: string;  // Resolution queue step ID
+    gameId?: string;
+    playerId?: string;
   } | null>(null);
 
   // Priority Modal state - shows when player receives priority on step changes
@@ -2497,6 +2501,22 @@ export function App() {
         setTemptingOfferRequest(request);
         setTemptingOfferModalOpen(true);
       }
+      
+      // Handle Cascade resolution step
+      else if (step.type === 'cascade') {
+        setCascadePrompt({
+          gameId: payload.gameId,
+          effectId: step.effectId,
+          playerId: step.playerId,
+          sourceName: step.sourceName || 'Cascade',
+          cascadeNumber: step.cascadeNumber || 1,
+          totalCascades: step.totalCascades || 1,
+          hitCard: step.hitCard,
+          exiledCards: step.exiledCards || [],
+          stepId: step.id,  // Store the step ID for resolution response
+        });
+        setCascadeModalOpen(true);
+      }
     };
     
     // Also listen for the legacy kynaiosChoice event for backward compatibility
@@ -2565,47 +2585,6 @@ export function App() {
       socket.off("ponderComplete", handlePonderComplete);
     };
   }, [safeView?.id, you, ponderRequest?.effectId]);
-
-  // Cascade prompt handlers
-  React.useEffect(() => {
-    const handleCascadePrompt = (payload: {
-      gameId: string;
-      effectId: string;
-      playerId: string;
-      sourceName: string;
-      cascadeNumber: number;
-      totalCascades: number;
-      hitCard: KnownCardRef;
-      exiledCards: KnownCardRef[];
-    }) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setCascadePrompt({
-          effectId: payload.effectId,
-          sourceName: payload.sourceName,
-          cascadeNumber: payload.cascadeNumber,
-          totalCascades: payload.totalCascades,
-          hitCard: payload.hitCard,
-          exiledCards: payload.exiledCards,
-        });
-        setCascadeModalOpen(true);
-      }
-    };
-
-    const handleCascadeComplete = (payload: { effectId: string }) => {
-      if (cascadePrompt?.effectId === payload.effectId) {
-        setCascadeModalOpen(false);
-        setCascadePrompt(null);
-      }
-    };
-
-    socket.on("cascadePrompt", handleCascadePrompt);
-    socket.on("cascadeComplete", handleCascadeComplete);
-
-    return () => {
-      socket.off("cascadePrompt", handleCascadePrompt);
-      socket.off("cascadeComplete", handleCascadeComplete);
-    };
-  }, [safeView?.id, you, cascadePrompt?.effectId]);
 
   // Mutate target selection listener
   useEffect(() => {
@@ -6391,20 +6370,22 @@ export function App() {
           exiledCards={cascadePrompt.exiledCards}
           onCast={() => {
             if (!safeView?.id || !cascadePrompt) return;
-            socket.emit("resolveCascade", {
+            socket.emit("submitResolutionResponse", {
               gameId: safeView.id,
-              effectId: cascadePrompt.effectId,
-              cast: true,
+              stepId: cascadePrompt.stepId,
+              selections: true,  // Cast the card
+              cancelled: false,
             });
             setCascadeModalOpen(false);
             setCascadePrompt(null);
           }}
           onDecline={() => {
             if (!safeView?.id || !cascadePrompt) return;
-            socket.emit("resolveCascade", {
+            socket.emit("submitResolutionResponse", {
               gameId: safeView.id,
-              effectId: cascadePrompt.effectId,
-              cast: false,
+              stepId: cascadePrompt.stepId,
+              selections: false,  // Decline to cast
+              cancelled: false,
             });
             setCascadeModalOpen(false);
             setCascadePrompt(null);
