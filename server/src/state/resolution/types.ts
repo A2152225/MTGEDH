@@ -84,6 +84,9 @@ export enum ResolutionStepType {
   DEVOUR_SELECTION = 'devour_selection',
   SUSPEND_CAST = 'suspend_cast',
   MORPH_TURN_FACE_UP = 'morph_turn_face_up',
+  FATESEAL = 'fateseal',
+  CLASH = 'clash',
+  VOTE = 'vote',
 }
 
 /**
@@ -331,6 +334,48 @@ export interface ProliferateStep extends BaseResolutionStep {
 }
 
 /**
+ * Fateseal resolution step
+ * 
+ * Like scry but player looks at opponent's library instead of their own.
+ * Reference: Rule 701.29 - Fateseal
+ */
+export interface FatesealStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.FATESEAL;
+  readonly opponentId: string; // Whose library is being fatesealed
+  readonly cards: readonly KnownCardRef[];
+  readonly fatesealCount: number;
+}
+
+/**
+ * Clash resolution step
+ * 
+ * Player reveals top card and chooses whether to put it on bottom.
+ * Reference: Rule 701.30 - Clash
+ */
+export interface ClashStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.CLASH;
+  readonly revealedCard: KnownCardRef;
+  readonly opponentId?: string; // For "clash with an opponent"
+}
+
+/**
+ * Vote resolution step
+ * 
+ * Players vote in APNAP order for one of the available choices.
+ * Reference: Rule 701.38 - Vote
+ */
+export interface VoteStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.VOTE;
+  readonly voteId: string; // Unique ID for this vote
+  readonly choices: readonly string[]; // Available vote options
+  readonly votesSubmitted: readonly {
+    playerId: string;
+    choice: string;
+    voteCount: number;
+  }[]; // Votes already cast
+}
+
+/**
  * Kynaios and Tiro style choice resolution step
  * Player may put a land onto the battlefield, or (for opponents) draw a card
  */
@@ -457,6 +502,9 @@ export type ResolutionStep =
   | ScryStep
   | SurveilStep
   | ProliferateStep
+  | FatesealStep
+  | ClashStep
+  | VoteStep
   | KynaiosChoiceStep
   | JoinForcesStep
   | TemptingOfferStep

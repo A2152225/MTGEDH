@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
-import { processPendingCascades, processPendingScry, processPendingSurveil, processPendingProliferate } from "./resolution.js";
+import { processPendingCascades, processPendingScry, processPendingSurveil, processPendingProliferate, processPendingFateseal, processPendingClash, processPendingVote } from "./resolution.js";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -3819,6 +3819,15 @@ export function registerGameActions(io: Server, socket: Socket) {
             
             // Process any pending proliferate effects
             processPendingProliferate(io, game, gameId);
+            
+            // Process any pending fateseal effects
+            processPendingFateseal(io, game, gameId);
+            
+            // Process any pending clash effects
+            processPendingClash(io, game, gameId);
+            
+            // Process any pending vote effects
+            processPendingVote(io, game, gameId);
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `castSpell error for game ${gameId}:`, err);
@@ -4172,6 +4181,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
+        
+        // Process any pending fateseal effects
+        processPendingFateseal(io, game, gameId);
+        
+        // Process any pending clash effects
+        processPendingClash(io, game, gameId);
+        
+        // Process any pending vote effects
+        processPendingVote(io, game, gameId);
         
         // ========================================================================
         // CRITICAL: Check if there's a pending phase skip that was interrupted
@@ -4872,6 +4890,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
+        
+        // Process any pending fateseal effects
+        processPendingFateseal(io, game, gameId);
+        
+        // Process any pending clash effects
+        processPendingClash(io, game, gameId);
+        
+        // Process any pending vote effects
+        processPendingVote(io, game, gameId);
       }
 
       // If all players passed priority with empty stack, advance to next step

@@ -572,6 +572,23 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('availableTargets' in step) fields.availableTargets = step.availableTargets;
       break;
       
+    case ResolutionStepType.FATESEAL:
+      if ('opponentId' in step) fields.opponentId = step.opponentId;
+      if ('cards' in step) fields.cards = step.cards;
+      if ('fatesealCount' in step) fields.fatesealCount = step.fatesealCount;
+      break;
+      
+    case ResolutionStepType.CLASH:
+      if ('revealedCard' in step) fields.revealedCard = step.revealedCard;
+      if ('opponentId' in step) fields.opponentId = step.opponentId;
+      break;
+      
+    case ResolutionStepType.VOTE:
+      if ('voteId' in step) fields.voteId = step.voteId;
+      if ('choices' in step) fields.choices = step.choices;
+      if ('votesSubmitted' in step) fields.votesSubmitted = step.votesSubmitted;
+      break;
+      
     case ResolutionStepType.KYNAIOS_CHOICE:
       if ('isController' in step) fields.isController = step.isController;
       if ('sourceController' in step) fields.sourceController = step.sourceController;
@@ -702,6 +719,18 @@ async function handleStepResponse(
       
     case ResolutionStepType.PROLIFERATE:
       handleProliferateResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.FATESEAL:
+      handleFatesealResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.CLASH:
+      handleClashResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.VOTE:
+      handleVoteResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.LIBRARY_SEARCH:
@@ -2050,6 +2079,264 @@ function handleProliferateResponse(
 }
 
 /**
+ * Handle Fateseal resolution response
+ * 
+ * Player looks at the top N cards of opponent's library and decides which to keep
+ * on top (in order) and which to put on the bottom (in order).
+ * 
+ * Reference: Rule 701.29 - Fateseal
+ */
+function handleFatesealResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: { keepTopOrder: KnownCardRef[], bottomOrder: KnownCardRef[] }
+  const keepTopOrder = selections?.keepTopOrder || [];
+  const bottomOrder = selections?.bottomOrder || [];
+  
+  const fatesealStep = step as any;
+  const fatesealCount = fatesealStep.fatesealCount || 0;
+  const cards = fatesealStep.cards || [];
+  const opponentId = fatesealStep.opponentId;
+  
+  debug(2, `[Resolution] Fateseal response: player=${pid}, opponent=${opponentId}, count=${fatesealCount}, keepTop=${keepTopOrder.length}, bottom=${bottomOrder.length}`);
+  
+  // Validate that all cards are accounted for
+  const totalCards = keepTopOrder.length + bottomOrder.length;
+  if (totalCards !== fatesealCount && totalCards !== cards.length) {
+    debugWarn(2, `[Resolution] Fateseal card count mismatch: expected ${fatesealCount}, got ${totalCards}`);
+  }
+  
+  // Get opponent's library
+  const lib = (game as any).libraries?.get(opponentId) || [];
+  
+  // Remove the fatesealed cards from top of library
+  lib.splice(0, totalCards);
+  
+  // Put cards back in chosen order (top cards go on top, bottom cards on bottom)
+  for (let i = keepTopOrder.length - 1; i >= 0; i--) {
+    lib.unshift({ ...keepTopOrder[i], zone: 'library' });
+  }
+  for (const card of bottomOrder) {
+    lib.push({ ...card, zone: 'library' });
+  }
+  
+  // Update library count
+  const zones = game.state.zones = game.state.zones || {};
+  const z = zones[opponentId] = zones[opponentId] || {};
+  z.libraryCount = lib.length;
+  
+  // Emit chat message
+  const topCount = keepTopOrder.length;
+  const bottomCount = bottomOrder.length;
+  let message = `${getPlayerName(game, pid)} fateseals ${fatesealCount} of ${getPlayerName(game, opponentId)}'s library`;
+  if (topCount > 0 && bottomCount > 0) {
+    message += ` (${topCount} on top, ${bottomCount} on bottom)`;
+  } else if (topCount > 0) {
+    message += ` (all on top)`;
+  } else if (bottomCount > 0) {
+    message += ` (all on bottom)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "fatesealResolve", { 
+      playerId: pid, 
+      opponentId,
+      keepTopOrder, 
+      bottomOrder 
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Clash resolution response
+ * 
+ * Player reveals top card and chooses whether to put it on bottom of library.
+ * 
+ * Reference: Rule 701.30 - Clash
+ */
+function handleClashResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: boolean (true = put on bottom, false = keep on top)
+  const putOnBottom = selections === true || selections?.putOnBottom === true;
+  
+  const clashStep = step as any;
+  const revealedCard = clashStep.revealedCard;
+  const opponentId = clashStep.opponentId;
+  
+  debug(2, `[Resolution] Clash response: player=${pid}, putOnBottom=${putOnBottom}`);
+  
+  if (!revealedCard) {
+    debugWarn(2, `[Resolution] Clash step missing revealed card`);
+    return;
+  }
+  
+  // Get player's library
+  const lib = (game as any).libraries?.get(pid) || [];
+  
+  if (putOnBottom) {
+    // Remove from top and put on bottom
+    if (lib.length > 0 && lib[0].id === revealedCard.id) {
+      const card = lib.shift();
+      if (card) {
+        lib.push({ ...card, zone: 'library' });
+      }
+    }
+  }
+  // If not putting on bottom, card stays on top (no action needed)
+  
+  // Update library count
+  const zones = game.state.zones = game.state.zones || {};
+  const z = zones[pid] = zones[pid] || {};
+  z.libraryCount = lib.length;
+  
+  // Emit chat message
+  let message = `${getPlayerName(game, pid)} clashes, revealing ${revealedCard.name}`;
+  if (opponentId) {
+    message = `${getPlayerName(game, pid)} clashes with ${getPlayerName(game, opponentId)}, revealing ${revealedCard.name}`;
+  }
+  if (putOnBottom) {
+    message += ` (put on bottom)`;
+  } else {
+    message += ` (kept on top)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "clashResolve", { 
+      playerId: pid, 
+      revealedCard,
+      putOnBottom,
+      opponentId
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Vote resolution response
+ * 
+ * Player votes for one of the available choices. Votes are collected in APNAP order.
+ * 
+ * Reference: Rule 701.38 - Vote
+ */
+function handleVoteResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  
+  // Expected format: string (the chosen option) or { choice: string, voteCount?: number }
+  const choice = typeof selections === 'string' ? selections : selections?.choice;
+  const voteCount = typeof selections === 'object' ? (selections?.voteCount || 1) : 1;
+  
+  const voteStep = step as any;
+  const voteId = voteStep.voteId;
+  const choices = voteStep.choices || [];
+  const votesSubmitted = voteStep.votesSubmitted || [];
+  
+  debug(2, `[Resolution] Vote response: player=${pid}, choice=${choice}, voteCount=${voteCount}`);
+  
+  if (!choice || !choices.includes(choice)) {
+    debugWarn(2, `[Resolution] Invalid vote choice: ${choice}`);
+    return;
+  }
+  
+  // Store the vote (this would be used when all votes are collected)
+  const voteResult = {
+    playerId: pid,
+    choice,
+    voteCount,
+  };
+  
+  // Update game state with the vote
+  const voteState = (game.state as any).activeVotes = (game.state as any).activeVotes || {};
+  if (!voteState[voteId]) {
+    voteState[voteId] = {
+      choices,
+      votes: [],
+    };
+  }
+  voteState[voteId].votes.push(voteResult);
+  
+  // Emit chat message
+  let message = `${getPlayerName(game, pid)} votes for "${choice}"`;
+  if (voteCount > 1) {
+    message += ` (${voteCount} votes)`;
+  }
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+  
+  // Log to event history
+  try {
+    appendEvent(gameId, game.seq ?? 0, "voteSubmit", { 
+      playerId: pid, 
+      voteId,
+      choice,
+      voteCount
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
  * Handle Library Search resolution response
  * Generic handler for effects that reveal/search library and select cards
  * Used for: Genesis Wave, tutors, Impulse, etc.
@@ -2870,6 +3157,196 @@ export function processPendingProliferate(
     }
   } catch (err) {
     debugWarn(1, "[processPendingProliferate] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending fateseal from legacy state and migrate to resolution queue
+ * 
+ * Currently fateseal doesn't have legacy implementation, but this function
+ * is provided for future use if needed.
+ */
+export function processPendingFateseal(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingFateseal;
+    if (!pending || typeof pending !== 'object') return;
+    
+    for (const playerId of Object.keys(pending)) {
+      const data = pending[playerId];
+      if (!data || typeof data !== 'object') continue;
+      
+      const opponentId = data.opponentId;
+      const fatesealCount = data.count || 0;
+      
+      if (!opponentId || fatesealCount <= 0) {
+        delete pending[playerId];
+        continue;
+      }
+      
+      // Get opponent's library
+      const lib = (game as any).libraries?.get(opponentId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      // Peek at the top N cards of opponent's library
+      const actualCount = Math.min(fatesealCount, lib.length);
+      if (actualCount === 0) {
+        delete pending[playerId];
+        continue;
+      }
+      
+      const cards = lib.slice(0, actualCount).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.FATESEAL,
+        playerId,
+        description: `Fateseal ${actualCount} (${getPlayerName(game, opponentId)}'s library)`,
+        mandatory: true,
+        sourceId: data.sourceId,
+        sourceName: data.sourceName || 'Fateseal',
+        opponentId,
+        cards,
+        fatesealCount: actualCount,
+      });
+      
+      // Clear from pending state
+      delete pending[playerId];
+    }
+    
+    // Clean up empty pending object
+    if (Object.keys(pending).length === 0) {
+      delete (game.state as any).pendingFateseal;
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingFateseal] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending clash from legacy state and migrate to resolution queue
+ * 
+ * Currently clash doesn't have legacy implementation, but this function
+ * is provided for future use if needed.
+ */
+export function processPendingClash(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingClash;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    
+    for (const clashData of pending) {
+      if (!clashData || clashData.prompted) continue;
+      
+      const playerId = clashData.playerId;
+      if (!playerId) continue;
+      
+      // Mark as prompted
+      clashData.prompted = true;
+      
+      // Get player's library
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (lib.length === 0) continue;
+      
+      // Reveal top card
+      const revealedCard = {
+        id: lib[0].id,
+        name: lib[0].name,
+        type_line: lib[0].type_line,
+        oracle_text: lib[0].oracle_text,
+        imageUrl: lib[0].image_uris?.normal,
+        mana_cost: lib[0].mana_cost,
+        cmc: lib[0].cmc,
+      };
+      
+      // Add to resolution queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CLASH,
+        playerId,
+        description: `Clash - Put ${revealedCard.name} on bottom?`,
+        mandatory: true,
+        sourceId: clashData.sourceId,
+        sourceName: clashData.sourceName || 'Clash',
+        revealedCard,
+        opponentId: clashData.opponentId,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingClash] Error:", err);
+  }
+}
+
+
+/**
+ * Process pending vote from legacy state and migrate to resolution queue
+ * 
+ * Votes are processed in APNAP order. This creates resolution steps for each
+ * player who needs to vote.
+ */
+export function processPendingVote(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingVote;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+    
+    const players = game.state?.players || [];
+    
+    for (const voteData of pending) {
+      if (!voteData || voteData.prompted) continue;
+      
+      const voteId = voteData.id;
+      const choices = voteData.choices || [];
+      const voters = voteData.voters || players.map((p: any) => p.id);
+      const votesSubmitted = voteData.votes || [];
+      
+      if (choices.length === 0 || voters.length === 0) continue;
+      
+      // Mark as prompted
+      voteData.prompted = true;
+      
+      // Find next voter who hasn't voted yet
+      const alreadyVoted = new Set(votesSubmitted.map((v: any) => v.playerId));
+      const nextVoter = voters.find((pid: string) => !alreadyVoted.has(pid));
+      
+      if (!nextVoter) {
+        // All players have voted, process results
+        continue;
+      }
+      
+      // Add resolution step for next voter
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.VOTE,
+        playerId: nextVoter,
+        description: `Vote: ${choices.join(' or ')}`,
+        mandatory: true,
+        sourceId: voteData.sourceId,
+        sourceName: voteData.sourceName || 'Vote',
+        voteId,
+        choices,
+        votesSubmitted,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingVote] Error:", err);
   }
 }
 
