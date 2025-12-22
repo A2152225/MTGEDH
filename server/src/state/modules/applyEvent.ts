@@ -933,6 +933,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (idx !== -1) {
               const [card] = hand.splice(idx, 1);
               graveyard.push({ ...card, zone: "graveyard" });
+              
+              // Check for graveyard triggers (Eldrazi shuffle)
+              const { checkGraveyardTrigger } = await import("./triggered-abilities.js");
+              if (checkGraveyardTrigger(ctx, card, pid)) {
+                debug(2, `[applyEvent:cleanupDiscard] ${card.name} triggered graveyard shuffle for ${pid}`);
+              }
             }
           }
           
@@ -963,6 +969,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const milled = lib.splice(0, Math.min(count, lib.length));
           for (const card of milled) {
             graveyard.push({ ...card, zone: "graveyard" });
+            
+            // Check for graveyard triggers (Eldrazi shuffle)
+            const { checkGraveyardTrigger } = await import("./triggered-abilities.js");
+            if (checkGraveyardTrigger(ctx, card, pid)) {
+              debug(2, `[applyEvent:mill] ${card.name} triggered graveyard shuffle for ${pid}`);
+            }
           }
           
           // Update counts

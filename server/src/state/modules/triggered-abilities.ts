@@ -4715,6 +4715,69 @@ export function detectEldraziEffect(card: any, permanent: any): EldraziEffect | 
   return null;
 }
 
+/**
+ * Check for graveyard triggers on a card
+ * Returns true if a trigger was processed (like shuffling graveyard into library)
+ */
+export function checkGraveyardTrigger(ctx: any, card: any, ownerId: string): boolean {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  // Check for Eldrazi graveyard shuffle trigger
+  const eldraziEffect = detectEldraziEffect(card, { id: card?.id });
+  if (eldraziEffect && eldraziEffect.specialAbility) {
+    const specialLower = eldraziEffect.specialAbility.toLowerCase();
+    
+    // "When put into graveyard from anywhere, shuffle graveyard into library"
+    if (specialLower.includes('graveyard') && specialLower.includes('shuffle')) {
+      // Get owner's zones
+      const zones = ctx.state?.zones?.[ownerId];
+      if (!zones) return false;
+      
+      const graveyard = zones.graveyard || [];
+      const library = ctx.libraries?.get(ownerId) || [];
+      
+      // Shuffle entire graveyard (including the card that just entered) into library
+      const cardsToShuffle = [...graveyard];
+      
+      if (cardsToShuffle.length > 0) {
+        // Clear graveyard
+        zones.graveyard = [];
+        zones.graveyardCount = 0;
+        
+        // Add all cards to library
+        const newLibrary = [...library, ...cardsToShuffle.map((c: any) => ({ ...c, zone: 'library' }))];
+        
+        // Shuffle the library
+        if (ctx.rng && typeof ctx.rng === 'function') {
+          // Use context RNG for deterministic shuffling
+          for (let i = newLibrary.length - 1; i > 0; i--) {
+            const j = Math.floor(ctx.rng() * (i + 1));
+            [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
+          }
+        } else {
+          // Fallback to Math.random()
+          for (let i = newLibrary.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
+          }
+        }
+        
+        // Update library
+        ctx.libraries?.set(ownerId, newLibrary);
+        zones.libraryCount = newLibrary.length;
+        
+        if (ctx.bumpSeq && typeof ctx.bumpSeq === 'function') {
+          ctx.bumpSeq();
+        }
+        
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
 // ============================================================================
 // Control Change Effects (Reins of Power, Humble Defector, etc.)
 // ============================================================================

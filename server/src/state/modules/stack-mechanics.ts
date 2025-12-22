@@ -336,6 +336,12 @@ export function counterStackItem(
       zones.graveyard = zones.graveyard || [];
       zones.graveyard.push({ ...item.card, zone: 'graveyard' });
       zones.graveyardCount = zones.graveyard.length;
+      
+      // Check for graveyard triggers (Eldrazi shuffle)
+      const { checkGraveyardTrigger } = await import("./triggered-abilities.js");
+      if (checkGraveyardTrigger(ctx, item.card, item.controller)) {
+        debug(2, `[counterSpell] ${item.card?.name} triggered graveyard shuffle for ${item.controller}`);
+      }
     }
   }
   
