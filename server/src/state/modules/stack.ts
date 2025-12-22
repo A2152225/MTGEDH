@@ -17,6 +17,7 @@ import {
   shouldGoadOnControlChange,
   mustAttackEachCombat,
   cantAttackOwner,
+  checkGraveyardTrigger,
 } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
@@ -2312,7 +2313,6 @@ function executeTriggerEffect(
               ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
               
               // Check for graveyard triggers (Eldrazi shuffle)
-              const { checkGraveyardTrigger } = await import("./triggered-abilities.js");
               if (checkGraveyardTrigger(ctx, targetPerm.card, targetPerm.owner)) {
                 debug(2, `[executeTriggerEffect] ${targetPerm.card?.name} triggered graveyard shuffle for ${targetPerm.owner}`);
               }
@@ -4848,7 +4848,6 @@ export function resolveTopOfStack(ctx: GameContext) {
         z.graveyardCount = (z.graveyard as any[]).length;
         
         // Check for graveyard triggers (Eldrazi shuffle)
-        const { checkGraveyardTrigger } = await import("./triggered-abilities.js");
         if (checkGraveyardTrigger(ctx, card, controller)) {
           debug(2, `[resolveTopOfStack] ${card.name} triggered graveyard shuffle for ${controller}`);
         }

@@ -46,6 +46,7 @@ import { resolveSpell } from "../../rules-engine/targeting";
 import { evaluateAction } from "../../rules-engine/index";
 import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { checkGraveyardTrigger } from "./triggered-abilities.js";
 
 /* -------- Helpers ---------- */
 
@@ -935,7 +936,6 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               graveyard.push({ ...card, zone: "graveyard" });
               
               // Check for graveyard triggers (Eldrazi shuffle)
-              const { checkGraveyardTrigger } = await import("./triggered-abilities.js");
               if (checkGraveyardTrigger(ctx, card, pid)) {
                 debug(2, `[applyEvent:cleanupDiscard] ${card.name} triggered graveyard shuffle for ${pid}`);
               }
@@ -971,7 +971,6 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             graveyard.push({ ...card, zone: "graveyard" });
             
             // Check for graveyard triggers (Eldrazi shuffle)
-            const { checkGraveyardTrigger } = await import("./triggered-abilities.js");
             if (checkGraveyardTrigger(ctx, card, pid)) {
               debug(2, `[applyEvent:mill] ${card.name} triggered graveyard shuffle for ${pid}`);
             }

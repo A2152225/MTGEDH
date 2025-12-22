@@ -3739,8 +3739,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Emrakul, the Aeons Torn: "Take an extra turn after this one"
           if (triggerLower.includes('extra turn')) {
             // Mark that an extra turn should be taken
-            game.state.pendingExtraTurns = game.state.pendingExtraTurns || [];
-            game.state.pendingExtraTurns.push({
+            (game.state as any).pendingExtraTurns = (game.state as any).pendingExtraTurns || [];
+            (game.state as any).pendingExtraTurns.push({
               playerId: playerId,
               source: cardInHand.name,
             });
