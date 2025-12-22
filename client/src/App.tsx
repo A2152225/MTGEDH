@@ -388,6 +388,7 @@ export function App() {
     toBattlefield?: number;
     toHand?: number;
     entersTapped?: boolean;
+    stepId?: string; // For resolution queue system
   } | null>(null);
   
   // Target selection modal state
@@ -2609,6 +2610,22 @@ export function App() {
         });
         setPonderModalOpen(true);
       }
+      
+      // Handle Library Search resolution step
+      else if (step.type === 'library_search') {
+        setLibrarySearchData({
+          cards: step.availableCards || [],
+          title: step.sourceName || 'Search Library',
+          description: step.description || step.searchCriteria || 'Search your library',
+          filter: {}, // Filter already applied on server
+          maxSelections: step.maxSelections || 1,
+          moveTo: step.destination || 'hand',
+          shuffleAfter: step.shuffleAfter !== false,
+          entersTapped: step.entersTapped || false,
+          stepId: step.id,  // Store for resolution response
+        });
+        setLibrarySearchModalOpen(true);
+      }
     };
     
     // Also listen for the legacy kynaiosChoice event for backward compatibility
@@ -2627,56 +2644,6 @@ export function App() {
       socket.off("kynaiosChoice", handleLegacyKynaiosChoice);
     };
   }, [safeView?.id]);
-
-  // Ponder socket event handlers
-  React.useEffect(() => {
-    const handlePonderRequest = (payload: {
-      gameId: string;
-      effectId: string;
-      playerId: string;
-      targetPlayerId: string;
-      targetPlayerName?: string;
-      cardName: string;
-      cardImageUrl?: string;
-      cards: PeekCard[];
-      variant: PonderVariant;
-      canShuffle: boolean;
-      drawAfter: boolean;
-      pickToHand: number;
-    }) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setPonderRequest({
-          effectId: payload.effectId,
-          cardName: payload.cardName,
-          cardImageUrl: payload.cardImageUrl,
-          cards: payload.cards,
-          variant: payload.variant,
-          canShuffle: payload.canShuffle,
-          drawAfter: payload.drawAfter,
-          pickToHand: payload.pickToHand,
-          targetPlayerId: payload.targetPlayerId,
-          targetPlayerName: payload.targetPlayerName,
-          isOwnLibrary: payload.playerId === payload.targetPlayerId,
-        });
-        setPonderModalOpen(true);
-      }
-    };
-    
-    const handlePonderComplete = (payload: { effectId: string }) => {
-      if (ponderRequest?.effectId === payload.effectId) {
-        setPonderModalOpen(false);
-        setPonderRequest(null);
-      }
-    };
-    
-    socket.on("ponderRequest", handlePonderRequest);
-    socket.on("ponderComplete", handlePonderComplete);
-    
-    return () => {
-      socket.off("ponderRequest", handlePonderRequest);
-      socket.off("ponderComplete", handlePonderComplete);
-    };
-  }, [safeView?.id, you, ponderRequest?.effectId]);
 
   // Mutate target selection listener
   useEffect(() => {
@@ -4031,22 +3998,46 @@ export function App() {
     moveTo: string,
     splitAssignments?: { toBattlefield: string[]; toHand: string[] }
   ) => {
-    if (!safeView) return;
-    socket.emit("librarySearchSelect", {
-      gameId: safeView.id,
-      selectedCardIds: selectedCardIds,
-      moveTo: moveTo,
-      splitAssignments,
-    });
+    if (!safeView || !librarySearchData) return;
+    
+    // If we have a stepId, use the resolution queue system
+    if ((librarySearchData as any).stepId) {
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId: (librarySearchData as any).stepId,
+        selections: selectedCardIds,
+        cancelled: false,
+      });
+    } else {
+      // Legacy handler for backward compatibility
+      socket.emit("librarySearchSelect", {
+        gameId: safeView.id,
+        selectedCardIds: selectedCardIds,
+        moveTo: moveTo,
+        splitAssignments,
+      });
+    }
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };
 
   const handleLibrarySearchCancel = () => {
-    if (!safeView) return;
-    socket.emit("librarySearchCancel", {
-      gameId: safeView.id,
-    });
+    if (!safeView || !librarySearchData) return;
+    
+    // If we have a stepId, use the resolution queue system
+    if ((librarySearchData as any).stepId) {
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId: (librarySearchData as any).stepId,
+        selections: [],
+        cancelled: true,
+      });
+    } else {
+      // Legacy handler for backward compatibility
+      socket.emit("librarySearchCancel", {
+        gameId: safeView.id,
+      });
+    }
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };
