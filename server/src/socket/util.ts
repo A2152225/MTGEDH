@@ -1701,8 +1701,56 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // ========================================================================
     
     if (!priority) {
-      debug(2, `${ts()} [checkAndTriggerAutoPass] No priority holder, returning (ID: ${debugCallId})`);
-      return;
+      // CRITICAL FIX: If priority is null, check if we're stuck in resolution mode
+      // Priority should only be null during:
+      // 1. UNTAP step (Rule 502.1)
+      // 2. CLEANUP step (Rule 514.1)
+      // 3. Active resolution of a spell/ability (Rule 608.2)
+      // If priority is null in any other phase/step and there are no pending resolution steps,
+      // the game is stuck and we need to restore priority.
+      
+      const phase = String(stateAny?.phase || '').toLowerCase();
+      const step = String(stateAny?.step || '').toUpperCase();
+      const stepsThatDontGrantPriority = ['UNTAP', 'CLEANUP'];
+      
+      // Check if this is a phase/step that should have priority
+      const shouldHavePriority = !stepsThatDontGrantPriority.includes(step);
+      
+      if (shouldHavePriority) {
+        // Check if there are actually pending resolution steps
+        const { ResolutionQueueManager } = require('../state/resolution/ResolutionQueueManager.js');
+        const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+        
+        if (!pendingSummary.hasPending) {
+          // STUCK STATE DETECTED: Priority is null but there are no pending steps
+          // and we're in a phase that should have priority
+          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] STUCK STATE DETECTED: Priority is null in ${phase}/${step} with no pending resolution steps!`);
+          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] Restoring priority to turn player to fix stuck game (ID: ${debugCallId})`);
+          
+          // Restore priority to turn player
+          const turnPlayer = stateAny.turnPlayer;
+          if (turnPlayer) {
+            stateAny.priority = turnPlayer;
+            debug(1, `${ts()} [checkAndTriggerAutoPass] Priority restored to ${turnPlayer}`);
+            
+            // Broadcast updated state
+            broadcastGame(io, game, gameId);
+            
+            // Now continue with normal auto-pass logic (don't return early)
+          } else {
+            debugError(1, `${ts()} [checkAndTriggerAutoPass] Cannot restore priority - no turn player found!`);
+            return;
+          }
+        } else {
+          // Priority is null because we're in resolution mode - this is correct
+          debug(2, `${ts()} [checkAndTriggerAutoPass] Priority is null due to active resolution (${pendingSummary.pendingCount} pending steps), returning (ID: ${debugCallId})`);
+          return;
+        }
+      } else {
+        // Priority is null in UNTAP or CLEANUP - this is correct per MTG rules
+        debug(2, `${ts()} [checkAndTriggerAutoPass] No priority holder (step ${step} doesn't grant priority), returning (ID: ${debugCallId})`);
+        return;
+      }
     }
     
     // IMPORTANT: Do not auto-pass during pre_game phase
