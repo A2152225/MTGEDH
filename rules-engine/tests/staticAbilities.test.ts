@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { BattlefieldPermanent } from '../src/types.js';
+import type { BattlefieldPermanent } from '../../shared/src/index.js';
 import { applyStaticAbilitiesToBattlefield } from '../src/staticAbilities.js';
 
 describe('applyStaticAbilitiesToBattlefield', () => {
@@ -16,6 +16,7 @@ describe('applyStaticAbilitiesToBattlefield', () => {
           power: '1',
           toughness: '1',
         },
+        // Base stats are 1/1; effective stats reflect floating green mana already applied upstream
         effectivePower: 4,
         effectiveToughness: 4,
       },
