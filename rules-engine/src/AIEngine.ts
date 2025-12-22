@@ -712,7 +712,18 @@ export class AIEngine {
         // - Don't have defender
         // - Don't have summoning sickness (or have haste)
         const legalAttackerIds = getLegalAttackers(context.gameState, playerId);
-        const randomAttackers = legalAttackerIds.filter(() => Math.random() > 0.5);
+        // Attack with ~70% of legal attackers on average (random selection per creature)
+        // This ensures attacks happen frequently while still being unpredictable
+        const randomAttackerIds = legalAttackerIds.filter(() => Math.random() > 0.3);
+        
+        // Determine target player using threat assessment
+        const targetPlayerId = this.selectAttackTarget(context.gameState, playerId);
+        
+        const randomAttackers = randomAttackerIds.map(id => ({
+          creatureId: id,
+          defendingPlayerId: targetPlayerId,
+        }));
+        
         return {
           type: decisionType,
           playerId,
@@ -822,6 +833,70 @@ export class AIEngine {
       reasoning: `Hand has ${landCount} lands (want 2-5)`,
       confidence: keep ? 0.7 : 0.3,
     };
+  }
+  
+  /**
+   * Select the best opponent to attack based on threat assessment
+   * Considers multiple factors:
+   * - Overall threat level (board state, combo potential)
+   * - Life total (prioritize low life for potential kills)
+   * - Board presence (number and quality of threats)
+   * 
+   * @param gameState Current game state
+   * @param playerId The attacking player
+   * @returns The player ID to attack
+   */
+  private selectAttackTarget(gameState: GameState, playerId: PlayerID): PlayerID {
+    const opponents = gameState.players.filter(p => p.id !== playerId);
+    if (opponents.length === 0) return playerId;
+    if (opponents.length === 1) return opponents[0].id;
+    
+    // Use battlefield threat assessment
+    const threatAssessment = this.assessBattlefieldThreats(gameState, playerId);
+    
+    // Score each opponent
+    const opponentScores = opponents.map(opp => {
+      const playerAnalysis = threatAssessment.playerAnalyses.get(opp.id);
+      const life = opp.life || 40;
+      
+      let score = 0;
+      
+      // Factor 1: Threat level (most important)
+      // Higher threat = higher priority target
+      if (playerAnalysis) {
+        score += playerAnalysis.totalThreatLevel * 100;
+        
+        // Extra weight for combo threats
+        if (playerAnalysis.comboPiecesOnBoard.length >= 2) {
+          score += 300; // Very high priority to disrupt combos
+        }
+      }
+      
+      // Factor 2: Low life (potential kill)
+      // Prioritize opponents below 20 life
+      if (life <= 10) {
+        score += 200; // Very high priority - potential kill
+      } else if (life <= 20) {
+        score += 100; // High priority - getting close
+      } else if (life <= 30) {
+        score += 50; // Moderate priority
+      }
+      
+      // Factor 3: Board presence
+      // More creatures = higher threat in Commander
+      const creatureCount = (opp.battlefield || []).filter((p: any) =>
+        p.card?.type_line?.toLowerCase().includes('creature')
+      ).length;
+      score += creatureCount * 10;
+      
+      return { playerId: opp.id, score, life };
+    });
+    
+    // Sort by score (highest first)
+    opponentScores.sort((a, b) => b.score - a.score);
+    
+    // Return the highest priority target
+    return opponentScores[0].playerId;
   }
   
   /**
@@ -946,13 +1021,8 @@ export class AIEngine {
     }
     
     // Determine attack target for non-goaded attackers
-    // Attack the player with lowest life
-    const opponents = allPlayerIds.filter(id => id !== context.playerId);
-    const targetPlayer = opponents.reduce((lowest, current) => {
-      const currentLife = context.gameState.players.find(p => p.id === current)?.life || 40;
-      const lowestLife = context.gameState.players.find(p => p.id === lowest)?.life || 40;
-      return currentLife < lowestLife ? current : lowest;
-    }, opponents[0] || context.playerId);
+    // Use threat assessment to select the best target
+    const targetPlayer = this.selectAttackTarget(context.gameState, context.playerId);
     
     const voluntaryAttackers = [...suicideAttackers, ...regularAttackers].map(id => ({
       creatureId: id,
@@ -1528,11 +1598,19 @@ export class AIEngine {
       // Use getLegalAttackers to get only valid attackers
       const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
       
+      // Determine target player using threat assessment
+      const targetPlayerId = this.selectAttackTarget(context.gameState, context.playerId);
+      
+      const attackers = legalAttackerIds.map(id => ({
+        creatureId: id,
+        defendingPlayerId: targetPlayerId,
+      }));
+      
       return {
         type: AIDecisionType.DECLARE_ATTACKERS,
         playerId: context.playerId,
-        action: { attackers: legalAttackerIds },
-        reasoning: `Aggressive: attack with all ${legalAttackerIds.length} legal creatures`,
+        action: { attackers },
+        reasoning: `Aggressive: attack with all ${attackers.length} legal creatures`,
         confidence: 0.9,
       };
     }
@@ -1545,18 +1623,31 @@ export class AIEngine {
    * Uses proper combat validation to ensure only legal attackers are selected
    */
   private makeDefensiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Defensive AI rarely attacks, always blocks
+    // Defensive AI attacks cautiously but still applies pressure
     if (context.decisionType === AIDecisionType.DECLARE_ATTACKERS) {
       const player = context.gameState.players.find(p => p.id === context.playerId);
       const life = player?.life || 0;
       
-      // Only attack if life is high or opponent is low
-      if (life > 30) {
+      // Attack cautiously if life is above 20 (Commander starts at 40)
+      // or if opponent is very low on life
+      const opponents = context.gameState.players.filter(p => p.id !== context.playerId);
+      const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
+      
+      if (life > 20 || lowestOpponentLife < 15) {
         // Use getLegalAttackers to get only valid attackers
         const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
-        // Attack with only half of legal creatures (defensive)
-        const attackerCount = Math.floor(legalAttackerIds.length / 2);
-        const attackers = legalAttackerIds.slice(0, attackerCount);
+        // Attack with half to two-thirds of legal creatures (defensive but active)
+        const attackRatio = life > 30 ? 0.66 : 0.5;
+        const attackerCount = Math.floor(legalAttackerIds.length * attackRatio);
+        const attackerIds = legalAttackerIds.slice(0, Math.max(1, attackerCount));
+        
+        // Use threat assessment to select target
+        const targetPlayerId = this.selectAttackTarget(context.gameState, context.playerId);
+        
+        const attackers = attackerIds.map(id => ({
+          creatureId: id,
+          defendingPlayerId: targetPlayerId,
+        }));
         
         return {
           type: AIDecisionType.DECLARE_ATTACKERS,
@@ -1589,11 +1680,11 @@ export class AIEngine {
     
     switch (decisionType) {
       case AIDecisionType.DECLARE_ATTACKERS: {
-        // Control AI only attacks when in a dominant position
+        // Control AI attacks when safe to do so or when it has answers
         const player = gameState.players.find(p => p.id === playerId);
         const opponents = gameState.players.filter(p => p.id !== playerId);
         
-        // Check if we have board dominance
+        // Check if we have board presence
         const myCreatureCount = (player?.battlefield || []).filter((p: any) =>
           p.card?.type_line?.toLowerCase().includes('creature')
         ).length;
@@ -1603,21 +1694,30 @@ export class AIEngine {
             p.card?.type_line?.toLowerCase().includes('creature')
           ).length), 0);
         
-        // Attack only if we have significant board advantage
-        if (myCreatureCount > opponentCreatureCount + 2) {
+        // Check if any opponent is low on life (potential kill)
+        const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
+        
+        // Attack if we have board parity/advantage OR if opponent is low on life
+        if (myCreatureCount >= opponentCreatureCount || lowestOpponentLife < 20) {
           const legalAttackerIds = getLegalAttackers(gameState, playerId);
-          // Attack with creatures that won't die in combat
-          const safeAttackers = legalAttackerIds.filter(id => {
-            const perm = player?.battlefield?.find((p: any) => p.id === id);
-            const toughness = parseInt(perm?.card?.toughness || '0', 10);
-            return toughness >= 3; // Only attack with tough creatures
-          });
+          // Attack with 50-75% of creatures (keep some back for defense)
+          const attackRatio = myCreatureCount > opponentCreatureCount + 2 ? 0.75 : 0.5;
+          const attackerCount = Math.ceil(legalAttackerIds.length * attackRatio);
+          const attackerIds = legalAttackerIds.slice(0, attackerCount);
+          
+          // Use threat assessment to select target
+          const targetPlayerId = this.selectAttackTarget(gameState, playerId);
+          
+          const attackers = attackerIds.map(id => ({
+            creatureId: id,
+            defendingPlayerId: targetPlayerId,
+          }));
           
           return {
             type: AIDecisionType.DECLARE_ATTACKERS,
             playerId,
-            action: { attackers: safeAttackers },
-            reasoning: `Control: safe attacks with ${safeAttackers.length} protected creatures`,
+            action: { attackers },
+            reasoning: `Control: attacking with ${attackers.length}/${legalAttackerIds.length} creatures`,
             confidence: 0.7,
           };
         }
@@ -1626,7 +1726,7 @@ export class AIEngine {
           type: AIDecisionType.DECLARE_ATTACKERS,
           playerId,
           action: { attackers: [] },
-          reasoning: 'Control: holding back, waiting for board control',
+          reasoning: 'Control: holding back, need more board presence',
           confidence: 0.8,
         };
       }
@@ -1706,27 +1806,50 @@ export class AIEngine {
     
     switch (decisionType) {
       case AIDecisionType.DECLARE_ATTACKERS: {
-        // Combo AI rarely attacks - preserve creatures for combos
+        // Combo AI attacks with "vanilla" creatures to apply pressure while protecting combo pieces
         const player = gameState.players.find(p => p.id === playerId);
         const life = player?.life || 0;
         
-        // Only attack if life is safe and we have extra creatures
-        if (life > 20) {
+        // Attack if life is reasonably safe (>15) or if we have a significant creature advantage
+        const opponents = gameState.players.filter(p => p.id !== playerId);
+        const myCreatureCount = (player?.battlefield || []).filter((p: any) =>
+          p.card?.type_line?.toLowerCase().includes('creature')
+        ).length;
+        const maxOpponentCreatures = Math.max(...opponents.map(opp =>
+          (opp.battlefield || []).filter((p: any) =>
+            p.card?.type_line?.toLowerCase().includes('creature')
+          ).length
+        ));
+        
+        if (life > 15 || myCreatureCount > maxOpponentCreatures + 3) {
           const legalAttackerIds = getLegalAttackers(gameState, playerId);
-          // Only attack with "extra" creatures (not combo pieces)
+          // Attack with "vanilla" creatures (those without abilities)
           // Combo pieces typically have valuable abilities in their text
-          const nonComboPieces = legalAttackerIds.filter(id => {
+          const vanillaAttackers = legalAttackerIds.filter(id => {
             const perm = player?.battlefield?.find((p: any) => p.id === id);
             const text = (perm?.card?.oracle_text || '').toLowerCase();
-            // Keep cards with activated abilities or important triggers
+            // Attack with creatures that don't have activated abilities or important triggers
             return !text.includes(':') && !text.includes('whenever') && !text.includes('when');
           });
+          
+          // If we have no vanilla creatures, attack with a few combo pieces anyway (applying pressure)
+          const attackerIds = vanillaAttackers.length > 0 
+            ? vanillaAttackers 
+            : legalAttackerIds.slice(0, Math.max(1, Math.floor(legalAttackerIds.length * 0.3)));
+          
+          // Use threat assessment to select target
+          const targetPlayerId = this.selectAttackTarget(gameState, playerId);
+          
+          const attackers = attackerIds.map(id => ({
+            creatureId: id,
+            defendingPlayerId: targetPlayerId,
+          }));
           
           return {
             type: AIDecisionType.DECLARE_ATTACKERS,
             playerId,
-            action: { attackers: nonComboPieces },
-            reasoning: `Combo: attacking only with non-essential creatures (${nonComboPieces.length})`,
+            action: { attackers },
+            reasoning: `Combo: attacking with ${attackers.length} non-essential creatures`,
             confidence: 0.6,
           };
         }
@@ -1735,7 +1858,7 @@ export class AIEngine {
           type: AIDecisionType.DECLARE_ATTACKERS,
           playerId,
           action: { attackers: [] },
-          reasoning: 'Combo: preserving all creatures for potential combos',
+          reasoning: 'Combo: preserving creatures (low life or need blockers)',
           confidence: 0.9,
         };
       }
