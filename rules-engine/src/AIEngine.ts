@@ -714,7 +714,17 @@ export class AIEngine {
         const legalAttackerIds = getLegalAttackers(context.gameState, playerId);
         // Attack with ~70% of legal attackers on average (random selection per creature)
         // This ensures attacks happen frequently while still being unpredictable
-        const randomAttackers = legalAttackerIds.filter(() => Math.random() > 0.3);
+        const randomAttackerIds = legalAttackerIds.filter(() => Math.random() > 0.3);
+        
+        // Determine target player (random opponent)
+        const opponents = context.gameState.players.filter(p => p.id !== playerId);
+        const targetPlayer = opponents[Math.floor(Math.random() * opponents.length)];
+        
+        const randomAttackers = randomAttackerIds.map(id => ({
+          creatureId: id,
+          defendingPlayerId: targetPlayer?.id || opponents[0]?.id || playerId,
+        }));
+        
         return {
           type: decisionType,
           playerId,
@@ -1530,11 +1540,24 @@ export class AIEngine {
       // Use getLegalAttackers to get only valid attackers
       const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
       
+      // Determine target player (attack player with lowest life)
+      const opponents = context.gameState.players.filter(p => p.id !== context.playerId);
+      const targetPlayer = opponents.reduce((lowest, current) => {
+        const currentLife = current.life || 40;
+        const lowestLife = context.gameState.players.find(p => p.id === lowest.id)?.life || 40;
+        return currentLife < lowestLife ? current : lowest;
+      }, opponents[0]);
+      
+      const attackers = legalAttackerIds.map(id => ({
+        creatureId: id,
+        defendingPlayerId: targetPlayer?.id || opponents[0]?.id || context.playerId,
+      }));
+      
       return {
         type: AIDecisionType.DECLARE_ATTACKERS,
         playerId: context.playerId,
-        action: { attackers: legalAttackerIds },
-        reasoning: `Aggressive: attack with all ${legalAttackerIds.length} legal creatures`,
+        action: { attackers },
+        reasoning: `Aggressive: attack with all ${attackers.length} legal creatures`,
         confidence: 0.9,
       };
     }
@@ -1563,7 +1586,19 @@ export class AIEngine {
         // Attack with half to two-thirds of legal creatures (defensive but active)
         const attackRatio = life > 30 ? 0.66 : 0.5;
         const attackerCount = Math.floor(legalAttackerIds.length * attackRatio);
-        const attackers = legalAttackerIds.slice(0, Math.max(1, attackerCount));
+        const attackerIds = legalAttackerIds.slice(0, Math.max(1, attackerCount));
+        
+        // Target player with lowest life
+        const targetPlayer = opponents.reduce((lowest, current) => {
+          const currentLife = current.life || 40;
+          const lowestLife = opponents.find(p => p.id === lowest.id)?.life || 40;
+          return currentLife < lowestLife ? current : lowest;
+        }, opponents[0]);
+        
+        const attackers = attackerIds.map(id => ({
+          creatureId: id,
+          defendingPlayerId: targetPlayer?.id || opponents[0]?.id || context.playerId,
+        }));
         
         return {
           type: AIDecisionType.DECLARE_ATTACKERS,
@@ -1619,7 +1654,19 @@ export class AIEngine {
           // Attack with 50-75% of creatures (keep some back for defense)
           const attackRatio = myCreatureCount > opponentCreatureCount + 2 ? 0.75 : 0.5;
           const attackerCount = Math.ceil(legalAttackerIds.length * attackRatio);
-          const attackers = legalAttackerIds.slice(0, attackerCount);
+          const attackerIds = legalAttackerIds.slice(0, attackerCount);
+          
+          // Target player with lowest life
+          const targetPlayer = opponents.reduce((lowest, current) => {
+            const currentLife = current.life || 40;
+            const lowestLife = opponents.find(p => p.id === lowest.id)?.life || 40;
+            return currentLife < lowestLife ? current : lowest;
+          }, opponents[0]);
+          
+          const attackers = attackerIds.map(id => ({
+            creatureId: id,
+            defendingPlayerId: targetPlayer?.id || opponents[0]?.id || playerId,
+          }));
           
           return {
             type: AIDecisionType.DECLARE_ATTACKERS,
@@ -1741,9 +1788,21 @@ export class AIEngine {
           });
           
           // If we have no vanilla creatures, attack with a few combo pieces anyway (applying pressure)
-          const attackers = vanillaAttackers.length > 0 
+          const attackerIds = vanillaAttackers.length > 0 
             ? vanillaAttackers 
             : legalAttackerIds.slice(0, Math.max(1, Math.floor(legalAttackerIds.length * 0.3)));
+          
+          // Target player with lowest life
+          const targetPlayer = opponents.reduce((lowest, current) => {
+            const currentLife = current.life || 40;
+            const lowestLife = opponents.find(p => p.id === lowest.id)?.life || 40;
+            return currentLife < lowestLife ? current : lowest;
+          }, opponents[0]);
+          
+          const attackers = attackerIds.map(id => ({
+            creatureId: id,
+            defendingPlayerId: targetPlayer?.id || opponents[0]?.id || playerId,
+          }));
           
           return {
             type: AIDecisionType.DECLARE_ATTACKERS,
