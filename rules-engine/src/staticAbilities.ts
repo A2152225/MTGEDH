@@ -717,16 +717,24 @@ export function applyStaticAbilitiesToBattlefield(
       return perm;
     }
     
+    // If the permanent already has effective P/T (precomputed by server view),
+    // preserve those values to avoid overwriting dynamic bonuses like Omnath's mana scaling.
+    const precomputedPower = typeof perm.effectivePower === 'number' ? perm.effectivePower : undefined;
+    const precomputedToughness = typeof perm.effectiveToughness === 'number' ? perm.effectiveToughness : undefined;
+    
     const { power, toughness, grantedAbilities } = calculateEffectivePT(
       perm,
       battlefield,
       staticAbilities
     );
     
+    const finalPower = precomputedPower ?? power;
+    const finalToughness = precomputedToughness ?? toughness;
+    
     return {
       ...perm,
-      effectivePower: power,
-      effectiveToughness: toughness,
+      effectivePower: finalPower,
+      effectiveToughness: finalToughness,
       grantedAbilities: grantedAbilities.length > 0 ? grantedAbilities : undefined,
     } as BattlefieldPermanent;
   });
