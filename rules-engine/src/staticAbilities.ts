@@ -719,8 +719,8 @@ export function applyStaticAbilitiesToBattlefield(
     
     // If the permanent already has effective P/T (precomputed by server view),
     // preserve those values to avoid overwriting dynamic bonuses calculated elsewhere.
-    const precomputedPower = Number.isFinite(perm.effectivePower) ? perm.effectivePower : undefined;
-    const precomputedToughness = Number.isFinite(perm.effectiveToughness) ? perm.effectiveToughness : undefined;
+    const precomputedPower = perm.effectivePower ?? undefined;
+    const precomputedToughness = perm.effectiveToughness ?? undefined;
     
     const { power, toughness, grantedAbilities } = calculateEffectivePT(
       perm,
