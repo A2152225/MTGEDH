@@ -188,13 +188,6 @@ function checkPendingInteractions(ctx: GameContext): {
       result.details.pendingManaColorSelection = state.pendingManaColorSelection;
     }
     
-    // Check for pending library search selection
-    if (state.pendingLibrarySearch && Object.keys(state.pendingLibrarySearch).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('library_search');
-      result.details.pendingLibrarySearch = state.pendingLibrarySearch;
-    }
-    
     // Check for pending creature type selection (Maskwood Nexus, etc.)
     if (state.pendingCreatureTypeSelection && Object.keys(state.pendingCreatureTypeSelection).length > 0) {
       result.hasPending = true;

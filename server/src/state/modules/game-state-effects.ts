@@ -1212,29 +1212,51 @@ export function detectSpellLandBonus(cardName: string, oracleText: string): numb
   // Check known spells
   for (const [knownName, effect] of Object.entries(TEMPORARY_LAND_PLAY_SPELLS)) {
     if (lowerName.includes(knownName)) {
+      debug(2, `[detectSpellLandBonus] Found known spell "${cardName}" matching "${knownName}": ${effect.lands} land(s)`);
       return effect.lands;
     }
   }
   
-  // Dynamic detection: "You may play X additional lands this turn"
-  // Pattern: "play (one|two|three|an) additional land(s) this turn"
-  const thisTurnMatch = lowerText.match(/play\s+(\w+)\s+additional\s+land[s]?\s+this\s+turn/i);
-  if (thisTurnMatch) {
-    const countWord = thisTurnMatch[1].toLowerCase();
-    const wordToNum: Record<string, number> = {
-      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'an': 1, 'a': 1
-    };
-    return wordToNum[countWord] || 1;
+  // Dynamic detection patterns for various additional land play effects
+  // Word to number mapping for parsing text numbers
+  const wordToNum: Record<string, number> = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'an': 1, 'a': 1
+  };
+  
+  // Pattern 1: "You may play up to X additional lands this turn"
+  // Examples: Summer Bloom (up to three), Journey of Discovery (up to two)
+  const upToThisTurnMatch = lowerText.match(/play\s+up\s+to\s+(\w+)\s+additional\s+lands?\s+this\s+turn/i);
+  if (upToThisTurnMatch) {
+    const countWord = upToThisTurnMatch[1].toLowerCase();
+    const lands = wordToNum[countWord] || parseInt(countWord, 10) || 1;
+    debug(2, `[detectSpellLandBonus] Dynamically detected "${cardName}" with oracle text matching "play up to ${countWord} additional lands this turn": ${lands} land(s)`);
+    return lands;
   }
   
-  // Pattern: "You may play up to X additional lands"
-  const upToMatch = lowerText.match(/play\s+up\s+to\s+(\w+)\s+additional\s+land/i);
+  // Pattern 2: "You may play X additional land(s) this turn"
+  // Examples: Urban Evolution (an additional land), Explore (an additional land)
+  const thisTurnMatch = lowerText.match(/play\s+(\w+)\s+additional\s+lands?\s+this\s+turn/i);
+  if (thisTurnMatch) {
+    const countWord = thisTurnMatch[1].toLowerCase();
+    const lands = wordToNum[countWord] || 1;
+    debug(2, `[detectSpellLandBonus] Dynamically detected "${cardName}" with oracle text matching "play ${countWord} additional land(s) this turn": ${lands} land(s)`);
+    return lands;
+  }
+  
+  // Pattern 3: "You may play up to X additional lands" (without "this turn")
+  // Fallback for variations
+  const upToMatch = lowerText.match(/play\s+up\s+to\s+(\w+)\s+additional\s+lands?/i);
   if (upToMatch) {
     const countWord = upToMatch[1].toLowerCase();
-    const wordToNum: Record<string, number> = {
-      'one': 1, 'two': 2, 'three': 3, 'four': 4
-    };
-    return wordToNum[countWord] || parseInt(countWord, 10) || 1;
+    const lands = wordToNum[countWord] || parseInt(countWord, 10) || 1;
+    debug(2, `[detectSpellLandBonus] Dynamically detected "${cardName}" with oracle text matching "play up to ${countWord} additional land(s)": ${lands} land(s)`);
+    return lands;
+  }
+  
+  // If we didn't find a match but the oracle text mentions "additional land", log it for debugging
+  if (lowerText.includes('additional land')) {
+    debugWarn(1, `[detectSpellLandBonus] Card "${cardName}" has "additional land" in oracle text but didn't match patterns. Oracle text: "${lowerText.substring(0, 200)}"`);
   }
   
   return 0;
