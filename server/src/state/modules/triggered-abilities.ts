@@ -4744,22 +4744,14 @@ export function checkGraveyardTrigger(ctx: any, card: any, ownerId: string): boo
         zones.graveyard = [];
         zones.graveyardCount = 0;
         
-        // Add all cards to library
+        // Add all cards to library and shuffle
         const newLibrary = [...library, ...cardsToShuffle.map((c: any) => ({ ...c, zone: 'library' }))];
         
-        // Shuffle the library
-        if (ctx.rng && typeof ctx.rng === 'function') {
-          // Use context RNG for deterministic shuffling
-          for (let i = newLibrary.length - 1; i > 0; i--) {
-            const j = Math.floor(ctx.rng() * (i + 1));
-            [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
-          }
-        } else {
-          // Fallback to Math.random()
-          for (let i = newLibrary.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
-          }
+        // Fisher-Yates shuffle algorithm
+        const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
+        for (let i = newLibrary.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
         }
         
         // Update library

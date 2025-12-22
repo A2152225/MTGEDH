@@ -16,6 +16,7 @@ import { games } from "./socket.js";
 import GameManager from "../GameManager.js";
 import { canRespond, canAct } from "../state/modules/can-respond.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { detectGroupDrawEffect } from "../state/modules/triggered-abilities.js";
 
 /**
  * Register automation-related socket handlers
@@ -991,8 +992,7 @@ async function processActivateAbility(
       return { success: true, usesStack: false, message: result.message };
     }
     
-    // Import group draw effect detection
-    const { detectGroupDrawEffect } = await import("../state/modules/triggered-abilities.js");
+    // Check for group draw effects (Temple Bell, etc.)
     const groupDrawEffect = detectGroupDrawEffect(card, perm);
     
     // Handle group draw effects (Temple Bell, etc.)
