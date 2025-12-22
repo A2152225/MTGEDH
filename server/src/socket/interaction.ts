@@ -818,14 +818,178 @@ export function parseSearchCriteria(criteria: string): {
 }
 
 export function registerInteractionHandlers(io: Server, socket: Socket) {
-  // FIXME: Temporary brace balance fix for PR #340 structural issue
-  // Using labeled blocks to add 14 opening braces to compensate for extra closing braces
-  // TODO: Refactor this 8500-line file into modular handler files
-  b1:{b2:{b3:{b4:{b5:{b6:{b7:{b8:{b9:{b10:{b11:{b12:{b13:{b14:{
+  // FIXME: Brace balance fix - 13 labeled blocks to compensate for extra closing braces
+  // This is due to incomplete cleanup in PR #340 and our legacy handler removal
+  // TODO: Properly refactor this 7900+ line file into modular handlers
+  b1:{b2:{b3:{b4:{b5:{b6:{b7:{b8:{b9:{b10:{b11:{b12:{b13:{
   
   // Scry: Peek and reorder library cards
   // Legacy scry/surveil handlers removed - now using resolution queue system
   // See processPendingScry() and processPendingSurveil() in resolution.ts
+  
+  // surveilResolve continued from removed handler (keeping for any remaining references)
+  // TODO: Clean up after verifying no dependencies
+
+  // Confirm Ponder-style effect (look at top N, reorder, optionally shuffle, then draw)
+  socket.on("confirmPonder", ({ gameId, effectId, newOrder, shouldShuffle, toHand }: {
+    gameId: string;
+    effectId: string;
+    newOrder: string[];  // Card IDs in new order (top first) - cards staying on library
+    shouldShuffle: boolean;
+    toHand?: string[];   // Card IDs going to hand (for Telling Time style)
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Get the pending ponder effect
+    const pendingPonder = (game.state as any).pendingPonder?.[pid];
+    if (!pendingPonder || pendingPonder.effectId !== effectId) {
+      socket.emit("error", { code: "PONDER_NOT_FOUND", message: "No matching pending Ponder effect" });
+      return;
+    }
+
+    const { cardCount, cardName, drawAfter, targetPlayerId, variant } = pendingPonder;
+    const targetPid = targetPlayerId || pid;
+
+    // Get library for the target player
+    const lib = (game as any).libraries?.get(targetPid) || [];
+    
+    // Remove the top N cards that were being reordered
+    const removedCards: any[] = [];
+    for (let i = 0; i < cardCount && lib.length > 0; i++) {
+      removedCards.push(lib.shift());
+    }
+    
+    const cardById = new Map(removedCards.map(c => [c.id, c]));
+    
+    // Move cards to hand if specified (Telling Time style)
+    if (toHand && toHand.length > 0) {
+      const zones = (game.state as any).zones || {};
+      const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+      z.hand = z.hand || [];
+      
+      for (const cardId of toHand) {
+        const card = cardById.get(cardId);
+        if (card) {
+          (z.hand as any[]).push({ ...card, zone: 'hand' });
+          cardById.delete(cardId);
+        }
+      }
+      z.handCount = (z.hand as any[]).length;
+      
+      debug(2, `[confirmPonder] ${pid} put ${toHand.length} card(s) to hand`);
+    }
+    
+    if (shouldShuffle) {
+      // Shuffle the remaining cards back into library first
+      for (const card of cardById.values()) {
+        lib.push({ ...card, zone: 'library' });
+      }
+      
+      // Use game's shuffleLibrary for deterministic RNG if available
+      if (typeof (game as any).shuffleLibrary === "function") {
+        // Set the library first so shuffleLibrary can access it
+        if ((game as any).libraries) {
+          (game as any).libraries.set(targetPid, lib);
+        }
+        (game as any).shuffleLibrary(targetPid);
+      } else {
+        // Fallback: manual shuffle (non-deterministic) and set library
+        debugWarn(2, "[confirmPonder] game.shuffleLibrary not available, using Math.random");
+        for (let i = lib.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [lib[i], lib[j]] = [lib[j], lib[i]];
+        }
+        if ((game as any).libraries) {
+          (game as any).libraries.set(targetPid, lib);
+        }
+      }
+      debug(2, `[confirmPonder] ${targetPid} shuffled their library`);
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} shuffled their library.`,
+        ts: Date.now(),
+      });
+    } else {
+      // Put cards back in the specified order (newOrder has IDs from top to bottom)
+      for (let i = newOrder.length - 1; i >= 0; i--) {
+        const card = cardById.get(newOrder[i]);
+        if (card) {
+          lib.unshift({ ...card, zone: 'library' });
+        }
+      }
+      debug(2, `[confirmPonder] ${targetPid} reordered top ${newOrder.length} cards`);
+    }
+    
+    // Update library count
+    const zones = (game.state as any).zones || {};
+    const targetZones = zones[targetPid] = zones[targetPid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    targetZones.libraryCount = lib.length;
+    
+    // Draw a card if specified (Ponder draws after reordering/shuffling)
+    let drawnCardName: string | undefined;
+    if (drawAfter && pid === targetPid) {
+      if (lib.length > 0) {
+        const drawnCard = lib.shift();
+        const playerZones = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+        playerZones.hand = playerZones.hand || [];
+        (playerZones.hand as any[]).push({ ...drawnCard, zone: 'hand' });
+        playerZones.handCount = (playerZones.hand as any[]).length;
+        playerZones.libraryCount = lib.length;
+        drawnCardName = drawnCard.name;
+        
+        debug(2, `[confirmPonder] ${pid} drew ${drawnCardName}`);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} draws a card.`,
+          ts: Date.now(),
+        });
+      }
+    }
+    
+    // Clear the pending ponder effect
+    delete (game.state as any).pendingPonder[pid];
+    
+    // Bump sequence
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    // Emit completion event
+    io.to(gameId).emit("ponderComplete", {
+      gameId,
+      effectId,
+      playerId: pid,
+      targetPlayerId: targetPid,
+      cardName,
+      shuffled: shouldShuffle,
+      drawnCardName,
+    });
+    
+    appendEvent(gameId, game.seq, "ponderResolve", { 
+      playerId: pid, 
+      effectId,
+      newOrder, 
+      shouldShuffle, 
+      toHand,
+      drawnCardName,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
+
 
   // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
   socket.on("beginExplore", ({ gameId, permanentId }) => {
@@ -4735,778 +4899,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  // Library search selection (response to librarySearchRequest from tutors)
-  socket.on("librarySearchSelect", ({ gameId, selectedCardIds, moveTo, targetPlayerId, splitAssignments, filter }: { 
-    gameId: string; 
-    selectedCardIds: string[]; 
-    moveTo: string;
-    targetPlayerId?: string; // For searching opponent's library (Gitaxian Probe, etc.)
-    splitAssignments?: { toBattlefield: string[]; toHand: string[] }; // For split destination (Cultivate, Kodama's Reach)
-    filter?: { supertypes?: string[]; types?: string[]; subtypes?: string[] }; // Filter to validate selections
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
 
-    const game = ensureGame(gameId);
-    
-    // Determine whose library we're searching
-    const libraryOwner = targetPlayerId || pid;
-    
-    const zones = game.state?.zones?.[libraryOwner];
-    if (!zones) {
-      socket.emit("error", {
-        code: "ZONES_NOT_FOUND",
-        message: "Player zones not found",
-      });
-      return;
-    }
-    
-    // Get library data for validation
-    const libraryData = typeof game.searchLibrary === 'function' 
-      ? game.searchLibrary(libraryOwner, "", 1000) 
-      : [];
-    
-    // Validate selected cards against filter (e.g., basic lands for Cultivate)
-    if (filter && selectedCardIds.length > 0) {
-      const cardDataById = new Map<string, any>();
-      for (const card of libraryData) {
-        cardDataById.set(card.id, card);
-      }
-      
-      for (const cardId of selectedCardIds) {
-        const card = cardDataById.get(cardId);
-        if (!card) continue;
-        
-        const typeLine = ((card as any).type_line || '').toLowerCase();
-        // Split type line into words for exact matching
-        const typeLineWords = typeLine.split(/[\s—-]+/);
-        
-        // Check supertypes (e.g., 'basic' for Cultivate/Kodama's Reach)
-        // Use word boundary matching to avoid false positives
-        if (filter.supertypes && filter.supertypes.length > 0) {
-          for (const supertype of filter.supertypes) {
-            const lowerSupertype = supertype.toLowerCase();
-            // Check if supertype appears as a standalone word in the type line
-            if (!typeLineWords.includes(lowerSupertype)) {
-              socket.emit("error", {
-                code: "INVALID_SELECTION",
-                message: `${(card as any).name || 'Selected card'} is not a ${supertype} card. Only ${supertype} cards can be selected.`,
-              });
-              return;
-            }
-          }
-        }
-        
-        // Check card types (e.g., 'land')
-        if (filter.types && filter.types.length > 0) {
-          let matchesType = false;
-          for (const cardType of filter.types) {
-            if (typeLine.includes(cardType.toLowerCase())) {
-              matchesType = true;
-              break;
-            }
-          }
-          if (!matchesType) {
-            socket.emit("error", {
-              code: "INVALID_SELECTION",
-              message: `${(card as any).name || 'Selected card'} is not the required type. Only ${filter.types.join('/')} cards can be selected.`,
-            });
-            return;
-          }
-        }
-        
-        // Check subtypes (e.g., 'forest', 'island')
-        if (filter.subtypes && filter.subtypes.length > 0) {
-          let matchesSubtype = false;
-          for (const subtype of filter.subtypes) {
-            if (typeLine.includes(subtype.toLowerCase())) {
-              matchesSubtype = true;
-              break;
-            }
-          }
-          if (!matchesSubtype) {
-            socket.emit("error", {
-              code: "INVALID_SELECTION",
-              message: `${(card as any).name || 'Selected card'} doesn't have the required subtype. Only ${filter.subtypes.join('/')} cards can be selected.`,
-            });
-            return;
-          }
-        }
-      }
-    }
-    
-    const movedCardNames: string[] = [];
-    const battlefieldCardNames: string[] = [];
-    const handCardNames: string[] = [];
-    
-    // Handle split destination (Cultivate, Kodama's Reach)
-    if (moveTo === 'split' && splitAssignments) {
-      // Get full card data before any operations
-      const libraryData = typeof game.searchLibrary === 'function' 
-        ? game.searchLibrary(libraryOwner, "", 1000) 
-        : [];
-      
-      const cardDataById = new Map<string, any>();
-      for (const card of libraryData) {
-        cardDataById.set(card.id, card);
-      }
-      
-      if (typeof game.selectFromLibrary === 'function') {
-        // Handle battlefield cards first
-        if (splitAssignments.toBattlefield && splitAssignments.toBattlefield.length > 0) {
-          const battlefieldCards = game.selectFromLibrary(libraryOwner, splitAssignments.toBattlefield, 'battlefield' as any);
-          
-          game.state.battlefield = game.state.battlefield || [];
-          
-          for (const minimalCard of battlefieldCards) {
-            const cardId = (minimalCard as any).id;
-            const fullCard = cardDataById.get(cardId) || minimalCard;
-            const cardName = (fullCard as any).name || "Unknown";
-            
-            battlefieldCardNames.push(cardName);
-            movedCardNames.push(cardName);
-            
-            const permanentId = generateId("perm");
-            
-            game.state.battlefield.push({
-              id: permanentId,
-              card: { ...fullCard, zone: 'battlefield' },
-              controller: pid,
-              owner: libraryOwner,
-              tapped: true, // Cultivate/Kodama's Reach puts lands onto battlefield tapped
-              counters: {},
-            } as any);
-          }
-        }
-        
-        // Handle hand cards
-        if (splitAssignments.toHand && splitAssignments.toHand.length > 0) {
-          const handCards = game.selectFromLibrary(libraryOwner, splitAssignments.toHand, 'hand');
-          
-          for (const card of handCards) {
-            const cardName = (card as any).name || "Unknown";
-            handCardNames.push(cardName);
-            movedCardNames.push(cardName);
-          }
-        }
-        
-        // Shuffle library after search
-        if (typeof game.shuffleLibrary === "function") {
-          game.shuffleLibrary(libraryOwner);
-        }
-        
-        if (typeof game.bumpSeq === "function") {
-          game.bumpSeq();
-        }
-        
-        appendEvent(gameId, (game as any).seq ?? 0, "librarySearchSelect", {
-          playerId: pid,
-          libraryOwner,
-          selectedCardIds,
-          moveTo: 'split',
-          splitAssignments,
-        });
-        
-        // Create message describing split destination
-        let message = `${getPlayerName(game, pid)} searched their library`;
-        if (battlefieldCardNames.length > 0) {
-          message += `, put ${battlefieldCardNames.join(", ")} onto the battlefield tapped`;
-        }
-        if (handCardNames.length > 0) {
-          if (battlefieldCardNames.length > 0) {
-            message += ` and ${handCardNames.join(", ")} into their hand`;
-          } else {
-            message += `, put ${handCardNames.join(", ")} into their hand`;
-          }
-        }
-        message += ', then shuffled.';
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message,
-          ts: Date.now(),
-        });
-        
-        broadcastGame(io, game, gameId);
-        return;
-      }
-    }
-    
-    // Use the game's selectFromLibrary function for supported destinations
-    // This properly accesses the internal libraries Map
-    if (moveTo === 'hand' || moveTo === 'graveyard' || moveTo === 'exile') {
-      // selectFromLibrary handles hand, graveyard, exile
-      if (typeof game.selectFromLibrary === 'function') {
-        const moved = game.selectFromLibrary(libraryOwner, selectedCardIds, moveTo as any);
-        for (const card of moved) {
-          movedCardNames.push((card as any).name || "Unknown");
-        }
-      } else {
-        debugError(1, '[librarySearchSelect] game.selectFromLibrary not available');
-        socket.emit("error", {
-          code: "INTERNAL_ERROR",
-          message: "Library selection not available",
-        });
-        return;
-      }
-    } else if (moveTo === 'battlefield' || moveTo === 'top') {
-      // For 'battlefield' and 'top', we need special handling:
-      // - battlefield: selectFromLibrary returns minimal objects, need to get full card data first
-      // - top: use applyScry to reorder library and put cards on top
-      
-      // Get current library for card data lookup (BEFORE modifying)
-      const libraryData = typeof game.searchLibrary === 'function' 
-        ? game.searchLibrary(libraryOwner, "", 1000) 
-        : [];
-      
-      // Create a map of card data by ID for full card info
-      const cardDataById = new Map<string, any>();
-      for (const card of libraryData) {
-        cardDataById.set(card.id, card);
-      }
-      
-      if (moveTo === 'battlefield') {
-        // Use selectFromLibrary to remove from library, then add to battlefield
-        if (typeof game.selectFromLibrary === 'function') {
-          const moved = game.selectFromLibrary(libraryOwner, selectedCardIds, 'battlefield' as any);
-          
-          game.state.battlefield = game.state.battlefield || [];
-          
-          for (const minimalCard of moved) {
-            const cardId = (minimalCard as any).id;
-            // Get full card data from our lookup or use what we have
-            const fullCard = cardDataById.get(cardId) || minimalCard;
-            
-            movedCardNames.push((fullCard as any).name || (minimalCard as any).name || "Unknown");
-            
-            const cardName = ((fullCard as any).name || "").toLowerCase();
-            
-            // Check if this is a shock land that needs a prompt
-            const SHOCK_LANDS = new Set([
-              "blood crypt", "breeding pool", "godless shrine", "hallowed fountain",
-              "overgrown tomb", "sacred foundry", "steam vents", "stomping ground",
-              "temple garden", "watery grave"
-            ]);
-            
-            const isShockLand = SHOCK_LANDS.has(cardName);
-            
-            // Check if this land enters tapped based on oracle text
-            const oracleText = ((fullCard as any).oracle_text || "").toLowerCase();
-            
-            // Lands that always enter tapped (shock lands enter tapped by default, prompt for paying 2 life)
-            const entersTapped = 
-              isShockLand ||
-              (oracleText.includes('enters the battlefield tapped') && 
-               !oracleText.includes('unless') && 
-               !oracleText.includes('you may pay'));
-            
-            const permanentId = generateId("perm");
-            
-            game.state.battlefield.push({
-              id: permanentId,
-              card: { ...fullCard, zone: 'battlefield' },
-              controller: pid,
-              owner: libraryOwner,
-              tapped: entersTapped,
-              counters: {},
-            } as any);
-            
-            // If it's a shock land, emit prompt to player to optionally pay life to untap
-            if (isShockLand) {
-              const currentLife = (game.state as any)?.life?.[pid] || 40;
-              const cardImageUrl = (fullCard as any).image_uris?.small || (fullCard as any).image_uris?.normal;
-              
-              socket.emit("shockLandPrompt", {
-                gameId,
-                permanentId,
-                cardName: (fullCard as any).name,
-                imageUrl: cardImageUrl,
-                currentLife,
-              });
-            }
-          }
-          
-          // ========================================================================
-          // ETB TRIGGERS: Check for and process ALL ETB triggers for entered permanents
-          // This includes:
-          // - Landfall triggers (when lands enter)
-          // - ETB triggers on the permanent itself (modal choices, etc.)
-          // - ETB triggers from other permanents (Soul Warden, Cathars' Crusade, etc.)
-          // ========================================================================
-          try {
-            // Collect all ETB triggers from all permanents that entered
-            const allETBTriggers: any[] = [];
-            
-            for (const minimalCard of moved) {
-              const cardId = (minimalCard as any).id;
-              const fullCard = cardDataById.get(cardId) || minimalCard;
-              const typeLine = ((fullCard as any).type_line || '').toLowerCase();
-              const isCreature = typeLine.includes('creature');
-              const isLand = typeLine.includes('land');
-              
-              // Find the permanent that just entered
-              const enteredPermanent = game.state.battlefield.find((p: any) => 
-                p.card?.id === cardId || p.card?.name === (fullCard as any).name
-              );
-              
-              if (!enteredPermanent) continue;
-              
-              // Check for pending control change (Xantcha, Akroan Horse, Vislor Turlough)
-              if ((enteredPermanent as any).pendingControlChange) {
-                const controlChange = (enteredPermanent as any).pendingControlChange;
-                const activationId = `control_change_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                
-                // Store pending control change activation
-                if (!game.state.pendingControlChangeActivations) {
-                  game.state.pendingControlChangeActivations = {};
-                }
-                
-                (game.state as any).pendingControlChangeActivations[activationId] = {
-                  playerId: pid,
-                  permanentId: enteredPermanent.id,
-                  cardName: (fullCard as any).name,
-                  type: controlChange.type,
-                  isOptional: controlChange.isOptional || false,
-                  goadsOnChange: controlChange.goadsOnChange || false,
-                  mustAttackEachCombat: controlChange.mustAttackEachCombat || false,
-                  cantAttackOwner: controlChange.cantAttackOwner || false,
-                };
-                
-                // Get available opponents
-                const players = game.state?.players || [];
-                const opponents = players.filter((p: any) => p && p.id !== pid && !(p as any).hasLost && !(p as any).eliminated).map((p: any) => ({
-                  id: p.id,
-                  name: p.name || p.id,
-                  life: game.state.life?.[p.id] ?? 40,
-                  libraryCount: game.state.zones?.[p.id]?.libraryCount ?? 0,
-                  isOpponent: true,
-                }));
-                
-                const title = controlChange.isOptional 
-                  ? `${(fullCard as any).name} - Give Control?` 
-                  : `${(fullCard as any).name} - Choose Opponent`;
-                const description = controlChange.isOptional
-                  ? `You may have an opponent gain control of ${(fullCard as any).name}.${controlChange.goadsOnChange ? ' If you do, it will be goaded.' : ''}`
-                  : `${(fullCard as any).name} enters under an opponent's control. Choose which opponent will control it.`;
-                
-                // Emit opponent selection request to client
-                socket.emit("controlChangeOpponentRequest", {
-                  gameId,
-                  activationId,
-                  source: {
-                    id: enteredPermanent.id,
-                    name: (fullCard as any).name,
-                    imageUrl: (fullCard as any).image_uris?.small || (fullCard as any).image_uris?.normal,
-                  },
-                  opponents,
-                  title,
-                  description,
-                  isOptional: controlChange.isOptional || false,
-                });
-                
-                // Clear the pending flag - it's now tracked in pendingControlChangeActivations
-                delete (enteredPermanent as any).pendingControlChange;
-                
-                debug(2, `[playCard] ETB control change request emitted for ${(fullCard as any).name}`);
-                
-                // Auto-select opponent for AI players
-                if (isAIPlayer(gameId, pid)) {
-                  setTimeout(() => {
-                    const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
-                    if (!pending) return;
-                    
-                    // For optional effects, AI decides whether to give control
-                    if (controlChange.isOptional) {
-                      // AI typically wants to keep its creatures, but Vislor Turlough gives card draw
-                      // For Vislor, giving control is beneficial due to goading
-                      const shouldGiveControl = controlChange.goadsOnChange || Math.random() < 0.3;
-                      
-                      if (!shouldGiveControl) {
-                        // AI declines to give control
-                        delete (game.state as any).pendingControlChangeActivations[activationId];
-                        debug(2, `[AI] Declined to give control of ${(fullCard as any).name}`);
-                        broadcastGame(io, game, gameId);
-                        return;
-                      }
-                    }
-                    
-                    // AI selects a random opponent (could be smarter in future)
-                    const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
-                    
-                    if (randomOpponent) {
-                      delete (game.state as any).pendingControlChangeActivations[activationId];
-                      
-                      // Apply control change
-                      const permanentToChange = game.state.battlefield.find((p: any) => p && p.id === enteredPermanent.id);
-                      if (permanentToChange) {
-                        const oldController = permanentToChange.controller;
-                        permanentToChange.controller = randomOpponent.id;
-                        
-                        // Apply goad if needed
-                        if (controlChange.goadsOnChange) {
-                          permanentToChange.goadedBy = permanentToChange.goadedBy || [];
-                          if (!permanentToChange.goadedBy.includes(pid)) {
-                            permanentToChange.goadedBy.push(pid);
-                          }
-                        }
-                        
-                        // Apply attack restrictions
-                        if (controlChange.mustAttackEachCombat) {
-                          (permanentToChange as any).mustAttackEachCombat = true;
-                        }
-                        if (controlChange.cantAttackOwner) {
-                          (permanentToChange as any).cantAttackOwner = true;
-                          (permanentToChange as any).ownerId = pid;
-                        }
-                        
-                        io.to(gameId).emit("chat", {
-                          id: `m_${Date.now()}`,
-                          gameId,
-                          from: "system",
-                          message: `🔄 Control of ${(fullCard as any).name} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.${controlChange.goadsOnChange ? ` ${(fullCard as any).name} is goaded.` : ''}`,
-                          ts: Date.now(),
-                        });
-                        
-                        debug(2, `[AI] Auto-gave control of ${(fullCard as any).name} to ${randomOpponent.name}`);
-                        broadcastGame(io, game, gameId);
-                      }
-                    }
-                  }, 500); // Small delay for natural feel
-                }
-              }
-              
-              // 1. Get ETB triggers from the permanent itself (e.g., modal choices, "When ~ enters")
-              const selfTriggers = getETBTriggersForPermanent(fullCard, enteredPermanent);
-              
-              // Filter to only triggers that fire when THIS permanent enters
-              const selfETBTriggerTypes = new Set([
-                'etb',                      // Self ETB: "When ~ enters the battlefield"
-                'etb_modal_choice',         // Modal ETB: "As ~ enters, choose a color/creature type"
-                'job_select',               // Equipment: create Hero token and attach
-                'living_weapon',            // Equipment: create Germ token and attach
-                'etb_sacrifice_unless_pay', // ETB sacrifice unless pay
-                'etb_bounce_land',          // Bounce lands: return a land to hand
-                'etb_gain_life',            // Self ETB life gain
-                'etb_draw',                 // Self ETB draw
-                'etb_search',               // Self ETB search library
-                'etb_create_token',         // Self ETB token creation
-                'etb_counter',              // Self ETB counter placement
-              ]);
-              
-              const selfETBs = selfTriggers.filter(trigger => selfETBTriggerTypes.has(trigger.triggerType));
-              allETBTriggers.push(...selfETBs);
-              
-              // 2. Get triggers from OTHER permanents that fire when this enters
-              for (const perm of game.state.battlefield) {
-                if (perm.id === enteredPermanent.id) continue; // Skip self
-                
-                const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
-                for (const trigger of otherTriggers) {
-                  // creature_etb: "Whenever a creature enters" (Soul Warden, Cathars' Crusade)
-                  if (trigger.triggerType === 'creature_etb' && isCreature) {
-                    allETBTriggers.push({ ...trigger, permanentId: perm.id });
-                  }
-                  // permanent_etb: "Whenever a permanent enters" (Altar of the Brood)
-                  else if (trigger.triggerType === 'permanent_etb') {
-                    allETBTriggers.push({ ...trigger, permanentId: perm.id });
-                  }
-                  // another_permanent_etb: "Whenever another permanent enters under your control"
-                  else if (trigger.triggerType === 'another_permanent_etb' && perm.controller === pid) {
-                    allETBTriggers.push({ ...trigger, permanentId: perm.id });
-                  }
-                  // opponent_creature_etb: "Whenever an opponent's creature enters" (Suture Priest)
-                  else if (trigger.triggerType === 'opponent_creature_etb' && isCreature && perm.controller !== pid) {
-                    allETBTriggers.push({ ...trigger, permanentId: perm.id, targetPlayer: pid });
-                  }
-                }
-              }
-              
-              // 3. Landfall triggers (when lands enter)
-              if (isLand) {
-                const landfallTriggers = getLandfallTriggers(game as any, pid);
-                for (const trigger of landfallTriggers) {
-                  allETBTriggers.push({
-                    ...trigger,
-                    type: 'triggered_ability',
-                    triggerType: 'landfall',
-                    description: `Landfall - ${trigger.effect}`,
-                  });
-                }
-              }
-            }
-            
-            // Push all collected triggers onto the stack
-            if (allETBTriggers.length > 0) {
-              debug(2, `[librarySearchSelect] Found ${allETBTriggers.length} ETB trigger(s) for entered permanents`);
-              
-              // Initialize stack if needed
-              (game.state as any).stack = (game.state as any).stack || [];
-              
-              for (const trigger of allETBTriggers) {
-                const triggerId = generateId("trigger");
-                (game.state as any).stack.push({
-                  id: triggerId,
-                  type: 'triggered_ability',
-                  controller: trigger.controllerId || pid,
-                  source: trigger.permanentId,
-                  permanentId: trigger.permanentId,
-                  sourceName: trigger.cardName || trigger.sourceName,
-                  description: trigger.description || trigger.effect,
-                  triggerType: trigger.triggerType,
-                  mandatory: trigger.mandatory,
-                  effect: trigger.effect,
-                  requiresChoice: trigger.requiresChoice,
-                  isModal: trigger.isModal,
-                  modalOptions: trigger.modalOptions,
-                });
-                debug(2, `[librarySearchSelect] ⚡ Pushed ETB trigger: ${trigger.cardName || trigger.sourceName} - ${trigger.description || trigger.effect}`);
-              }
-            }
-          } catch (err) {
-            debugWarn(1, '[librarySearchSelect] Failed to process ETB triggers:', err);
-          }
-        } else {
-          debugError(1, '[librarySearchSelect] game.selectFromLibrary not available');
-        }
-      } else {
-        // moveTo === 'top': For tutors that put card on top of library (e.g., Vampiric Tutor)
-        // Correct sequence: remove card → shuffle library → put card on top
-        // This ensures the rest of the library is properly randomized and hidden info is protected
-        
-        // Get full card data before any operations
-        const cardsToTop: any[] = [];
-        for (const cardId of selectedCardIds) {
-          const card = cardDataById.get(cardId);
-          if (card) {
-            movedCardNames.push((card as any).name || "Unknown");
-            cardsToTop.push({ ...card });
-          }
-        }
-        
-        if (typeof game.selectFromLibrary === 'function' && 
-            typeof game.shuffleLibrary === 'function' &&
-            typeof game.putCardsOnTopOfLibrary === 'function') {
-          // Step 1: Remove the selected cards from library
-          // Using 'battlefield' as destination just removes them without placing anywhere
-          game.selectFromLibrary(libraryOwner, selectedCardIds, 'battlefield' as any);
-          
-          // Step 2: Shuffle the remaining library (this randomizes the order, protecting hidden info)
-          game.shuffleLibrary(libraryOwner);
-          
-          // Step 3: Put the saved cards on top of the library
-          game.putCardsOnTopOfLibrary(libraryOwner, cardsToTop);
-          
-          debug(1, '[librarySearchSelect] Cards put on top of library after shuffle:', 
-            cardsToTop.map(c => c.name).join(', '));
-        } else {
-          debugWarn(2, '[librarySearchSelect] Required functions not available for top destination');
-        }
-      }
-    }
-    
-    // Shuffle library after search (standard for tutors)
-    // EXCEPTION: Don't shuffle if moveTo === 'top' since shuffling is handled specially above
-    if (moveTo !== 'top' && typeof game.shuffleLibrary === "function") {
-      game.shuffleLibrary(libraryOwner);
-    }
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "librarySearchSelect", {
-      playerId: pid,
-      libraryOwner,
-      selectedCardIds,
-      moveTo,
-    });
-    
-    // Clear pending library search for this player
-    const searchInfo = (game.state as any)?.pendingLibrarySearch?.[pid];
-    const needsRandomDiscard = searchInfo?.discardRandomAfter === true;
-    
-    if ((game.state as any)?.pendingLibrarySearch && (game.state as any).pendingLibrarySearch[pid]) {
-      delete (game.state as any).pendingLibrarySearch[pid];
-    }
-    
-    // Handle Gamble's random discard
-    if (needsRandomDiscard && moveTo === 'hand') {
-      // After adding card to hand, discard a random card from hand
-      const zones = game.state?.zones?.[pid];
-      if (zones && Array.isArray(zones.hand) && zones.hand.length > 0) {
-        const randomIndex = Math.floor(Math.random() * zones.hand.length);
-        const discardedCard = zones.hand[randomIndex];
-        const discardedCardName = typeof discardedCard === 'string' ? discardedCard : (discardedCard?.name || 'Unknown');
-        
-        // Remove from hand
-        zones.hand.splice(randomIndex, 1);
-        zones.handCount = zones.hand.length;
-        
-        // Add to graveyard
-        if (!Array.isArray(zones.graveyard)) {
-          zones.graveyard = [];
-        }
-        // Create new array to avoid mutating readonly
-        zones.graveyard = [...zones.graveyard, discardedCard] as any;
-        zones.graveyardCount = zones.graveyard.length;
-        
-        debug(2, `[Gamble] ${pid} discarded ${discardedCardName} at random`);
-        
-        // Notify about the random discard
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `🎲 Gamble: ${getPlayerName(game, pid)} discarded ${discardedCardName} at random.`,
-          ts: Date.now(),
-        });
-      }
-    }
-    
-    const ownerName = libraryOwner === pid ? "their" : `${getPlayerName(game, libraryOwner)}'s`;
-    const destName = moveTo === 'hand' ? 'hand' : moveTo === 'battlefield' ? 'the battlefield' : moveTo === 'top' ? 'the top of their library' : 'graveyard';
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} searched ${ownerName} library and put ${movedCardNames.join(", ")} to ${destName}.`,
-      ts: Date.now(),
-    });
-    
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Split-destination library search selection (for Kodama's Reach, Cultivate, etc.)
-   * 
-   * Player selects cards from library, then assigns each to either battlefield or hand.
-   */
-  socket.on("librarySearchSplitSelect", ({ gameId, battlefieldCardIds, handCardIds, entersTapped }: { 
-    gameId: string; 
-    battlefieldCardIds: string[];
-    handCardIds: string[];
-    entersTapped?: boolean;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    
-    const zones = game.state?.zones?.[pid];
-    if (!zones) {
-      socket.emit("error", {
-        code: "ZONES_NOT_FOUND",
-        message: "Player zones not found",
-      });
-      return;
-    }
-    
-    const movedToBattlefield: string[] = [];
-    const movedToHand: string[] = [];
-    
-    // Get current library for card data lookup (BEFORE modifying)
-    const libraryData = typeof game.searchLibrary === 'function' 
-      ? game.searchLibrary(pid, "", 1000) 
-      : [];
-    
-    // Create a map of card data by ID for full card info
-    const cardDataById = new Map<string, any>();
-    for (const card of libraryData) {
-      cardDataById.set(card.id, card);
-    }
-    
-    // Combine all card IDs for removal from library
-    const allSelectedIds = [...battlefieldCardIds, ...handCardIds];
-    
-    if (typeof game.selectFromLibrary === 'function') {
-      // First, put cards that go to hand
-      if (handCardIds.length > 0) {
-        const movedHand = game.selectFromLibrary(pid, handCardIds, 'hand' as any);
-        for (const card of movedHand) {
-          movedToHand.push((card as any).name || "Unknown");
-        }
-      }
-      
-      // Then, put cards on battlefield (need special handling for tapped state)
-      if (battlefieldCardIds.length > 0) {
-        // Get full card data before removal
-        const battlefieldCards = battlefieldCardIds.map(id => cardDataById.get(id)).filter(Boolean);
-        
-        // Remove from library by moving to a temp location
-        game.selectFromLibrary(pid, battlefieldCardIds, 'battlefield' as any);
-        
-        game.state.battlefield = game.state.battlefield || [];
-        
-        for (const fullCard of battlefieldCards) {
-          movedToBattlefield.push((fullCard as any).name || "Unknown");
-          
-          const permanentId = generateId("perm");
-          
-          // For Kodama's Reach/Cultivate, the land enters tapped
-          const shouldEnterTapped = entersTapped ?? true;
-          
-          game.state.battlefield.push({
-            id: permanentId,
-            card: { ...fullCard, zone: 'battlefield' },
-            controller: pid,
-            owner: pid,
-            tapped: shouldEnterTapped,
-            counters: {},
-          } as any);
-        }
-      }
-    } else {
-      debugError(1, '[librarySearchSplitSelect] game.selectFromLibrary not available');
-      socket.emit("error", {
-        code: "INTERNAL_ERROR",
-        message: "Library selection not available",
-      });
-      return;
-    }
-    
-    // Shuffle library after search
-    if (typeof game.shuffleLibrary === "function") {
-      game.shuffleLibrary(pid);
-    }
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "librarySearchSplitSelect", {
-      playerId: pid,
-      battlefieldCardIds,
-      handCardIds,
-      entersTapped,
-    });
-    
-    // Clear pending library search for this player
-    if (game.state?.pendingLibrarySearch && (game.state as any).pendingLibrarySearch[pid]) {
-      delete (game.state as any).pendingLibrarySearch[pid];
-    }
-    
-    // Build chat message
-    const messages: string[] = [];
-    if (movedToBattlefield.length > 0) {
-      messages.push(`${movedToBattlefield.join(", ")} to the battlefield${entersTapped ? ' tapped' : ''}`);
-    }
-    if (movedToHand.length > 0) {
-      messages.push(`${movedToHand.join(", ")} to their hand`);
-    }
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} searched their library and put ${messages.join(" and ")}.`,
-      ts: Date.now(),
-    });
-    
-    broadcastGame(io, game, gameId);
-  });
 
   /**
    * Entrapment Maneuver sacrifice selection
@@ -5659,40 +5052,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
     }
     
-    broadcastGame(io, game, gameId);
-  });
-
-  // Library search cancel
-  socket.on("librarySearchCancel", ({ gameId }: { gameId: string }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    
-    // Just shuffle library (most tutor effects require shuffle even if not finding)
-    if (typeof game.shuffleLibrary === "function") {
-      game.shuffleLibrary(pid);
-    }
-    
-    // Clear pending library search for this player
-    if (game.state?.pendingLibrarySearch && (game.state as any).pendingLibrarySearch[pid]) {
-      delete (game.state as any).pendingLibrarySearch[pid];
-    }
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} finished searching their library.`,
-      ts: Date.now(),
-    });
-    
-    broadcastGame(io, game, gameId);
-  });
 
   // Target selection confirmation
   socket.on("targetSelectionConfirm", ({ gameId, effectId, selectedTargetIds, targets }: {
@@ -8559,7 +7918,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
   
-  }}}}}}}}}}}}}}
+  }}}}}}}}}}}}}
 }
+
 
 
