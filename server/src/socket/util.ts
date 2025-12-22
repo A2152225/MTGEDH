@@ -27,6 +27,7 @@ import { checkSpellTimingRestriction, hasValidTargetsForSpell } from "../../../r
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 
 // ============================================================================
 // Constants
@@ -38,6 +39,12 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * AI players and "Auto-Pass Rest of Turn" skip this delay for faster gameplay.
  */
 const AUTO_PASS_DELAY_MS = 150;
+
+/**
+ * Timeout for clearing the priority restoration flag.
+ * This prevents recursive broadcasts when restoring stuck priority.
+ */
+const PRIORITY_RESTORE_FLAG_TIMEOUT_MS = 100;
 
 // ============================================================================
 // Pre-compiled RegExp patterns for mana color matching in devotion calculations
@@ -1718,7 +1725,6 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       
       if (shouldHavePriority) {
         // Check if there are actually pending resolution steps
-        const { ResolutionQueueManager } = require('../state/resolution/ResolutionQueueManager.js');
         const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
         
         if (!pendingSummary.hasPending) {
@@ -1733,9 +1739,20 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             stateAny.priority = turnPlayer;
             debug(1, `${ts()} [checkAndTriggerAutoPass] Priority restored to ${turnPlayer}`);
             
-            // Broadcast updated state
-            broadcastGame(io, game, gameId);
+            // Mark that we just restored priority to prevent recursive broadcast
+            stateAny._priorityJustRestored = true;
             
+            // Bump sequence to trigger state update
+            if (typeof (game as any).bumpSeq === "function") {
+              (game as any).bumpSeq();
+            }
+            
+            // Clear the flag after a brief delay (enough for one broadcast cycle)
+            setTimeout(() => {
+              delete stateAny._priorityJustRestored;
+            }, PRIORITY_RESTORE_FLAG_TIMEOUT_MS);
+            
+            // Don't call broadcastGame here to avoid recursion - the caller will handle it
             // Now continue with normal auto-pass logic (don't return early)
           } else {
             debugError(1, `${ts()} [checkAndTriggerAutoPass] Cannot restore priority - no turn player found!`);
