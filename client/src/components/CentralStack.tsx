@@ -284,7 +284,7 @@ export function CentralStack({
               key={it.id}
               onMouseEnter={(e)=> kc && showCardPreview(e.currentTarget as HTMLElement, kc, { prefer:'right', anchorPadding:8 })}
               onMouseLeave={(e)=> kc && hideCardPreview(e.currentTarget as HTMLElement)}
-              title={description || undefined}
+              title={description}
               style={{
                 display:'flex',
                 alignItems:'center',
@@ -352,18 +352,19 @@ export function CentralStack({
                   {description && (
                     <span 
                       style={{
-                        fontSize:9,
+                        fontSize:10,
                         padding:'2px 6px',
                         borderRadius:4,
                         background:'#8b5cf6',
                         color:'white',
                         fontWeight:'bold',
                         flexShrink:0,
-                        cursor:'help'
+                        cursor:'help',
+                        fontFamily:'monospace'
                       }}
                       title={description}
                     >
-                      ℹ️
+                      i
                     </span>
                   )}
                 </div>
