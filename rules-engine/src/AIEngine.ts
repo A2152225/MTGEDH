@@ -712,7 +712,9 @@ export class AIEngine {
         // - Don't have defender
         // - Don't have summoning sickness (or have haste)
         const legalAttackerIds = getLegalAttackers(context.gameState, playerId);
-        const randomAttackers = legalAttackerIds.filter(() => Math.random() > 0.5);
+        // Attack with ~70% of legal attackers on average (random selection per creature)
+        // This ensures attacks happen frequently while still being unpredictable
+        const randomAttackers = legalAttackerIds.filter(() => Math.random() > 0.3);
         return {
           type: decisionType,
           playerId,
@@ -1545,18 +1547,23 @@ export class AIEngine {
    * Uses proper combat validation to ensure only legal attackers are selected
    */
   private makeDefensiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Defensive AI rarely attacks, always blocks
+    // Defensive AI attacks cautiously but still applies pressure
     if (context.decisionType === AIDecisionType.DECLARE_ATTACKERS) {
       const player = context.gameState.players.find(p => p.id === context.playerId);
       const life = player?.life || 0;
       
-      // Only attack if life is high or opponent is low
-      if (life > 30) {
+      // Attack cautiously if life is above 20 (Commander starts at 40)
+      // or if opponent is very low on life
+      const opponents = context.gameState.players.filter(p => p.id !== context.playerId);
+      const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
+      
+      if (life > 20 || lowestOpponentLife < 15) {
         // Use getLegalAttackers to get only valid attackers
         const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
-        // Attack with only half of legal creatures (defensive)
-        const attackerCount = Math.floor(legalAttackerIds.length / 2);
-        const attackers = legalAttackerIds.slice(0, attackerCount);
+        // Attack with half to two-thirds of legal creatures (defensive but active)
+        const attackRatio = life > 30 ? 0.66 : 0.5;
+        const attackerCount = Math.floor(legalAttackerIds.length * attackRatio);
+        const attackers = legalAttackerIds.slice(0, Math.max(1, attackerCount));
         
         return {
           type: AIDecisionType.DECLARE_ATTACKERS,
@@ -1589,11 +1596,11 @@ export class AIEngine {
     
     switch (decisionType) {
       case AIDecisionType.DECLARE_ATTACKERS: {
-        // Control AI only attacks when in a dominant position
+        // Control AI attacks when safe to do so or when it has answers
         const player = gameState.players.find(p => p.id === playerId);
         const opponents = gameState.players.filter(p => p.id !== playerId);
         
-        // Check if we have board dominance
+        // Check if we have board presence
         const myCreatureCount = (player?.battlefield || []).filter((p: any) =>
           p.card?.type_line?.toLowerCase().includes('creature')
         ).length;
@@ -1603,21 +1610,22 @@ export class AIEngine {
             p.card?.type_line?.toLowerCase().includes('creature')
           ).length), 0);
         
-        // Attack only if we have significant board advantage
-        if (myCreatureCount > opponentCreatureCount + 2) {
+        // Check if any opponent is low on life (potential kill)
+        const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
+        
+        // Attack if we have board parity/advantage OR if opponent is low on life
+        if (myCreatureCount >= opponentCreatureCount || lowestOpponentLife < 20) {
           const legalAttackerIds = getLegalAttackers(gameState, playerId);
-          // Attack with creatures that won't die in combat
-          const safeAttackers = legalAttackerIds.filter(id => {
-            const perm = player?.battlefield?.find((p: any) => p.id === id);
-            const toughness = parseInt(perm?.card?.toughness || '0', 10);
-            return toughness >= 3; // Only attack with tough creatures
-          });
+          // Attack with 50-75% of creatures (keep some back for defense)
+          const attackRatio = myCreatureCount > opponentCreatureCount + 2 ? 0.75 : 0.5;
+          const attackerCount = Math.ceil(legalAttackerIds.length * attackRatio);
+          const attackers = legalAttackerIds.slice(0, attackerCount);
           
           return {
             type: AIDecisionType.DECLARE_ATTACKERS,
             playerId,
-            action: { attackers: safeAttackers },
-            reasoning: `Control: safe attacks with ${safeAttackers.length} protected creatures`,
+            action: { attackers },
+            reasoning: `Control: attacking with ${attackers.length}/${legalAttackerIds.length} creatures`,
             confidence: 0.7,
           };
         }
@@ -1626,7 +1634,7 @@ export class AIEngine {
           type: AIDecisionType.DECLARE_ATTACKERS,
           playerId,
           action: { attackers: [] },
-          reasoning: 'Control: holding back, waiting for board control',
+          reasoning: 'Control: holding back, need more board presence',
           confidence: 0.8,
         };
       }
@@ -1706,27 +1714,42 @@ export class AIEngine {
     
     switch (decisionType) {
       case AIDecisionType.DECLARE_ATTACKERS: {
-        // Combo AI rarely attacks - preserve creatures for combos
+        // Combo AI attacks with "vanilla" creatures to apply pressure while protecting combo pieces
         const player = gameState.players.find(p => p.id === playerId);
         const life = player?.life || 0;
         
-        // Only attack if life is safe and we have extra creatures
-        if (life > 20) {
+        // Attack if life is reasonably safe (>15) or if we have a significant creature advantage
+        const opponents = gameState.players.filter(p => p.id !== playerId);
+        const myCreatureCount = (player?.battlefield || []).filter((p: any) =>
+          p.card?.type_line?.toLowerCase().includes('creature')
+        ).length;
+        const maxOpponentCreatures = Math.max(...opponents.map(opp =>
+          (opp.battlefield || []).filter((p: any) =>
+            p.card?.type_line?.toLowerCase().includes('creature')
+          ).length
+        ));
+        
+        if (life > 15 || myCreatureCount > maxOpponentCreatures + 3) {
           const legalAttackerIds = getLegalAttackers(gameState, playerId);
-          // Only attack with "extra" creatures (not combo pieces)
+          // Attack with "vanilla" creatures (those without abilities)
           // Combo pieces typically have valuable abilities in their text
-          const nonComboPieces = legalAttackerIds.filter(id => {
+          const vanillaAttackers = legalAttackerIds.filter(id => {
             const perm = player?.battlefield?.find((p: any) => p.id === id);
             const text = (perm?.card?.oracle_text || '').toLowerCase();
-            // Keep cards with activated abilities or important triggers
+            // Attack with creatures that don't have activated abilities or important triggers
             return !text.includes(':') && !text.includes('whenever') && !text.includes('when');
           });
+          
+          // If we have no vanilla creatures, attack with a few combo pieces anyway (applying pressure)
+          const attackers = vanillaAttackers.length > 0 
+            ? vanillaAttackers 
+            : legalAttackerIds.slice(0, Math.max(1, Math.floor(legalAttackerIds.length * 0.3)));
           
           return {
             type: AIDecisionType.DECLARE_ATTACKERS,
             playerId,
-            action: { attackers: nonComboPieces },
-            reasoning: `Combo: attacking only with non-essential creatures (${nonComboPieces.length})`,
+            action: { attackers },
+            reasoning: `Combo: attacking with ${attackers.length} non-essential creatures`,
             confidence: 0.6,
           };
         }
@@ -1735,7 +1758,7 @@ export class AIEngine {
           type: AIDecisionType.DECLARE_ATTACKERS,
           playerId,
           action: { attackers: [] },
-          reasoning: 'Combo: preserving all creatures for potential combos',
+          reasoning: 'Combo: preserving creatures (low life or need blockers)',
           confidence: 0.9,
         };
       }
