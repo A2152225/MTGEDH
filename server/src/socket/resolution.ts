@@ -2558,6 +2558,7 @@ async function putCardOntoBattlefield(
     }
   }
   const etbCounters = detectEntersWithCounters(card);
+  // Object.entries returns [string, unknown][] even for Record<string, number>, so we need the type assertion
   for (const [counterType, count] of Object.entries(etbCounters)) {
     initialCounters[counterType] = (initialCounters[counterType] || 0) + (count as number);
   }

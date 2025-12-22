@@ -475,14 +475,14 @@ export function CastSpellModal({
     let newGeneric = Math.max(0, parsed.generic - costReduction.generic);
     const newColors = { ...parsed.colors };
     
-    // Map from full color names to single-letter symbols
+    // Map from full color names to single-letter symbols (identity mappings handle already-normalized input)
     const colorNameToSymbol: Record<string, Color> = {
       'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G', 'colorless': 'C',
       'W': 'W', 'U': 'U', 'B': 'B', 'R': 'R', 'G': 'G', 'C': 'C'
     };
     
     for (const colorKey of Object.keys(costReduction.colors)) {
-      // Convert to standard symbol
+      // Convert to standard symbol (handles both 'white' and 'W' style keys)
       const color = colorNameToSymbol[colorKey];
       if (!color) continue;
       
