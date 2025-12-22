@@ -1035,6 +1035,13 @@ function executeTriggerEffect(
     const turnOrder = players.map((p: any) => p.id);
     const gameId = (ctx as any).gameId || 'unknown';
     
+    // Skip adding resolution steps during replay to prevent infinite loops
+    const isReplaying = !!(ctx as any).isReplaying;
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Join Forces: skipping resolution steps during replay`);
+      return;
+    }
+    
     // Create resolution steps for each player using APNAP ordering
     // "Starting with you" means the controller goes first, then others in turn order
     const stepConfigs = players.map((p: any) => {
@@ -1418,6 +1425,13 @@ function executeTriggerEffect(
     
     if (gameId === 'unknown') {
       debugWarn(2, `[executeTriggerEffect] Kynaios: gameId is unknown, resolution steps may not work properly`);
+    }
+    
+    // Skip adding resolution steps during replay to prevent infinite loops
+    const isReplaying = !!(ctx as any).isReplaying;
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Kynaios: skipping resolution steps during replay`);
+      return;
     }
     
     ResolutionQueueManager.addStepsWithAPNAP(
@@ -2838,6 +2852,13 @@ export function resolveTopOfStack(ctx: GameContext) {
         });
         
         if (availableLands.length > 0) {
+          // Skip adding resolution steps during replay to prevent infinite loops
+          const isReplaying = !!(ctx as any).isReplaying;
+          if (isReplaying) {
+            debug(2, `[resolveTopOfStack] Bounce land trigger: skipping resolution step during replay`);
+            return;
+          }
+          
           // Add resolution step to the queue
           const gameId = (ctx as any).gameId || 'unknown';
           
@@ -3075,8 +3096,11 @@ export function resolveTopOfStack(ctx: GameContext) {
         }));
       
       if (availableCreatures.length > 0) {
-        // Add resolution step for devour selection
-        ResolutionQueueManager.addStep(gameId, {
+        // Skip adding resolution steps during replay to prevent infinite loops
+        const isReplaying = !!(ctx as any).isReplaying;
+        if (!isReplaying) {
+          // Add resolution step for devour selection
+          ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.DEVOUR_SELECTION,
           playerId: controller as PlayerID,
           description: `Devour ${devourValue}: Choose any number of creatures to sacrifice`,
@@ -3091,6 +3115,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         });
         
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} has Devour ${devourValue}, created selection step with ${availableCreatures.length} available creatures`);
+        } else {
+          debug(2, `[resolveTopOfStack] Devour: skipping resolution step during replay`);
+        }
       } else {
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} has Devour ${devourValue}, but no creatures to sacrifice`);
       }
@@ -4464,15 +4491,21 @@ export function resolveTopOfStack(ctx: GameContext) {
         };
       });
       
-      // Add steps with APNAP ordering, starting with the caster
-      ResolutionQueueManager.addStepsWithAPNAP(
-        gameId,
-        stepConfigs,
-        turnOrder,
-        controller // Start with caster, not active player
-      );
-      
-      debug(1, `[resolveTopOfStack] Join Forces spell ${effectiveCard.name} created ${allPlayers.length} resolution steps for contributions`);
+      // Skip adding resolution steps during replay to prevent infinite loops
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!isReplaying) {
+        // Add steps with APNAP ordering, starting with the caster
+        ResolutionQueueManager.addStepsWithAPNAP(
+          gameId,
+          stepConfigs,
+          turnOrder,
+          controller // Start with caster, not active player
+        );
+        
+        debug(1, `[resolveTopOfStack] Join Forces spell ${effectiveCard.name} created ${allPlayers.length} resolution steps for contributions`);
+      } else {
+        debug(2, `[resolveTopOfStack] Join Forces: skipping resolution steps during replay`);
+      }
     } else {
       debug(1, `[resolveTopOfStack] ${effectiveCard.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
     }
@@ -4511,15 +4544,21 @@ export function resolveTopOfStack(ctx: GameContext) {
           };
         });
         
-        // Add steps with APNAP ordering
-        ResolutionQueueManager.addStepsWithAPNAP(
-          gameId,
-          stepConfigs,
-          turnOrder,
-          (state as any).activePlayer || controller
-        );
-        
-        debug(2, `[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} created ${opponents.length} resolution steps for opponent responses`);
+        // Skip adding resolution steps during replay to prevent infinite loops
+        const isReplaying = !!(ctx as any).isReplaying;
+        if (!isReplaying) {
+          // Add steps with APNAP ordering
+          ResolutionQueueManager.addStepsWithAPNAP(
+            gameId,
+            stepConfigs,
+            turnOrder,
+            (state as any).activePlayer || controller
+          );
+          
+          debug(2, `[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} created ${opponents.length} resolution steps for opponent responses`);
+        } else {
+          debug(2, `[resolveTopOfStack] Tempting Offer: skipping resolution steps during replay`);
+        }
       } else {
         // No opponents - initiator just gets the effect once
         debug(2, `[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} has no opponents - effect resolves immediately for initiator`);
@@ -4576,8 +4615,11 @@ export function resolveTopOfStack(ctx: GameContext) {
       if (eligiblePermanents.length > 0) {
         const gameId = (ctx as any).gameId || 'unknown';
         
-        // Add resolution step using the generic LIBRARY_SEARCH type with Genesis Wave parameters
-        ResolutionQueueManager.addStep(gameId, {
+        // Skip adding resolution steps during replay to prevent infinite loops
+        const isReplaying = !!(ctx as any).isReplaying;
+        if (!isReplaying) {
+          // Add resolution step using the generic LIBRARY_SEARCH type with Genesis Wave parameters
+          ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.LIBRARY_SEARCH,
           playerId: controller as PlayerID,
           description: `Genesis Wave (X=${xVal}): Choose any number of permanents to put onto the battlefield`,
@@ -4616,6 +4658,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         });
         
         debug(2, `[resolveTopOfStack] Genesis Wave: Created LIBRARY_SEARCH step for ${eligiblePermanents.length} eligible permanents (X=${xVal})`);
+        } else {
+          debug(2, `[resolveTopOfStack] Genesis Wave: skipping resolution step during replay`);
+        }
       } else {
         // No eligible permanents, just put everything to graveyard
         const zones = ctx.state.zones || {};
