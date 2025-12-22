@@ -818,11 +818,6 @@ export function parseSearchCriteria(criteria: string): {
 }
 
 export function registerInteractionHandlers(io: Server, socket: Socket) {
-  // FIXME: Brace balance fix - 13 labeled blocks to compensate for extra closing braces
-  // This is due to incomplete cleanup in PR #340 and our legacy handler removal
-  // TODO: Properly refactor this 7900+ line file into modular handlers
-  b1:{b2:{b3:{b4:{b5:{b6:{b7:{b8:{b9:{b10:{b11:{b12:{b13:{
-  
   // Scry: Peek and reorder library cards
   // Legacy scry/surveil handlers removed - now using resolution queue system
   // See processPendingScry() and processPendingSurveil() in resolution.ts
@@ -6823,6 +6818,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         gameId,
         preferences,
       });
+    }
+  });
 
   // Legacy proliferateConfirm handler removed - now using resolution queue system
   // See processPendingProliferate() and handleProliferateResponse() in resolution.ts
@@ -7917,9 +7914,5 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     broadcastGame(io, game, gameId);
   });
-  
-  }}}}}}}}}}}}}
 }
-
-
 
