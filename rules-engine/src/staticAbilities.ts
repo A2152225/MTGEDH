@@ -718,7 +718,7 @@ export function applyStaticAbilitiesToBattlefield(
     }
     
     // If the permanent already has effective P/T (precomputed by server view),
-    // preserve those values to avoid overwriting dynamic bonuses like Omnath's mana scaling.
+    // preserve those values to avoid overwriting dynamic bonuses calculated elsewhere.
     const precomputedPower = typeof perm.effectivePower === 'number' ? perm.effectivePower : undefined;
     const precomputedToughness = typeof perm.effectiveToughness === 'number' ? perm.effectiveToughness : undefined;
     
