@@ -266,6 +266,7 @@ export function App() {
     proliferateId: string;
     sourceName: string;
     imageUrl?: string;
+    sourceImageUrl?: string;
     validTargets: ProliferateTarget[];
     stepId?: string; // For resolution queue
   } | null>(null);
@@ -1552,6 +1553,8 @@ export function App() {
       effectId: string;
       targets?: string[];
       imageUrl?: string;
+      costReduction?: { amount: number; source: string }[];
+      convokeOptions?: { permanentId: string; name: string; colors: string[] }[];
     }) => {
       if (payload.gameId === safeView?.id) {
         // Store the pending targets and effectId so we can include them when casting
@@ -5651,7 +5654,7 @@ export function App() {
           revealedCard={clashData.revealedCard}
           imagePref={imagePref}
           sourceName={clashData.sourceName}
-          opponentName={clashData.opponentId ? safeView?.players?.find((p: any) => p.id === clashData.opponentId)?.username : undefined}
+          opponentName={clashData.opponentId ? safeView?.players?.find((p: any) => p.id === clashData.opponentId)?.name : undefined}
           onConfirm={handleClashConfirm}
         />
       )}

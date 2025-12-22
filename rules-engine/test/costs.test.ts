@@ -10,7 +10,10 @@ import {
   canPayLifeCost,
   isZeroCost,
   applyCostReduction,
-  CostModification
+  CostModification,
+  ManaPaymentRecord,
+  getColorsSpent,
+  wasColorSpent
 } from '../src/types/costs';
 import { createEmptyManaPool, addMana, ManaType, ManaCost } from '../src/types/mana';
 
@@ -110,7 +113,7 @@ generic: 2
 
   describe('Mana Payment Tracking', () => {
     it('should track exact mana composition for converge', () => {
-      const payment: import('../src/types/costs').ManaPaymentRecord = {
+      const payment: ManaPaymentRecord = {
         white: 1,
         blue: 1,
         black: 0,
@@ -120,12 +123,12 @@ generic: 2
         generic: 2,
       };
 
-      const colors = import('../src/types/costs').getColorsSpent(payment);
+      const colors = getColorsSpent(payment);
       expect(colors).toBe(3); // W, U, R
     });
 
     it('should check if specific color was spent', () => {
-      const payment: import('../src/types/costs').ManaPaymentRecord = {
+      const payment: ManaPaymentRecord = {
         white: 0,
         blue: 0,
         black: 0,
@@ -135,8 +138,8 @@ generic: 2
         generic: 2,
       };
 
-      expect(import('../src/types/costs').wasColorSpent(payment, 'red')).toBe(true);
-      expect(import('../src/types/costs').wasColorSpent(payment, 'white')).toBe(false);
+      expect(wasColorSpent(payment, 'red')).toBe(true);
+      expect(wasColorSpent(payment, 'white')).toBe(false);
     });
   });
 
@@ -189,15 +192,6 @@ generic: 2
       expect(cost.type).toBe(CostType.AFFINITY);
       expect(cost.affinityFor).toBe('artifacts');
       expect(cost.reduction).toBe(1);
-    });
-  });
-        isOptional: false,
-        isMandatory: true,
-        amount: 0
-      };
-
-      expect(canPayLifeCost(cost, 0).canPay).toBe(true);
-      expect(canPayLifeCost(cost, -5).canPay).toBe(true);
     });
   });
 
@@ -286,31 +280,6 @@ generic: 2
 
       const reduced = applyCostReduction(originalCost, reduction);
       expect(reduced.generic).toBe(0); // Not negative
-    });
-  });
-
-  describe('Mana Payment Tracking', () => {
-      let pool = createEmptyManaPool();
-      pool = addMana(pool, ManaType.BLUE, 2);
-
-      const cost: ManaCost = {
-        blue: 2
-      };
-
-      expect(canPayManaCost(cost, pool).canPay).toBe(true);
-    });
-
-    it('should handle Wrath of God {2}{W}{W}', () => {
-      let pool = createEmptyManaPool();
-      pool = addMana(pool, ManaType.WHITE, 2);
-      pool = addMana(pool, ManaType.BLUE, 2);
-
-      const cost: ManaCost = {
-        white: 2,
-        generic: 2
-      };
-
-      expect(canPayManaCost(cost, pool).canPay).toBe(true);
     });
   });
 });

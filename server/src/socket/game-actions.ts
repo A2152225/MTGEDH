@@ -2077,7 +2077,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // This handler checks if targets are needed and requests them first,
   // then triggers payment after targets are selected.
   // =====================================================================
-  socket.on("requestCastSpell", ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
+  socket.on("requestCastSpell", async ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
     try {
       debug(2, `[requestCastSpell] ======== REQUEST START ========`);
       debug(2, `[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
@@ -2312,7 +2312,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
+  const handleCastSpellFromHand = async ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -3811,32 +3811,33 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
-            // Process any cascade triggers
-            await processPendingCascades(io, game, gameId);
-            
-            // Process any pending scry effects
-            processPendingScry(io, game, gameId);
-            
-            // Process any pending ponder effects
-            processPendingPonder(io, game, gameId);
-            
-            // Process any pending surveil effects
-            processPendingSurveil(io, game, gameId);
-            
-            // Process any pending proliferate effects
-            processPendingProliferate(io, game, gameId);
-            
-            // Process any pending fateseal effects
-            processPendingFateseal(io, game, gameId);
-            
-            // Process any pending clash effects
-            processPendingClash(io, game, gameId);
-            
-            // Process any pending vote effects
-            processPendingVote(io, game, gameId);
-            
-            // Process any pending library search effects
-            processPendingLibrarySearch(io, game, gameId);
+      // Process any cascade triggers
+      await processPendingCascades(io, game, gameId);
+      
+      // Process any pending scry effects
+      processPendingScry(io, game, gameId);
+      
+      // Process any pending ponder effects
+      processPendingPonder(io, game, gameId);
+      
+      // Process any pending surveil effects
+      processPendingSurveil(io, game, gameId);
+      
+      // Process any pending proliferate effects
+      processPendingProliferate(io, game, gameId);
+      
+      // Process any pending fateseal effects
+      processPendingFateseal(io, game, gameId);
+      
+      // Process any pending clash effects
+      processPendingClash(io, game, gameId);
+      
+      // Process any pending vote effects
+      processPendingVote(io, game, gameId);
+      
+      // Process any pending library search effects
+      processPendingLibrarySearch(io, game, gameId);
+      
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `castSpell error for game ${gameId}:`, err);

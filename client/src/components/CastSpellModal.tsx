@@ -475,14 +475,17 @@ export function CastSpellModal({
     let newGeneric = Math.max(0, parsed.generic - costReduction.generic);
     const newColors = { ...parsed.colors };
     
-    // Valid color keys for type safety
-    const validColors: Color[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+    // Map from full color names to single-letter symbols (identity mappings handle already-normalized input)
+    const colorNameToSymbol: Record<string, Color> = {
+      'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G', 'colorless': 'C',
+      'W': 'W', 'U': 'U', 'B': 'B', 'R': 'R', 'G': 'G', 'C': 'C'
+    };
     
     for (const colorKey of Object.keys(costReduction.colors)) {
-      // Type-safe color check
-      if (!validColors.includes(colorKey as Color)) continue;
+      // Convert to standard symbol (handles both 'white' and 'W' style keys)
+      const color = colorNameToSymbol[colorKey];
+      if (!color) continue;
       
-      const color = colorKey as Color;
       if (newColors[color]) {
         const reduction = costReduction.colors[colorKey];
         const currentColorCost = newColors[color];
@@ -500,12 +503,12 @@ export function CastSpellModal({
     // Reconstruct mana cost string
     const parts: string[] = [];
     if (newGeneric > 0) parts.push(`{${newGeneric}}`);
-    if (newColors.white) parts.push('{W}'.repeat(newColors.white));
-    if (newColors.blue) parts.push('{U}'.repeat(newColors.blue));
-    if (newColors.black) parts.push('{B}'.repeat(newColors.black));
-    if (newColors.red) parts.push('{R}'.repeat(newColors.red));
-    if (newColors.green) parts.push('{G}'.repeat(newColors.green));
-    if (newColors.colorless) parts.push('{C}'.repeat(newColors.colorless));
+    if (newColors.W) parts.push('{W}'.repeat(newColors.W));
+    if (newColors.U) parts.push('{U}'.repeat(newColors.U));
+    if (newColors.B) parts.push('{B}'.repeat(newColors.B));
+    if (newColors.R) parts.push('{R}'.repeat(newColors.R));
+    if (newColors.G) parts.push('{G}'.repeat(newColors.G));
+    if (newColors.C) parts.push('{C}'.repeat(newColors.C));
     
     return parts.length > 0 ? parts.join('') : '{0}';
   }, [manaCost, costReduction]);
