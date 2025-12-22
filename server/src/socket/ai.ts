@@ -4095,12 +4095,6 @@ async function executePassPriority(
       // For AI players, we auto-select an opponent to give control to
       await handlePendingControlChangesAfterResolution(io, game, gameId);
       
-      // Check for pending library search (from tutor spells and other effects)
-      // For AI players, we auto-select the best card; for human players, emit the request
-      // NOTE: Library search is called LAST because some effects (like Tempting Offer cards)
-      // create pendingLibrarySearch when they resolve, so this must be called AFTER them
-      await handlePendingLibrarySearchAfterResolution(io, game, gameId);
-      
       // Persist the resolution event
       try {
         await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
@@ -5365,13 +5359,9 @@ export function cleanupGameAI(gameId: string): void {
 /**
  * Check if there are any pending library searches for a game
  */
-function hasPendingLibrarySearch(game: any): boolean {
-  const pending = (game.state as any)?.pendingLibrarySearch;
-  return pending && typeof pending === 'object' && Object.keys(pending).length > 0;
-}
-
 /**
  * Check if there are any pending bounce land choices for a game
+ * @deprecated Bounce land choices now use the resolution queue
  */
 function hasPendingBounceLandChoice(game: any): boolean {
   const pending = (game.state as any)?.pendingBounceLandChoice;
@@ -5383,19 +5373,14 @@ function hasPendingBounceLandChoice(game: any): boolean {
  * Returns an object with a boolean flag and optional reason string.
  */
 function checkPendingModals(game: any, gameId: string): { hasPending: boolean; reason?: string } {
-  // CRITICAL: Check the resolution queue first (new system)
-  // This ensures Join Forces, Tempting Offer, Bounce Land choices, and other resolution steps block phase changes
+  // Check the resolution queue (unified system for all player interactions)
   const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
   if (queueSummary.hasPending) {
     const pendingTypes = queueSummary.pendingTypes.join(', ');
     return { hasPending: true, reason: `players have pending resolution steps: ${pendingTypes}` };
   }
   
-  // Check legacy pending* fields for backward compatibility
-  // Note: Bounce land choices now use the resolution queue
-  if (hasPendingLibrarySearch(game)) {
-    return { hasPending: true, reason: 'players have pending library searches' };
-  }
+  // Check legacy pending* fields that haven't been migrated yet
   if (hasPendingColorChoices(gameId)) {
     return { hasPending: true, reason: 'players have pending color choice modals' };
   }
@@ -5412,179 +5397,6 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
  * Handle pending library search effects after stack resolution.
  * For AI players, auto-selects the best card; for human players, emits the request.
  */
-async function handlePendingLibrarySearchAfterResolution(
-  io: Server,
-  game: any,
-  gameId: string
-): Promise<void> {
-  try {
-    const pending = game.state?.pendingLibrarySearch;
-    if (!pending || typeof pending !== 'object') return;
-    
-    for (const [playerId, searchInfo] of Object.entries(pending)) {
-      if (!searchInfo) continue;
-      
-      const info = searchInfo as any;
-      
-      // Get the player's library for searching
-      let library: any[] = [];
-      if (typeof game.searchLibrary === 'function') {
-        library = game.searchLibrary(playerId, '', 1000);
-      } else {
-        library = (game.libraries?.get(playerId)) || [];
-      }
-      
-      if (isAIPlayer(gameId, playerId)) {
-        // AI player: auto-select the best card based on criteria
-        debug(2, `[AI] Auto-selecting card from library for tutor: ${info.source || 'tutor'}`);
-        
-        // Filter library based on search criteria
-        let validCards = library;
-        const searchFor = (info.searchFor || '').toLowerCase();
-        
-        if (searchFor.includes('creature')) {
-          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('creature'));
-        } else if (searchFor.includes('planeswalker')) {
-          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('planeswalker'));
-        } else if (searchFor.includes('instant')) {
-          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('instant'));
-        } else if (searchFor.includes('sorcery')) {
-          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('sorcery'));
-        } else if (searchFor.includes('artifact')) {
-          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('artifact'));
-        } else if (searchFor.includes('enchantment')) {
-          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('enchantment'));
-        } else if (searchFor.includes('land')) {
-          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('land'));
-          if (searchFor.includes('basic')) {
-            validCards = validCards.filter((c: any) => c.type_line?.toLowerCase().includes('basic'));
-          }
-        }
-        
-        if (validCards.length > 0) {
-          // AI card selection heuristic:
-          // 1. For lands (e.g., fetch lands): prefer cards that produce multiple colors
-          // 2. For creatures: consider power/toughness and keywords
-          // 3. For other cards: use CMC as proxy for card quality
-          
-          const isLandSearch = searchFor.includes('land');
-          
-          if (isLandSearch) {
-            // For land searches, prefer duals and lands that produce more colors
-            validCards.sort((a: any, b: any) => {
-              const aText = (a.oracle_text || '').toLowerCase();
-              const bText = (b.oracle_text || '').toLowerCase();
-              
-              // Count number of mana symbols in oracle text
-              const aManaTypes = (aText.match(/add \{[wubrgc]\}/gi) || []).length;
-              const bManaTypes = (bText.match(/add \{[wubrgc]\}/gi) || []).length;
-              
-              // Prefer multi-color producing lands
-              if (aManaTypes !== bManaTypes) return bManaTypes - aManaTypes;
-              
-              // Prefer lands that don't enter tapped
-              const aEntersTapped = aText.includes('enters the battlefield tapped');
-              const bEntersTapped = bText.includes('enters the battlefield tapped');
-              if (aEntersTapped !== bEntersTapped) return aEntersTapped ? 1 : -1;
-              
-              return 0;
-            });
-          } else {
-            // For non-lands, prefer cards with higher CMC (generally more impactful)
-            // but also consider power/toughness for creatures
-            validCards.sort((a: any, b: any) => {
-              const aCmc = a.cmc || 0;
-              const bCmc = b.cmc || 0;
-              
-              // For creatures, factor in power+toughness
-              const aTypeLine = (a.type_line || '').toLowerCase();
-              const bTypeLine = (b.type_line || '').toLowerCase();
-              
-              if (aTypeLine.includes('creature') && bTypeLine.includes('creature')) {
-                const aPower = parseInt(a.power || '0', 10);
-                const aToughness = parseInt(a.toughness || '0', 10);
-                const bPower = parseInt(b.power || '0', 10);
-                const bToughness = parseInt(b.toughness || '0', 10);
-                
-                const aStats = aPower + aToughness + aCmc;
-                const bStats = bPower + bToughness + bCmc;
-                return bStats - aStats;
-              }
-              
-              return bCmc - aCmc;
-            });
-          }
-          
-          // Select multiple cards if maxSelections allows (e.g., Collective Voyage)
-          const maxSelections = info.maxSelections || 1;
-          const selectedCards = validCards.slice(0, Math.min(maxSelections, validCards.length));
-          const selectedCardIds = selectedCards.map((c: any) => c.id);
-          
-          // Apply the search effect
-          if (typeof game.selectFromLibrary === 'function' && selectedCardIds.length > 0) {
-            // Pass the destination parameter to selectFromLibrary
-            const destination = info.destination || 'hand';
-            game.selectFromLibrary(playerId, selectedCardIds, destination);
-            
-            // Shuffle library after search
-            if (info.shuffleAfter && typeof game.shuffleLibrary === 'function') {
-              game.shuffleLibrary(playerId);
-            }
-            
-            const cardNames = selectedCards.map((c: any) => c.name || c.id).join(', ');
-            debug(2, `[AI] Selected ${selectedCards.length} card(s) from library: ${cardNames} (${info.source || 'tutor'})`);
-          }
-        } else {
-          debug(2, `[AI] No valid cards found in library for ${info.source || 'tutor'}`);
-          
-          // Even if no cards found, still shuffle if requested
-          if (info.shuffleAfter && typeof game.shuffleLibrary === 'function') {
-            game.shuffleLibrary(playerId);
-          }
-        }
-        
-        // Clear pending search for this AI player after processing
-        delete game.state.pendingLibrarySearch[playerId];
-      } else {
-        // Human player: emit library search request
-        // Do NOT clear pendingLibrarySearch[playerId] here - it will be cleared when the player responds
-        const socketsByPlayer: Map<string, any> = game.participantSockets || new Map();
-        const socket = socketsByPlayer.get(playerId);
-        
-        const searchRequest = {
-          gameId,
-          playerId,
-          cards: library,
-          title: info.source || 'Search',
-          description: info.searchFor ? `Search for: ${info.searchFor}` : 'Search your library',
-          filter: info.filter || {},
-          maxSelections: info.maxSelections || 1,
-          moveTo: info.destination || 'hand',
-          shuffleAfter: info.shuffleAfter ?? true,
-          optional: info.optional || false,
-          entersTapped: info.entersTapped || false,
-        };
-        
-        if (socket) {
-          socket.emit("librarySearchRequest", searchRequest);
-        } else {
-          // Broadcast to the room
-          io.to(gameId).emit("librarySearchRequest", searchRequest);
-        }
-        
-        debug(2, `[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}`);
-      }
-    }
-    
-    // NOTE: Do NOT clear entire pendingLibrarySearch here.
-    // AI player entries are cleared immediately after processing above.
-    // Human player entries are cleared when they respond via librarySearchSelect/Cancel handlers.
-    
-  } catch (err) {
-    debugWarn(1, '[handlePendingLibrarySearchAfterResolution] Error:', err);
-  }
-}
-
 /**
  * Handle pending control change activations after stack resolution for AI players.
  * This handles cards like Vislor Turlough, Xantcha, Akroan Horse that have ETB control change effects.

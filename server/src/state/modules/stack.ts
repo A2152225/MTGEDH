@@ -1579,20 +1579,100 @@ function executeTriggerEffect(
       debug(2, `[executeTriggerEffect] ${sourceName}: Condition met - opponent has more lands than ${controller} (${myLandCount} lands)`);
     }
     
-    // Set up pending library search
-    state.pendingLibrarySearch = state.pendingLibrarySearch || {};
-    state.pendingLibrarySearch[controller] = {
-      type: 'etb-trigger',
-      searchFor: searchFor,
-      destination,
-      tapped: entersTapped,
-      optional: isOptional,
-      source: sourceName,
-      shuffleAfter: desc.includes('shuffle'),
-      filter,
-    };
+    // Create library search resolution step directly
+    const gameId = (ctx as any).gameId || 'unknown';
+    const lib = ((ctx as any).libraries as Map<string, any[]>)?.get(controller) || [];
     
-    debug(2, `[executeTriggerEffect] ${sourceName} trigger: ${controller} may search for ${searchFor} (destination: ${destination}, filter: ${JSON.stringify(filter)})`);
+    if (lib.length === 0) {
+      debug(2, `[executeTriggerEffect] ${sourceName}: Player ${controller} has empty library, skipping search`);
+      return;
+    }
+    
+    // Filter cards based on search criteria
+    const filterAny = filter as any; // Filter can have types, subtypes, supertypes, colors, maxManaValue
+    const availableCards: any[] = [];
+    for (const card of lib) {
+      let matches = true;
+      
+      // Check types
+      if (filterAny.types && filterAny.types.length > 0) {
+        const typeLine = (card.type_line || '').toLowerCase();
+        matches = filterAny.types.some((type: string) => typeLine.includes(type.toLowerCase()));
+      }
+      
+      // Check subtypes
+      if (matches && filterAny.subtypes && filterAny.subtypes.length > 0) {
+        const typeLine = (card.type_line || '').toLowerCase();
+        matches = filterAny.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
+      }
+      
+      // Check supertypes
+      if (matches && filterAny.supertypes && filterAny.supertypes.length > 0) {
+        const typeLine = (card.type_line || '').toLowerCase();
+        matches = filterAny.supertypes.some((supertype: string) => typeLine.includes(supertype.toLowerCase()));
+      }
+      
+      // Check colors
+      if (matches && filterAny.colors && filterAny.colors.length > 0) {
+        const cardColors = card.colors || [];
+        matches = filterAny.colors.some((color: string) => cardColors.includes(color));
+      }
+      
+      // Check mana value
+      if (matches && typeof filterAny.maxManaValue === 'number') {
+        matches = (card.cmc || 0) <= filterAny.maxManaValue;
+      }
+      
+      if (matches) {
+        availableCards.push({
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          imageUrl: card.image_uris?.normal,
+          mana_cost: card.mana_cost,
+          cmc: card.cmc,
+          colors: card.colors,
+        });
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating library search for ${controller}, ${availableCards.length} matching cards`);
+    
+    // Create description
+    let stepDescription = searchFor || 'Search your library';
+    if (destination === 'battlefield') {
+      stepDescription += entersTapped ? ' (enters tapped)' : ' (enters untapped)';
+    }
+    
+    const shuffleAfter = desc.includes('shuffle');
+    
+    // Skip adding resolution steps during replay to prevent infinite loops
+    const isReplaying = !!(ctx as any).isReplaying;
+    if (!isReplaying) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: controller,
+        description: stepDescription,
+        mandatory: !isOptional,
+        sourceName: sourceName,
+        searchCriteria: searchFor || 'any card',
+        minSelections: 0,
+        maxSelections: 1,
+        destination,
+        reveal: true,
+        shuffleAfter,
+        availableCards,
+        entersTapped,
+        remainderDestination: 'shuffle',
+        remainderRandomOrder: true,
+      });
+      
+      debug(2, `[executeTriggerEffect] ${sourceName} trigger: ${controller} may search for ${searchFor} (destination: ${destination}, filter: ${JSON.stringify(filter)})`);
+    } else {
+      debug(2, `[executeTriggerEffect] ${sourceName}: skipping library search during replay`);
+    }
+    
     return;
   }
   

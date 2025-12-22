@@ -1339,9 +1339,7 @@ function applyJoinForcesEffect(
   else if (cardNameLower.includes('collective voyage')) {
     for (const p of players) {
       if (p.hasLost) continue;
-      game.state.pendingLibrarySearch = game.state.pendingLibrarySearch || {};
-      game.state.pendingLibrarySearch[p.id] = {
-        type: 'join-forces-search',
+      createLibrarySearchStep(game, gameId, p.id, {
         searchFor: `up to ${totalContributions} basic land card(s)`,
         destination: 'battlefield',
         tapped: true,
@@ -1349,8 +1347,8 @@ function applyJoinForcesEffect(
         source: 'Collective Voyage',
         shuffleAfter: true,
         maxSelections: totalContributions,
-        filter: { types: ['land'], subtypes: ['basic'] },
-      };
+        filter: { types: ['land'], supertypes: ['basic'] },
+      });
     }
     
     io.to(gameId).emit("chat", {
@@ -1519,9 +1517,7 @@ function applyTemptingOfferEffect(
   // Tempt with Discovery: Search for lands
   if (cardNameLower.includes('discovery')) {
     // Set up library search for initiator
-    game.state.pendingLibrarySearch = game.state.pendingLibrarySearch || {};
-    game.state.pendingLibrarySearch[initiator] = {
-      type: 'tempting-offer-search',
+    createLibrarySearchStep(game, gameId, initiator, {
       searchFor: `up to ${initiatorBonusCount} land card(s)`,
       destination: 'battlefield',
       tapped: false,
@@ -1530,12 +1526,11 @@ function applyTemptingOfferEffect(
       shuffleAfter: true,
       maxSelections: initiatorBonusCount,
       filter: { types: ['land'] },
-    };
+    });
     
     // Each accepting opponent also searches
     for (const opponentId of acceptedBy) {
-      game.state.pendingLibrarySearch[opponentId] = {
-        type: 'tempting-offer-search',
+      createLibrarySearchStep(game, gameId, opponentId, {
         searchFor: 'a land card',
         destination: 'battlefield',
         tapped: false,
@@ -1544,7 +1539,7 @@ function applyTemptingOfferEffect(
         shuffleAfter: true,
         maxSelections: 1,
         filter: { types: ['land'] },
-      };
+      });
     }
     
     io.to(gameId).emit("chat", {
@@ -3554,7 +3549,137 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
 }
 
 /**
+ * Helper function to filter library cards based on search criteria
+ */
+function filterLibraryCards(library: any[], filter: any): any[] {
+  const availableCards: any[] = [];
+  const searchCriteria = filter || {};
+  
+  for (const card of library) {
+    let matches = true;
+    
+    // Check types
+    if (searchCriteria.types && searchCriteria.types.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = searchCriteria.types.some((type: string) => typeLine.includes(type.toLowerCase()));
+    }
+    
+    // Check subtypes
+    if (matches && searchCriteria.subtypes && searchCriteria.subtypes.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = searchCriteria.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
+    }
+    
+    // Check supertypes (e.g., "Basic" for basic lands)
+    if (matches && searchCriteria.supertypes && searchCriteria.supertypes.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = searchCriteria.supertypes.some((supertype: string) => typeLine.includes(supertype.toLowerCase()));
+    }
+    
+    // Check colors
+    if (matches && searchCriteria.colors && searchCriteria.colors.length > 0) {
+      const cardColors = card.colors || [];
+      matches = searchCriteria.colors.some((color: string) => cardColors.includes(color));
+    }
+    
+    // Check mana value
+    if (matches && typeof searchCriteria.maxManaValue === 'number') {
+      matches = (card.cmc || 0) <= searchCriteria.maxManaValue;
+    }
+    
+    if (matches) {
+      availableCards.push({
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        imageUrl: card.image_uris?.normal,
+        mana_cost: card.mana_cost,
+        cmc: card.cmc,
+        colors: card.colors,
+      });
+    }
+  }
+  
+  return availableCards;
+}
+
+/**
+ * Helper function to create a library search resolution step directly
+ * Replaces the legacy pendingLibrarySearch state
+ */
+function createLibrarySearchStep(
+  game: any,
+  gameId: string,
+  playerId: string,
+  options: {
+    searchFor: string;
+    destination?: string;
+    tapped?: boolean;
+    optional?: boolean;
+    source?: string;
+    shuffleAfter?: boolean;
+    filter?: any;
+    maxSelections?: number;
+    minSelections?: number;
+    reveal?: boolean;
+    remainderDestination?: string;
+  }
+): void {
+  const {
+    searchFor,
+    destination = 'hand',
+    tapped = false,
+    optional = true,
+    source = 'Library Search',
+    shuffleAfter = true,
+    filter = {},
+    maxSelections = 1,
+    minSelections = 0,
+    reveal = true,
+    remainderDestination = 'shuffle',
+  } = options;
+  
+  // Get player's library
+  const lib = (game as any).libraries?.get(playerId) || [];
+  if (lib.length === 0) {
+    debug(2, `[createLibrarySearchStep] Player ${playerId} has empty library, skipping search`);
+    return;
+  }
+  
+  // Filter cards based on search criteria
+  const availableCards = filterLibraryCards(lib, filter);
+  
+  debug(2, `[createLibrarySearchStep] Creating library search for player ${playerId}, ${availableCards.length} matching cards`);
+  
+  // Create description
+  let description = searchFor || 'Search your library';
+  if (destination === 'battlefield') {
+    description += tapped ? ' (enters tapped)' : ' (enters untapped)';
+  }
+  
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.LIBRARY_SEARCH,
+    playerId: playerId as PlayerID,
+    description,
+    mandatory: !optional,
+    sourceName: source,
+    searchCriteria: searchFor || 'any card',
+    minSelections,
+    maxSelections,
+    destination,
+    reveal,
+    shuffleAfter,
+    availableCards,
+    entersTapped: tapped,
+    remainderDestination,
+    remainderRandomOrder: true,
+  });
+}
+
+/**
  * Process pending library search effects into resolution queue
+ * @deprecated This function migrates legacy pendingLibrarySearch state. Will be removed.
  */
 export function processPendingLibrarySearch(io: Server, game: any, gameId: string): void {
   try {
