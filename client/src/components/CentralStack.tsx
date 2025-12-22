@@ -284,6 +284,7 @@ export function CentralStack({
               key={it.id}
               onMouseEnter={(e)=> kc && showCardPreview(e.currentTarget as HTMLElement, kc, { prefer:'right', anchorPadding:8 })}
               onMouseLeave={(e)=> kc && hideCardPreview(e.currentTarget as HTMLElement)}
+              title={description}
               style={{
                 display:'flex',
                 alignItems:'center',
@@ -338,11 +339,34 @@ export function CentralStack({
                   fontSize:14, 
                   fontWeight:'bold',
                   color: isTopOfStack ? '#fcd34d' : '#e5e7eb',
-                  whiteSpace:'nowrap',
-                  overflow:'hidden',
-                  textOverflow:'ellipsis'
+                  display:'flex',
+                  alignItems:'center',
+                  gap:6,
+                  minWidth:0
                 }}>
-                  {name}
+                  <span style={{
+                    whiteSpace:'nowrap',
+                    overflow:'hidden',
+                    textOverflow:'ellipsis'
+                  }}>{name}</span>
+                  {description && (
+                    <span 
+                      style={{
+                        fontSize:10,
+                        padding:'2px 6px',
+                        borderRadius:4,
+                        background:'#8b5cf6',
+                        color:'white',
+                        fontWeight:'bold',
+                        flexShrink:0,
+                        cursor:'help',
+                        fontFamily:'monospace'
+                      }}
+                      title={description}
+                    >
+                      i
+                    </span>
+                  )}
                 </div>
                 {/* For triggered abilities, show description */}
                 {description && (
