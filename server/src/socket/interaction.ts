@@ -5047,6 +5047,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
     }
     
+    broadcastGame(io, game, gameId);
+  });
 
   // Target selection confirmation
   socket.on("targetSelectionConfirm", ({ gameId, effectId, selectedTargetIds, targets }: {

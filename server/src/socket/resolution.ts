@@ -2385,10 +2385,10 @@ async function handleLibrarySearchResponse(
   }
   
   // Get game context and utilities
-  const { uid, parsePT, cardManaValue, applyCounterModifications } = await import("../state/utils.js");
-  const { getETBTriggersForPermanent, detectEntersWithCounters } = await import("../state/modules/triggered-abilities.js");
-  const { triggerETBEffectsForPermanent } = await import("../state/modules/stack.js");
-  const { creatureWillHaveHaste, checkCreatureEntersTapped } = await import("./land-helpers.js");
+  const { uid, parsePT, cardManaValue } = await import("../state/utils.js");
+  const { applyCounterModifications } = await import("../state/modules/counters_tokens.js");
+  const { getETBTriggersForPermanent } = await import("../state/modules/triggered-abilities.js");
+  const { triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped } = await import("../state/modules/stack.js");
   
   const state = game.state || {};
   const battlefield = state.battlefield = state.battlefield || [];
@@ -2559,7 +2559,7 @@ async function putCardOntoBattlefield(
   }
   const etbCounters = detectEntersWithCounters(card);
   for (const [counterType, count] of Object.entries(etbCounters)) {
-    initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
+    initialCounters[counterType] = (initialCounters[counterType] || 0) + (count as number);
   }
   
   const tempId = uid("perm");
