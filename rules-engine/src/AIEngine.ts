@@ -716,13 +716,12 @@ export class AIEngine {
         // This ensures attacks happen frequently while still being unpredictable
         const randomAttackerIds = legalAttackerIds.filter(() => Math.random() > 0.3);
         
-        // Determine target player (random opponent)
-        const opponents = context.gameState.players.filter(p => p.id !== playerId);
-        const targetPlayer = opponents[Math.floor(Math.random() * opponents.length)];
+        // Determine target player using threat assessment
+        const targetPlayerId = this.selectAttackTarget(context.gameState, playerId);
         
         const randomAttackers = randomAttackerIds.map(id => ({
           creatureId: id,
-          defendingPlayerId: targetPlayer?.id || opponents[0]?.id || playerId,
+          defendingPlayerId: targetPlayerId,
         }));
         
         return {
@@ -834,6 +833,70 @@ export class AIEngine {
       reasoning: `Hand has ${landCount} lands (want 2-5)`,
       confidence: keep ? 0.7 : 0.3,
     };
+  }
+  
+  /**
+   * Select the best opponent to attack based on threat assessment
+   * Considers multiple factors:
+   * - Overall threat level (board state, combo potential)
+   * - Life total (prioritize low life for potential kills)
+   * - Board presence (number and quality of threats)
+   * 
+   * @param gameState Current game state
+   * @param playerId The attacking player
+   * @returns The player ID to attack
+   */
+  private selectAttackTarget(gameState: GameState, playerId: PlayerID): PlayerID {
+    const opponents = gameState.players.filter(p => p.id !== playerId);
+    if (opponents.length === 0) return playerId;
+    if (opponents.length === 1) return opponents[0].id;
+    
+    // Use battlefield threat assessment
+    const threatAssessment = this.assessBattlefieldThreats(gameState, playerId);
+    
+    // Score each opponent
+    const opponentScores = opponents.map(opp => {
+      const playerAnalysis = threatAssessment.playerAnalyses.get(opp.id);
+      const life = opp.life || 40;
+      
+      let score = 0;
+      
+      // Factor 1: Threat level (most important)
+      // Higher threat = higher priority target
+      if (playerAnalysis) {
+        score += playerAnalysis.totalThreatLevel * 100;
+        
+        // Extra weight for combo threats
+        if (playerAnalysis.comboPiecesOnBoard.length >= 2) {
+          score += 300; // Very high priority to disrupt combos
+        }
+      }
+      
+      // Factor 2: Low life (potential kill)
+      // Prioritize opponents below 20 life
+      if (life <= 10) {
+        score += 200; // Very high priority - potential kill
+      } else if (life <= 20) {
+        score += 100; // High priority - getting close
+      } else if (life <= 30) {
+        score += 50; // Moderate priority
+      }
+      
+      // Factor 3: Board presence
+      // More creatures = higher threat in Commander
+      const creatureCount = (opp.battlefield || []).filter((p: any) =>
+        p.card?.type_line?.toLowerCase().includes('creature')
+      ).length;
+      score += creatureCount * 10;
+      
+      return { playerId: opp.id, score, life };
+    });
+    
+    // Sort by score (highest first)
+    opponentScores.sort((a, b) => b.score - a.score);
+    
+    // Return the highest priority target
+    return opponentScores[0].playerId;
   }
   
   /**
@@ -958,13 +1021,8 @@ export class AIEngine {
     }
     
     // Determine attack target for non-goaded attackers
-    // Attack the player with lowest life
-    const opponents = allPlayerIds.filter(id => id !== context.playerId);
-    const targetPlayer = opponents.reduce((lowest, current) => {
-      const currentLife = context.gameState.players.find(p => p.id === current)?.life || 40;
-      const lowestLife = context.gameState.players.find(p => p.id === lowest)?.life || 40;
-      return currentLife < lowestLife ? current : lowest;
-    }, opponents[0] || context.playerId);
+    // Use threat assessment to select the best target
+    const targetPlayer = this.selectAttackTarget(context.gameState, context.playerId);
     
     const voluntaryAttackers = [...suicideAttackers, ...regularAttackers].map(id => ({
       creatureId: id,
@@ -1540,17 +1598,12 @@ export class AIEngine {
       // Use getLegalAttackers to get only valid attackers
       const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
       
-      // Determine target player (attack player with lowest life)
-      const opponents = context.gameState.players.filter(p => p.id !== context.playerId);
-      const targetPlayer = opponents.reduce((lowest, current) => {
-        const currentLife = current.life || 40;
-        const lowestLife = context.gameState.players.find(p => p.id === lowest.id)?.life || 40;
-        return currentLife < lowestLife ? current : lowest;
-      }, opponents[0]);
+      // Determine target player using threat assessment
+      const targetPlayerId = this.selectAttackTarget(context.gameState, context.playerId);
       
       const attackers = legalAttackerIds.map(id => ({
         creatureId: id,
-        defendingPlayerId: targetPlayer?.id || opponents[0]?.id || context.playerId,
+        defendingPlayerId: targetPlayerId,
       }));
       
       return {
@@ -1588,16 +1641,12 @@ export class AIEngine {
         const attackerCount = Math.floor(legalAttackerIds.length * attackRatio);
         const attackerIds = legalAttackerIds.slice(0, Math.max(1, attackerCount));
         
-        // Target player with lowest life
-        const targetPlayer = opponents.reduce((lowest, current) => {
-          const currentLife = current.life || 40;
-          const lowestLife = opponents.find(p => p.id === lowest.id)?.life || 40;
-          return currentLife < lowestLife ? current : lowest;
-        }, opponents[0]);
+        // Use threat assessment to select target
+        const targetPlayerId = this.selectAttackTarget(context.gameState, context.playerId);
         
         const attackers = attackerIds.map(id => ({
           creatureId: id,
-          defendingPlayerId: targetPlayer?.id || opponents[0]?.id || context.playerId,
+          defendingPlayerId: targetPlayerId,
         }));
         
         return {
@@ -1656,16 +1705,12 @@ export class AIEngine {
           const attackerCount = Math.ceil(legalAttackerIds.length * attackRatio);
           const attackerIds = legalAttackerIds.slice(0, attackerCount);
           
-          // Target player with lowest life
-          const targetPlayer = opponents.reduce((lowest, current) => {
-            const currentLife = current.life || 40;
-            const lowestLife = opponents.find(p => p.id === lowest.id)?.life || 40;
-            return currentLife < lowestLife ? current : lowest;
-          }, opponents[0]);
+          // Use threat assessment to select target
+          const targetPlayerId = this.selectAttackTarget(gameState, playerId);
           
           const attackers = attackerIds.map(id => ({
             creatureId: id,
-            defendingPlayerId: targetPlayer?.id || opponents[0]?.id || playerId,
+            defendingPlayerId: targetPlayerId,
           }));
           
           return {
@@ -1792,16 +1837,12 @@ export class AIEngine {
             ? vanillaAttackers 
             : legalAttackerIds.slice(0, Math.max(1, Math.floor(legalAttackerIds.length * 0.3)));
           
-          // Target player with lowest life
-          const targetPlayer = opponents.reduce((lowest, current) => {
-            const currentLife = current.life || 40;
-            const lowestLife = opponents.find(p => p.id === lowest.id)?.life || 40;
-            return currentLife < lowestLife ? current : lowest;
-          }, opponents[0]);
+          // Use threat assessment to select target
+          const targetPlayerId = this.selectAttackTarget(gameState, playerId);
           
           const attackers = attackerIds.map(id => ({
             creatureId: id,
-            defendingPlayerId: targetPlayer?.id || opponents[0]?.id || playerId,
+            defendingPlayerId: targetPlayerId,
           }));
           
           return {
