@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
-import { processPendingCascades } from "./resolution.js";
+import { processPendingCascades, processPendingScry, processPendingSurveil, processPendingProliferate, processPendingFateseal, processPendingClash, processPendingVote, processPendingPonder, processPendingLibrarySearch } from "./resolution.js";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -1947,7 +1947,16 @@ export function registerGameActions(io: Server, socket: Socket) {
       const oracleText = (cardInHand as any)?.oracle_text || '';
       const scryAmount = detectScryOnETB(oracleText);
       if (scryAmount && scryAmount > 0) {
-        // Emit scry prompt to the player
+        // Set pendingScry state - will be processed by processPendingScry() after stack resolution
+        const scryId = `scry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        (game.state as any).pendingScry = (game.state as any).pendingScry || {};
+        (game.state as any).pendingScry[scryId] = {
+          playerId,
+          count: scryAmount,
+          sourceId: cardId,
+          sourceName: cardName,
+        };
+        
         debug(2, `[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
         
         io.to(gameId).emit("chat", {
@@ -1958,13 +1967,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         
-        // Emit scry event to the player - triggers the scry UI
-        emitToPlayer(io, playerId as string, "beginScryPrompt", {
-          gameId,
-          count: scryAmount,
-          sourceName: cardName,
-          sourceId: cardId,
-        });
+        // Legacy beginScryPrompt emission removed - now handled by processPendingScry()
       }
 
       // Check for "sacrifice unless you pay" ETB triggers (Transguild Promenade, Gateway Plaza, etc.)
@@ -2074,7 +2077,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // This handler checks if targets are needed and requests them first,
   // then triggers payment after targets are selected.
   // =====================================================================
-  socket.on("requestCastSpell", ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
+  socket.on("requestCastSpell", async ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
     try {
       debug(2, `[requestCastSpell] ======== REQUEST START ========`);
       debug(2, `[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
@@ -2309,7 +2312,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
+  const handleCastSpellFromHand = async ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -3808,7 +3811,33 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
-            // Process any cascade triggers      await processPendingCascades(io, game, gameId);
+      // Process any cascade triggers
+      await processPendingCascades(io, game, gameId);
+      
+      // Process any pending scry effects
+      processPendingScry(io, game, gameId);
+      
+      // Process any pending ponder effects
+      processPendingPonder(io, game, gameId);
+      
+      // Process any pending surveil effects
+      processPendingSurveil(io, game, gameId);
+      
+      // Process any pending proliferate effects
+      processPendingProliferate(io, game, gameId);
+      
+      // Process any pending fateseal effects
+      processPendingFateseal(io, game, gameId);
+      
+      // Process any pending clash effects
+      processPendingClash(io, game, gameId);
+      
+      // Process any pending vote effects
+      processPendingVote(io, game, gameId);
+      
+      // Process any pending library search effects
+      processPendingLibrarySearch(io, game, gameId);
+      
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `castSpell error for game ${gameId}:`, err);
@@ -4148,9 +4177,35 @@ export function registerGameActions(io: Server, socket: Socket) {
           gameId,
           from: "system",
           message: "Top of stack resolved.",
-                // Process any cascade triggers        await processPendingCascades(io, game, gameId);
           ts: Date.now(),
         });
+        
+        // Process any cascade triggers
+        await processPendingCascades(io, game, gameId);
+        
+        // Process any pending scry effects
+        processPendingScry(io, game, gameId);
+        
+        // Process any pending ponder effects
+        processPendingPonder(io, game, gameId);
+        
+        // Process any pending surveil effects
+        processPendingSurveil(io, game, gameId);
+        
+        // Process any pending proliferate effects
+        processPendingProliferate(io, game, gameId);
+        
+        // Process any pending fateseal effects
+        processPendingFateseal(io, game, gameId);
+        
+        // Process any pending clash effects
+        processPendingClash(io, game, gameId);
+        
+        // Process any pending vote effects
+        processPendingVote(io, game, gameId);
+        
+        // Process any pending library search effects
+        processPendingLibrarySearch(io, game, gameId);
         
         // ========================================================================
         // CRITICAL: Check if there's a pending phase skip that was interrupted
@@ -4837,9 +4892,35 @@ export function registerGameActions(io: Server, socket: Socket) {
           gameId,
           from: "system",
           message: "Top of stack resolved.",
-                // Process any cascade triggers        await processPendingCascades(io, game, gameId);
           ts: Date.now(),
         });
+        
+        // Process any cascade triggers
+        await processPendingCascades(io, game, gameId);
+        
+        // Process any pending scry effects
+        processPendingScry(io, game, gameId);
+        
+        // Process any pending surveil effects
+        processPendingSurveil(io, game, gameId);
+        
+        // Process any pending proliferate effects
+        processPendingProliferate(io, game, gameId);
+        
+        // Process any pending fateseal effects
+        processPendingFateseal(io, game, gameId);
+        
+        // Process any pending clash effects
+        processPendingClash(io, game, gameId);
+        
+        // Process any pending vote effects
+        processPendingVote(io, game, gameId);
+        
+        // Process any pending ponder effects
+        processPendingPonder(io, game, gameId);
+        
+        // Process any pending library search effects
+        processPendingLibrarySearch(io, game, gameId);
       }
 
       // If all players passed priority with empty stack, advance to next step

@@ -120,14 +120,18 @@ export interface ClientToServerEvents {
   // Add a card to the ignore list (auto-pass will skip these cards when checking abilities)
   ignoreCardForAutoPass: (payload: { 
     gameId: GameID; 
-    permanentId: string;
+    permanentId?: string;
+    cardId?: string;
     cardName: string;
+    zone?: string;
+    imageUrl?: string;
   }) => void;
   
   // Remove a card from the ignore list
   unignoreCardForAutoPass: (payload: { 
     gameId: GameID; 
-    permanentId: string;
+    permanentId?: string;
+    cardId?: string;
   }) => void;
   
   // Clear all ignored cards
@@ -267,6 +271,7 @@ export interface ClientToServerEvents {
     faceIndex?: number;
     effectId?: string;
     xValue?: number;
+    convokeTappedCreatures?: string[];
   }) => void;
   
   // Resolve a cascade decision (cast the revealed card or decline)
@@ -370,7 +375,7 @@ export interface ClientToServerEvents {
   // ===== SPELL CASTING =====
   
   // Cast spell from hand (with payment info)
-  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; xValue?: number }) => void;
+  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; xValue?: number; convokeTappedCreatures?: string[] }) => void;
 
   // ===== POSITION / UI EVENTS =====
   
@@ -408,15 +413,6 @@ export interface ClientToServerEvents {
   
   // ===== PONDER-STYLE EFFECTS =====
   
-  // Confirm Ponder-style effect (look at top N, reorder, optionally shuffle, then draw)
-  confirmPonder: (payload: { 
-    gameId: GameID; 
-    effectId: string;
-    newOrder: string[];  // Card IDs in new order (top first)
-    shouldShuffle: boolean;
-    toHand?: string[];   // Card IDs going to hand (for Telling Time style)
-  }) => void;
-
   // Confirm Spy Network effect (look at target, then reorder own library)
   confirmSpyNetwork: (payload: {
     gameId: GameID;
@@ -748,6 +744,8 @@ export interface ServerToClientEvents {
     effectId: string;
     targets?: string[];  // Targets already selected
     imageUrl?: string;
+    costReduction?: { amount: number; source: string }[];
+    convokeOptions?: { permanentId: string; name: string; colors: string[] }[];
   }) => void;
   
   // ===== JOIN FORCES / TEMPTING OFFER EVENTS =====
@@ -788,35 +786,6 @@ export interface ServerToClientEvents {
   }) => void;
   
   // ===== PONDER-STYLE EFFECTS =====
-  
-  // Ponder request - prompts player to look at top N cards, reorder, optionally shuffle, then draw
-  // Supports targeting any player's library (e.g., Architects of Will)
-  ponderRequest: (payload: {
-    gameId: GameID;
-    effectId: string;
-    playerId: PlayerID;           // Player making the decision
-    targetPlayerId: PlayerID;     // Whose library is being manipulated
-    targetPlayerName?: string;    // Display name of target player
-    cardName: string;
-    cardImageUrl?: string;
-    cards: KnownCardRef[];        // Cards in current top-to-bottom order
-    variant: 'ponder' | 'index' | 'telling_time' | 'brainstorm' | 'architects';
-    canShuffle: boolean;          // Whether shuffle option is available
-    drawAfter: boolean;           // Whether to draw after reordering
-    pickToHand: number;           // Number of cards to pick to hand (0 for most effects)
-    timeoutMs?: number;
-  }) => void;
-  
-  // Ponder completed
-  ponderComplete: (payload: {
-    gameId: GameID;
-    effectId: string;
-    playerId: PlayerID;
-    targetPlayerId: PlayerID;
-    cardName: string;
-    shuffled: boolean;
-    drawnCardName?: string;
-  }) => void;
   
   // Spy Network request - look at target player's info, then reorder own library
   spyNetworkRequest: (payload: {

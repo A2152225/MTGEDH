@@ -36,7 +36,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.
  * @param card - The card to analyze
  * @returns Object with counter types and amounts to add on ETB
  */
-function detectEntersWithCounters(card: any): Record<string, number> {
+export function detectEntersWithCounters(card: any): Record<string, number> {
   const counters: Record<string, number> = {};
   if (!card) return counters;
   
@@ -416,7 +416,7 @@ function extractCreatureTypes(typeLine: string): string[] {
  * This is used when determining if a creature should have summoning sickness.
  * Rule 702.10: Haste allows a creature to attack and use tap abilities immediately.
  */
-function creatureWillHaveHaste(
+export function creatureWillHaveHaste(
   card: any,
   controller: string,
   battlefield: any[]
@@ -500,7 +500,7 @@ function creatureWillHaveHaste(
  * @param creatureCard - The creature card entering
  * @returns true if the creature should enter tapped
  */
-function checkCreatureEntersTapped(
+export function checkCreatureEntersTapped(
   battlefield: any[],
   creatureController: string,
   creatureCard: any
@@ -813,7 +813,7 @@ export function triggerETBEffectsForToken(
  * Note: The permanent's own ETB trigger (if any) is handled separately when the 
  * permanent resolves from the stack.
  */
-function triggerETBEffectsForPermanent(
+export function triggerETBEffectsForPermanent(
   ctx: GameContext,
   permanent: any,
   controller: PlayerID
@@ -4619,7 +4619,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       } else {
         // No eligible permanents, just put everything to graveyard
         const zones = ctx.state.zones || {};
-        const z = zones[controller] || { graveyard: [], graveyardCount: 0 };
+        const z = zones[controller] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 };
         zones[controller] = z;
         z.graveyard = z.graveyard || [];
         

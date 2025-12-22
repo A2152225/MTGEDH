@@ -84,6 +84,9 @@ export enum ResolutionStepType {
   DEVOUR_SELECTION = 'devour_selection',
   SUSPEND_CAST = 'suspend_cast',
   MORPH_TURN_FACE_UP = 'morph_turn_face_up',
+  FATESEAL = 'fateseal',
+  CLASH = 'clash',
+  VOTE = 'vote',
 }
 
 /**
@@ -300,6 +303,79 @@ export interface ScryStep extends BaseResolutionStep {
 }
 
 /**
+ * Surveil resolution step
+ * 
+ * Similar to scry but cards can go to graveyard instead of bottom of library.
+ * Reference: Rule 701.25 - Surveil
+ */
+export interface SurveilStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.SURVEIL;
+  readonly cards: readonly KnownCardRef[];
+  readonly surveilCount: number;
+}
+
+/**
+ * Proliferate resolution step
+ * 
+ * Player chooses any number of permanents and/or players with counters
+ * and adds one counter of each kind already there.
+ * 
+ * Reference: Rule 701.28 - Proliferate
+ */
+export interface ProliferateStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.PROLIFERATE;
+  readonly proliferateId: string; // Unique ID for this proliferate effect
+  readonly availableTargets: readonly {
+    id: string;
+    name: string;
+    counters: Record<string, number>;
+    isPlayer: boolean;
+  }[];
+}
+
+/**
+ * Fateseal resolution step
+ * 
+ * Like scry but player looks at opponent's library instead of their own.
+ * Reference: Rule 701.29 - Fateseal
+ */
+export interface FatesealStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.FATESEAL;
+  readonly opponentId: string; // Whose library is being fatesealed
+  readonly cards: readonly KnownCardRef[];
+  readonly fatesealCount: number;
+}
+
+/**
+ * Clash resolution step
+ * 
+ * Player reveals top card and chooses whether to put it on bottom.
+ * Reference: Rule 701.30 - Clash
+ */
+export interface ClashStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.CLASH;
+  readonly revealedCard: KnownCardRef;
+  readonly opponentId?: string; // For "clash with an opponent"
+}
+
+/**
+ * Vote resolution step
+ * 
+ * Players vote in APNAP order for one of the available choices.
+ * Reference: Rule 701.38 - Vote
+ */
+export interface VoteStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.VOTE;
+  readonly voteId: string; // Unique ID for this vote
+  readonly choices: readonly string[]; // Available vote options
+  readonly votesSubmitted: readonly {
+    playerId: string;
+    choice: string;
+    voteCount: number;
+  }[]; // Votes already cast
+}
+
+/**
  * Kynaios and Tiro style choice resolution step
  * Player may put a land onto the battlefield, or (for opponents) draw a card
  */
@@ -424,6 +500,11 @@ export type ResolutionStep =
   | OptionChoiceStep
   | PonderEffectStep
   | ScryStep
+  | SurveilStep
+  | ProliferateStep
+  | FatesealStep
+  | ClashStep
+  | VoteStep
   | KynaiosChoiceStep
   | JoinForcesStep
   | TemptingOfferStep

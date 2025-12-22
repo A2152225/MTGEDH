@@ -16,6 +16,9 @@ import { CommanderSelectModal } from "./components/CommanderSelectModal";
 import NameInUseModal from "./components/NameInUseModal";
 import { ZonesPanel } from "./components/ZonesPanel";
 import { ScrySurveilModal } from "./components/ScrySurveilModal";
+import { FatesealModal } from "./components/FatesealModal";
+import { ClashModal } from "./components/ClashModal";
+import { VoteModal } from "./components/VoteModal";
 import { CastSpellModal } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
@@ -166,6 +169,7 @@ export function App() {
   const [peek, setPeek] = useState<{
     mode: "scry" | "surveil";
     cards: any[];
+    stepId?: string; // For resolution queue
   } | null>(null);
 
   // Explore modal state
@@ -262,7 +266,38 @@ export function App() {
     proliferateId: string;
     sourceName: string;
     imageUrl?: string;
+    sourceImageUrl?: string;
     validTargets: ProliferateTarget[];
+    stepId?: string; // For resolution queue
+  } | null>(null);
+  
+  // Fateseal modal state
+  const [fatesealModalOpen, setFatesealModalOpen] = useState(false);
+  const [fatesealData, setFatesealData] = useState<{
+    opponentId: string;
+    opponentName: string;
+    cards: any[];
+    stepId: string;
+    sourceName: string;
+  } | null>(null);
+  
+  // Clash modal state
+  const [clashModalOpen, setClashModalOpen] = useState(false);
+  const [clashData, setClashData] = useState<{
+    revealedCard: any;
+    opponentId?: string;
+    stepId: string;
+    sourceName: string;
+  } | null>(null);
+  
+  // Vote modal state
+  const [voteModalOpen, setVoteModalOpen] = useState(false);
+  const [voteData, setVoteData] = useState<{
+    voteId: string;
+    choices: string[];
+    votesSubmitted: any[];
+    stepId: string;
+    sourceName: string;
   } | null>(null);
   
   // Sacrifice unless pay modal state (Transguild Promenade, Gateway Plaza, etc.)
@@ -354,6 +389,7 @@ export function App() {
     toBattlefield?: number;
     toHand?: number;
     entersTapped?: boolean;
+    stepId?: string; // For resolution queue system
   } | null>(null);
   
   // Target selection modal state
@@ -497,6 +533,7 @@ export function App() {
     targetPlayerId?: string;
     targetPlayerName?: string;
     isOwnLibrary: boolean;
+    stepId?: string;  // For resolution queue integration
   } | null>(null);
   
   // Cascade modal state
@@ -1516,6 +1553,8 @@ export function App() {
       effectId: string;
       targets?: string[];
       imageUrl?: string;
+      costReduction?: { amount: number; source: string }[];
+      convokeOptions?: { permanentId: string; name: string; colors: string[] }[];
     }) => {
       if (payload.gameId === safeView?.id) {
         // Store the pending targets and effectId so we can include them when casting
@@ -2490,6 +2529,106 @@ export function App() {
         });
         setCascadeModalOpen(true);
       }
+      
+      // Handle Scry resolution step
+      else if (step.type === 'scry') {
+        setPeek({
+          mode: 'scry',
+          cards: step.cards || [],
+          stepId: step.id,
+        });
+      }
+      
+      // Handle Surveil resolution step
+      else if (step.type === 'surveil') {
+        setPeek({
+          mode: 'surveil',
+          cards: step.cards || [],
+          stepId: step.id,
+        });
+      }
+      
+      // Handle Proliferate resolution step
+      else if (step.type === 'proliferate') {
+        setProliferateData({
+          proliferateId: step.proliferateId || step.id,
+          sourceName: step.sourceName || 'Proliferate',
+          sourceImageUrl: step.sourceImage || step.sourceImageUrl,
+          validTargets: step.availableTargets || [],
+          stepId: step.id,
+        });
+        setProliferateModalOpen(true);
+      }
+      
+      // Handle Fateseal resolution step
+      else if (step.type === 'fateseal') {
+        setFatesealData({
+          opponentId: step.opponentId,
+          opponentName: step.opponentName || 'opponent',
+          cards: step.cards || [],
+          stepId: step.id,
+          sourceName: step.sourceName || 'Fateseal',
+        });
+        setFatesealModalOpen(true);
+      }
+      
+      // Handle Clash resolution step
+      else if (step.type === 'clash') {
+        setClashData({
+          revealedCard: step.revealedCard,
+          opponentId: step.opponentId,
+          stepId: step.id,
+          sourceName: step.sourceName || 'Clash',
+        });
+        setClashModalOpen(true);
+      }
+      
+      // Handle Vote resolution step
+      else if (step.type === 'vote') {
+        setVoteData({
+          voteId: step.voteId || step.id,
+          choices: step.choices || [],
+          votesSubmitted: step.votesSubmitted || [],
+          stepId: step.id,
+          sourceName: step.sourceName || 'Vote',
+        });
+        setVoteModalOpen(true);
+      }
+      
+      // Handle Ponder Effect resolution step
+      else if (step.type === 'ponder_effect') {
+        setPonderRequest({
+          effectId: step.id,
+          cardName: step.sourceName || 'Ponder',
+          cardImageUrl: step.sourceImage,
+          cards: step.cards || [],
+          variant: step.variant || 'ponder',
+          canShuffle: step.mayShuffleAfter !== false,
+          drawAfter: step.drawAfter || false,
+          pickToHand: 0,  // Will be determined by variant
+          targetPlayerId: step.targetPlayerId || step.playerId,
+          targetPlayerName: step.targetPlayerName,
+          isOwnLibrary: step.playerId === (step.targetPlayerId || step.playerId),
+          stepId: step.id,  // Store for resolution response
+        });
+        setPonderModalOpen(true);
+      }
+      
+      // Handle Library Search resolution step
+      else if (step.type === 'library_search') {
+        setLibrarySearchData({
+          cards: step.availableCards || [],
+          title: step.sourceName || 'Search Library',
+          description: step.description || step.searchCriteria || 'Search your library',
+          filter: {}, // Filter already applied on server
+          maxSelections: step.maxSelections || 1,
+          moveTo: step.destination || 'hand',
+          shuffleAfter: step.shuffleAfter !== false,
+          entersTapped: step.entersTapped || false,
+          stepId: step.id,  // Store for resolution response
+        });
+        setLibrarySearchModalOpen(true);
+      }
     };
     
     // Also listen for the legacy kynaiosChoice event for backward compatibility
@@ -2508,56 +2647,6 @@ export function App() {
       socket.off("kynaiosChoice", handleLegacyKynaiosChoice);
     };
   }, [safeView?.id]);
-
-  // Ponder socket event handlers
-  React.useEffect(() => {
-    const handlePonderRequest = (payload: {
-      gameId: string;
-      effectId: string;
-      playerId: string;
-      targetPlayerId: string;
-      targetPlayerName?: string;
-      cardName: string;
-      cardImageUrl?: string;
-      cards: PeekCard[];
-      variant: PonderVariant;
-      canShuffle: boolean;
-      drawAfter: boolean;
-      pickToHand: number;
-    }) => {
-      if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setPonderRequest({
-          effectId: payload.effectId,
-          cardName: payload.cardName,
-          cardImageUrl: payload.cardImageUrl,
-          cards: payload.cards,
-          variant: payload.variant,
-          canShuffle: payload.canShuffle,
-          drawAfter: payload.drawAfter,
-          pickToHand: payload.pickToHand,
-          targetPlayerId: payload.targetPlayerId,
-          targetPlayerName: payload.targetPlayerName,
-          isOwnLibrary: payload.playerId === payload.targetPlayerId,
-        });
-        setPonderModalOpen(true);
-      }
-    };
-    
-    const handlePonderComplete = (payload: { effectId: string }) => {
-      if (ponderRequest?.effectId === payload.effectId) {
-        setPonderModalOpen(false);
-        setPonderRequest(null);
-      }
-    };
-    
-    socket.on("ponderRequest", handlePonderRequest);
-    socket.on("ponderComplete", handlePonderComplete);
-    
-    return () => {
-      socket.off("ponderRequest", handlePonderRequest);
-      socket.off("ponderComplete", handlePonderComplete);
-    };
-  }, [safeView?.id, you, ponderRequest?.effectId]);
 
   // Mutate target selection listener
   useEffect(() => {
@@ -3691,13 +3780,67 @@ export function App() {
   // Proliferate handler - player selects targets to proliferate
   const handleProliferateConfirm = (selectedIds: string[]) => {
     if (!safeView || !proliferateData) return;
-    socket.emit("proliferateConfirm", {
+    
+    // Use the resolution queue system
+    if (!proliferateData.stepId) {
+      console.error('[Proliferate] Missing stepId - must use resolution queue');
+      return;
+    }
+    
+    socket.emit("submitResolutionResponse", {
       gameId: safeView.id,
-      proliferateId: proliferateData.proliferateId,
-      selectedTargetIds: selectedIds,
+      stepId: proliferateData.stepId,
+      selections: selectedIds,
+      cancelled: false,
     });
+    
     setProliferateModalOpen(false);
     setProliferateData(null);
+  };
+  
+  // Fateseal handler - player orders opponent's library
+  const handleFatesealConfirm = (payload: { keepTopOrder: any[]; bottomOrder: any[] }) => {
+    if (!safeView || !fatesealData) return;
+    
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: fatesealData.stepId,
+      selections: payload,
+      cancelled: false,
+    });
+    
+    setFatesealModalOpen(false);
+    setFatesealData(null);
+  };
+  
+  // Clash handler - player chooses whether to put card on bottom
+  const handleClashConfirm = (putOnBottom: boolean) => {
+    if (!safeView || !clashData) return;
+    
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: clashData.stepId,
+      selections: putOnBottom,
+      cancelled: false,
+    });
+    
+    setClashModalOpen(false);
+    setClashData(null);
+  };
+  
+  // Vote handler - player submits their vote
+  const handleVoteConfirm = (choice: string) => {
+    if (!safeView || !voteData) return;
+    
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: voteData.stepId,
+      selections: choice,
+      cancelled: false,
+    });
+    
+    setVoteModalOpen(false);
+    setVoteData(null);
   };
 
   // Sacrifice unless pay handlers (Transguild Promenade, Gateway Plaza, etc.)
@@ -3858,22 +4001,46 @@ export function App() {
     moveTo: string,
     splitAssignments?: { toBattlefield: string[]; toHand: string[] }
   ) => {
-    if (!safeView) return;
-    socket.emit("librarySearchSelect", {
-      gameId: safeView.id,
-      selectedCardIds: selectedCardIds,
-      moveTo: moveTo,
-      splitAssignments,
-    });
+    if (!safeView || !librarySearchData) return;
+    
+    // If we have a stepId, use the resolution queue system
+    if ((librarySearchData as any).stepId) {
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId: (librarySearchData as any).stepId,
+        selections: selectedCardIds,
+        cancelled: false,
+      });
+    } else {
+      // Legacy handler for backward compatibility
+      socket.emit("librarySearchSelect", {
+        gameId: safeView.id,
+        selectedCardIds: selectedCardIds,
+        moveTo: moveTo,
+        splitAssignments,
+      });
+    }
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };
 
   const handleLibrarySearchCancel = () => {
-    if (!safeView) return;
-    socket.emit("librarySearchCancel", {
-      gameId: safeView.id,
-    });
+    if (!safeView || !librarySearchData) return;
+    
+    // If we have a stepId, use the resolution queue system
+    if ((librarySearchData as any).stepId) {
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId: (librarySearchData as any).stepId,
+        selections: [],
+        cancelled: true,
+      });
+    } else {
+      // Legacy handler for backward compatibility
+      socket.emit("librarySearchCancel", {
+        gameId: safeView.id,
+      });
+    }
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };
@@ -4978,18 +5145,30 @@ export function App() {
           onCancel={() => setPeek(null)}
           onConfirm={(res) => {
             if (!view) return;
-            if (peek.mode === "scry")
-              socket.emit("confirmScry", {
-                gameId: view.id,
-                keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
-                bottomOrder: (res.bottomOrder || []).map(id => ({ id })),
-              });
-            else
-              socket.emit("confirmSurveil", {
-                gameId: view.id,
-                keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
-                toGraveyard: (res.toGraveyard || []).map(id => ({ id })),
-              });
+            
+            // Use the resolution queue system
+            if (!peek.stepId) {
+              console.error('[Scry/Surveil] Missing stepId - must use resolution queue');
+              return;
+            }
+            
+            const selections = peek.mode === "scry" 
+              ? {
+                  keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                  bottomOrder: (res.bottomOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                }
+              : {
+                  keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                  toGraveyard: (res.toGraveyard || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
+                };
+            
+            socket.emit("submitResolutionResponse", {
+              gameId: view.id,
+              stepId: peek.stepId,
+              selections,
+              cancelled: false,
+            });
+            
             setPeek(null);
           }}
         />
@@ -5453,6 +5632,50 @@ export function App() {
         validTargets={proliferateData?.validTargets || []}
         onConfirm={handleProliferateConfirm}
       />
+      
+      {/* Fateseal Modal */}
+      {fatesealModalOpen && fatesealData && view && (
+        <FatesealModal
+          opponentName={fatesealData.opponentName}
+          cards={fatesealData.cards}
+          imagePref={imagePref}
+          sourceName={fatesealData.sourceName}
+          onCancel={() => {
+            setFatesealModalOpen(false);
+            setFatesealData(null);
+          }}
+          onConfirm={handleFatesealConfirm}
+        />
+      )}
+      
+      {/* Clash Modal */}
+      {clashModalOpen && clashData && view && (
+        <ClashModal
+          revealedCard={clashData.revealedCard}
+          imagePref={imagePref}
+          sourceName={clashData.sourceName}
+          opponentName={clashData.opponentId ? safeView?.players?.find((p: any) => p.id === clashData.opponentId)?.name : undefined}
+          onConfirm={handleClashConfirm}
+        />
+      )}
+      
+      {/* Vote Modal */}
+      {voteModalOpen && voteData && view && (
+        <VoteModal
+          open={voteModalOpen}
+          sourceName={voteData.sourceName}
+          choices={voteData.choices}
+          votesSubmitted={voteData.votesSubmitted}
+          playerNames={useMemo(() => {
+            const names: Record<string, string> = {};
+            safeView?.players?.forEach((p: any) => {
+              names[p.id] = p.username || p.id;
+            });
+            return names;
+          }, [safeView?.players])}
+          onConfirm={handleVoteConfirm}
+        />
+      )}
 
       {/* Sacrifice Unless Pay Modal (Transguild Promenade, Gateway Plaza, etc.) */}
       <SacrificeUnlessPayModal
@@ -6308,13 +6531,24 @@ export function App() {
           isOwnLibrary={ponderRequest.isOwnLibrary}
           onConfirm={(payload) => {
             if (!safeView?.id || !ponderRequest) return;
-            socket.emit("confirmPonder", {
+            
+            // Use the resolution queue system
+            if (!ponderRequest.stepId) {
+              console.error('[Ponder] Missing stepId - must use resolution queue');
+              return;
+            }
+            
+            socket.emit("submitResolutionResponse", {
               gameId: safeView.id,
-              effectId: ponderRequest.effectId,
-              newOrder: payload.newOrder,
-              shouldShuffle: payload.shouldShuffle,
-              toHand: payload.toHand,
+              stepId: ponderRequest.stepId,
+              selections: {
+                newOrder: payload.newOrder,
+                shouldShuffle: payload.shouldShuffle,
+                toHand: payload.toHand,
+              },
+              cancelled: false,
             });
+            
             setPonderModalOpen(false);
             setPonderRequest(null);
           }}
