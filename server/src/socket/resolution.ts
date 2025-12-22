@@ -3608,6 +3608,12 @@ export function processPendingLibrarySearch(io: Server, game: any, gameId: strin
           matches = searchCriteria.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
         }
         
+        // Check supertypes (e.g., "Basic" for basic lands)
+        if (matches && searchCriteria.supertypes && searchCriteria.supertypes.length > 0) {
+          const typeLine = (card.type_line || '').toLowerCase();
+          matches = searchCriteria.supertypes.some((supertype: string) => typeLine.includes(supertype.toLowerCase()));
+        }
+        
         // Check colors
         if (matches && searchCriteria.colors && searchCriteria.colors.length > 0) {
           const cardColors = card.colors || [];
