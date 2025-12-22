@@ -725,8 +725,10 @@ export function applyStaticAbilitiesToBattlefield(
     
     return {
       ...perm,
-      effectivePower: power,
-      effectiveToughness: toughness,
+      // If the permanent already has effective P/T (precomputed by server view),
+      // preserve those values to avoid overwriting dynamic bonuses calculated elsewhere.
+      effectivePower: perm.effectivePower ?? power,
+      effectiveToughness: perm.effectiveToughness ?? toughness,
       grantedAbilities: grantedAbilities.length > 0 ? grantedAbilities : undefined,
     } as BattlefieldPermanent;
   });
