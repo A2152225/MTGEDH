@@ -2312,7 +2312,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
+  const handleCastSpellFromHand = async ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -3846,7 +3846,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         message: err?.message ?? String(err),
       });
     }
-  });
+  };
   
   // =====================================================================
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
