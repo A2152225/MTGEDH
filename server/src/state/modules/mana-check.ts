@@ -351,14 +351,11 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
         }
       }
       
-      // Handle "any color" lands on opponent's side
-      // These allow Exotic Orchard to produce any color
-      if (/one mana of any color|add.*any color/i.test(fullManaText)) {
-        // Don't check for conditional here - if opponent has a conditional source,
-        // we need to recursively check, which is complex. For now, treat opponent's
-        // "any color" sources conservatively (they can't produce any color for us)
-        // This prevents infinite recursion and is more accurate in most cases
-      }
+      // Note: We intentionally do NOT handle "any color" lands on opponent's side
+      // (like if the opponent has their own Exotic Orchard). Recursive checking would
+      // be complex and could cause infinite loops. This conservative approach means
+      // Exotic Orchard won't see opponent's conditional "any color" sources, which is
+      // acceptable for gameplay purposes and prevents edge cases.
     }
   }
   
