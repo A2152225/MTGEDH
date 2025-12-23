@@ -786,6 +786,10 @@ async function handleStepResponse(
     case ResolutionStepType.PLAYER_CHOICE:
       await handlePlayerChoiceResponse(io, game, gameId, step, response);
       break;
+      
+    case ResolutionStepType.OPTION_CHOICE:
+      await handleOptionChoiceResponse(io, game, gameId, step, response);
+      break;
     
     // Add more handlers as needed
     default:
@@ -4218,6 +4222,109 @@ async function executeTargetedTriggerEffect(
   // Pattern: "destroy target creature"
   // Pattern: "return target permanent to its owner's hand"
   // etc.
+}
+
+/**
+ * Handle option choice response (for generic "choose one" effects)
+ * Used by Agitator Ant, modal spells, etc.
+ */
+async function handleOptionChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const selectedOption = response.selections;
+  const stepData = step as any;
+  const playerId = response.playerId;
+  
+  debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
+  
+  // Handle Agitator Ant trigger
+  if (stepData.agitatorAntTrigger) {
+    const state = game.state;
+    const battlefield = state.battlefield || [];
+    
+    // Initialize tracking if this is the first response
+    if (!state._agitatorAntSelections) {
+      state._agitatorAntSelections = {};
+    }
+    
+    // Store this player's selection
+    if (selectedOption && selectedOption !== 'decline' && Array.isArray(selectedOption)) {
+      const creatureId = selectedOption[0];
+      if (creatureId && creatureId !== 'decline') {
+        state._agitatorAntSelections[playerId] = creatureId;
+        debug(2, `[Resolution] Agitator Ant: ${playerId} chose creature ${creatureId}`);
+      }
+    }
+    
+    // Check if this was the last player to respond
+    // We need to check if all Agitator Ant steps are complete
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const remainingAgitatorSteps = queue.steps.filter((s: any) => s.agitatorAntTrigger);
+    
+    if (remainingAgitatorSteps.length === 0) {
+      // All players have made their choices - now apply counters and goad
+      debug(2, `[Resolution] Agitator Ant: All players responded, applying counters and goad`);
+      
+      const selections = state._agitatorAntSelections || {};
+      const creaturesWithCounters: string[] = [];
+      
+      // Apply +1/+1 counters to selected creatures
+      for (const [playerId, creatureId] of Object.entries(selections)) {
+        const creature = battlefield.find((p: any) => p.id === creatureId);
+        if (creature) {
+          creature.counters = creature.counters || {};
+          creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + 2;
+          creaturesWithCounters.push(creatureId);
+          
+          debug(2, `[Resolution] Agitator Ant: Added 2 +1/+1 counters to ${creature.card?.name || creatureId}`);
+          
+          // Emit chat message
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}_${Math.random()}`,
+            gameId,
+            from: 'system',
+            message: `Agitator Ant: ${playerId} put 2 +1/+1 counters on ${creature.card?.name || 'a creature'}`,
+            ts: Date.now(),
+          });
+        }
+      }
+      
+      // Goad all creatures that received counters
+      if (creaturesWithCounters.length > 0) {
+        const turnPlayer = state.turnPlayer;
+        for (const creatureId of creaturesWithCounters) {
+          const creature = battlefield.find((p: any) => p.id === creatureId);
+          if (creature) {
+            // Goad: creature attacks each combat if able and attacks a player other than you (the controller of Agitator Ant) if able
+            creature.goaded = creature.goaded || {};
+            creature.goaded[turnPlayer] = true; // Goaded until controller's next turn
+            
+            debug(2, `[Resolution] Agitator Ant: Goaded ${creature.card?.name || creatureId}`);
+          }
+        }
+        
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}_${Math.random()}`,
+          gameId,
+          from: 'system',
+          message: `Agitator Ant: Goaded ${creaturesWithCounters.length} creature(s)`,
+          ts: Date.now(),
+        });
+      }
+      
+      // Clean up tracking
+      delete state._agitatorAntSelections;
+      
+      // Bump sequence
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    }
+  }
 }
 
 

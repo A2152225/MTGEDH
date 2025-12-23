@@ -1446,6 +1446,73 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "each player may put two +1/+1 counters on a creature they control. Goad each creature that had counters put on it this way"
+  // Agitator Ant and similar effects
+  if (desc.includes('each player may put') && desc.includes('+1/+1 counter') && desc.includes('goad')) {
+    // Get all players
+    const turnOrder = players.map((p: any) => p.id);
+    const activePlayerId = state.activePlayer || controller;
+    const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId || 'unknown';
+    const battlefield = state.battlefield || [];
+    
+    // Skip adding resolution steps during replay
+    const isReplaying = !!(ctx as any).isReplaying;
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Agitator Ant: skipping resolution steps during replay`);
+      return;
+    }
+    
+    // Create resolution steps for each player
+    const stepConfigs = players.map((p: any) => {
+      const playerId = p.id;
+      
+      // Get creatures controlled by this player
+      const playerCreatures = battlefield.filter((perm: any) => {
+        if (perm.controller !== playerId) return false;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature');
+      });
+      
+      return {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId,
+        description: `${sourceName}: You may put two +1/+1 counters on a creature you control`,
+        mandatory: false, // Player may decline
+        sourceId: triggerItem?.permanentId || triggerItem?.sourceId,
+        sourceName,
+        sourceImage: triggerItem?.card?.image_uris?.small,
+        // Store creatures and metadata for later
+        agitatorAntTrigger: true,
+        availableCreatures: playerCreatures.map((perm: any) => ({
+          permanentId: perm.id,
+          cardName: perm.card?.name || 'Creature',
+          imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+        })),
+        options: [
+          { id: 'decline', label: 'Decline' },
+          ...playerCreatures.map((perm: any) => ({
+            id: perm.id,
+            label: perm.card?.name || 'Creature',
+          })),
+        ],
+        minSelections: 0,
+        maxSelections: 1,
+      };
+    });
+    
+    // Add steps with APNAP ordering
+    const { ResolutionQueueManager } = await import('../../resolution/ResolutionQueueManager.js');
+    ResolutionQueueManager.addStepsWithAPNAPOrdering(
+      gameId,
+      stepConfigs,
+      turnOrder,
+      activePlayerId
+    );
+    
+    debug(2, `[executeTriggerEffect] ${sourceName} (Agitator Ant): created ${players.length} resolution steps for counter placement (gameId: ${gameId})`);
+    return;
+  }
+  
   // Pattern: "Target player draws X cards" or "that player draws X cards"
   const targetDrawMatch = desc.match(/(?:target|that) player draws? (\d+|a|an|one|two|three) cards?/i);
   if (targetDrawMatch) {
