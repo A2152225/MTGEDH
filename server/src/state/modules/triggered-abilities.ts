@@ -126,6 +126,12 @@ export {
   type ControlChangeEffect as ETBControlChangeEffect,
 } from "./triggers/control-change.js";
 
+// Damage received triggers (Brash Taunter, Boros Reckoner, etc.)
+export {
+  checkDamageReceivedTrigger,
+  type DamageReceivedTriggerInfo,
+} from "./triggers/combat.js";
+
 /**
  * Trigger timing - when the trigger should fire
  */
