@@ -378,10 +378,17 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
     // This includes activated abilities, triggered abilities (ETB), and static abilities
     // We ignore whether costs can be paid or conditions are met
     
-    // Pattern to find any "Add" mana text, regardless of trigger type
-    // Matches: "{T}: Add", "When ~ enters: Add", "Add", etc.
-    const manaAbilityPattern = /add\s+([^.\n]+)/gi;
+    // Pattern to find mana-producing text
+    // More specific than just "add" to avoid false matches in flavor text
+    // Matches common mana ability patterns:
+    // - "{T}: Add {X}" (activated ability)
+    // - "When ~ enters the battlefield, add {X}" (triggered ability)
+    // - "Add {X}" at start of sentence or after colon (mana ability)
+    const manaAbilityPattern = /(?:^|[.:])\s*(?:.*?(?:tap|enters|beginning|end|whenever|when))?\s*(?:.*?)add\s+([^.\n]+)/gi;
     const matches = [...oracleText.matchAll(manaAbilityPattern)];
+    
+    // Context window for checking conditional text around "any color" abilities
+    const ABILITY_CONTEXT_WINDOW = 100;
     
     for (const match of matches) {
       const fullManaText = match[1].trim();
@@ -390,7 +397,10 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
       // Note: We need to handle these specially based on conditions
       if (/one mana of any color/i.test(fullManaText)) {
         // Check if this is conditional on other factors
-        const fullAbilityContext = match.input?.substring(Math.max(0, match.index! - 100), match.index! + 100) || '';
+        const fullAbilityContext = match.input?.substring(
+          Math.max(0, match.index! - ABILITY_CONTEXT_WINDOW), 
+          match.index! + ABILITY_CONTEXT_WINDOW
+        ) || '';
         
         // Check for conditions that restrict what can be produced
         const hasCommanderCondition = /commander.*color identity/i.test(fullAbilityContext);
