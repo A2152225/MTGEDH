@@ -4251,92 +4251,141 @@ async function handleOptionChoiceResponse(
   
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
   
-  // Handle Agitator Ant trigger
-  if (stepData.agitatorAntTrigger) {
+  // Handle counter placement triggers (Agitator Ant, Orzhov Advokist, etc.)
+  // SCALABLE: Supports "each player may X. If a player does, Y" pattern
+  // Works for any card with conditional effects based on player choices
+  if (stepData.counterPlacementTrigger || stepData.agitatorAntTrigger) {
     const state = game.state;
     const battlefield = state.battlefield || [];
     
     // Initialize tracking if this is the first response
-    if (!state._agitatorAntSelections) {
-      state._agitatorAntSelections = {};
+    if (!state._counterPlacementSelections) {
+      state._counterPlacementSelections = {};
     }
     
-    // Store this player's selection
+    // Store this player's selection AND track if they accepted
     // Handle different types of selections
     let creatureId: string | undefined;
+    let playerAccepted = false;
+    
     if (Array.isArray(selectedOption) && selectedOption.length > 0) {
       const firstSelection = selectedOption[0];
       if (typeof firstSelection === 'string' && firstSelection !== 'decline') {
         creatureId = firstSelection;
+        playerAccepted = true;
       }
     } else if (typeof selectedOption === 'string' && selectedOption !== 'decline') {
       creatureId = selectedOption;
+      playerAccepted = true;
     }
     
-    if (creatureId) {
-      state._agitatorAntSelections[playerId] = creatureId;
-      debug(2, `[Resolution] Agitator Ant: ${playerId} chose creature ${creatureId}`);
-    }
+    // Track both the selection AND the acceptance status
+    state._counterPlacementSelections[playerId] = {
+      creatureId: creatureId || null,
+      accepted: playerAccepted,
+    };
+    
+    debug(2, `[Resolution] Counter placement: ${playerId} ${playerAccepted ? `chose creature ${creatureId}` : 'declined'}`);
     
     // Check if this was the last player to respond
-    // We need to check if all Agitator Ant steps are complete
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const remainingAgitatorSteps = queue.steps.filter((s: any) => s.agitatorAntTrigger);
+    const remainingSteps = queue.steps.filter((s: any) => s.counterPlacementTrigger || s.agitatorAntTrigger);
     
-    if (remainingAgitatorSteps.length === 0) {
-      // All players have made their choices - now apply counters and goad
-      debug(2, `[Resolution] Agitator Ant: All players responded, applying counters and goad`);
+    if (remainingSteps.length === 0) {
+      // All players have made their choices - now apply counters and any additional effects
+      debug(2, `[Resolution] Counter placement: All players responded, applying counters`);
       
-      const selections = state._agitatorAntSelections || {};
-      const creaturesWithCounters: string[] = [];
+      const selections = state._counterPlacementSelections || {};
+      const playersWhoAccepted: string[] = []; // Track who accepted for "If a player does" effects
+      const creaturesWithCounters: Array<{ id: string; playerId: string }> = [];
       
-      // Apply +1/+1 counters to selected creatures
-      for (const [playerId, selectedCreatureId] of Object.entries(selections)) {
-        if (typeof selectedCreatureId !== 'string') continue;
-        const creature = battlefield.find((p: any) => p.id === selectedCreatureId);
+      // Get the effect metadata from stepData
+      const effectType = stepData.effectType || 'none';
+      const conditionalEffect = stepData.conditionalEffect || {};
+      const sourceName = stepData.sourceName || 'Counter placement effect';
+      const sourceController = stepData.sourceController || state.turnPlayer;
+      
+      // Apply +1/+1 counters ONLY to creatures whose controllers accepted
+      for (const [playerId, selection] of Object.entries(selections)) {
+        const selectionData = selection as any;
+        
+        // Check if this is the new format with accepted tracking or old format
+        const accepted = selectionData.accepted !== undefined ? selectionData.accepted : !!selectionData;
+        const creatureId = selectionData.creatureId || (typeof selectionData === 'string' ? selectionData : null);
+        
+        if (!accepted || !creatureId) continue;
+        
+        playersWhoAccepted.push(playerId);
+        const creature = battlefield.find((p: any) => p.id === creatureId);
+        
         if (creature) {
           creature.counters = creature.counters || {};
           creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + 2;
-          creaturesWithCounters.push(creatureId);
+          creaturesWithCounters.push({ id: creatureId, playerId });
           
-          debug(2, `[Resolution] Agitator Ant: Added 2 +1/+1 counters to ${creature.card?.name || creatureId}`);
+          debug(2, `[Resolution] Counter placement: Added 2 +1/+1 counters to ${creature.card?.name || creatureId}`);
           
           // Emit chat message
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}_${Math.random()}`,
             gameId,
             from: 'system',
-            message: `Agitator Ant: ${playerId} put 2 +1/+1 counters on ${creature.card?.name || 'a creature'}`,
+            message: `${sourceName}: ${playerId} put 2 +1/+1 counters on ${creature.card?.name || 'a creature'}`,
             ts: Date.now(),
           });
         }
       }
       
-      // Goad all creatures that received counters
-      if (creaturesWithCounters.length > 0) {
-        const turnPlayer = state.turnPlayer;
-        for (const creatureId of creaturesWithCounters) {
-          const creature = battlefield.find((p: any) => p.id === creatureId);
-          if (creature) {
-            // Goad: creature attacks each combat if able and attacks a player other than you (the controller of Agitator Ant) if able
-            creature.goaded = creature.goaded || {};
-            creature.goaded[turnPlayer] = true; // Goaded until controller's next turn
-            
-            debug(2, `[Resolution] Agitator Ant: Goaded ${creature.card?.name || creatureId}`);
+      // Apply "If a player does" conditional effects ONLY to players who accepted
+      if (playersWhoAccepted.length > 0) {
+        if (effectType === 'goad' || conditionalEffect.onAccept === 'goad') {
+          // Agitator Ant: Goad all creatures that received counters
+          const turnPlayer = state.turnPlayer;
+          for (const { id: creatureId } of creaturesWithCounters) {
+            const creature = battlefield.find((p: any) => p.id === creatureId);
+            if (creature) {
+              creature.goaded = creature.goaded || {};
+              creature.goaded[turnPlayer] = true; // Goaded until controller's next turn
+              debug(2, `[Resolution] ${sourceName}: Goaded ${creature.card?.name || creatureId}`);
+            }
           }
+          
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}_${Math.random()}`,
+            gameId,
+            from: 'system',
+            message: `${sourceName}: Goaded ${creaturesWithCounters.length} creature(s)`,
+            ts: Date.now(),
+          });
+        } else if (effectType === 'cant_attack' || conditionalEffect.onAccept === 'cant_attack_controller') {
+          // Orzhov Advokist: "If a player does, creatures that player controls can't attack you"
+          // Apply restriction ONLY to players who accepted (put counters on a creature)
+          for (const playerId of playersWhoAccepted) {
+            // Mark all creatures controlled by this player as unable to attack the source controller
+            const playerCreatures = battlefield.filter((p: any) => p.controller === playerId);
+            for (const creature of playerCreatures) {
+              creature.cantAttackPlayers = creature.cantAttackPlayers || {};
+              // Can't attack until source controller's next turn
+              creature.cantAttackPlayers[sourceController] = {
+                until: 'next_turn',
+                sourcePlayer: sourceController,
+              };
+              debug(2, `[Resolution] ${sourceName}: ${creature.card?.name || creature.id} (controlled by ${playerId}) can't attack ${sourceController}`);
+            }
+          }
+          
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}_${Math.random()}`,
+            gameId,
+            from: 'system',
+            message: `${sourceName}: ${playersWhoAccepted.length} player(s) placed counters and can't attack you until your next turn`,
+            ts: Date.now(),
+          });
         }
-        
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}_${Math.random()}`,
-          gameId,
-          from: 'system',
-          message: `Agitator Ant: Goaded ${creaturesWithCounters.length} creature(s)`,
-          ts: Date.now(),
-        });
       }
       
       // Clean up tracking
-      delete state._agitatorAntSelections;
+      delete state._counterPlacementSelections;
       
       // Bump sequence
       if (typeof (game as any).bumpSeq === 'function') {
