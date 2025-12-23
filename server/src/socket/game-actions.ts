@@ -1660,8 +1660,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Check if this is a Modal Double-Faced Card (MDFC) like Blightstep Pathway
-      const layout = (cardInHand as any)?.layout;
-      const cardFaces = (cardInHand as any)?.card_faces;
+      let layout = (cardInHand as any)?.layout;
+      let cardFaces = (cardInHand as any)?.card_faces;
       const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
       
       // If MDFC and no face selected yet, prompt the player to choose
@@ -1740,8 +1740,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Validate that the card is actually a land (check type_line)
       // For double-faced cards (transform), check the current front face, not the entire type_line
       const typeLine = (cardInHand as any)?.type_line || "";
-      const layout = (cardInHand as any)?.layout;
-      const cardFaces = (cardInHand as any)?.card_faces;
+      layout = (cardInHand as any)?.layout;
+      cardFaces = (cardInHand as any)?.card_faces;
       
       let isLand = false;
       
