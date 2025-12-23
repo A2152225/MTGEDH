@@ -2407,6 +2407,20 @@ export async function handleAIPriority(
         });
       }
       
+      // IMPORTANT: Tap lands for mana retention effects BEFORE combat
+      // This is critical for cards like Omnath, Locus of Mana which gain power from green mana in pool
+      // By tapping green-producing lands now, Omnath will be stronger during the combat phase
+      const shouldTapLands = checkShouldTapLandsForManaRetention(game, playerId);
+      if (shouldTapLands.shouldTap) {
+        debug(1, `[AI] Tapping lands for mana retention before combat (${shouldTapLands.reason})`);
+        await executeAITapLandsForMana(io, gameId, playerId);
+        // After tapping lands, continue with more actions (in case we can now cast something)
+        setTimeout(() => {
+          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
+        }, AI_THINK_TIME_MS);
+        return;
+      }
+      
       // Try to use activated abilities (before casting spells)
       // This prioritizes card draw and other beneficial effects
       // BUT: Skip if we need to discard - prioritize casting spells instead
@@ -2480,19 +2494,6 @@ export async function handleAIPriority(
           }, AI_THINK_TIME_MS);
           return;
         }
-      }
-      
-      // Before passing priority, check if we should tap lands for mana retention effects
-      // This is beneficial when we have cards like Omnath, Locus of Mana or Leyline Tyrant
-      const shouldTapLands = checkShouldTapLandsForManaRetention(game, playerId);
-      if (shouldTapLands.shouldTap) {
-        debug(1, `[AI] Tapping lands for mana retention (${shouldTapLands.reason})`);
-        await executeAITapLandsForMana(io, gameId, playerId);
-        // After tapping lands, continue with more actions (in case we can now cast something)
-        setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-        }, AI_THINK_TIME_MS);
-        return;
       }
       
       // No more actions, pass priority (don't advance step directly - let priority system handle it)

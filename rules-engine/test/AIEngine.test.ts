@@ -33,7 +33,6 @@ describe('AIEngine', () => {
           ],
           library: [],
           graveyard: [],
-          battlefield: [],
           exile: [],
           commandZone: [],
           counters: {},
@@ -47,7 +46,6 @@ describe('AIEngine', () => {
           hand: [],
           library: [],
           graveyard: [],
-          battlefield: [],
           exile: [],
           commandZone: [],
           counters: {},
@@ -183,9 +181,9 @@ describe('AIEngine', () => {
         thinkTime: 0,
       });
       
-      testGameState.players[0].battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', types: ['Creature'], tapped: false },
-        { id: 'creature2', name: 'Serra Angel', types: ['Creature'], tapped: false },
+      testGameState.battlefield = [
+        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: false },
+        { id: 'creature2', name: 'Serra Angel', card: { type_line: 'Creature — Angel', name: 'Serra Angel' }, controller: 'ai1', tapped: false },
       ];
     });
     
@@ -205,8 +203,8 @@ describe('AIEngine', () => {
     });
     
     it('should not attack with tapped creatures', async () => {
-      testGameState.players[0].battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', types: ['Creature'], tapped: true },
+      testGameState.battlefield = [
+        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: true },
       ];
       
       const context: AIDecisionContext = {
@@ -230,9 +228,9 @@ describe('AIEngine', () => {
         thinkTime: 0,
       });
       
-      testGameState.players[0].battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', types: ['Creature'], tapped: false },
-        { id: 'creature2', name: 'Serra Angel', types: ['Creature'], tapped: false },
+      testGameState.battlefield = [
+        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears', power: '2', toughness: '2' }, controller: 'ai1', tapped: false },
+        { id: 'creature2', name: 'Serra Angel', card: { type_line: 'Creature — Angel', name: 'Serra Angel', power: '4', toughness: '4' }, controller: 'ai1', tapped: false },
       ];
       
       const context: AIDecisionContext = {
@@ -258,8 +256,8 @@ describe('AIEngine', () => {
       });
       
       testGameState.players[0].life = 10; // Low life
-      testGameState.players[0].battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', types: ['Creature'], tapped: false },
+      testGameState.battlefield = [
+        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: false },
       ];
       
       const context: AIDecisionContext = {
@@ -346,7 +344,7 @@ describe('AIEngine', () => {
         thinkTime: 0,
       });
       
-      testGameState.players[0].battlefield = [
+      testGameState.battlefield = [
         { 
           id: 'creature1', 
           name: 'Grizzly Bears', 
