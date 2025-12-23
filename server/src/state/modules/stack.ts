@@ -1089,6 +1089,65 @@ function executeTriggerEffect(
     return; // Early return, effect is fully handled
   }
   
+  // Handle Agent of the Shadow Thieves commander attack trigger
+  // "Whenever this creature attacks a player, if no opponent has more life than that player, 
+  //  put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."
+  if (desc.includes('whenever this creature attacks a player') && 
+      desc.includes('if no opponent has more life') &&
+      desc.includes('+1/+1 counter')) {
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    const battlefield = state.battlefield || [];
+    const perm = battlefield.find((p: any) => p?.id === sourceId);
+    
+    if (perm) {
+      // Get the defending player from the trigger context
+      const effectData = (triggerItem as any).effectData || (triggerItem as any).value || {};
+      const defendingPlayerId = effectData.defendingPlayer;
+      
+      if (defendingPlayerId) {
+        // Check if no opponent has more life than the defending player
+        const defendingPlayerLife = state.life[defendingPlayerId] ?? (state.startingLife || 40);
+        const players = state.players || [];
+        const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
+        
+        const noOpponentHasMoreLife = opponents.every((opponent: any) => {
+          const opponentLife = state.life[opponent.id] ?? (state.startingLife || 40);
+          return opponentLife <= defendingPlayerLife;
+        });
+        
+        if (noOpponentHasMoreLife) {
+          // Add +1/+1 counter
+          perm.counters = perm.counters || {};
+          perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+          debug(2, `[executeTriggerEffect] Agent trigger: Added +1/+1 counter to ${perm.card?.name || perm.id}`);
+          
+          // Grant deathtouch and indestructible until end of turn
+          perm.temporaryAbilities = perm.temporaryAbilities || [];
+          if (!perm.temporaryAbilities.includes('deathtouch')) {
+            perm.temporaryAbilities.push('deathtouch');
+          }
+          if (!perm.temporaryAbilities.includes('indestructible')) {
+            perm.temporaryAbilities.push('indestructible');
+          }
+          
+          // Track that these abilities should be removed at end of turn
+          state.endOfTurnEffects = state.endOfTurnEffects || [];
+          state.endOfTurnEffects.push({
+            type: 'remove_temporary_abilities',
+            permanentId: sourceId,
+            abilities: ['deathtouch', 'indestructible'],
+          });
+          
+          debug(2, `[executeTriggerEffect] Agent trigger: ${perm.card?.name || perm.id} gained deathtouch and indestructible until end of turn`);
+        } else {
+          debug(2, `[executeTriggerEffect] Agent trigger: Condition not met (opponent has more life than defending player)`);
+        }
+      }
+    }
+    
+    return; // Early return, effect is fully handled
+  }
+  
   // Handle Join Forces triggered abilities (Mana-Charged Dragon)
   // These require all players to contribute mana
   // Uses the unified ResolutionQueueManager for proper APNAP ordering

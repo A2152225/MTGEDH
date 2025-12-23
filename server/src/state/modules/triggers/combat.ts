@@ -359,6 +359,55 @@ export function getAttackTriggersForCreatures(
     }
   }
   
+  // Check for Background enchantments that grant abilities to commanders
+  // Example: Agent of the Shadow Thieves - grants attack trigger to commanders
+  const commandZone = (ctx.state as any).commandZone?.[attackingPlayer];
+  const commanderIds = commandZone?.commanderIds || [];
+  
+  for (const attacker of attackingCreatures) {
+    // Check if this attacking creature is a commander owned by the attacking player
+    const isCommander = commanderIds.includes(attacker.card?.id) || 
+                       (attacker.card?.name && commandZone?.commanderNames?.includes(attacker.card.name));
+    
+    if (isCommander) {
+      // Check all permanents for backgrounds that grant abilities to commanders
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== attackingPlayer) continue;
+        
+        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+        const cardName = (permanent.card?.name || "").toLowerCase();
+        const typeLine = (permanent.card?.type_line || "").toLowerCase();
+        
+        // Check if this is a Background enchantment
+        if (!typeLine.includes('background')) continue;
+        
+        // Agent of the Shadow Thieves: "Commander creatures you own have 'Whenever this creature attacks a player...'"
+        if (cardName.includes('agent of the shadow thieves') ||
+            (oracleText.includes('commander creatures you own') && 
+             oracleText.includes('whenever this creature attacks'))) {
+          // Extract the granted ability
+          const grantedAbilityMatch = oracleText.match(/commander creatures you own have "([^"]+)"/i);
+          if (grantedAbilityMatch) {
+            const grantedAbility = grantedAbilityMatch[1];
+            triggers.push({
+              permanentId: attacker.id,
+              cardName: attacker.card?.name || 'Commander',
+              description: grantedAbility,
+              triggerType: 'attacks',
+              mandatory: true,
+              value: {
+                grantedBy: permanent.id,
+                grantedByName: permanent.card?.name,
+                defendingPlayer: defendingPlayer, // Pass defending player for conditional check
+              },
+            });
+            debug(2, `[getAttackTriggersForCreatures] Background ${permanent.card?.name} granted attack trigger to commander ${attacker.card?.name} (defending ${defendingPlayer})`);
+          }
+        }
+      }
+    }
+  }
+  
   return triggers;
 }
 
