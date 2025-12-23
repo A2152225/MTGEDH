@@ -458,22 +458,11 @@ function enterBattlefield(state: GameState, permanent: any, controllerId: string
     attachments: [],
   };
   
-  // Add to both global battlefield and player's battlefield
+  // Add to centralized battlefield only
   const updatedBattlefield = [...(state.battlefield || []), permanentOnBattlefield];
-  
-  const updatedPlayers = state.players.map(player => {
-    if (player.id === controllerId) {
-      return {
-        ...player,
-        battlefield: [...(player.battlefield || []), permanentOnBattlefield],
-      };
-    }
-    return player;
-  });
   
   return {
     ...state,
     battlefield: updatedBattlefield,
-    players: updatedPlayers,
   };
 }

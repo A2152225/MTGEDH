@@ -2184,7 +2184,12 @@ function doAutoPass(
     // Get turn player and current step for checks below
     const turnPlayer = game.state.turnPlayer;
     const currentStep = (game.state.step || '').toString().toUpperCase();
-    const isDefendingPlayer = playerId !== turnPlayer;
+    
+    // In multiplayer, defending player is anyone being attacked, not just "not the turn player"
+    // Check if this player has creatures attacking them
+    const battlefield = game.state?.battlefield || [];
+    const isBeingAttacked = battlefield.some((perm: any) => perm?.attacking === playerId);
+    const isDefendingPlayer = isBeingAttacked;
     
     // For human players, only auto-pass if they have NO valid responses
     if (!priorityPlayer.isAI) {

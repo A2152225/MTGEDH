@@ -330,6 +330,18 @@ export function App() {
     validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
   } | null>(null);
 
+  // Ability target selection modal state (for granting abilities to creatures)
+  const [abilityTargetModalOpen, setAbilityTargetModalOpen] = useState(false);
+  const [abilityTargetData, setAbilityTargetData] = useState<{
+    sourceId: string;
+    sourceName: string;
+    cost: string;
+    abilityGranted: string;
+    imageUrl?: string;
+    effectId: string;
+    validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
+  } | null>(null);
+
   // Crew selection modal state (for Vehicles)
   const [crewModalOpen, setCrewModalOpen] = useState(false);
   const [crewData, setCrewData] = useState<{
@@ -1371,6 +1383,28 @@ export function App() {
     socket.on("selectEquipTarget", handler);
     return () => {
       socket.off("selectEquipTarget", handler);
+    };
+  }, [safeView?.id]);
+
+  // Ability target selection listener (for granting abilities)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setAbilityTargetData({
+          sourceId: payload.sourceId,
+          sourceName: payload.sourceName,
+          cost: payload.cost,
+          abilityGranted: payload.abilityGranted,
+          imageUrl: payload.imageUrl,
+          effectId: payload.effectId,
+          validTargets: payload.validTargets || [],
+        });
+        setAbilityTargetModalOpen(true);
+      }
+    };
+    socket.on("selectAbilityTarget", handler);
+    return () => {
+      socket.off("selectAbilityTarget", handler);
     };
   }, [safeView?.id]);
 
@@ -3893,6 +3927,20 @@ export function App() {
     setEquipTargetData(null);
   };
 
+  // Ability target handlers (for granting abilities)
+  const handleAbilityTarget = (targetId: string | null) => {
+    if (!safeView || !abilityTargetData) return;
+    if (targetId) {
+      socket.emit("abilityTargetChosen", {
+        gameId: safeView.id,
+        targetCreatureId: targetId,
+        effectId: abilityTargetData.effectId,
+      });
+    }
+    setAbilityTargetModalOpen(false);
+    setAbilityTargetData(null);
+  };
+
   // Crew selection handlers (for Vehicles)
   const handleCrewConfirm = (selectedCreatureIds: string[]) => {
     if (!safeView || !crewData) return;
@@ -5739,6 +5787,27 @@ export function App() {
         cancelButtonText="Cancel"
         onConfirm={(selectedIds) => handleEquipTarget(selectedIds[0])}
         onCancel={() => handleEquipTarget(null)}
+      />
+
+      {/* Ability Target Selection Modal (for granting abilities) */}
+      <CardSelectionModal
+        open={abilityTargetModalOpen}
+        title={abilityTargetData?.sourceName || 'Grant Ability'}
+        subtitle={`Pay ${abilityTargetData?.cost || '{0}'} to grant ${abilityTargetData?.abilityGranted || 'ability'} to target creature`}
+        sourceCardName={abilityTargetData?.sourceName}
+        sourceCardImageUrl={abilityTargetData?.imageUrl}
+        options={(abilityTargetData?.validTargets || []).map(t => ({
+          id: t.id,
+          name: `${t.name} (${t.power}/${t.toughness})`,
+          imageUrl: t.imageUrl,
+        }))}
+        minSelections={1}
+        maxSelections={1}
+        canCancel={true}
+        confirmButtonText="Grant Ability"
+        cancelButtonText="Cancel"
+        onConfirm={(selectedIds) => handleAbilityTarget(selectedIds[0])}
+        onCancel={() => handleAbilityTarget(null)}
       />
 
       {/* Crew Selection Modal (for Vehicles) */}

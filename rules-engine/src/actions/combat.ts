@@ -843,12 +843,6 @@ export function getLegalBlockers(state: GameState, playerId: string, attackerId?
   // Find the attacker if specified
   if (attackerId) {
     attacker = (state.battlefield as any[])?.find((p: any) => p.id === attackerId);
-    if (!attacker) {
-      const attackerPlayer = state.players?.find((p: any) => 
-        p.battlefield?.some((c: any) => c.id === attackerId)
-      );
-      attacker = attackerPlayer?.battlefield?.find((c: any) => c.id === attackerId);
-    }
   }
   
   // Check global battlefield (single source of truth)
@@ -1060,18 +1054,10 @@ export function validateDeclareBlockers(
   
   // Validate each blocker using comprehensive validation
   for (const blocker of action.blockers) {
-    // Find the blocker permanent
+    // Find the blocker permanent (using centralized battlefield)
     let permanent = state.battlefield?.find(
       (p: any) => p.id === blocker.blockerId && p.controller === action.playerId
     );
-    
-    // Also check player's own battlefield if not found globally
-    if (!permanent) {
-      const player = state.players.find(p => p.id === action.playerId);
-      permanent = player?.battlefield?.find(
-        (p: any) => p.id === blocker.blockerId
-      );
-    }
     
     if (!permanent) {
       return { legal: false, reason: `Permanent ${blocker.blockerId} not found on battlefield` };
@@ -1089,13 +1075,9 @@ export function validateDeclareBlockers(
       if (!attackerInfo) {
         return { legal: false, reason: `Attacker ${blocker.attackerId} not found` };
       }
-      // Try to find the actual permanent
-      for (const player of state.players) {
-        const found = player.battlefield?.find((p: any) => p.id === blocker.attackerId);
-        if (found) {
-          attacker = found;
-          break;
-        }
+      // Attacker should already be in state.battlefield
+      if (!attacker) {
+        attacker = (state.battlefield || []).find((p: any) => p.id === blocker.attackerId);
       }
     }
     

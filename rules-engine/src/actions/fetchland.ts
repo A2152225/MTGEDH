@@ -34,9 +34,10 @@ export function validateFetchland(
     return { legal: false, reason: 'Player not found' };
   }
   
-  // Find the fetchland on battlefield
-  const battlefield = player.battlefield || [];
-  const fetchland = battlefield.find((p: any) => p.id === action.sourceId);
+  // Find the fetchland on centralized battlefield
+  const fetchland = (state.battlefield || []).find(
+    (p: any) => p.id === action.sourceId && p.controller === action.playerId
+  );
   
   if (!fetchland) {
     return { legal: false, reason: 'Fetchland not found on battlefield' };

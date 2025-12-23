@@ -459,14 +459,34 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         requiresChoice: true,
       });
     } else {
-      triggers.push({
+      const trigger: TriggeredAbility = {
         permanentId,
         cardName,
         triggerType: 'etb',
         description: effectText,
         effect: effectText,
         mandatory: true,
-      });
+      };
+      
+      // Check if this trigger requires targeting
+      // Patterns: "target player", "target opponent", "target creature", etc.
+      if (/\btarget\s+(?:player|opponent|creature|permanent|land|artifact|enchantment)/i.test(effectText)) {
+        (trigger as any).requiresTarget = true;
+        
+        // Determine target type
+        if (/\btarget\s+(?:player|opponent)/i.test(effectText)) {
+          (trigger as any).targetType = 'player';
+        } else if (/\btarget\s+creature/i.test(effectText)) {
+          (trigger as any).targetType = 'creature';
+        } else if (/\btarget\s+(?:permanent|land|artifact|enchantment)/i.test(effectText)) {
+          (trigger as any).targetType = 'permanent';
+        }
+        
+        // Store the full effect for later execution
+        (trigger as any).targetEffect = effectText;
+      }
+      
+      triggers.push(trigger);
     }
   }
   

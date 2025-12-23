@@ -166,7 +166,9 @@ async function handleAIResolutionStep(
       if (success) {
         // Trigger the response handler
         await handleStepResponse(io, game, gameId, step, response);
-        broadcastGame(io, game, gameId);
+        // NOTE: Don't broadcast here - let the STEP_COMPLETED event handler broadcast
+        // after exitResolutionMode has restored priority. This prevents a race condition
+        // where the AI gets triggered before priority is restored.
       }
     }
   } catch (error) {
@@ -781,6 +783,14 @@ async function handleStepResponse(
       handleMorphTurnFaceUpResponse(io, game, gameId, step, response);
       break;
       
+    case ResolutionStepType.PLAYER_CHOICE:
+      await handlePlayerChoiceResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.OPTION_CHOICE:
+      await handleOptionChoiceResponse(io, game, gameId, step, response);
+      break;
+    
     // Add more handlers as needed
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
@@ -4103,6 +4113,236 @@ export function processPendingLibrarySearch(io: Server, game: any, gameId: strin
     }
   } catch (e) {
     debugError(1, '[processPendingLibrarySearch] Error:', e);
+  }
+}
+
+/**
+ * Handle player choice response (for triggers that target a player)
+ * Used by cards like Bojuka Bog ("exile target player's graveyard")
+ */
+async function handlePlayerChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  // Handle different types of selections
+  let selectedPlayerId: string;
+  if (typeof response.selections === 'string') {
+    selectedPlayerId = response.selections;
+  } else if (Array.isArray(response.selections) && response.selections.length > 0) {
+    selectedPlayerId = response.selections[0];
+  } else {
+    debugError(1, `[Resolution] Invalid player choice response: ${JSON.stringify(response.selections)}`);
+    return;
+  }
+  
+  const stepData = step as any;
+  
+  debug(2, `[Resolution] Player choice response: selected player ${selectedPlayerId}`);
+  
+  // Check if this is an ETB trigger with target
+  if (stepData.etbTargetTrigger && stepData.triggerItem) {
+    const triggerItem = stepData.triggerItem;
+    const sourceName = triggerItem.sourceName || 'Unknown';
+    const description = triggerItem.description || '';
+    const controller = triggerItem.controller;
+    const ctx = (game as any).ctx || game;
+    
+    // Store the selected target on the trigger item
+    triggerItem.selectedTarget = selectedPlayerId;
+    
+    // Execute the trigger effect with the target
+    await executeTargetedTriggerEffect(ctx, controller, sourceName, description, triggerItem, selectedPlayerId);
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+  }
+}
+
+/**
+ * Execute a triggered ability that has a target
+ * Handles effects like "exile target player's graveyard"
+ */
+async function executeTargetedTriggerEffect(
+  ctx: any,
+  controller: string,
+  sourceName: string,
+  description: string,
+  triggerItem: any,
+  targetPlayerId: string
+): Promise<void> {
+  const state = ctx.state;
+  if (!state) return;
+  
+  const desc = description.toLowerCase();
+  
+  debug(2, `[executeTargetedTriggerEffect] ${sourceName}: ${description} (target: ${targetPlayerId})`);
+  
+  // Pattern: "exile target player's graveyard" (Bojuka Bog, etc.)
+  if (desc.includes('exile') && desc.includes('graveyard')) {
+    const zones = state.zones = state.zones || {};
+    const targetZones = zones[targetPlayerId] = zones[targetPlayerId] || {
+      hand: [],
+      handCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    
+    // Move all cards from target player's graveyard to exile
+    const graveyardCards = targetZones.graveyard || [];
+    const exileZone = targetZones.exile || [];
+    
+    if (graveyardCards.length > 0) {
+      // Move all graveyard cards to exile
+      for (const card of graveyardCards) {
+        exileZone.push({ ...card, zone: 'exile' });
+      }
+      
+      debug(2, `[executeTargetedTriggerEffect] ${sourceName}: Exiled ${graveyardCards.length} cards from ${targetPlayerId}'s graveyard`);
+      
+      // Clear the graveyard
+      targetZones.graveyard = [];
+      targetZones.graveyardCount = 0;
+      targetZones.exile = exileZone;
+      targetZones.exileCount = exileZone.length;
+      
+      // Emit chat message
+      const io = (ctx as any).io;
+      if (io) {
+        io.to((ctx as any).gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId: (ctx as any).gameId,
+          from: 'system',
+          message: `${sourceName}: Exiled ${graveyardCards.length} cards from ${targetPlayerId}'s graveyard`,
+          ts: Date.now(),
+        });
+      }
+    } else {
+      debug(2, `[executeTargetedTriggerEffect] ${sourceName}: Target player's graveyard is empty`);
+    }
+  }
+  
+  // Add more targeted effect patterns here as needed
+  // Pattern: "destroy target creature"
+  // Pattern: "return target permanent to its owner's hand"
+  // etc.
+}
+
+/**
+ * Handle option choice response (for generic "choose one" effects)
+ * Used by Agitator Ant, modal spells, etc.
+ */
+async function handleOptionChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const selectedOption = response.selections;
+  const stepData = step as any;
+  const playerId = response.playerId;
+  
+  debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
+  
+  // Handle Agitator Ant trigger
+  if (stepData.agitatorAntTrigger) {
+    const state = game.state;
+    const battlefield = state.battlefield || [];
+    
+    // Initialize tracking if this is the first response
+    if (!state._agitatorAntSelections) {
+      state._agitatorAntSelections = {};
+    }
+    
+    // Store this player's selection
+    // Handle different types of selections
+    let creatureId: string | undefined;
+    if (Array.isArray(selectedOption) && selectedOption.length > 0) {
+      const firstSelection = selectedOption[0];
+      if (typeof firstSelection === 'string' && firstSelection !== 'decline') {
+        creatureId = firstSelection;
+      }
+    } else if (typeof selectedOption === 'string' && selectedOption !== 'decline') {
+      creatureId = selectedOption;
+    }
+    
+    if (creatureId) {
+      state._agitatorAntSelections[playerId] = creatureId;
+      debug(2, `[Resolution] Agitator Ant: ${playerId} chose creature ${creatureId}`);
+    }
+    
+    // Check if this was the last player to respond
+    // We need to check if all Agitator Ant steps are complete
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const remainingAgitatorSteps = queue.steps.filter((s: any) => s.agitatorAntTrigger);
+    
+    if (remainingAgitatorSteps.length === 0) {
+      // All players have made their choices - now apply counters and goad
+      debug(2, `[Resolution] Agitator Ant: All players responded, applying counters and goad`);
+      
+      const selections = state._agitatorAntSelections || {};
+      const creaturesWithCounters: string[] = [];
+      
+      // Apply +1/+1 counters to selected creatures
+      for (const [playerId, selectedCreatureId] of Object.entries(selections)) {
+        if (typeof selectedCreatureId !== 'string') continue;
+        const creature = battlefield.find((p: any) => p.id === selectedCreatureId);
+        if (creature) {
+          creature.counters = creature.counters || {};
+          creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + 2;
+          creaturesWithCounters.push(creatureId);
+          
+          debug(2, `[Resolution] Agitator Ant: Added 2 +1/+1 counters to ${creature.card?.name || creatureId}`);
+          
+          // Emit chat message
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}_${Math.random()}`,
+            gameId,
+            from: 'system',
+            message: `Agitator Ant: ${playerId} put 2 +1/+1 counters on ${creature.card?.name || 'a creature'}`,
+            ts: Date.now(),
+          });
+        }
+      }
+      
+      // Goad all creatures that received counters
+      if (creaturesWithCounters.length > 0) {
+        const turnPlayer = state.turnPlayer;
+        for (const creatureId of creaturesWithCounters) {
+          const creature = battlefield.find((p: any) => p.id === creatureId);
+          if (creature) {
+            // Goad: creature attacks each combat if able and attacks a player other than you (the controller of Agitator Ant) if able
+            creature.goaded = creature.goaded || {};
+            creature.goaded[turnPlayer] = true; // Goaded until controller's next turn
+            
+            debug(2, `[Resolution] Agitator Ant: Goaded ${creature.card?.name || creatureId}`);
+          }
+        }
+        
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}_${Math.random()}`,
+          gameId,
+          from: 'system',
+          message: `Agitator Ant: Goaded ${creaturesWithCounters.length} creature(s)`,
+          ts: Date.now(),
+        });
+      }
+      
+      // Clean up tracking
+      delete state._agitatorAntSelections;
+      
+      // Bump sequence
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    }
   }
 }
 

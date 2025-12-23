@@ -262,18 +262,16 @@ export function collectPlayerCurses(
 ): CurseEffect[] {
   const curses: CurseEffect[] = [];
   
-  // Check all players' battlefields for curses attached to this player
-  for (const player of state.players) {
-    const battlefield = player.battlefield || [];
-    for (const permanent of battlefield as any[]) {
-      // Check if this permanent is a curse attached to the target player
-      if (isCurse(permanent)) {
-        const attachedTo = permanent.attachedTo || permanent.enchanting;
-        if (attachedTo === playerId) {
-          const effect = detectCurseEffect(permanent, playerId);
-          if (effect) {
-            curses.push(effect);
-          }
+  // Check centralized battlefield for curses attached to this player
+  const battlefield = state.battlefield || [];
+  for (const permanent of battlefield as any[]) {
+    // Check if this permanent is a curse attached to the target player
+    if (isCurse(permanent)) {
+      const attachedTo = permanent.attachedTo || permanent.enchanting;
+      if (attachedTo === playerId) {
+        const effect = detectCurseEffect(permanent, playerId);
+        if (effect) {
+          curses.push(effect);
         }
       }
     }

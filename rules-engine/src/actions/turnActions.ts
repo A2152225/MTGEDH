@@ -20,25 +20,28 @@ export function executeUntapStep(
 ): { state: GameState; logs: string[] } {
   const logs: string[] = [];
   
-  const updatedPlayers = state.players.map(p => {
-    if (p.id !== activePlayerId) return p;
-    
-    const untappedCount = (p.battlefield || []).filter((perm: any) => perm.tapped).length;
-    if (untappedCount > 0) {
-      logs.push(`${activePlayerId} untaps ${untappedCount} permanents`);
-    }
-    
-    return {
-      ...p,
-      battlefield: (p.battlefield || []).map((perm: any) => ({
+  // Count tapped permanents controlled by active player
+  const tappedCount = (state.battlefield || []).filter(
+    (perm: any) => perm.controller === activePlayerId && perm.tapped
+  ).length;
+  
+  if (tappedCount > 0) {
+    logs.push(`${activePlayerId} untaps ${tappedCount} permanents`);
+  }
+  
+  // Untap all permanents controlled by active player on centralized battlefield
+  const updatedBattlefield = (state.battlefield || []).map((perm: any) => {
+    if (perm.controller === activePlayerId) {
+      return {
         ...perm,
         tapped: false,
-      })),
-    };
+      };
+    }
+    return perm;
   });
   
   return {
-    state: { ...state, players: updatedPlayers },
+    state: { ...state, battlefield: updatedBattlefield },
     logs,
   };
 }
@@ -114,22 +117,19 @@ export function executeCleanupStep(
     logs.push(`${activePlayerId} must discard ${discardRequired} cards`);
   }
   
-  // Remove damage from all permanents
-  const updatedPlayers = state.players.map(p => ({
-    ...p,
-    battlefield: (p.battlefield || []).map((perm: any) => ({
-      ...perm,
-      counters: {
-        ...perm.counters,
-        damage: 0,
-      },
-    })),
+  // Remove damage from all permanents on centralized battlefield
+  const updatedBattlefield = (state.battlefield || []).map((perm: any) => ({
+    ...perm,
+    counters: {
+      ...perm.counters,
+      damage: 0,
+    },
   }));
   
   logs.push('Damage removed from all permanents');
   
   return {
-    state: { ...state, players: updatedPlayers },
+    state: { ...state, battlefield: updatedBattlefield },
     logs,
     discardRequired,
   };

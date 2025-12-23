@@ -25,6 +25,7 @@ import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
 import { creatureHasHaste } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { registerManaHandlers } from "./mana-handlers.js";
 
 // ============================================================================
 // Constants
@@ -1992,14 +1993,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         // Handle special 'any_combination' color (like Selvala)
         if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
-          socket.emit("manaColorChoice", {
-            gameId,
+          // Store pending mana activation for when player selects color
+          if (!game.state.pendingManaActivations) {
+            game.state.pendingManaActivations = {};
+          }
+          const activationId = `mana_${crypto.randomUUID()}`;
+          game.state.pendingManaActivations[activationId] = {
+            playerId: pid,
             permanentId,
             cardName,
-            availableColors: ['W', 'U', 'B', 'R', 'G'],
-            totalAmount,
-            isAnyColor: true,
-            message: `Choose how to distribute ${totalAmount} mana`,
+            amount: totalAmount,
+          };
+          
+          // Request color choice from player
+          socket.emit("anyColorManaChoice", {
+            gameId,
+            activationId,
+            permanentId,
+            cardName,
+            amount: totalAmount,
+            cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
           });
           
           io.to(gameId).emit("chat", {
@@ -2009,6 +2022,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             message: `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose colors).`,
             ts: Date.now(),
           });
+          
+          broadcastGame(io, game, gameId);
+          return; // Exit early - wait for color choice
         } else {
           const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
           (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
@@ -2076,16 +2092,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             // Get extra mana from effects like Caged Sun, Nissa, Crypt Ghast
             const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
             const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
+            const finalTotal = totalAmount + totalExtra;
             
-            socket.emit("manaColorChoice", {
-              gameId,
+            // Store pending mana activation for when player selects color
+            if (!game.state.pendingManaActivations) {
+              game.state.pendingManaActivations = {};
+            }
+            const activationId = `mana_${crypto.randomUUID()}`;
+            game.state.pendingManaActivations[activationId] = {
+              playerId: pid,
               permanentId,
               cardName,
-              availableColors: produces,
-              grantedBy: ability.isGranted ? ability.grantedBy : undefined,
-              manaMultiplier: effectiveMultiplier > 1 ? effectiveMultiplier : undefined,
-              extraMana: totalExtra > 0 ? extraMana : undefined,
-              totalAmount: totalAmount + totalExtra,
+              amount: finalTotal,
+            };
+            
+            // Request color choice from player
+            socket.emit("anyColorManaChoice", {
+              gameId,
+              activationId,
+              permanentId,
+              cardName,
+              amount: finalTotal,
+              cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
             });
             
             io.to(gameId).emit("chat", {
@@ -2095,6 +2123,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               message: `${getPlayerName(game, pid)} tapped ${cardName} for mana (choose color).`,
               ts: Date.now(),
             });
+            
+            broadcastGame(io, game, gameId);
+            return; // Exit early - wait for color choice
           } else {
             // Single color production
             const manaColor = produces[0];
@@ -2779,6 +2810,86 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: cost=${equipCost}, type=${equipType || 'any'}, prompting for target selection (effectId: ${effectId})`);
+      return;
+    }
+    
+    // Handle activated abilities that grant abilities/keywords to target creatures
+    // Pattern: "{cost}: Target creature you control gains/gets {ability} until end of turn"
+    // Examples: Fire Nation Palace ("{1}{R}, {T}: Target creature you control gains firebending 4")
+    //           Various lords and pump effects
+    // Note: This also applies to instants/sorceries that grant abilities, but those are handled
+    // during spell resolution via the targeting system
+    const grantAbilityMatch = oracleText.match(/\{([^}]+(?:\}\s*,\s*\{[^}]+)*)\}:\s*target\s+creature\s+(you control|an opponent controls)?.*?(gains?|gets?)\s+([^.]+)/i);
+    
+    if (grantAbilityMatch && abilityId.includes("grant-ability")) {
+      const costStr = `{${grantAbilityMatch[1]}}`;
+      const targetRestriction = grantAbilityMatch[2]?.toLowerCase() || "you control";
+      const grantVerb = grantAbilityMatch[3];
+      let abilityGranted = grantAbilityMatch[4].trim();
+      
+      // Clean up the ability text
+      abilityGranted = abilityGranted.replace(/\s+until end of turn$/i, '').trim();
+      
+      debug(2, `[activateBattlefieldAbility] Grant ability detected: ${cardName} - "${abilityGranted}" (restriction: ${targetRestriction})`);
+      
+      // Determine if this targets own or opponent creatures
+      const targetsOpponentCreatures = targetRestriction.includes("opponent");
+      
+      // Get valid target creatures
+      const validTargets = battlefield.filter((p: any) => {
+        const pTypeLine = (p.card?.type_line || "").toLowerCase();
+        if (!pTypeLine.includes("creature")) return false;
+        
+        if (targetsOpponentCreatures) {
+          return p.controller !== pid; // Opponent's creatures
+        } else {
+          return p.controller === pid; // Own creatures
+        }
+      });
+      
+      if (validTargets.length === 0) {
+        socket.emit("error", {
+          code: "NO_VALID_TARGETS",
+          message: targetsOpponentCreatures 
+            ? "No opponent creatures to target"
+            : "You have no creatures to target",
+        });
+        return;
+      }
+      
+      // Store pending ability activation for when target is chosen
+      const effectId = `grant_ability_${permanentId}_${Date.now()}`;
+      (game.state as any).pendingAbilityGrants = (game.state as any).pendingAbilityGrants || {};
+      (game.state as any).pendingAbilityGrants[effectId] = {
+        sourceId: permanentId,
+        sourceName: cardName,
+        cost: costStr,
+        abilityGranted,
+        playerId: pid,
+        permanent: { ...permanent },
+        validTargetIds: validTargets.map((c: any) => c.id),
+        targetsOpponentCreatures,
+      };
+      
+      // Send target selection prompt
+      socket.emit("selectAbilityTarget", {
+        gameId,
+        sourceId: permanentId,
+        sourceName: cardName,
+        cost: costStr,
+        abilityGranted,
+        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        effectId,
+        validTargets: validTargets.map((c: any) => ({
+          id: c.id,
+          name: c.card?.name || "Creature",
+          power: c.card?.power || c.basePower || "0",
+          toughness: c.card?.toughness || c.baseToughness || "0",
+          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+        })),
+      });
+      
+      debug(2, `[activateBattlefieldAbility] Ability grant on ${cardName}: ability="${abilityGranted}", prompting for target selection (effectId: ${effectId})`);
       return;
     }
     
@@ -4744,14 +4855,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const totalAmount = creatureCountMana.amount * effectiveMultiplier;
         
         if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
-          socket.emit("manaColorChoice", {
-            gameId,
+          // Store pending mana activation for when player selects color
+          if (!game.state.pendingManaActivations) {
+            game.state.pendingManaActivations = {};
+          }
+          const activationId = `mana_${crypto.randomUUID()}`;
+          game.state.pendingManaActivations[activationId] = {
+            playerId: pid,
             permanentId,
             cardName,
-            availableColors: ['W', 'U', 'B', 'R', 'G'],
-            totalAmount,
-            isAnyColor: true,
-            message: `Choose how to distribute ${totalAmount} mana`,
+            amount: totalAmount,
+          };
+          
+          // Request color choice from player
+          socket.emit("anyColorManaChoice", {
+            gameId,
+            activationId,
+            permanentId,
+            cardName,
+            amount: totalAmount,
+            cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
           });
           
           io.to(gameId).emit("chat", {
@@ -4761,6 +4884,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             message: `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose colors).`,
             ts: Date.now(),
           });
+          
+          broadcastGame(io, game, gameId);
+          return; // Exit early - wait for color choice
         } else {
           const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
           (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
@@ -4796,16 +4922,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               // Get extra mana from effects
               const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
               const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
+              const finalTotal = totalAmount + totalExtra;
               
-              socket.emit("manaColorChoice", {
-                gameId,
+              // Store pending mana activation for when player selects color
+              if (!game.state.pendingManaActivations) {
+                game.state.pendingManaActivations = {};
+              }
+              const activationId = `mana_${crypto.randomUUID()}`;
+              game.state.pendingManaActivations[activationId] = {
+                playerId: pid,
                 permanentId,
                 cardName,
-                availableColors: produces,
-                grantedBy: ability.isGranted ? ability.grantedBy : undefined,
-                manaMultiplier: effectiveMultiplier > 1 ? effectiveMultiplier : undefined,
-                extraMana: totalExtra > 0 ? extraMana : undefined,
-                totalAmount: totalAmount + totalExtra,
+                amount: finalTotal,
+              };
+              
+              // Request color choice from player
+              socket.emit("anyColorManaChoice", {
+                gameId,
+                activationId,
+                permanentId,
+                cardName,
+                amount: finalTotal,
+                cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
               });
               
               io.to(gameId).emit("chat", {
@@ -4815,6 +4953,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 message: `${getPlayerName(game, pid)} tapped ${cardName} for mana (choose color).`,
                 ts: Date.now(),
               });
+              
+              broadcastGame(io, game, gameId);
+              return; // Exit early - wait for color choice
             } else {
               // Single color production
               const manaColor = produces[0];
@@ -5652,335 +5793,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // ============================================================================
-  // Mana Pool Manipulation
+  // Mana Pool Manipulation (moved to mana-handlers.ts)
   // ============================================================================
-
-  /**
-   * Add mana to a player's mana pool
-   * Used for manual adjustments or card effects that add restricted mana
-   */
-  socket.on("addManaToPool", ({
-    gameId,
-    color,
-    amount,
-    restriction,
-    restrictedTo,
-    sourceId,
-    sourceName,
-  }: {
-    gameId: string;
-    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-    amount: number;
-    restriction?: string;
-    restrictedTo?: string;
-    sourceId?: string;
-    sourceName?: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    // Initialize mana pool if needed
-    game.state.manaPool = game.state.manaPool || {};
-    game.state.manaPool[pid] = game.state.manaPool[pid] || {
-      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-    };
-
-    if (restriction) {
-      // Add restricted mana
-      const pool = game.state.manaPool[pid] as any;
-      pool.restricted = pool.restricted || [];
-      pool.restricted.push({
-        type: color,
-        amount,
-        restriction,
-        restrictedTo,
-        sourceId,
-        sourceName,
-      });
-    } else {
-      // Add regular mana
-      (game.state.manaPool[pid] as any)[color] = 
-        ((game.state.manaPool[pid] as any)[color] || 0) + amount;
-    }
-
-    // Bump game sequence
-    if (typeof (game as any).bumpSeq === "function") {
-      (game as any).bumpSeq();
-    }
-
-    // Log the mana addition
-    const restrictionText = restriction ? ` (${restriction})` : '';
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} added ${amount} ${color} mana to their pool${restrictionText}.`,
-      ts: Date.now(),
-    });
-
-    // Emit mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana', game);
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Remove mana from a player's mana pool
-   * Used for manual adjustments or payment verification
-   */
-  socket.on("removeManaFromPool", ({
-    gameId,
-    color,
-    amount,
-    restrictedIndex,
-  }: {
-    gameId: string;
-    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-    amount: number;
-    restrictedIndex?: number;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    const pool = game.state.manaPool?.[pid] as any;
-    if (!pool) {
-      socket.emit("error", { code: "INVALID_ACTION", message: "No mana pool to remove from" });
-      return;
-    }
-
-    if (restrictedIndex !== undefined) {
-      // Remove from restricted mana
-      if (!pool.restricted || restrictedIndex >= pool.restricted.length) {
-        socket.emit("error", { code: "INVALID_ACTION", message: "Invalid restricted mana index" });
-        return;
-      }
-      const entry = pool.restricted[restrictedIndex];
-      if (entry.amount < amount) {
-        socket.emit("error", { code: "INVALID_ACTION", message: "Not enough restricted mana" });
-        return;
-      }
-      if (entry.amount === amount) {
-        pool.restricted.splice(restrictedIndex, 1);
-        if (pool.restricted.length === 0) {
-          delete pool.restricted;
-        }
-      } else {
-        entry.amount -= amount;
-      }
-    } else {
-      // Remove from regular mana
-      if ((pool[color] || 0) < amount) {
-        socket.emit("error", { code: "INVALID_ACTION", message: `Not enough ${color} mana` });
-        return;
-      }
-      pool[color] = (pool[color] || 0) - amount;
-    }
-
-    // Bump game sequence
-    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
-
-    // Log the mana removal
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} removed ${amount} ${color} mana from their pool.`,
-      ts: Date.now(),
-    });
-
-    // Emit mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, pool, 'Removed mana', game);
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Set mana pool "doesn't empty" effect
-   * Used by cards like Horizon Stone, Omnath Locus of Mana, Kruphix
-   */
-  socket.on("setManaPoolDoesNotEmpty", ({
-    gameId,
-    sourceId,
-    sourceName,
-    convertsTo,
-    convertsToColorless,
-  }: {
-    gameId: string;
-    sourceId: string;
-    sourceName: string;
-    convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-    convertsToColorless?: boolean;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    // Initialize mana pool if needed
-    game.state.manaPool = game.state.manaPool || {};
-    game.state.manaPool[pid] = game.state.manaPool[pid] || {
-      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-    };
-
-    const pool = game.state.manaPool[pid] as any;
-    pool.doesNotEmpty = true;
-    
-    // Support both new convertsTo and deprecated convertsToColorless
-    if (convertsTo) {
-      pool.convertsTo = convertsTo;
-    } else if (convertsToColorless) {
-      pool.convertsTo = 'colorless';
-      pool.convertsToColorless = true; // Keep for backwards compatibility
-    }
-    
-    pool.noEmptySourceIds = pool.noEmptySourceIds || [];
-    if (!pool.noEmptySourceIds.includes(sourceId)) {
-      pool.noEmptySourceIds.push(sourceId);
-    }
-
-    // Bump game sequence
-    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
-
-    // Log the effect
-    const targetColor = convertsTo || (convertsToColorless ? 'colorless' : null);
-    const effectText = targetColor 
-      ? `Mana converts to ${targetColor} instead of emptying (${sourceName})`
-      : `Mana doesn't empty from pool (${sourceName})`;
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)}: ${effectText}`,
-      ts: Date.now(),
-    });
-
-    // Emit mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, pool, `Doesn't empty (${sourceName})`, game);
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Remove mana pool "doesn't empty" effect
-   * Called when the source permanent leaves the battlefield
-   */
-  socket.on("removeManaPoolDoesNotEmpty", ({
-    gameId,
-    sourceId,
-  }: {
-    gameId: string;
-    sourceId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    const pool = game.state.manaPool?.[pid] as any;
-    if (!pool || !pool.noEmptySourceIds) return;
-
-    pool.noEmptySourceIds = pool.noEmptySourceIds.filter((id: string) => id !== sourceId);
-
-    if (pool.noEmptySourceIds.length === 0) {
-      delete pool.doesNotEmpty;
-      delete pool.convertsToColorless;
-      delete pool.noEmptySourceIds;
-    }
-
-    // Bump game sequence
-    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
-
-    broadcastGame(io, game, gameId);
-  });
-
-  // ============================================================================
-  // Mana Color Selection (for creatures with "any color" mana abilities)
-  // ============================================================================
-
-  /**
-   * Handle mana color selection when tapping a creature for mana of any color
-   * This is used when creatures have granted mana abilities like Cryptolith Rite
-   */
-  socket.on("manaColorSelect", ({
-    gameId,
-    permanentId,
-    selectedColor,
-  }: {
-    gameId: string;
-    permanentId: string;
-    selectedColor: 'W' | 'U' | 'B' | 'R' | 'G';
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    // Map color codes to pool keys
-    const colorToPoolKey: Record<string, string> = {
-      'W': 'white',
-      'U': 'blue',
-      'B': 'black',
-      'R': 'red',
-      'G': 'green',
-    };
-
-    const poolKey = colorToPoolKey[selectedColor];
-    if (!poolKey) {
-      socket.emit("error", { code: "INVALID_COLOR", message: "Invalid mana color selected" });
-      return;
-    }
-
-    // Initialize mana pool if needed
-    game.state.manaPool = game.state.manaPool || {};
-    game.state.manaPool[pid] = game.state.manaPool[pid] || {
-      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-    };
-
-    // Add the selected mana
-    (game.state.manaPool[pid] as any)[poolKey]++;
-
-    // Find the permanent to get its name for the chat message
-    const battlefield = game.state?.battlefield || [];
-    const permanent = battlefield.find((p: any) => p?.id === permanentId);
-    const cardName = permanent?.card?.name || "Unknown";
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} added {${selectedColor}} mana from ${cardName}.`,
-      ts: Date.now(),
-    });
-
-    // Bump game sequence
-    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
-
-    // Broadcast mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Selected ${selectedColor} mana`, game);
-
-    broadcastGame(io, game, gameId);
-  });
+  
+  // Register mana pool manipulation handlers from separate module
+  registerManaHandlers(io, socket);
 
   // ============================================================================
   // Replacement Effect Ordering
@@ -6261,6 +6078,129 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
     
     // Broadcast updated game state
+    broadcastGame(io, game, gameId);
+  });
+
+  // Ability target selection handler (for effects that grant abilities to creatures)
+  socket.on("abilityTargetChosen", ({
+    gameId,
+    targetCreatureId,
+    effectId,
+  }: {
+    gameId: string;
+    targetCreatureId: string;
+    effectId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Retrieve pending ability grant
+    const pendingGrants = (game.state as any).pendingAbilityGrants || {};
+    const pendingGrant = pendingGrants[effectId];
+    
+    if (!pendingGrant) {
+      socket.emit("error", {
+        code: "INVALID_EFFECT",
+        message: "Ability grant effect not found or expired",
+      });
+      return;
+    }
+    
+    // Validate target
+    if (!pendingGrant.validTargetIds.includes(targetCreatureId)) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Invalid target for ability grant",
+      });
+      return;
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+    
+    if (!targetCreature) {
+      socket.emit("error", {
+        code: "TARGET_NOT_FOUND",
+        message: "Target creature not found",
+      });
+      delete pendingGrants[effectId];
+      return;
+    }
+    
+    // Parse and pay the cost
+    const cost = pendingGrant.cost;
+    const parsedCost = parseManaCost(cost);
+    const pool = getOrInitManaPool(game.state, pid);
+    const totalAvailable = calculateTotalAvailableMana(pool, []);
+    
+    // Validate mana payment
+    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+    if (validationError) {
+      socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+      delete pendingGrants[effectId];
+      return;
+    }
+    
+    // Consume mana
+    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[abilityTargetChosen]');
+    
+    // Tap the source permanent if it has {T} in the cost
+    const sourceId = pendingGrant.sourceId;
+    const sourcePermanent = battlefield.find((p: any) => p.id === sourceId);
+    if (sourcePermanent && cost.toLowerCase().includes('{t}')) {
+      sourcePermanent.tapped = true;
+    }
+    
+    // Grant the ability to the target creature until end of turn
+    const abilityText = pendingGrant.abilityGranted;
+    if (!targetCreature.grantedAbilities) {
+      targetCreature.grantedAbilities = [];
+    }
+    
+    // Add the ability with an expiration marker
+    const grantedAbility = `${abilityText} (until end of turn)`;
+    if (!targetCreature.grantedAbilities.includes(grantedAbility)) {
+      targetCreature.grantedAbilities.push(grantedAbility);
+    }
+    
+    // Track temporary abilities for cleanup at end of turn
+    if (!(game.state as any).temporaryAbilities) {
+      (game.state as any).temporaryAbilities = [];
+    }
+    (game.state as any).temporaryAbilities.push({
+      creatureId: targetCreatureId,
+      ability: grantedAbility,
+      expiresAt: 'end_of_turn',
+      grantedBy: sourceId,
+    });
+    
+    // Clean up pending state
+    delete pendingGrants[effectId];
+    
+    // Bump seq
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    // Log to chat
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated ${pendingGrant.sourceName}: ${targetCreature.card?.name} gains ${abilityText} until end of turn`,
+      ts: Date.now(),
+    });
+    
+    debug(2, `[abilityTargetChosen] ${targetCreature.card?.name} granted "${abilityText}" from ${pendingGrant.sourceName}`);
+    
+    // Broadcast updated game state
+    broadcastManaPoolUpdate(io, gameId, pid, pool, 'Ability activated', game);
     broadcastGame(io, game, gameId);
   });
 

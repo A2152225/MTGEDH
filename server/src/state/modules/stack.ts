@@ -1446,6 +1446,72 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "each player may put two +1/+1 counters on a creature they control. Goad each creature that had counters put on it this way"
+  // Agitator Ant and similar effects
+  if (desc.includes('each player may put') && desc.includes('+1/+1 counter') && desc.includes('goad')) {
+    // Get all players
+    const turnOrder = players.map((p: any) => p.id);
+    const activePlayerId = state.activePlayer || controller;
+    const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId || 'unknown';
+    const battlefield = state.battlefield || [];
+    
+    // Skip adding resolution steps during replay
+    const isReplaying = !!(ctx as any).isReplaying;
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Agitator Ant: skipping resolution steps during replay`);
+      return;
+    }
+    
+    // Create resolution steps for each player
+    const stepConfigs = players.map((p: any) => {
+      const playerId = p.id;
+      
+      // Get creatures controlled by this player
+      const playerCreatures = battlefield.filter((perm: any) => {
+        if (perm.controller !== playerId) return false;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature');
+      });
+      
+      return {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId,
+        description: `${sourceName}: You may put two +1/+1 counters on a creature you control`,
+        mandatory: false, // Player may decline
+        sourceId: triggerItem?.permanentId || triggerItem?.sourceId,
+        sourceName,
+        sourceImage: triggerItem?.card?.image_uris?.small,
+        // Store creatures and metadata for later
+        agitatorAntTrigger: true,
+        availableCreatures: playerCreatures.map((perm: any) => ({
+          permanentId: perm.id,
+          cardName: perm.card?.name || 'Creature',
+          imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+        })),
+        options: [
+          { id: 'decline', label: 'Decline' },
+          ...playerCreatures.map((perm: any) => ({
+            id: perm.id,
+            label: perm.card?.name || 'Creature',
+          })),
+        ],
+        minSelections: 0,
+        maxSelections: 1,
+      };
+    });
+    
+    // Add steps with APNAP ordering
+    ResolutionQueueManager.addStepsWithAPNAP(
+      gameId,
+      stepConfigs,
+      turnOrder,
+      activePlayerId
+    );
+    
+    debug(2, `[executeTriggerEffect] ${sourceName} (Agitator Ant): created ${players.length} resolution steps for counter placement (gameId: ${gameId})`);
+    return;
+  }
+  
   // Pattern: "Target player draws X cards" or "that player draws X cards"
   const targetDrawMatch = desc.match(/(?:target|that) player draws? (\d+|a|an|one|two|three) cards?/i);
   if (targetDrawMatch) {
@@ -2979,6 +3045,47 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // ========================================================================
+    // ETB TRIGGERS WITH TARGETING: Add resolution step for target selection
+    // Handles cards like Bojuka Bog ("exile target player's graveyard"), 
+    // Ravenous Chupacabra ("destroy target creature"), etc.
+    // ========================================================================
+    const requiresTarget = (item as any).requiresTarget;
+    const targetType = (item as any).targetType;
+    
+    if (requiresTarget && triggerType === 'etb') {
+      const players = state.players || [];
+      const gameId = (ctx as any).gameId || 'unknown';
+      const isReplaying = !!(ctx as any).isReplaying;
+      
+      if (!isReplaying) {
+        // Create appropriate resolution step based on target type
+        if (targetType === 'player') {
+          // Target player selection
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.PLAYER_CHOICE,
+            playerId: triggerController as PlayerID,
+            description: `${sourceName}: Choose target player`,
+            mandatory: true,
+            sourceName: sourceName,
+            sourceImage: (item as any).sourceImage,
+            // Store the trigger info so we can execute it after target selection
+            triggerItem: item,
+            etbTargetTrigger: true,
+          });
+          
+          debug(2, `[resolveTopOfStack] ETB trigger with target: added resolution step for ${triggerController} to select target player`);
+          
+          // DON'T execute the trigger effect yet - wait for target selection
+          return;
+        } else if (targetType === 'creature' || targetType === 'permanent') {
+          // Target permanent selection - would need to implement TARGET_SELECTION handler
+          // For now, skip and execute without targeting
+          debug(2, `[resolveTopOfStack] ETB trigger requires ${targetType} target - not yet implemented`);
+        }
+      }
+    }
+    
     // Execute the triggered ability effect based on description
     executeTriggerEffect(ctx, triggerController, sourceName, description, item);
     
@@ -3107,6 +3214,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         power: "2",
         toughness: "2",
       } : { ...effectiveCard, zone: "battlefield" },
+      // Preserve isCommander flag from stack item if it exists
+      isCommander: (item as any).card?.isCommander || (effectiveCard as any).isCommander || false,
     };
     
     // Store face-down information
