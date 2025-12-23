@@ -1501,8 +1501,7 @@ function executeTriggerEffect(
     });
     
     // Add steps with APNAP ordering
-    const { ResolutionQueueManager } = await import('../../resolution/ResolutionQueueManager.js');
-    ResolutionQueueManager.addStepsWithAPNAPOrdering(
+    ResolutionQueueManager.addStepsWithAPNAP(
       gameId,
       stepConfigs,
       turnOrder,
@@ -3060,10 +3059,6 @@ export function resolveTopOfStack(ctx: GameContext) {
       const isReplaying = !!(ctx as any).isReplaying;
       
       if (!isReplaying) {
-        // Import resolution types
-        const { ResolutionStepType } = await import('../../resolution/types.js');
-        const { ResolutionQueueManager } = await import('../../resolution/ResolutionQueueManager.js');
-        
         // Create appropriate resolution step based on target type
         if (targetType === 'player') {
           // Target player selection
