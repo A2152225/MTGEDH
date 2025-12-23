@@ -286,8 +286,57 @@ export function getManaPoolFromState(state: any, playerId: PlayerID): Record<str
 }
 
 /**
+ * Helper function to get commander color identity for a player
+ * Returns set of color keys that the player's commander(s) can produce
+ * 
+ * @param state Game state
+ * @param playerId The player whose commander color identity to check
+ * @returns Set of color keys in commander's color identity
+ */
+function getCommanderColorIdentity(state: any, playerId: PlayerID): Set<string> {
+  const commanderColors = new Set<string>();
+  const commandZone = state?.commandZone?.[playerId];
+  
+  if (!commandZone) return commanderColors;
+  
+  const commanderCards = commandZone.commanderCards || commandZone.commanders || [];
+  
+  for (const commander of commanderCards) {
+    if (!commander) continue;
+    
+    // color_identity is an array like ['W', 'U', 'B', 'R', 'G']
+    const colorIdentity = commander.color_identity || [];
+    
+    for (const color of colorIdentity) {
+      const colorUpper = color.toUpperCase();
+      const colorKey = {
+        'W': 'white',
+        'U': 'blue',
+        'B': 'black',
+        'R': 'red',
+        'G': 'green',
+        'C': 'colorless',
+      }[colorUpper];
+      
+      if (colorKey) {
+        commanderColors.add(colorKey);
+      }
+    }
+  }
+  
+  return commanderColors;
+}
+
+/**
  * Helper function to get colors that opponent lands can produce
  * Used for conditional mana sources like Exotic Orchard, Fellwar Stone, etc.
+ * 
+ * Implements Rule 106.7: "Some abilities produce mana based on the type of mana another 
+ * permanent or permanents 'could produce.' The type of mana a permanent could produce at 
+ * any time includes any type of mana that an ability of that permanent would produce if 
+ * the ability were to resolve at that time, taking into account any applicable replacement 
+ * effects in any possible order. Ignore whether any costs of the ability could or could 
+ * not be paid."
  * 
  * @param state Game state
  * @param playerId The player who controls the conditional mana source
@@ -325,14 +374,48 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
       continue;
     }
     
-    // Check for mana abilities in oracle text
-    const manaAbilityPattern = /\{t\}[^:]*:\s*add\s+([^.\n]+)/gi;
+    // Per Rule 106.7, check ALL abilities that could produce mana if they resolved
+    // This includes activated abilities, triggered abilities (ETB), and static abilities
+    // We ignore whether costs can be paid or conditions are met
+    
+    // Pattern to find any "Add" mana text, regardless of trigger type
+    // Matches: "{T}: Add", "When ~ enters: Add", "Add", etc.
+    const manaAbilityPattern = /add\s+([^.\n]+)/gi;
     const matches = [...oracleText.matchAll(manaAbilityPattern)];
     
     for (const match of matches) {
       const fullManaText = match[1].trim();
       
-      // Extract mana symbols from the ability text
+      // Check for "any color" abilities
+      // Note: We need to handle these specially based on conditions
+      if (/one mana of any color/i.test(fullManaText)) {
+        // Check if this is conditional on other factors
+        const fullAbilityContext = match.input?.substring(Math.max(0, match.index! - 100), match.index! + 100) || '';
+        
+        // Check for conditions that restrict what can be produced
+        const hasCommanderCondition = /commander.*color identity/i.test(fullAbilityContext);
+        const hasLandCondition = /that (?:a |an )?land.*could produce/i.test(fullAbilityContext);
+        const hasPermanentCondition = /that (?:a |an )?permanent.*could produce/i.test(fullAbilityContext);
+        
+        if (hasCommanderCondition) {
+          // Command Tower type - need to check opponent's commander
+          // For now, conservatively don't add colors (would need commander info)
+          continue;
+        } else if (hasLandCondition || hasPermanentCondition) {
+          // Exotic Orchard type - skip to avoid infinite recursion
+          continue;
+        } else {
+          // Unconditional "any color" - add all colors
+          opponentColors.add('white');
+          opponentColors.add('blue');
+          opponentColors.add('black');
+          opponentColors.add('red');
+          opponentColors.add('green');
+          continue;
+        }
+      }
+      
+      // Extract specific mana symbols from the ability text
       const manaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
       
       for (const token of manaTokens) {
@@ -350,12 +433,6 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
           opponentColors.add(colorKey);
         }
       }
-      
-      // Note: We intentionally do NOT handle "any color" lands on opponent's side
-      // (like if the opponent has their own Exotic Orchard). Recursive checking would
-      // be complex and could cause infinite loops. This conservative approach means
-      // Exotic Orchard won't see opponent's conditional "any color" sources, which is
-      // acceptable for gameplay purposes and prevents edge cases.
     }
   }
   
@@ -620,14 +697,33 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       const isConditionalAnyColor = /that (?:a |an )?(?:land|permanent)|among (?:lands|permanents)/i.test(fullManaText);
       const isUnconditionalAnyColor = /one mana of any color|add.*any color/i.test(fullManaText);
       
+      // Check if this is Command Tower or similar that depends on commander color identity
+      const isCommanderColorIdentity = /commander.*color identity|color identity.*commander/i.test(fullManaText);
+      
       if (isUnconditionalAnyColor && !isConditionalAnyColor) {
-        pool.white = (pool.white || 0) + 1;
-        pool.blue = (pool.blue || 0) + 1;
-        pool.black = (pool.black || 0) + 1;
-        pool.red = (pool.red || 0) + 1;
-        pool.green = (pool.green || 0) + 1;
-        // Track how many "any color" sources we have for correct total calculation
-        pool.anyColor = (pool.anyColor || 0) + 1;
+        if (isCommanderColorIdentity) {
+          // Command Tower and similar - only add colors in commander's color identity
+          const commanderColors = getCommanderColorIdentity(state, playerId);
+          
+          for (const colorKey of commanderColors) {
+            pool[colorKey] = (pool[colorKey] || 0) + 1;
+          }
+          
+          // Track as anyColor source only if we have a commander
+          // (otherwise it produces nothing)
+          if (commanderColors.size > 0) {
+            pool.anyColor = (pool.anyColor || 0) + 1;
+          }
+        } else {
+          // True unconditional "any color" sources (Mana Confluence, City of Brass, etc.)
+          pool.white = (pool.white || 0) + 1;
+          pool.blue = (pool.blue || 0) + 1;
+          pool.black = (pool.black || 0) + 1;
+          pool.red = (pool.red || 0) + 1;
+          pool.green = (pool.green || 0) + 1;
+          // Track how many "any color" sources we have for correct total calculation
+          pool.anyColor = (pool.anyColor || 0) + 1;
+        }
       } else if (isConditionalAnyColor) {
         // Handle conditional "any color" sources like Exotic Orchard, Fellwar Stone, etc.
         // These can only produce colors that opponent lands/permanents can produce
