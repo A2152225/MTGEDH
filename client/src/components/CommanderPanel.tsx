@@ -40,7 +40,7 @@ export function CommanderPanel(props: {
       res.push({ 
         name: names[i] || (id ? id.slice(0, 8) : `Commander ${i + 1}`), 
         id, 
-        tax: id ? taxById[id] || 0 : undefined,
+        tax: id ? (taxById[id] ?? 0) : undefined,
         manaCost: card?.mana_cost,
         inCZ: id ? inCommandZone.includes(id) : false,
       });
