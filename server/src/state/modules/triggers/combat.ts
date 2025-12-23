@@ -634,3 +634,84 @@ export function getEndOfCombatTriggers(
   return triggers;
 }
 
+// ============================================================================
+// Damage Received Triggers
+// ============================================================================
+
+/**
+ * Information about a damage received trigger that needs to be queued for resolution
+ */
+export interface DamageReceivedTriggerInfo {
+  triggerId: string;
+  sourceId: string;
+  sourceName: string;
+  controller: string;
+  damageAmount: number;
+  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller';
+  targetRestriction?: string;
+}
+
+/**
+ * Check if a permanent has a "whenever this creature is dealt damage" trigger
+ * and return the trigger information if it does.
+ * 
+ * This supports cards like:
+ * - Brash Taunter: "Whenever Brash Taunter is dealt damage, it deals that much damage to target opponent."
+ * - Boros Reckoner: "Whenever Boros Reckoner is dealt damage, it deals that much damage to any target."
+ * - Stuffy Doll: "Whenever Stuffy Doll is dealt damage, it deals that much damage to the chosen player."
+ */
+export function checkDamageReceivedTrigger(
+  permanent: any,
+  damageAmount: number
+): DamageReceivedTriggerInfo | null {
+  if (!permanent || damageAmount <= 0) return null;
+  
+  const card = permanent.card;
+  if (!card) return null;
+  
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  const creatureName = card.name || "Unknown";
+  const lowerName = creatureName.toLowerCase();
+  
+  // Check if this card has a damage received trigger
+  // Pattern 1: "Whenever this creature is dealt damage"
+  // Pattern 2: "Whenever [CardName] is dealt damage"
+  const hasTrigger = 
+    oracleText.includes("whenever this creature is dealt damage") ||
+    oracleText.includes(`whenever ${lowerName} is dealt damage`);
+  
+  if (!hasTrigger) return null;
+  
+  // Determine target type from oracle text
+  let targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller' = 'any';
+  let targetRestriction = '';
+  
+  if (oracleText.includes("target opponent")) {
+    targetType = 'opponent';
+    targetRestriction = 'opponent';
+  } else if (oracleText.includes("any target that isn't a dragon")) {
+    targetType = 'any_non_dragon';
+    targetRestriction = "that isn't a Dragon";
+  } else if (oracleText.includes("the chosen player")) {
+    targetType = 'chosen_player';
+    targetRestriction = 'chosen player';
+  } else if (oracleText.includes("each opponent")) {
+    targetType = 'each_opponent';
+    targetRestriction = 'each opponent';
+  } else if (oracleText.includes("any target")) {
+    targetType = 'any';
+  }
+  
+  const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  
+  return {
+    triggerId,
+    sourceId: permanent.id,
+    sourceName: creatureName,
+    controller: permanent.controller,
+    damageAmount,
+    targetType,
+    targetRestriction,
+  };
+}
+
