@@ -783,6 +783,10 @@ async function handleStepResponse(
       handleMorphTurnFaceUpResponse(io, game, gameId, step, response);
       break;
       
+    case ResolutionStepType.PLAYER_CHOICE:
+      await handlePlayerChoiceResponse(io, game, gameId, step, response);
+      break;
+    
     // Add more handlers as needed
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
@@ -4106,6 +4110,114 @@ export function processPendingLibrarySearch(io: Server, game: any, gameId: strin
   } catch (e) {
     debugError(1, '[processPendingLibrarySearch] Error:', e);
   }
+}
+
+/**
+ * Handle player choice response (for triggers that target a player)
+ * Used by cards like Bojuka Bog ("exile target player's graveyard")
+ */
+async function handlePlayerChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const selectedPlayerId = response.selections as string;
+  const stepData = step as any;
+  
+  debug(2, `[Resolution] Player choice response: selected player ${selectedPlayerId}`);
+  
+  // Check if this is an ETB trigger with target
+  if (stepData.etbTargetTrigger && stepData.triggerItem) {
+    const triggerItem = stepData.triggerItem;
+    const sourceName = triggerItem.sourceName || 'Unknown';
+    const description = triggerItem.description || '';
+    const controller = triggerItem.controller;
+    const ctx = (game as any).ctx || game;
+    
+    // Store the selected target on the trigger item
+    triggerItem.selectedTarget = selectedPlayerId;
+    
+    // Execute the trigger effect with the target
+    await executeTargetedTriggerEffect(ctx, controller, sourceName, description, triggerItem, selectedPlayerId);
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+  }
+}
+
+/**
+ * Execute a triggered ability that has a target
+ * Handles effects like "exile target player's graveyard"
+ */
+async function executeTargetedTriggerEffect(
+  ctx: any,
+  controller: string,
+  sourceName: string,
+  description: string,
+  triggerItem: any,
+  targetPlayerId: string
+): Promise<void> {
+  const state = ctx.state;
+  if (!state) return;
+  
+  const desc = description.toLowerCase();
+  
+  debug(2, `[executeTargetedTriggerEffect] ${sourceName}: ${description} (target: ${targetPlayerId})`);
+  
+  // Pattern: "exile target player's graveyard" (Bojuka Bog, etc.)
+  if (desc.includes('exile') && desc.includes('graveyard')) {
+    const zones = state.zones = state.zones || {};
+    const targetZones = zones[targetPlayerId] = zones[targetPlayerId] || {
+      hand: [],
+      handCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    
+    // Move all cards from target player's graveyard to exile
+    const graveyardCards = targetZones.graveyard || [];
+    const exileZone = targetZones.exile || [];
+    
+    if (graveyardCards.length > 0) {
+      // Move all graveyard cards to exile
+      for (const card of graveyardCards) {
+        exileZone.push({ ...card, zone: 'exile' });
+      }
+      
+      debug(2, `[executeTargetedTriggerEffect] ${sourceName}: Exiled ${graveyardCards.length} cards from ${targetPlayerId}'s graveyard`);
+      
+      // Clear the graveyard
+      targetZones.graveyard = [];
+      targetZones.graveyardCount = 0;
+      targetZones.exile = exileZone;
+      targetZones.exileCount = exileZone.length;
+      
+      // Emit chat message
+      const io = (ctx as any).io;
+      if (io) {
+        io.to((ctx as any).gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId: (ctx as any).gameId,
+          from: 'system',
+          message: `${sourceName}: Exiled ${graveyardCards.length} cards from ${targetPlayerId}'s graveyard`,
+          ts: Date.now(),
+        });
+      }
+    } else {
+      debug(2, `[executeTargetedTriggerEffect] ${sourceName}: Target player's graveyard is empty`);
+    }
+  }
+  
+  // Add more targeted effect patterns here as needed
+  // Pattern: "destroy target creature"
+  // Pattern: "return target permanent to its owner's hand"
+  // etc.
 }
 
 

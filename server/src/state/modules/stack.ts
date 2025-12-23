@@ -2979,6 +2979,51 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // ========================================================================
+    // ETB TRIGGERS WITH TARGETING: Add resolution step for target selection
+    // Handles cards like Bojuka Bog ("exile target player's graveyard"), 
+    // Ravenous Chupacabra ("destroy target creature"), etc.
+    // ========================================================================
+    const requiresTarget = (item as any).requiresTarget;
+    const targetType = (item as any).targetType;
+    
+    if (requiresTarget && triggerType === 'etb') {
+      const players = state.players || [];
+      const gameId = (ctx as any).gameId || 'unknown';
+      const isReplaying = !!(ctx as any).isReplaying;
+      
+      if (!isReplaying) {
+        // Import resolution types
+        const { ResolutionStepType } = await import('../../resolution/types.js');
+        const { ResolutionQueueManager } = await import('../../resolution/ResolutionQueueManager.js');
+        
+        // Create appropriate resolution step based on target type
+        if (targetType === 'player') {
+          // Target player selection
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.PLAYER_CHOICE,
+            playerId: triggerController as PlayerID,
+            description: `${sourceName}: Choose target player`,
+            mandatory: true,
+            sourceName: sourceName,
+            sourceImage: (item as any).sourceImage,
+            // Store the trigger info so we can execute it after target selection
+            triggerItem: item,
+            etbTargetTrigger: true,
+          });
+          
+          debug(2, `[resolveTopOfStack] ETB trigger with target: added resolution step for ${triggerController} to select target player`);
+          
+          // DON'T execute the trigger effect yet - wait for target selection
+          return;
+        } else if (targetType === 'creature' || targetType === 'permanent') {
+          // Target permanent selection - would need to implement TARGET_SELECTION handler
+          // For now, skip and execute without targeting
+          debug(2, `[resolveTopOfStack] ETB trigger requires ${targetType} target - not yet implemented`);
+        }
+      }
+    }
+    
     // Execute the triggered ability effect based on description
     executeTriggerEffect(ctx, triggerController, sourceName, description, item);
     
