@@ -54,6 +54,7 @@ import { ExileViewModal } from "./components/ExileViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
 import { KynaiosChoiceModal, type KynaiosChoiceRequest } from "./components/KynaiosChoiceModal";
+import { OptionChoiceModal, type OptionChoiceRequest } from "./components/OptionChoiceModal";
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
@@ -530,6 +531,10 @@ export function App() {
   // Kynaios Choice Modal state (Kynaios and Tiro of Meletis style land/draw choice)
   const [kynaiosChoiceModalOpen, setKynaiosChoiceModalOpen] = useState(false);
   const [kynaiosChoiceRequest, setKynaiosChoiceRequest] = useState<KynaiosChoiceRequest | null>(null);
+
+  // Option Choice Modal state (Generic option selection like Agitator Ant)
+  const [optionChoiceModalOpen, setOptionChoiceModalOpen] = useState(false);
+  const [optionChoiceRequest, setOptionChoiceRequest] = useState<OptionChoiceRequest | null>(null);
 
   // Ponder Modal state (Ponder, Index, Telling Time, etc.)
   const [ponderModalOpen, setPonderModalOpen] = useState(false);
@@ -2487,6 +2492,25 @@ export function App() {
         setKynaiosChoiceModalOpen(true);
       }
       
+      // Handle Option Choice resolution step (Agitator Ant and similar)
+      else if (step.type === 'option_choice' || step.type === 'modal_choice') {
+        const request: OptionChoiceRequest = {
+          gameId: payload.gameId,
+          stepId: step.id,
+          sourceId: step.sourceId,
+          sourceName: step.sourceName || 'Make a Choice',
+          sourceImage: step.sourceImage,
+          description: step.description || '',
+          options: step.options || [],
+          minSelections: step.minSelections || 0,
+          maxSelections: step.maxSelections || 1,
+          mandatory: step.mandatory !== false,
+        };
+        
+        setOptionChoiceRequest(request);
+        setOptionChoiceModalOpen(true);
+      }
+      
       // Handle Bounce Land choice resolution step
       else if (step.type === 'bounce_land_choice') {
         debug(2, '[BounceLand] Received bounce land choice from resolution queue:', step);
@@ -4330,6 +4354,25 @@ export function App() {
     // Close modal after responding
     setKynaiosChoiceModalOpen(false);
     setKynaiosChoiceRequest(null);
+  };
+
+  // Generic Option Choice response handler (scalable for all option choice effects)
+  const handleOptionChoiceRespond = (selections: string[]) => {
+    if (!safeView || !optionChoiceRequest) return;
+    
+    const stepId = optionChoiceRequest.stepId;
+    
+    // Use the resolution system to submit response
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId,
+      selections,
+      cancelled: false,
+    });
+    
+    // Close modal after responding
+    setOptionChoiceModalOpen(false);
+    setOptionChoiceRequest(null);
   };
 
   // Graveyard view handler
@@ -6572,6 +6615,13 @@ export function App() {
           return controller?.name || kynaiosChoiceRequest.sourceController;
         }, [kynaiosChoiceRequest, safeView?.players])}
         onRespond={handleKynaiosChoiceRespond}
+      />
+
+      {/* Generic Option Choice Modal (Agitator Ant and similar effects) */}
+      <OptionChoiceModal
+        open={optionChoiceModalOpen}
+        request={optionChoiceRequest}
+        onRespond={handleOptionChoiceRespond}
       />
 
       {/* Commander Zone Choice Modal (Rule 903.9a/903.9b) */}
