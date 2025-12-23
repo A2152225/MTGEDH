@@ -933,11 +933,29 @@ export class AIEngine {
     
     // Get the player's battlefield to evaluate creatures
     const player = context.gameState.players.find(p => p.id === context.playerId);
-    if (!player?.battlefield) {
+    const globalBattlefield = context.gameState.battlefield || [];
+    
+    // Helper to find a permanent by ID in either global or player battlefield
+    const findPermanent = (id: string) => {
+      // Check global battlefield first
+      const global = globalBattlefield.find((p: any) => p.id === id);
+      if (global) return global;
+      // Check player battlefield
+      return player?.battlefield?.find((p: BattlefieldPermanent) => p.id === id);
+    };
+    
+    // If we can't find the player, attack with all legal attackers as a fallback
+    if (!player) {
+      const targetPlayer = this.selectAttackTarget(context.gameState, context.playerId);
+      const attackers = legalAttackerIds.map(id => ({
+        creatureId: id,
+        defendingPlayerId: targetPlayer,
+      }));
+      
       return {
         type: AIDecisionType.DECLARE_ATTACKERS,
         playerId: context.playerId,
-        action: { attackers: legalAttackerIds },
+        action: { attackers },
         reasoning: `Attacking with ${legalAttackerIds.length} legal creatures`,
         confidence: 0.6,
       };
@@ -953,7 +971,7 @@ export class AIEngine {
     // Build attack targets for goaded creatures
     const goadedAttackers: Array<{ creatureId: string; defendingPlayerId: string }> = [];
     for (const goadedId of goadedCreatureIds) {
-      const perm = player.battlefield.find((p: BattlefieldPermanent) => p.id === goadedId);
+      const perm = findPermanent(goadedId);
       if (!perm) continue;
       
       // Get valid targets for this goaded creature
@@ -981,7 +999,7 @@ export class AIEngine {
     // Evaluate each non-goaded legal attacker for combat value
     const nonGoadedLegalAttackerIds = legalAttackerIds.filter(id => !goadedSet.has(id));
     const attackerEvaluations = nonGoadedLegalAttackerIds.map(id => {
-      const perm = player.battlefield.find((p: BattlefieldPermanent) => p.id === id);
+      const perm = findPermanent(id);
       if (!perm) return { id, value: 0, wantsToGetKilled: false };
       
       const evaluation = this.evaluateCombatValue(perm, true);
