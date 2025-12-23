@@ -26,10 +26,22 @@ export function setCommander(
   const { commandZone, libraries, pendingInitialDraw, bumpSeq, state } = ctx;
   const zones = state.zones = state.zones || {};
   const info = commandZone[playerId] ?? { commanderIds: [], commanderNames: [], tax: 0, taxById: {}, inCommandZone: [] };
-  info.commanderIds = commanderIds.slice();
-  info.commanderNames = commanderNames.slice();
+  
+  // Filter out any undefined, null, or empty string IDs to prevent corruption
+  const cleanCommanderIds = commanderIds.filter((id) => id && typeof id === 'string' && id.trim() !== '');
+  const cleanCommanderNames = commanderNames.filter((name) => name && typeof name === 'string' && name.trim() !== '');
+  
+  if (cleanCommanderIds.length !== commanderIds.length) {
+    debugWarn(1, `[setCommander] Filtered out ${commanderIds.length - cleanCommanderIds.length} invalid commander IDs`, {
+      original: commanderIds,
+      cleaned: cleanCommanderIds
+    });
+  }
+  
+  info.commanderIds = cleanCommanderIds.slice();
+  info.commanderNames = cleanCommanderNames.slice();
   // Initialize inCommandZone to all commander IDs (all start in the command zone)
-  (info as any).inCommandZone = commanderIds.slice();
+  (info as any).inCommandZone = cleanCommanderIds.slice();
   if (!info.taxById) info.taxById = {};
   info.tax = Object.values(info.taxById || {}).reduce((a: number, b: number) => a + b, 0);
 

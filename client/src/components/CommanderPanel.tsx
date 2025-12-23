@@ -31,6 +31,11 @@ export function CommanderPanel(props: {
     const n = Math.max(names.length, ids.length);
     for (let i = 0; i < n; i++) {
       const id = ids[i];
+      // Skip entries with undefined or empty IDs (defensive check for data corruption)
+      if (!id || (typeof id === 'string' && id.trim() === '')) {
+        console.warn(`[CommanderPanel] Skipping commander at index ${i} with invalid ID:`, id);
+        continue;
+      }
       const card = cards.find((c: any) => c?.id === id);
       res.push({ 
         name: names[i] || (id ? id.slice(0, 8) : `Commander ${i + 1}`), 
@@ -57,12 +62,19 @@ export function CommanderPanel(props: {
     if (!isYouPlayer) return;
     if (!c.inCZ) return; // Can't cast if not in command zone
     
+    // Defensive check: ensure we have a valid ID or name
+    const commanderIdOrName = c.id || c.name;
+    if (!commanderIdOrName || (typeof commanderIdOrName === 'string' && commanderIdOrName.trim() === '')) {
+      console.error('[castCommander] Invalid commander ID/name:', c);
+      return;
+    }
+    
     if (onCastCommander && c.id) {
       // Use callback to open payment modal
       onCastCommander(c.id, c.name, c.manaCost, c.tax);
     } else {
       // Fallback: emit directly (no payment)
-      socket.emit('castCommander', { gameId: view.id, commanderNameOrId: c.id || c.name });
+      socket.emit('castCommander', { gameId: view.id, commanderNameOrId: commanderIdOrName });
     }
   };
 
