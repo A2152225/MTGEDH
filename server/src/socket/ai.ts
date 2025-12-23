@@ -2821,6 +2821,8 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
 
 /**
  * Execute AI tapping lands for mana (when mana retention effects are present)
+ * Strategy: Only tap a portion of lands (keeping ~40% or at least 3 untapped) to maintain
+ * flexibility for instant-speed responses while still benefiting from retention effects.
  */
 async function executeAITapLandsForMana(
   io: Server,
@@ -2865,12 +2867,9 @@ async function executeAITapLandsForMana(
     }
   }
   
-  // Tap all untapped lands that produce retained colors
-  const manaPool = game.state.manaPool[playerId] || {
-    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-  };
-  
-  let tappedCount = 0;
+  // Collect all tappable lands that produce retained colors
+  // Strategy: Only tap a portion of lands to keep flexibility for instants
+  const tappableLands: any[] = [];
   
   for (const perm of battlefield) {
     if (!perm || perm.controller !== playerId || perm.tapped) continue;
@@ -2897,8 +2896,27 @@ async function executeAITapLandsForMana(
       }
     }
     
-    if (!shouldTap) continue;
-    
+    if (shouldTap) {
+      tappableLands.push({ perm, producedColors });
+    }
+  }
+  
+  // Conservative strategy: Keep at least 3 lands untapped for instant-speed responses
+  // Tap at most 60% of available lands, ensuring we don't tap all resources
+  const totalTappable = tappableLands.length;
+  const minToKeepUntapped = Math.max(3, Math.ceil(totalTappable * 0.4)); // Keep 40% or at least 3, whichever is MORE
+  const maxToTap = Math.max(0, totalTappable - minToKeepUntapped);
+  const landsToTap = tappableLands.slice(0, maxToTap);
+  
+  debug(2, `[AI] Mana retention: ${totalTappable} tappable lands, will tap ${landsToTap.length}, keep ${totalTappable - landsToTap.length} untapped for flexibility`);
+  
+  const manaPool = game.state.manaPool[playerId] || {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+  };
+  
+  let tappedCount = 0;
+  
+  for (const { perm, producedColors } of landsToTap) {
     // Tap the land/permanent
     perm.tapped = true;
     tappedCount++;
