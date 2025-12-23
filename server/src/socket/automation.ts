@@ -960,7 +960,7 @@ async function processActivateAbility(
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.ACTIVATED_ABILITY,
         playerId: playerId,
-        description: `${card?.name || 'Permanent'} (X=${ability.xValue}): ${xAbilityInfo.description}`,
+        description: `${card?.name || 'Permanent'} (X=${ability.xValue}): ${xAbilityInfo.oracleText}`,
         mandatory: true,
         sourceId: ability.permanentId,
         sourceName: card?.name || 'Permanent',
@@ -968,7 +968,7 @@ async function processActivateAbility(
         permanentId: ability.permanentId,
         permanentName: card?.name || 'Permanent',
         abilityType: 'x_activated' as const,
-        abilityDescription: xAbilityInfo.description,
+        abilityDescription: xAbilityInfo.oracleText,
         xValue: ability.xValue,
         abilityData: {
           xAbilityInfo
@@ -1006,7 +1006,7 @@ async function processActivateAbility(
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.ACTIVATED_ABILITY,
         playerId: playerId,
-        description: `${groupDrawEffect.cardName}: ${groupDrawEffect.effect}`,
+        description: `${groupDrawEffect.cardName}: Each player draws ${groupDrawEffect.drawAmount} card(s)`,
         mandatory: true,
         sourceId: ability.permanentId,
         sourceName: groupDrawEffect.cardName,
@@ -1014,7 +1014,7 @@ async function processActivateAbility(
         permanentId: ability.permanentId,
         permanentName: groupDrawEffect.cardName,
         abilityType: 'group_draw' as const,
-        abilityDescription: groupDrawEffect.effect,
+        abilityDescription: `Each player draws ${groupDrawEffect.drawAmount} card(s)`,
         abilityData: {
           groupDrawEffect
         }

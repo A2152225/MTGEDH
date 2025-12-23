@@ -1990,7 +1990,7 @@ async function handleActivatedAbilityResponse(
   }
   
   // Broadcast updated state
-  broadcastGame(io, gameId);
+  broadcastGame(io, game, gameId);
 }
 
 /**
