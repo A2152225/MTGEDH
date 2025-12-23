@@ -87,6 +87,9 @@ export enum ResolutionStepType {
   FATESEAL = 'fateseal',
   CLASH = 'clash',
   VOTE = 'vote',
+  
+  // Activated ability resolution (for non-mana abilities)
+  ACTIVATED_ABILITY = 'activated_ability',
 }
 
 /**
@@ -488,6 +491,22 @@ export interface MorphTurnFaceUpStep extends BaseResolutionStep {
 }
 
 /**
+ * Activated Ability resolution step
+ * For non-mana activated abilities that are being resolved from the stack.
+ * This includes Crystal abilities, group draw effects, X-activated abilities, etc.
+ */
+export interface ActivatedAbilityStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.ACTIVATED_ABILITY;
+  readonly permanentId: string;
+  readonly permanentName: string;
+  readonly abilityType: 'crystal' | 'group_draw' | 'x_activated' | 'generic';
+  readonly abilityDescription: string;
+  readonly targets?: readonly string[];
+  readonly xValue?: number;
+  readonly abilityData?: Record<string, any>;
+}
+
+/**
  * Union of all resolution step types
  */
 export type ResolutionStep = 
@@ -513,6 +532,7 @@ export type ResolutionStep =
   | DevourSelectionStep
   | SuspendCastStep
   | MorphTurnFaceUpStep
+  | ActivatedAbilityStep
   | BaseResolutionStep;
 
 /**

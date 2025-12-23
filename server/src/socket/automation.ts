@@ -891,13 +891,11 @@ async function processActivateAbility(
     const isManaAbility = oracleText.includes('add') && oracleText.includes('{t}:');
     
     // Import Crystal abilities dynamically to check
-    const { getCrystalAbility, executeWindCrystalAbility, executeFireCrystalAbility, 
-            executeWaterCrystalAbility, executeEarthCrystalAbility, executeDarknessCrystalAbility } = 
-      await import("../state/modules/triggers/crystal-abilities.js");
+    const { getCrystalAbility } = await import("../state/modules/triggers/crystal-abilities.js");
     
     const crystalAbility = getCrystalAbility(cardName);
     
-    // Handle Crystal abilities
+    // Handle Crystal abilities - add to resolution queue instead of executing immediately
     if (crystalAbility) {
       // Check if tapped (Crystals require tap)
       if (crystalAbility.requiresTap && (perm as any).tapped) {
@@ -907,96 +905,39 @@ async function processActivateAbility(
       // Tap the crystal
       (perm as any).tapped = true;
       
-      // Execute the appropriate Crystal ability
-      let result: { success: boolean; message?: string; error?: string } = { success: false };
+      // Add to stack via resolution queue
+      const { ResolutionQueueManager, ResolutionStepType } = 
+        await import("../state/resolution/index.js");
       
-      switch (cardName) {
-        case 'the wind crystal':
-          const windResult = executeWindCrystalAbility(game as any, playerId);
-          result = { 
-            success: windResult.success, 
-            message: `The Wind Crystal: ${windResult.affectedCreatures.length} creatures gained flying and lifelink until end of turn` 
-          };
-          break;
-          
-        case 'the fire crystal':
-          if (!ability.targets || ability.targets.length === 0) {
-            return { success: false, error: "The Fire Crystal requires a target creature you control" };
-          }
-          const fireResult = executeFireCrystalAbility(game as any, playerId, ability.targets[0]);
-          result = fireResult.success 
-            ? { success: true, message: `The Fire Crystal: Created a token copy (will be sacrificed at end step)` }
-            : { success: false, error: fireResult.error };
-          break;
-          
-        case 'the water crystal':
-          // No target needed - affects each opponent
-          const waterResult = executeWaterCrystalAbility(game as any, playerId);
-          if (waterResult.success) {
-            const totalMilled = waterResult.results.reduce((sum, r) => sum + r.milledCount, 0);
-            const opponentCount = waterResult.results.length;
-            result = { 
-              success: true, 
-              message: `The Water Crystal: ${opponentCount} opponent(s) milled ${totalMilled} total cards` 
-            };
-          } else {
-            result = { success: false, error: waterResult.error };
-          }
-          break;
-          
-        case 'the earth crystal':
-          if (!ability.targets || ability.targets.length === 0) {
-            return { success: false, error: "The Earth Crystal requires at least one target creature you control" };
-          }
-          if (ability.targets.length > 2) {
-            return { success: false, error: "The Earth Crystal can only target up to two creatures" };
-          }
-          // Pass all targets (1 or 2 creatures) and optional distribution
-          const earthResult = executeEarthCrystalAbility(
-            game as any, 
-            playerId, 
-            ability.targets,
-            (ability as any).distribution  // Optional: how to distribute the 2 counters
-          );
-          if (earthResult.success && earthResult.results) {
-            const details = earthResult.results.map(r => `+${r.countersAdded}`).join(', ');
-            result = { success: true, message: `The Earth Crystal: Distributed +1/+1 counters (${details})` };
-          } else {
-            result = { success: false, error: earthResult.error };
-          }
-          break;
-          
-        case 'the darkness crystal':
-          if (!ability.targets || ability.targets.length === 0) {
-            return { success: false, error: "The Darkness Crystal requires a target creature exiled with it" };
-          }
-          const darknessResult = executeDarknessCrystalAbility(
-            game as any, 
-            playerId, 
-            ability.permanentId,  // The Crystal's permanent ID
-            ability.targets[0]    // The exiled creature card ID
-          );
-          result = darknessResult.success
-            ? { success: true, message: `The Darkness Crystal: Returned ${darknessResult.creatureName} to battlefield tapped with +2/+2` }
-            : { success: false, error: darknessResult.error };
-          break;
-          
-        default:
-          return { success: false, error: "Unknown Crystal ability" };
-      }
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ACTIVATED_ABILITY,
+        playerId: playerId,
+        description: `${card?.name || 'Crystal'}: ${crystalAbility.effect}`,
+        mandatory: true,
+        sourceId: ability.permanentId,
+        sourceName: card?.name || 'Crystal',
+        sourceImage: (card as any)?.image_uris?.normal || (card as any)?.image_url,
+        permanentId: ability.permanentId,
+        permanentName: card?.name || 'Crystal',
+        abilityType: 'crystal' as const,
+        abilityDescription: crystalAbility.effect,
+        targets: ability.targets,
+        abilityData: {
+          distribution: (ability as any).distribution
+        }
+      });
       
-      if (!result.success) {
-        // Untap the crystal if activation failed
-        (perm as any).tapped = false;
-        return { success: false, error: result.error || "Crystal ability failed" };
-      }
+      debug(1, `[processActivateAbility] Added Crystal ability to resolution queue: ${card?.name}`);
       
-      return { success: true, usesStack: false, message: result.message };
+      return { 
+        success: true, 
+        usesStack: true,
+        message: `${card?.name || 'Crystal'} ability added to stack`
+      };
     }
     
     // Import X-activated abilities module
-    const { detectXAbility, executeXAbility } = 
-      await import("../state/modules/x-activated-abilities.js");
+    const { detectXAbility } = await import("../state/modules/x-activated-abilities.js");
     
     // Detect X-cost activated abilities from oracle text (pattern-based)
     const xAbilityInfo = detectXAbility(oracleText, cardName);
@@ -1012,41 +953,41 @@ async function processActivateAbility(
         return { success: false, error: "This ability can only be activated once per turn" };
       }
       
-      // Execute the X ability based on detected pattern
-      const result = executeXAbility(
-        game as any,
-        playerId,
-        perm,
-        ability.xValue,
-        xAbilityInfo
-      );
+      // Add to stack via resolution queue
+      const { ResolutionQueueManager, ResolutionStepType } = 
+        await import("../state/resolution/index.js");
       
-      if (!result.success) {
-        return { success: false, error: result.error };
-      }
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ACTIVATED_ABILITY,
+        playerId: playerId,
+        description: `${card?.name || 'Permanent'} (X=${ability.xValue}): ${xAbilityInfo.oracleText}`,
+        mandatory: true,
+        sourceId: ability.permanentId,
+        sourceName: card?.name || 'Permanent',
+        sourceImage: (card as any)?.image_uris?.normal || (card as any)?.image_url,
+        permanentId: ability.permanentId,
+        permanentName: card?.name || 'Permanent',
+        abilityType: 'x_activated' as const,
+        abilityDescription: xAbilityInfo.oracleText,
+        xValue: ability.xValue,
+        abilityData: {
+          xAbilityInfo
+        }
+      });
       
-      // Mark as activated this turn if once per turn
-      if (xAbilityInfo.oncePerTurn) {
-        (perm as any).activatedThisTurn = true;
-      }
-      
-      // Generate message based on result
-      let message = result.message;
-      if (!message && result.destroyedCount !== undefined) {
-        message = `${card?.name || 'Permanent'} (X=${ability.xValue}): Destroyed ${result.destroyedCount} permanent(s) with mana value ${ability.xValue}`;
-      }
+      debug(1, `[processActivateAbility] Added X-activated ability to resolution queue: ${card?.name} (X=${ability.xValue})`);
       
       return {
         success: true,
-        usesStack: false,
-        message,
+        usesStack: true,
+        message: `${card?.name || 'Permanent'} (X=${ability.xValue}) ability added to stack`,
       };
     }
     
     // Check for group draw effects (Temple Bell, etc.)
     const groupDrawEffect = detectGroupDrawEffect(card, perm);
     
-    // Handle group draw effects (Temple Bell, etc.)
+    // Handle group draw effects - add to resolution queue instead of executing immediately
     if (groupDrawEffect) {
       // Check if tapped (most group draw cards require tap)
       if (groupDrawEffect.cost.includes('{T}') && (perm as any).tapped) {
@@ -1058,46 +999,33 @@ async function processActivateAbility(
         (perm as any).tapped = true;
       }
       
-      // Execute the draw effect for affected players
-      const affectedPlayers = [];
-      const players = game.state.players || [];
+      // Add to stack via resolution queue
+      const { ResolutionQueueManager, ResolutionStepType } = 
+        await import("../state/resolution/index.js");
       
-      switch (groupDrawEffect.affectedPlayers) {
-        case 'all':
-          // All players draw (Temple Bell, Howling Mine)
-          for (const player of players) {
-            if (typeof game.drawCards === 'function') {
-              game.drawCards(player.id, groupDrawEffect.drawAmount);
-              affectedPlayers.push(player.id);
-            }
-          }
-          break;
-          
-        case 'each_opponent':
-          // Each opponent draws (Master of the Feast)
-          for (const player of players) {
-            if (player.id !== playerId && typeof game.drawCards === 'function') {
-              game.drawCards(player.id, groupDrawEffect.drawAmount);
-              affectedPlayers.push(player.id);
-            }
-          }
-          break;
-          
-        case 'you':
-          // Only controller draws
-          if (typeof game.drawCards === 'function') {
-            game.drawCards(playerId, groupDrawEffect.drawAmount);
-            affectedPlayers.push(playerId);
-          }
-          break;
-      }
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.ACTIVATED_ABILITY,
+        playerId: playerId,
+        description: `${groupDrawEffect.cardName}: Each player draws ${groupDrawEffect.drawAmount} card(s)`,
+        mandatory: true,
+        sourceId: ability.permanentId,
+        sourceName: groupDrawEffect.cardName,
+        sourceImage: (card as any)?.image_uris?.normal || (card as any)?.image_url,
+        permanentId: ability.permanentId,
+        permanentName: groupDrawEffect.cardName,
+        abilityType: 'group_draw' as const,
+        abilityDescription: `Each player draws ${groupDrawEffect.drawAmount} card(s)`,
+        abilityData: {
+          groupDrawEffect
+        }
+      });
       
-      debug(1, `[processActivateAbility] ${groupDrawEffect.cardName}: ${affectedPlayers.length} player(s) drew ${groupDrawEffect.drawAmount} card(s)`);
+      debug(1, `[processActivateAbility] Added group draw ability to resolution queue: ${groupDrawEffect.cardName}`);
       
       return { 
         success: true, 
-        usesStack: false, 
-        message: `${groupDrawEffect.cardName}: ${affectedPlayers.length} player(s) drew ${groupDrawEffect.drawAmount} card(s)` 
+        usesStack: true,
+        message: `${groupDrawEffect.cardName} ability added to stack`
       };
     }
     
