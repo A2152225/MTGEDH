@@ -412,7 +412,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Cast commander from command zone
-  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string; payment?: Array<{ permanentId: string; mana: string }> }) => {
+  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string; payment?: Array<{ permanentId: string; mana: string; count?: number }> }) => {
     try {
       const { gameId, payment } = payload;
       // Accept both commanderId and commanderNameOrId for backwards compatibility
@@ -638,7 +638,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         const battlefield = (zones as any)?.battlefield || game.state?.battlefield?.filter((p: any) => p.controller === pid) || [];
         
         // Process each payment item: tap the permanent and add mana to pool
-        for (const { permanentId, mana } of payment) {
+        for (const { permanentId, mana, count } of payment) {
+          const manaCount = count || 1; // Default to 1 if count not specified
+          
           // Search in global battlefield (the structure may be flat)
           const globalBattlefield = game.state?.battlefield || [];
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
@@ -661,7 +663,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           
           // Tap the permanent
           (permanent as any).tapped = true;
-          debug(2, `[castCommander] Tapped ${(permanent as any).card?.name || permanentId} for ${mana} mana`);
+          debug(2, `[castCommander] Tapped ${(permanent as any).card?.name || permanentId} for ${manaCount}x ${mana} mana`);
           
           // Add mana to player's mana pool (already initialized via getOrInitManaPool above)
           const manaColorMap: Record<string, string> = {
@@ -676,8 +678,8 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           const poolKey = manaColorMap[mana];
           if (poolKey) {
             const poolBefore = (game.state.manaPool[pid] as any)[poolKey];
-            (game.state.manaPool[pid] as any)[poolKey]++;
-            debug(3, `[castCommander] Added ${mana} mana to pool: ${poolKey} ${poolBefore} -> ${(game.state.manaPool[pid] as any)[poolKey]}`);
+            (game.state.manaPool[pid] as any)[poolKey] += manaCount;
+            debug(3, `[castCommander] Added ${manaCount}x ${mana} mana to pool: ${poolKey} ${poolBefore} -> ${(game.state.manaPool[pid] as any)[poolKey]}`);
           } else {
             debugWarn(1, `[castCommander] Unknown mana color: ${mana}`);
           }
