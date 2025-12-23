@@ -143,6 +143,20 @@ async function handleAIResolutionStep(
         break;
       }
       
+      case ResolutionStepType.ACTIVATED_ABILITY: {
+        // Activated abilities don't require player choice - they resolve automatically
+        // Just auto-complete the step immediately
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: true,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI activated ability auto-resolving`);
+        break;
+      }
+      
       // Add more AI handlers as needed
     }
     
@@ -1735,7 +1749,13 @@ async function handleActivatedAbilityResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
-  const stepData = step as any;
+  // Type guard to ensure we have the correct step type
+  if (step.type !== ResolutionStepType.ACTIVATED_ABILITY) {
+    debugWarn(1, `[Resolution] handleActivatedAbilityResponse called with wrong step type: ${step.type}`);
+    return;
+  }
+  
+  const stepData = step as any;  // Still needed for accessing type-specific fields
   const permanentId = stepData.permanentId;
   const abilityType = stepData.abilityType;
   const abilityData = stepData.abilityData || {};
