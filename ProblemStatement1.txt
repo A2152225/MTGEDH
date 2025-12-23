@@ -1,196 +1,20 @@
-[castCommander] Found commander card: Agent of the Shadow Thieves
-[castCommander] Validating mana payment: totalCost=2, coloredCostTotal=1, totalGeneric=1
-[castCommander] Mana validation passed
-[castCommander] Player p_jahwhnpz casting commander f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9 (Agent of the Shadow Thieves) in game game_mjij5fj7
-[castCommander] Commander info before casting: {
-  commanderId: 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9',
-  commanderName: 'Agent of the Shadow Thieves',
-  inCommandZone: [
-    'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-    'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9'
-  ],
-  tax: 0
-}
-[castCommander] About to process payment and cast commander
-[castCommander] Processing payment for Agent of the Shadow Thieves: [
-  { permanentId: 'perm_q3ykml8n', mana: 'B', count: 1 },
-  { permanentId: 'perm_r46nwjim', mana: 'C', count: 2 }
-]
-[castCommander] Tapped Swamp for B mana
-[castCommander] Tapped Sol Ring for C mana
-[castCommander] Payment processing complete, about to consume mana from pool
-[castCommander] Pool before consume: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 1 }
-[castCommander] Consumed 1 B mana from pool
-[castCommander] Consumed 1 colorless mana for generic cost
-[castCommander] Pool after consume: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
-[castCommander] About to add commander to stack
-[castCommander] Pushing commander to stack...
-[castCommander] Calling game.pushStack with item: {
-  id: 'stack_1766491208120_f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9',
-  controller: 'p_jahwhnpz',
-  card: {
-    id: 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9',
-    name: 'Agent of the Shadow Thieves',
-    type_line: 'Legendary Enchantment ΓÇö Background',
-    oracle_text: 'Commander creatures you own have "Whenever this creature attacks a player, if no opponent has more life than that player, put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."',
-    image_uris: {
-      small: 'https://cards.scryfall.io/small/front/f/5/f50448e9-afe4-4d4e-b027-bbb855f17aeb.jpg?1674135919',
-      normal: 'https://cards.scryfall.io/normal/front/f/5/f50448e9-afe4-4d4e-b027-bbb855f17aeb.jpg?1674135919',
-      art_crop: 'https://cards.scryfall.io/art_crop/front/f/5/f50448e9-afe4-4d4e-b027-bbb855f17aeb.jpg?1674135919'
-    },
-    mana_cost: '{1}{B}',
-    power: undefined,
-    toughness: undefined,
-    zone: 'stack',
-    isCommander: true
-  },
-  targets: []
-}
-[castCommander] Successfully pushed to stack via game.pushStack
-[castCommander] About to call game.castCommander to update tax and command zone
-[castCommander] Calling game.castCommander with playerId: p_jahwhnpz, commanderId: f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9
-[castCommander] Called with playerId: p_jahwhnpz, commanderId: f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9
-[castCommander] Commander info for player p_jahwhnpz: {
-  commanderIds: [
-    'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-    'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9'
-  ],
-  inCommandZone: [
-    'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-    'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9'
-  ],
-  tax: 0,
-  taxById: {}
-}
-[castCommander] Removed commander f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9 from command zone. Remaining in CZ: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e' ]
-[castCommander] Updated tax for f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9: 2, total tax: 2
-[castCommander] Successfully called game.castCommander
-[castCommander] Appending event with playerId: p_jahwhnpz, commanderId: f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9
-[castCommander] About to append event and broadcast
-[castCommander] Event appended successfully
-[castCommander] Chat message emitted
-[castCommander] About to broadcast game state
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_af83be1v',
-  stackLength: 1,
-  stackItems: [ 'Agent of the Shadow Thieves' ],
-  zones: {
-    p_af83be1v: { handCount: 7, firstKnown: [Array] },
-    p_jahwhnpz: { handCount: 5, firstKnown: [Array] }
-  }
-}
-[getDevotionManaAmount] Checking sol ring: { hasKarametra: false, hasAcolyte: false, fullCardName: 'sol ring' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking rupture spire: {
+[getDevotionManaAmount] Checking arcane signet: {
   hasKarametra: false,
   hasAcolyte: false,
-  fullCardName: 'rupture spire'
+  fullCardName: 'arcane signet'
 }
 [getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking swamp: { hasKarametra: false, hasAcolyte: false, fullCardName: 'swamp' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[normalizeViewForEmit] Checking playable cards: priority=p_jahwhnpz, viewerId=p_af83be1v, match=false
-[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jahwhnpz',
-  stackLength: 1,
-  stackItems: [ 'Agent of the Shadow Thieves' ],
-  zones: {
-    p_af83be1v: { handCount: 7, firstKnown: [Array] },
-    p_jahwhnpz: { handCount: 5, firstKnown: [Array] }
-  }
-}
-[getDevotionManaAmount] Checking sol ring: { hasKarametra: false, hasAcolyte: false, fullCardName: 'sol ring' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking rupture spire: {
+[getDevotionManaAmount] Checking golgari signet: {
   hasKarametra: false,
   hasAcolyte: false,
-  fullCardName: 'rupture spire'
+  fullCardName: 'golgari signet'
 }
 [getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking swamp: { hasKarametra: false, hasAcolyte: false, fullCardName: 'swamp' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[normalizeViewForEmit] Checking playable cards: priority=p_jahwhnpz, viewerId=p_jahwhnpz, match=true
-[getPlayableCardIds] Player p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isMyTurn=true
-[getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
-[getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 1, red: 2, green: 0, colorless: 2 }
-[getPlayableCardIds] Total available mana: 5
-[getPlayableCardIds] Checking 5 cards in hand
-[getPlayableCardIds] Not checking lands: isMainPhase=true, stackIsEmpty=false, isMyTurn=true
-[getPlayableCardIds] Checking 1 commanders in command zone
-[getPlayableCardIds] Commander Baeloth Barrityl, Entertainer not playable - canCastNow=false, canPay=true
-[getPlayableCardIds] Returning 0 playable card(s): []
-[normalizeViewForEmit] getPlayableCardIds returned 0 cards
-[normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_jahwhnpz: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jahwhnpz: No actions available - returning FALSE
-[canRespond] p_jahwhnpz: checking instant-speed responses only
-[canRespond] p_jahwhnpz: No instant-speed responses available (returning false)
-[normalizeViewForEmit] Set canAct=false, canRespond=false
-2025-12-23T12:00:08.122Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1766491208122_mtrcx) ==========
-2025-12-23T12:00:08.122Z [checkAndTriggerAutoPass] Priority: p_jahwhnpz, Phase: precombatMain, Step: MAIN1
-[canAct] p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_jahwhnpz: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jahwhnpz: No actions available - returning FALSE
-2025-12-23T12:00:08.122Z [checkAndTriggerAutoPass] canAct check: p_jahwhnpz isActive=true canAct=false (ID: autopass_1766491208122_mtrcx)
-2025-12-23T12:00:08.122Z [checkAndTriggerAutoPass] p_jahwhnpz CANNOT ACT - proceeding with auto-pass (ID: autopass_1766491208122_mtrcx)
-2025-12-23T12:00:08.122Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_jahwhnpz with 150ms delay (ID: autopass_1766491208122_mtrcx)
-[castCommander] Successfully cast commander and broadcast game state
-2025-12-23T12:00:08.278Z [executeAutoPass] ========== EXECUTING for p_jahwhnpz (ID: autopass_1766491208122_mtrcx) ==========
-2025-12-23T12:00:08.278Z [executeAutoPass] Phase: precombatMain, Step: MAIN1
-[canAct] p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=false, isTurnPlayer=true
-[canAct] p_jahwhnpz: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jahwhnpz: No actions available - returning FALSE
-2025-12-23T12:00:08.278Z [executeAutoPass] Re-check: p_jahwhnpz canAct=false (ID: autopass_1766491208122_mtrcx)
-2025-12-23T12:00:08.278Z [executeAutoPass] Proceeding with auto-pass for p_jahwhnpz (ID: autopass_1766491208122_mtrcx)
-2025-12-23T12:00:08.278Z [executeAutoPass] Set _autoPassInProgress flag for p_jahwhnpz (ID: autopass_1766491208122_mtrcx)
-[priority] autoPassLoop starting - active players: p_af83be1v, p_jahwhnpz, autoPassEnabled: p_jahwhnpz, p_af83be1v, currentPriority: p_af83be1v, turnPlayer: p_jahwhnpz
-[canRespond] p_af83be1v: checking instant-speed responses only
-[canRespond] p_af83be1v: No instant-speed responses available (returning false)
-[priority] autoPassLoop - checking p_af83be1v (non-active): canAct=false, stack.length=1, step=MAIN1
-[priority] Auto-passing for p_af83be1v - no available actions
-2025-12-23T12:00:08.278Z [executeAutoPass] passPriority result: changed=true, advanceStep=false, resolvedNow=true (ID: autopass_1766491208122_mtrcx)
-[checkAndTriggerAutoPass] Stack resolved after auto-pass for p_jahwhnpz
-[resolveTopOfStack] Permanent Agent of the Shadow Thieves entered battlefield under p_jahwhnpz
-[calculateMaxLandsPerTurn] Calculating for player p_af83be1v, battlefield has 11 permanents
-[calculateMaxLandsPerTurn] Final result for p_af83be1v: 1 lands per turn
-[calculateMaxLandsPerTurn] Calculating for player p_jahwhnpz, battlefield has 11 permanents
-[calculateMaxLandsPerTurn] Final result for p_jahwhnpz: 1 lands per turn
-[recalculateHandVisibility] Players with hand reveal effects: none
-[resolveTopOfStack] Reset priorityPassedBy after spell resolution
-2025-12-23T12:00:08.280Z [executeAutoPass] Cleared _autoPassInProgress flag for p_jahwhnpz (ID: autopass_1766491208122_mtrcx)
-2025-12-23T12:00:08.281Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1766491208122_mtrcx)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_af83be1v',
-  stackLength: 0,
-  stackItems: [],
-  zones: {
-    p_af83be1v: { handCount: 7, firstKnown: [Array] },
-    p_jahwhnpz: { handCount: 5, firstKnown: [Array] }
-  }
-}
-[getDevotionManaAmount] Checking sol ring: { hasKarametra: false, hasAcolyte: false, fullCardName: 'sol ring' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking rupture spire: {
+[getDevotionManaAmount] Checking blazing sunsteel: {
   hasKarametra: false,
   hasAcolyte: false,
-  fullCardName: 'rupture spire'
+  fullCardName: 'blazing sunsteel'
 }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking swamp: { hasKarametra: false, hasAcolyte: false, fullCardName: 'swamp' }
 [getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
 [getDevotionManaAmount] Checking agent of the shadow thieves: {
   hasKarametra: false,
@@ -198,8 +22,239 @@
   fullCardName: 'agent of the shadow thieves'
 }
 [getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[normalizeViewForEmit] Checking playable cards: priority=p_af83be1v, viewerId=p_af83be1v, match=true
-[getPlayableCardIds] Player p_af83be1v: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isMyTurn=false
+[getDevotionManaAmount] Checking blackblade reforged: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'blackblade reforged'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking exotic orchard: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'exotic orchard'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking kynaios and tiro of meletis: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'kynaios and tiro of meletis'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking darksteel plate: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'darksteel plate'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking agitator ant: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'agitator ant'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[normalizeViewForEmit] Checking playable cards: priority=p_xrcrpy2s, viewerId=p_3a42fxp2, match=false
+[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
+[VIEW_FOR_DEBUG] {
+  viewer: 'p_zu4bo11d',
+  stackLength: 0,
+  stackItems: [],
+  zones: {
+    p_3a42fxp2: { handCount: 7, firstKnown: [Array] },
+    p_zu4bo11d: { handCount: 7, firstKnown: [Array] },
+    p_lpne9ddz: { handCount: 7, firstKnown: [Array] },
+    p_xrcrpy2s: { handCount: 5, firstKnown: [Array] }
+  }
+}
+[getDevotionManaAmount] Checking arcane signet: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'arcane signet'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking golgari signet: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'golgari signet'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking blazing sunsteel: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'blazing sunsteel'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking agent of the shadow thieves: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'agent of the shadow thieves'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking blackblade reforged: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'blackblade reforged'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking exotic orchard: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'exotic orchard'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking kynaios and tiro of meletis: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'kynaios and tiro of meletis'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking darksteel plate: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'darksteel plate'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking agitator ant: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'agitator ant'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[normalizeViewForEmit] Checking playable cards: priority=p_xrcrpy2s, viewerId=p_zu4bo11d, match=false
+[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
+[VIEW_FOR_DEBUG] {
+  viewer: 'p_lpne9ddz',
+  stackLength: 0,
+  stackItems: [],
+  zones: {
+    p_3a42fxp2: { handCount: 7, firstKnown: [Array] },
+    p_zu4bo11d: { handCount: 7, firstKnown: [Array] },
+    p_lpne9ddz: { handCount: 7, firstKnown: [Array] },
+    p_xrcrpy2s: { handCount: 5, firstKnown: [Array] }
+  }
+}
+[getDevotionManaAmount] Checking arcane signet: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'arcane signet'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking golgari signet: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'golgari signet'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking blazing sunsteel: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'blazing sunsteel'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking agent of the shadow thieves: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'agent of the shadow thieves'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking blackblade reforged: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'blackblade reforged'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking exotic orchard: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'exotic orchard'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking kynaios and tiro of meletis: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'kynaios and tiro of meletis'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking darksteel plate: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'darksteel plate'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking agitator ant: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'agitator ant'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[normalizeViewForEmit] Checking playable cards: priority=p_xrcrpy2s, viewerId=p_lpne9ddz, match=false
+[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
+[VIEW_FOR_DEBUG] {
+  viewer: 'p_xrcrpy2s',
+  stackLength: 0,
+  stackItems: [],
+  zones: {
+    p_3a42fxp2: { handCount: 7, firstKnown: [Array] },
+    p_zu4bo11d: { handCount: 7, firstKnown: [Array] },
+    p_lpne9ddz: { handCount: 7, firstKnown: [Array] },
+    p_xrcrpy2s: { handCount: 5, firstKnown: [Array] }
+  }
+}
+[getDevotionManaAmount] Checking arcane signet: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'arcane signet'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking golgari signet: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'golgari signet'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking blazing sunsteel: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'blazing sunsteel'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking agent of the shadow thieves: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'agent of the shadow thieves'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking blackblade reforged: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'blackblade reforged'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking exotic orchard: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'exotic orchard'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking kynaios and tiro of meletis: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'kynaios and tiro of meletis'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking darksteel plate: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'darksteel plate'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[getDevotionManaAmount] Checking agitator ant: {
+  hasKarametra: false,
+  hasAcolyte: false,
+  fullCardName: 'agitator ant'
+}
+[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
+[normalizeViewForEmit] Checking playable cards: priority=p_xrcrpy2s, viewerId=p_xrcrpy2s, match=true
+[getPlayableCardIds] Player p_xrcrpy2s: step=END, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= {
   white: 1,
@@ -211,241 +266,71 @@
   anyColor: 1
 }
 [getPlayableCardIds] Total available mana: 1
-[getPlayableCardIds] Checking 7 cards in hand
-[getPlayableCardIds] Card Selfless Squire not playable - cannot pay cost {3}{W} (after reduction: {"generic":3,"colors":{"W":1,"U":0,"B":0,"R":0,"G":0,"C":0},"hasX":false})
-[getPlayableCardIds] Not checking lands: isMainPhase=true, stackIsEmpty=true, isMyTurn=false
+[getPlayableCardIds] Checking 5 cards in hand
+[getPlayableCardIds] Card Seifer, Balamb Rival blocked - no valid targets: Can only be cast during combat (requires attacking creatures)
+[getPlayableCardIds] Not checking lands: isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] Checking 1 commanders in command zone
-[getPlayableCardIds] Commander Kynaios and Tiro of Meletis not playable - canCastNow=false, canPay=true
+[getPlayableCardIds] Commander Baeloth Barrityl, Entertainer not playable - canCastNow=false, canPay=false
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_af83be1v: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=false
-[canCastCommanderFromCommandZone] p_af83be1v: Commander Kynaios and Tiro of Meletis can be cast (main phase, empty stack)
-[canAct] p_af83be1v: Can cast commander from command zone - returning TRUE
-[canRespond] p_af83be1v: checking instant-speed responses only
-[canRespond] p_af83be1v: No instant-speed responses available (returning false)
-[normalizeViewForEmit] Set canAct=true, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jahwhnpz',
-  stackLength: 0,
-  stackItems: [],
-  zones: {
-    p_af83be1v: { handCount: 7, firstKnown: [Array] },
-    p_jahwhnpz: { handCount: 5, firstKnown: [Array] }
-  }
-}
-[getDevotionManaAmount] Checking sol ring: { hasKarametra: false, hasAcolyte: false, fullCardName: 'sol ring' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking rupture spire: {
-  hasKarametra: false,
-  hasAcolyte: false,
-  fullCardName: 'rupture spire'
-}
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking swamp: { hasKarametra: false, hasAcolyte: false, fullCardName: 'swamp' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking agent of the shadow thieves: {
-  hasKarametra: false,
-  hasAcolyte: false,
-  fullCardName: 'agent of the shadow thieves'
-}
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[normalizeViewForEmit] Checking playable cards: priority=p_af83be1v, viewerId=p_jahwhnpz, match=false
-[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2025-12-23T12:00:08.282Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1766491208282_60qft) ==========
-2025-12-23T12:00:08.282Z [checkAndTriggerAutoPass] Priority: p_af83be1v, Phase: precombatMain, Step: MAIN1
-2025-12-23T12:00:08.282Z [checkAndTriggerAutoPass] p_af83be1v is AI, handled separately (ID: autopass_1766491208282_60qft)
-2025-12-23T12:00:08.282Z [executeAutoPass] Broadcast complete (ID: autopass_1766491208122_mtrcx)
+[canAct] p_xrcrpy2s: step=END, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_xrcrpy2s: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_xrcrpy2s: No actions available - returning FALSE
+[canRespond] p_xrcrpy2s: checking instant-speed responses only
+[canRespond] p_xrcrpy2s: No instant-speed responses available (returning false)
+[normalizeViewForEmit] Set canAct=false, canRespond=false
+2025-12-23T12:24:35.165Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1766492675165_qxnhs) ==========
+2025-12-23T12:24:35.165Z [checkAndTriggerAutoPass] Priority: p_xrcrpy2s, Phase: ending, Step: END
+[canAct] p_xrcrpy2s: step=END, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_xrcrpy2s: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_xrcrpy2s: No actions available - returning FALSE
+2025-12-23T12:24:35.166Z [checkAndTriggerAutoPass] canAct check: p_xrcrpy2s isActive=true canAct=false (ID: autopass_1766492675165_qxnhs)
+2025-12-23T12:24:35.166Z [checkAndTriggerAutoPass] p_xrcrpy2s CANNOT ACT - proceeding with auto-pass (ID: autopass_1766492675165_qxnhs)
+2025-12-23T12:24:35.166Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_xrcrpy2s with 150ms delay (ID: autopass_1766492675165_qxnhs)
 [AI] handleAIGameFlow: {
-  gameId: 'game_mjij5fj7',
-  playerId: 'p_af83be1v',
-  phase: 'PRECOMBATMAIN',
-  step: 'MAIN1',
+  gameId: 'game_mjik1pjx',
+  playerId: 'p_zu4bo11d',
+  phase: 'ENDING',
+  step: 'END',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: false,
-  hasPriority: true
+  hasPriority: false
 }
-[AI] AI player checking priority: {
-  gameId: 'game_mjij5fj7',
-  playerId: 'p_af83be1v',
-  phase: 'precombatmain',
-  step: 'main1',
+[AI] AI player has pending resolution steps, skipping priority handling: { gameId: 'game_mjik1pjx', playerId: 'p_zu4bo11d' }
+[AI] AI player has pending resolution steps, skipping priority handling: { gameId: 'game_mjik1pjx', playerId: 'p_zu4bo11d' }
+[AI] handleAIGameFlow: {
+  gameId: 'game_mjik1pjx',
+  playerId: 'p_zu4bo11d',
+  phase: 'ENDING',
+  step: 'END',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
   isAITurn: false,
-  stackEmpty: true,
-  priority: 'p_af83be1v',
-  hasPriority: true
+  hasPriority: false
 }
-[AI] AI has priority, proceeding with action
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_mjij5fj7', playerId: 'p_af83be1v' }
-[priority] autoPassLoop starting - active players: p_af83be1v, p_jahwhnpz, autoPassEnabled: p_jahwhnpz, p_af83be1v, currentPriority: p_jahwhnpz, turnPlayer: p_jahwhnpz
-[canAct] p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[calculateMaxLandsPerTurn] Calculating for player p_jahwhnpz, battlefield has 11 permanents
-[calculateMaxLandsPerTurn] Final result for p_jahwhnpz: 1 lands per turn
-[canPlayLand] p_jahwhnpz: Already played max lands this turn (1/1)
-[canCastCommanderFromCommandZone] p_jahwhnpz: Commander Baeloth Barrityl, Entertainer can be cast (main phase, empty stack)
-[canAct] p_jahwhnpz: Can cast commander from command zone - returning TRUE
-[priority] autoPassLoop - checking p_jahwhnpz (ACTIVE): canAct=true, stack.length=0, step=MAIN1
-[priority] autoPassLoop - stopping at p_jahwhnpz: active player can act
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_af83be1v',
-  stackLength: 0,
-  stackItems: [],
-  zones: {
-    p_af83be1v: { handCount: 7, firstKnown: [Array] },
-    p_jahwhnpz: { handCount: 5, firstKnown: [Array] }
-  }
-}
-[getDevotionManaAmount] Checking sol ring: { hasKarametra: false, hasAcolyte: false, fullCardName: 'sol ring' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking rupture spire: {
-  hasKarametra: false,
-  hasAcolyte: false,
-  fullCardName: 'rupture spire'
-}
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking swamp: { hasKarametra: false, hasAcolyte: false, fullCardName: 'swamp' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking agent of the shadow thieves: {
-  hasKarametra: false,
-  hasAcolyte: false,
-  fullCardName: 'agent of the shadow thieves'
-}
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[normalizeViewForEmit] Checking playable cards: priority=p_jahwhnpz, viewerId=p_af83be1v, match=false
-[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jahwhnpz',
-  stackLength: 0,
-  stackItems: [],
-  zones: {
-    p_af83be1v: { handCount: 7, firstKnown: [Array] },
-    p_jahwhnpz: { handCount: 5, firstKnown: [Array] }
-  }
-}
-[getDevotionManaAmount] Checking sol ring: { hasKarametra: false, hasAcolyte: false, fullCardName: 'sol ring' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking rupture spire: {
-  hasKarametra: false,
-  hasAcolyte: false,
-  fullCardName: 'rupture spire'
-}
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking mountain: { hasKarametra: false, hasAcolyte: false, fullCardName: 'mountain' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking swamp: { hasKarametra: false, hasAcolyte: false, fullCardName: 'swamp' }
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[getDevotionManaAmount] Checking agent of the shadow thieves: {
-  hasKarametra: false,
-  hasAcolyte: false,
-  fullCardName: 'agent of the shadow thieves'
-}
-[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection
-[normalizeViewForEmit] Checking playable cards: priority=p_jahwhnpz, viewerId=p_jahwhnpz, match=true
-[getPlayableCardIds] Player p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isMyTurn=true
-[getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
-[getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 1, red: 2, green: 0, colorless: 2 }
-[getPlayableCardIds] Total available mana: 5
-[getPlayableCardIds] Checking 5 cards in hand
-[getPlayableCardIds] Card Sol Ring (ee6e5a35-fe21-4dee-b0ef-a8f2841511ad_mjij7jkg_3_565d8290) is playable
-[calculateMaxLandsPerTurn] Calculating for player p_jahwhnpz, battlefield has 11 permanents
-[calculateMaxLandsPerTurn] Final result for p_jahwhnpz: 1 lands per turn
-[getPlayableCardIds] Checking lands: landsPlayed=1, max=1
-[getPlayableCardIds] Already played max lands this turn (1/1)
-[getPlayableCardIds] Checking 1 commanders in command zone
-[getPlayableCardIds] Commander Baeloth Barrityl, Entertainer (ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e) is playable with cost {4}{R}
-[getPlayableCardIds] Returning 2 playable card(s): [
-  'ee6e5a35-fe21-4dee-b0ef-a8f2841511ad_mjij7jkg_3_565d8290',
-  'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e'
-]
-[normalizeViewForEmit] getPlayableCardIds returned 2 cards
-[normalizeViewForEmit] Set view.playableCards with 2 cards
-[canAct] p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[calculateMaxLandsPerTurn] Calculating for player p_jahwhnpz, battlefield has 11 permanents
-[calculateMaxLandsPerTurn] Final result for p_jahwhnpz: 1 lands per turn
-[canPlayLand] p_jahwhnpz: Already played max lands this turn (1/1)
-[canCastCommanderFromCommandZone] p_jahwhnpz: Commander Baeloth Barrityl, Entertainer can be cast (main phase, empty stack)
-[canAct] p_jahwhnpz: Can cast commander from command zone - returning TRUE
-[canRespond] p_jahwhnpz: checking instant-speed responses only
-[canRespond] p_jahwhnpz: No instant-speed responses available (returning false)
-[normalizeViewForEmit] Set canAct=true, canRespond=false
-2025-12-23T12:00:08.901Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1766491208901_7legr) ==========
-2025-12-23T12:00:08.901Z [checkAndTriggerAutoPass] Priority: p_jahwhnpz, Phase: precombatMain, Step: MAIN1
-[canAct] p_jahwhnpz: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[calculateMaxLandsPerTurn] Calculating for player p_jahwhnpz, battlefield has 11 permanents
-[calculateMaxLandsPerTurn] Final result for p_jahwhnpz: 1 lands per turn
-[canPlayLand] p_jahwhnpz: Already played max lands this turn (1/1)
-[canCastCommanderFromCommandZone] p_jahwhnpz: Commander Baeloth Barrityl, Entertainer can be cast (main phase, empty stack)
-[canAct] p_jahwhnpz: Can cast commander from command zone - returning TRUE
-2025-12-23T12:00:08.902Z [checkAndTriggerAutoPass] canAct check: p_jahwhnpz isActive=true canAct=true (ID: autopass_1766491208901_7legr)
-2025-12-23T12:00:08.902Z [checkAndTriggerAutoPass] p_jahwhnpz CAN ACT - returning early, NO auto-pass (ID: autopass_1766491208901_7legr)
-[castCommander] Received payload: {
-  gameId: 'game_mjij5fj7',
-  commanderId: undefined,
-  commanderNameOrId: 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-  resolvedCommanderId: 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-  hasPayment: true
-}
-[castCommander] CommanderId ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e found in commanderIds, no resolution needed
-[castCommander] Checking if commander ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e is in command zone: {
-  commanderId: 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-  inCommandZone: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e' ],
-  commanderIds: [
-    'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-    'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9'
-  ]
-}
-[castCommander] Commander is in command zone, checking priority
-[castCommander] Priority check passed, getting commander card details
-[castCommander] Looking for commanderId ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e in commanderCards array: [
-  {
-    id: 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mjij7jkg_1_52ca688e',
-    name: 'Baeloth Barrityl, Entertainer',
-    type_line: 'Legendary Creature ΓÇö Elf Shaman',
-    oracle_text: "Creatures your opponents control with power less than Baeloth Barrityl's power are goaded. (They attack each combat if able and attack a player other than you if able.)\n" +
-      'Whenever a goaded attacking or blocking creature dies, you create a Treasure token.\n' +
-      'Choose a Background (You can have a Background as a second commander.)',
-    image_uris: {
-      small: 'https://cards.scryfall.io/small/front/e/c/ec983aac-9eda-4086-ad7e-34da9b2987cc.jpg?1674140753',
-      normal: 'https://cards.scryfall.io/normal/front/e/c/ec983aac-9eda-4086-ad7e-34da9b2987cc.jpg?1674140753',
-      art_crop: 'https://cards.scryfall.io/art_crop/front/e/c/ec983aac-9eda-4086-ad7e-34da9b2987cc.jpg?1674140753'
-    },
-    mana_cost: '{4}{R}',
-    power: '2',
-    toughness: '5'
-  },
-  {
-    id: 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mjij7jkg_2_919c05a9',
-    name: 'Agent of the Shadow Thieves',
-    type_line: 'Legendary Enchantment ΓÇö Background',
-    oracle_text: 'Commander creatures you own have "Whenever this creature attacks a player, if no opponent has more life than that player, put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."',
-    image_uris: {
-      small: 'https://cards.scryfall.io/small/front/f/5/f50448e9-afe4-4d4e-b027-bbb855f17aeb.jpg?1674135919',
-      normal: 'https://cards.scryfall.io/normal/front/f/5/f50448e9-afe4-4d4e-b027-bbb855f17aeb.jpg?1674135919',
-      art_crop: 'https://cards.scryfall.io/art_crop/front/f/5/f50448e9-afe4-4d4e-b027-bbb855f17aeb.jpg?1674135919'
-    },
-    mana_cost: '{1}{B}',
-    power: undefined,
-    toughness: undefined
-  }
-]
-[castCommander] Found commander card: Baeloth Barrityl, Entertainer
-[castCommander] Validating mana payment: totalCost=7, coloredCostTotal=1, totalGeneric=6
-[castCommander] Mana validation failed: {
-  validationError: 'Insufficient mana. Missing 2 generic mana.',
-  totalAvailable: { white: 0, blue: 0, black: 1, red: 2, green: 0, colorless: 2 },
-  totalColored: { W: 0, U: 0, B: 0, R: 1, G: 0, C: 0 },
-  totalGeneric: 6
-}
+2025-12-23T12:24:35.329Z [executeAutoPass] ========== EXECUTING for p_xrcrpy2s (ID: autopass_1766492675165_qxnhs) ==========
+2025-12-23T12:24:35.329Z [executeAutoPass] Phase: ending, Step: END
+[canAct] p_xrcrpy2s: step=END, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_xrcrpy2s: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_xrcrpy2s: No actions available - returning FALSE
+2025-12-23T12:24:35.329Z [executeAutoPass] Re-check: p_xrcrpy2s canAct=false (ID: autopass_1766492675165_qxnhs)
+2025-12-23T12:24:35.329Z [executeAutoPass] Proceeding with auto-pass for p_xrcrpy2s (ID: autopass_1766492675165_qxnhs)
+2025-12-23T12:24:35.329Z [executeAutoPass] Set _autoPassInProgress flag for p_xrcrpy2s (ID: autopass_1766492675165_qxnhs)
+[priority] Cannot pass priority - pending resolution steps: option_choice
+2025-12-23T12:24:35.329Z [executeAutoPass] passPriority result: changed=false, advanceStep=false, resolvedNow=false (ID: autopass_1766492675165_qxnhs)
+2025-12-23T12:24:35.329Z [executeAutoPass] Priority pass didn't change state (ID: autopass_1766492675165_qxnhs)
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
+[priority] Cannot pass priority - pending resolution steps: option_choice
