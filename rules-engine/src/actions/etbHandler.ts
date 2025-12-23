@@ -103,9 +103,9 @@ function processETBTokenCreation(
   // Determine token count
   let count: number;
   if (config.tokenCount === 'X') {
-    // For "X" counts like Avenger of Zendikar, count lands
-    const player = state.players.find(p => p.id === controllerId);
-    const lands = (player?.battlefield || []).filter((p: BattlefieldPermanent) => {
+    // For "X" counts like Avenger of Zendikar, count lands controlled by the player
+    const lands = (state.battlefield || []).filter((p: BattlefieldPermanent) => {
+      if (p.controller !== controllerId) return false;
       const card = p.card as KnownCardRef;
       return card?.type_line?.toLowerCase().includes('land');
     });
@@ -132,20 +132,10 @@ function processETBTokenCreation(
     newTokens.push(token);
   }
   
-  // Add tokens to player's battlefield
-  const updatedPlayers = updatedState.players.map(p => {
-    if (p.id === controllerId) {
-      return {
-        ...p,
-        battlefield: [...(p.battlefield || []), ...newTokens],
-      };
-    }
-    return p;
-  });
-  
+  // Add tokens to centralized battlefield
   updatedState = {
     ...updatedState,
-    players: updatedPlayers,
+    battlefield: [...(updatedState.battlefield || []), ...newTokens],
   };
   
   logs.push(`Created ${count} ${tokenChars.name} token${count > 1 ? 's' : ''}`);
@@ -178,26 +168,24 @@ function addVanishingCounters(
 ): { state: GameState; logs: string[] } {
   const logs: string[] = [];
   
-  const updatedPlayers = state.players.map(p => ({
-    ...p,
-    battlefield: (p.battlefield || []).map((perm: BattlefieldPermanent) => {
-      if (perm.id === permanentId) {
-        return {
-          ...perm,
-          counters: {
-            ...perm.counters,
-            time: counters,
-          },
-        };
-      }
-      return perm;
-    }),
-  }));
+  // Update centralized battlefield
+  const updatedBattlefield = (state.battlefield || []).map((perm: BattlefieldPermanent) => {
+    if (perm.id === permanentId) {
+      return {
+        ...perm,
+        counters: {
+          ...perm.counters,
+          time: counters,
+        },
+      };
+    }
+    return perm;
+  });
   
   logs.push(`Added ${counters} time counter${counters > 1 ? 's' : ''} (Vanishing ${counters})`);
   
   return {
-    state: { ...state, players: updatedPlayers },
+    state: { ...state, battlefield: updatedBattlefield },
     logs,
   };
 }
@@ -207,22 +195,20 @@ function addVanishingCounters(
  * Note: needsEchoPayment is added as a runtime property for tracking state
  */
 function markForEcho(state: GameState, permanentId: string): GameState {
-  const updatedPlayers = state.players.map(p => ({
-    ...p,
-    battlefield: (p.battlefield || []).map((perm: BattlefieldPermanent) => {
-      if (perm.id === permanentId) {
-        // Add runtime tracking property - this is a state marker, not part of the permanent's card
-        const permWithEcho = perm as BattlefieldPermanent & { needsEchoPayment?: boolean };
-        return {
-          ...permWithEcho,
-          needsEchoPayment: true,
-        };
-      }
-      return perm;
-    }),
-  }));
+  // Update centralized battlefield
+  const updatedBattlefield = (state.battlefield || []).map((perm: BattlefieldPermanent) => {
+    if (perm.id === permanentId) {
+      // Add runtime tracking property - this is a state marker, not part of the permanent's card
+      const permWithEcho = perm as BattlefieldPermanent & { needsEchoPayment?: boolean };
+      return {
+        ...permWithEcho,
+        needsEchoPayment: true,
+      };
+    }
+    return perm;
+  });
   
-  return { ...state, players: updatedPlayers };
+  return { ...state, battlefield: updatedBattlefield };
 }
 
 /**
@@ -242,13 +228,11 @@ export function processEchoUpkeep(
     };
   }
   
-  const player = state.players.find(p => p.id === playerId);
-  if (!player) {
-    return { next: state, log: ['Player not found'] };
-  }
-  
   const logs: string[] = [];
-  const echoPerms = (player.battlefield || []).filter((p: BattlefieldPermanent & { needsEchoPayment?: boolean }) => p.needsEchoPayment);
+  // Check centralized battlefield for permanents controlled by the player with needsEchoPayment
+  const echoPerms = (state.battlefield || []).filter((p: BattlefieldPermanent & { needsEchoPayment?: boolean }) => 
+    p.controller === playerId && p.needsEchoPayment
+  );
   
   for (const perm of echoPerms) {
     const card = perm.card as KnownCardRef;
@@ -273,18 +257,24 @@ export function sacrificeForEcho(
   permanentId: string,
   playerId: string
 ): GameState {
+  // Find and remove from centralized battlefield
+  const permanent = (state.battlefield || []).find(
+    (perm: BattlefieldPermanent) => perm.id === permanentId && perm.controller === playerId
+  );
+  const updatedBattlefield = (state.battlefield || []).filter(
+    (perm: BattlefieldPermanent) => perm.id !== permanentId
+  );
+  
+  // Add to owner's graveyard
   const updatedPlayers = state.players.map(p => {
-    if (p.id !== playerId) return p;
-    
-    const permanent = (p.battlefield || []).find((perm: BattlefieldPermanent) => perm.id === permanentId);
-    const updatedBattlefield = (p.battlefield || []).filter((perm: BattlefieldPermanent) => perm.id !== permanentId);
-    
-    return {
-      ...p,
-      battlefield: updatedBattlefield,
-      graveyard: permanent ? [...(p.graveyard || []), permanent.card || permanent] : p.graveyard,
-    };
+    if (p.id === playerId && permanent) {
+      return {
+        ...p,
+        graveyard: [...(p.graveyard || []), permanent.card || permanent],
+      };
+    }
+    return p;
   });
   
-  return { ...state, players: updatedPlayers };
+  return { ...state, battlefield: updatedBattlefield, players: updatedPlayers };
 }

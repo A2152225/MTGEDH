@@ -27,9 +27,10 @@ export function validateSacrifice(
     return { legal: false, reason: 'Player not found' };
   }
   
-  // Find permanent on battlefield
-  const battlefield = player.battlefield || [];
-  const permanent = battlefield.find((p: any) => p.id === action.permanentId);
+  // Find permanent on centralized battlefield
+  const permanent = (state.battlefield || []).find(
+    (p: any) => p.id === action.permanentId && p.controller === action.playerId
+  );
   
   if (!permanent) {
     return { legal: false, reason: 'Permanent not found on battlefield' };
@@ -68,9 +69,11 @@ export function executeSacrifice(
     return { next: state, log: ['Player not found'] };
   }
   
-  // Find and remove permanent from battlefield
-  const battlefield = [...(player.battlefield || [])];
-  const permanentIndex = battlefield.findIndex((p: any) => p.id === action.permanentId);
+  // Find and remove permanent from centralized battlefield
+  const battlefield = [...(state.battlefield || [])];
+  const permanentIndex = battlefield.findIndex(
+    (p: any) => p.id === action.permanentId && p.controller === action.playerId
+  );
   
   if (permanentIndex === -1) {
     return { next: state, log: ['Permanent not found on battlefield'] };
@@ -85,15 +88,16 @@ export function executeSacrifice(
     card: sacrificed.card ? { ...sacrificed.card, zone: 'graveyard' } : undefined
   }];
   
-  // Update player
+  // Update state with updated battlefield and player graveyard
   const updatedPlayers = state.players.map(p =>
     p.id === action.playerId
-      ? { ...p, battlefield, graveyard }
+      ? { ...p, graveyard }
       : p
   );
   
   const nextState: GameState = {
     ...state,
+    battlefield,
     players: updatedPlayers,
   };
   
