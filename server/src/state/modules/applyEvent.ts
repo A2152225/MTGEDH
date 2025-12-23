@@ -519,6 +519,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const playerId = (e as any).playerId;
         const commanderId = (e as any).commanderId;
         debug(1, `[applyEvent] Replaying castCommander event:`, { playerId, commanderId });
+        
+        if (!commanderId) {
+          debugError(1, `[applyEvent] CRITICAL: castCommander event has undefined commanderId!`, {
+            event: e,
+            playerId
+          });
+          debugWarn(1, `[applyEvent] Skipping castCommander event with undefined commanderId to prevent infinite loop`);
+          break;
+        }
+        
         castCommander(
           ctx as any,
           playerId,

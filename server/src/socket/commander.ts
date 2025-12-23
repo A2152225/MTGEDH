@@ -511,6 +511,25 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       const inCommandZone = Array.isArray((commanderInfo as any).inCommandZone) 
         ? (commanderInfo as any).inCommandZone as string[]
         : commanderInfo.commanderIds.slice();
+      
+      debug(1, `[castCommander] Checking if commander ${commanderId} is in command zone:`, {
+        commanderId,
+        inCommandZone,
+        commanderIds: commanderInfo.commanderIds
+      });
+      
+      if (!commanderId) {
+        debugError(1, `[castCommander] CRITICAL: commanderId is undefined after resolution!`, {
+          originalPayload: { commanderId: payload.commanderId, commanderNameOrId: payload.commanderNameOrId },
+          commanderInfo: { commanderIds: commanderInfo.commanderIds, commanderNames: (commanderInfo as any).commanderNames }
+        });
+        socket.emit("error", {
+          code: "COMMANDER_ID_UNDEFINED",
+          message: "Commander ID is undefined - this is a bug. Please report this issue.",
+        });
+        return;
+      }
+      
       if (!inCommandZone.includes(commanderId)) {
         socket.emit("error", {
           code: "COMMANDER_NOT_IN_CZ",
@@ -677,6 +696,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         }
         
         debug(1, `[castCommander] Appending event with playerId: ${pid}, commanderId: ${commanderId}`);
+        if (!commanderId) {
+          debugError(1, `[castCommander] CRITICAL: Attempting to append castCommander event with undefined commanderId!`, {
+            playerId: pid,
+            commanderId,
+            payload
+          });
+          throw new Error("Cannot persist castCommander event with undefined commanderId");
+        }
         appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment });
         
         io.to(gameId).emit("chat", {
