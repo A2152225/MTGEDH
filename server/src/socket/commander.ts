@@ -607,6 +607,8 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         tax: (commanderInfo as any).taxById?.[commanderId] || commanderInfo.tax || 0
       });
       
+      debug(2, `[castCommander] About to process payment and cast commander`);
+      
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       if (payment && payment.length > 0) {
         debug(2, `[castCommander] Processing payment for ${commanderCard.name}:`, payment);
@@ -653,18 +655,29 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           
           const poolKey = manaColorMap[mana];
           if (poolKey) {
+            const poolBefore = (game.state.manaPool[pid] as any)[poolKey];
             (game.state.manaPool[pid] as any)[poolKey]++;
+            debug(3, `[castCommander] Added ${mana} mana to pool: ${poolKey} ${poolBefore} -> ${(game.state.manaPool[pid] as any)[poolKey]}`);
+          } else {
+            debugWarn(1, `[castCommander] Unknown mana color: ${mana}`);
           }
         }
       }
       
+      debug(2, `[castCommander] Payment processing complete, about to consume mana from pool`);
+      
       // Consume mana from pool to pay for the spell
       // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
       const pool = getOrInitManaPool(game.state, pid);
+      debug(2, `[castCommander] Pool before consume:`, pool);
       consumeManaFromPool(pool, totalColored, totalGeneric, '[castCommander]');
+      debug(2, `[castCommander] Pool after consume:`, pool);
+      
+      debug(2, `[castCommander] About to add commander to stack`);
       
       // Add commander to stack (simplified - real implementation would handle costs, targets, etc.)
       try {
+        debug(2, `[castCommander] Pushing commander to stack...`);
         if (typeof (game as any).pushStack === "function") {
           const stackItem = {
             id: `stack_${Date.now()}_${commanderId}`,
@@ -672,9 +685,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             card: { ...commanderCard, zone: "stack", isCommander: true },
             targets: [],
           };
+          debug(2, `[castCommander] Calling game.pushStack with item:`, stackItem);
           (game as any).pushStack(stackItem);
+          debug(2, `[castCommander] Successfully pushed to stack via game.pushStack`);
         } else {
           // Fallback: manually add to stack
+          debug(2, `[castCommander] game.pushStack not available, using fallback`);
           game.state.stack = game.state.stack || [];
           game.state.stack.push({
             id: `stack_${Date.now()}_${commanderId}`,
@@ -682,12 +698,17 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             card: { ...commanderCard, zone: "stack", isCommander: true },
             targets: [],
           } as any);
+          debug(2, `[castCommander] Successfully pushed to stack (fallback), stack length: ${game.state.stack.length}`);
         }
         
+        debug(2, `[castCommander] About to call game.castCommander to update tax and command zone`);
         // Update commander tax and remove from command zone
         if (typeof (game as any).castCommander === "function") {
           debug(1, `[castCommander] Calling game.castCommander with playerId: ${pid}, commanderId: ${commanderId}`);
           (game as any).castCommander(pid, commanderId);
+          debug(2, `[castCommander] Successfully called game.castCommander`);
+        } else {
+          debugWarn(1, `[castCommander] game.castCommander function not available - tax may not update correctly`);
         }
         
         // Bump sequence to trigger client update
@@ -704,17 +725,22 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           });
           throw new Error("Cannot persist castCommander event with undefined commanderId");
         }
+        debug(2, `[castCommander] About to append event and broadcast`);
         appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment });
+        debug(2, `[castCommander] Event appended successfully`);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${pid} cast ${commanderCard.name} from the command zone.`,
+          message: `${getPlayerName(game, pid)} cast ${commanderCard.name} from the command zone.`,
           ts: Date.now(),
         });
+        debug(2, `[castCommander] Chat message emitted`);
         
+        debug(2, `[castCommander] About to broadcast game state`);
         broadcastGame(io, game, gameId);
+        debug(1, `[castCommander] Successfully cast commander and broadcast game state`);
       } catch (err: any) {
         debugError(1, `[castCommander] Failed to push commander to stack:`, err);
         socket.emit("error", {
