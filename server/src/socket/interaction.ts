@@ -1992,6 +1992,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         // Handle special 'any_combination' color (like Selvala)
         if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
+          // Store pending mana choice for when player selects color
+          if (!(game.state as any).pendingManaChoice) {
+            (game.state as any).pendingManaChoice = {};
+          }
+          (game.state as any).pendingManaChoice[permanentId] = {
+            playerId: pid,
+            permanentId,
+            cardName,
+            totalAmount,
+            isAnyColor: true,
+          };
+          
           socket.emit("manaColorChoice", {
             gameId,
             permanentId,
@@ -2076,6 +2088,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             // Get extra mana from effects like Caged Sun, Nissa, Crypt Ghast
             const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
             const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
+            
+            // Store pending mana choice for when player selects color
+            if (!(game.state as any).pendingManaChoice) {
+              (game.state as any).pendingManaChoice = {};
+            }
+            (game.state as any).pendingManaChoice[permanentId] = {
+              playerId: pid,
+              permanentId,
+              cardName,
+              totalAmount: totalAmount + totalExtra,
+              manaMultiplier: effectiveMultiplier,
+              extraMana,
+            };
             
             socket.emit("manaColorChoice", {
               gameId,
@@ -4744,6 +4769,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const totalAmount = creatureCountMana.amount * effectiveMultiplier;
         
         if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
+          // Store pending mana choice for when player selects color
+          if (!(game.state as any).pendingManaChoice) {
+            (game.state as any).pendingManaChoice = {};
+          }
+          (game.state as any).pendingManaChoice[permanentId] = {
+            playerId: pid,
+            permanentId,
+            cardName,
+            totalAmount,
+            isAnyColor: true,
+          };
+          
           socket.emit("manaColorChoice", {
             gameId,
             permanentId,
@@ -4796,6 +4833,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               // Get extra mana from effects
               const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
               const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
+              
+              // Store pending mana choice for when player selects color
+              if (!(game.state as any).pendingManaChoice) {
+                (game.state as any).pendingManaChoice = {};
+              }
+              (game.state as any).pendingManaChoice[permanentId] = {
+                playerId: pid,
+                permanentId,
+                cardName,
+                totalAmount: totalAmount + totalExtra,
+                manaMultiplier: effectiveMultiplier,
+                extraMana,
+              };
               
               socket.emit("manaColorChoice", {
                 gameId,
@@ -5951,25 +6001,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
+    // Get pending mana choice to retrieve totalAmount
+    const pendingChoice = (game.state as any).pendingManaChoice?.[permanentId];
+    const totalAmount = pendingChoice?.totalAmount || 1;
+
     // Initialize mana pool if needed
     game.state.manaPool = game.state.manaPool || {};
     game.state.manaPool[pid] = game.state.manaPool[pid] || {
       white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
     };
 
-    // Add the selected mana
-    (game.state.manaPool[pid] as any)[poolKey]++;
+    // Add the selected mana (use totalAmount from pending choice)
+    (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+    
+    // Clear the pending choice
+    if ((game.state as any).pendingManaChoice) {
+      delete (game.state as any).pendingManaChoice[permanentId];
+    }
 
     // Find the permanent to get its name for the chat message
     const battlefield = game.state?.battlefield || [];
     const permanent = battlefield.find((p: any) => p?.id === permanentId);
-    const cardName = permanent?.card?.name || "Unknown";
+    const cardName = permanent?.card?.name || pendingChoice?.cardName || "Unknown";
 
+    const amountText = totalAmount > 1 ? `${totalAmount} {${selectedColor}}` : `{${selectedColor}}`;
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${getPlayerName(game, pid)} added {${selectedColor}} mana from ${cardName}.`,
+      message: `${getPlayerName(game, pid)} added ${amountText} mana from ${cardName}.`,
       ts: Date.now(),
     });
 

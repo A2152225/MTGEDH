@@ -942,6 +942,59 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           }
         }
 
+        // ========================================================================
+        // GOAD validation (Rule 701.15b)
+        // Goaded creatures must attack a player other than the goader if able
+        // ========================================================================
+        const goadedBy = (creature as any).goadedBy;
+        const goadedUntil = (creature as any).goadedUntil || {};
+        const currentTurn = (game.state as any).turn || 0;
+        
+        if (goadedBy && Array.isArray(goadedBy) && goadedBy.length > 0) {
+          // Check if goad is still active
+          const activeGoaders = goadedBy.filter((goaderId: string) => {
+            const expiryTurn = goadedUntil[goaderId];
+            return expiryTurn === undefined || expiryTurn > currentTurn;
+          });
+          
+          if (activeGoaders.length > 0) {
+            // Creature is currently goaded
+            const targetPlayerId = attacker.targetPlayerId;
+            
+            if (targetPlayerId) {
+              // Check if attacking a goader when other options exist
+              const isAttackingGoader = activeGoaders.includes(targetPlayerId);
+              
+              if (isAttackingGoader) {
+                // Get all possible opponents (not the controller)
+                const players = (game.state as any).players || [];
+                const allOpponents = players
+                  .filter((p: any) => p?.id && p.id !== playerId && !p.hasLost)
+                  .map((p: any) => p.id);
+                
+                // Check if there are non-goader opponents available
+                const nonGoaderOpponents = allOpponents.filter((oppId: string) => 
+                  !activeGoaders.includes(oppId)
+                );
+                
+                if (nonGoaderOpponents.length > 0) {
+                  // Rule violation: attacking a goader when other options exist
+                  const goaderNames = activeGoaders
+                    .map((gId: string) => getPlayerName(game, gId))
+                    .join(', ');
+                  socket.emit("error", {
+                    code: "GOAD_VIOLATION",
+                    message: `${(creature as any).card?.name || "Creature"} is goaded by ${goaderNames} and cannot attack them (must attack another opponent if able).`,
+                  });
+                  return;
+                }
+                // Attacking goader is OK only when they're the only option
+                debug(2, `[combat] ${(creature as any).card?.name} is attacking goader ${targetPlayerId} (only option available)`);
+              }
+            }
+          }
+        }
+
         attackerIds.push(attacker.creatureId);
         
         // Mark creature as attacking
