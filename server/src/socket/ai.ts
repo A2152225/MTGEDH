@@ -1151,6 +1151,19 @@ export function getAIPlayers(gameId: string): PlayerID[] {
  */
 function isLandCard(card: any): boolean {
   const typeLine = (card?.type_line || '').toLowerCase();
+  const layout = card?.layout;
+  const cardFaces = card?.card_faces;
+  
+  // For transform cards, check if the FRONT face is a land
+  // (Growing Rites of Itlimoc has "Legendary Enchantment // Legendary Land" 
+  // but only the back face is a land, so it should NOT be playable as a land)
+  if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(cardFaces) && cardFaces.length >= 2) {
+    const frontFace = cardFaces[0];
+    const frontTypeLine = (frontFace?.type_line || '').toLowerCase();
+    return frontTypeLine.includes('land');
+  }
+  
+  // For regular cards and MDFCs, check the type_line
   return typeLine.includes('land');
 }
 

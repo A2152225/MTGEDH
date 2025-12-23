@@ -615,6 +615,19 @@ export function runSBA(ctx: GameContext) {
   const res = applyStateBasedActions(state);
   let changed = unattachChanged;
   
+  // Handle players who have lost due to life <= 0 (Rule 704.5a)
+  if (res.playersLost && res.playersLost.length > 0) {
+    for (const playerId of res.playersLost) {
+      const player = state.players?.find((p: any) => p && p.id === playerId);
+      if (player && !player.hasLost) {
+        player.hasLost = true;
+        player.lostReason = 'Life total reached 0 or less';
+        debug(1, `[runSBA] Player ${playerId} has lost the game (life <= 0)`);
+        changed = true;
+      }
+    }
+  }
+  
   for (const upd of res.counterUpdates) {
     const perm = state.battlefield.find(b => b.id === upd.permanentId);
     if (!perm) continue;
