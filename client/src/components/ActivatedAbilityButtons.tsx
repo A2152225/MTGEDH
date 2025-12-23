@@ -12,6 +12,7 @@ import {
   type ActivationContext,
 } from '../utils/activatedAbilityParser';
 import { KeywordHighlighter } from './KeywordHighlighter';
+import { XValueSelectionModal } from './XValueSelectionModal';
 
 // Color constants for ability button styling
 const COLORS = {
@@ -85,7 +86,7 @@ export interface ActivatedAbilityButtonsProps {
   // External state that affects activation
   hasThousandYearElixirEffect?: boolean;
   // Callbacks
-  onActivateAbility?: (permanentId: string, abilityId: string, ability: ParsedActivatedAbility) => void;
+  onActivateAbility?: (permanentId: string, abilityId: string, ability: ParsedActivatedAbility, xValue?: number) => void;
   // Display options
   showOnHover?: boolean;
   maxVisible?: number;
@@ -454,6 +455,10 @@ export function ActivatedAbilityButtons({
 }: ActivatedAbilityButtonsProps) {
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [xModalState, setXModalState] = useState<{
+    isOpen: boolean;
+    ability: ParsedActivatedAbility | null;
+  }>({ isOpen: false, ability: null });
   
   const kc = perm.card as KnownCardRef;
   // Scale factor with minimum to ensure readability
@@ -554,9 +559,23 @@ export function ActivatedAbilityButtons({
   const hasMore = filteredAbilities.length > maxVisible;
   
   const handleActivate = (ability: ParsedActivatedAbility) => {
+    // If ability has X cost, show modal to select X value
+    if (ability.hasXCost) {
+      setXModalState({ isOpen: true, ability });
+      return;
+    }
+    
+    // Otherwise, activate directly
     if (onActivateAbility) {
       onActivateAbility(perm.id, ability.id, ability);
     }
+  };
+  
+  const handleXValueSelected = (xValue: number) => {
+    if (xModalState.ability && onActivateAbility) {
+      onActivateAbility(perm.id, xModalState.ability.id, xModalState.ability, xValue);
+    }
+    setXModalState({ isOpen: false, ability: null });
   };
   
   // Check if this is a planeswalker for inline loyalty positioning
@@ -676,6 +695,19 @@ export function ActivatedAbilityButtons({
           </button>
         )}
       </div>
+      
+      {/* X Value Selection Modal */}
+      {xModalState.ability && (
+        <XValueSelectionModal
+          isOpen={xModalState.isOpen}
+          onClose={() => setXModalState({ isOpen: false, ability: null })}
+          onSelect={handleXValueSelected}
+          cardName={kc?.name || 'Unknown Card'}
+          abilityText={xModalState.ability.effect}
+          minValue={0}
+          maxValue={20}
+        />
+      )}
     </div>
   );
 }

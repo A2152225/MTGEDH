@@ -485,7 +485,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
       
       // Check if the commander is in the command zone
-      const inCommandZone = (commanderInfo as any).inCommandZone as string[] || commanderInfo.commanderIds.slice();
+      const inCommandZone = Array.isArray((commanderInfo as any).inCommandZone) 
+        ? (commanderInfo as any).inCommandZone as string[]
+        : commanderInfo.commanderIds.slice();
       if (!inCommandZone.includes(commanderId)) {
         socket.emit("error", {
           code: "COMMANDER_NOT_IN_CZ",

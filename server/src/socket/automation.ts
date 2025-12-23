@@ -158,7 +158,7 @@ export function registerAutomationHandlers(
    * Handle ability activation
    */
   socket.on("activateAbility", async (payload) => {
-    const { gameId, permanentId, abilityIndex, targets, manaPayment } = payload;
+    const { gameId, permanentId, abilityIndex, targets, manaPayment, xValue } = payload;
     const playerId = socket.data.playerId;
     
     if (!playerId) {
@@ -172,7 +172,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    debug(2, `[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}`);
+    debug(2, `[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}${xValue !== undefined ? ` with X=${xValue}` : ''}`);
     
     try {
       const result = await processActivateAbility(gameId, playerId, {
@@ -180,6 +180,7 @@ export function registerAutomationHandlers(
         abilityIndex,
         targets,
         manaPayment,
+        xValue,
       });
       
       if (!result.success) {
@@ -866,6 +867,7 @@ async function processActivateAbility(
     abilityIndex: number;
     targets?: string[];
     manaPayment?: Array<{ permanentId: string; manaColor: string }>;
+    xValue?: number;
   }
 ): Promise<{ success: boolean; error?: string; usesStack?: boolean; stack?: any[]; message?: string }> {
   try {
@@ -990,6 +992,55 @@ async function processActivateAbility(
       }
       
       return { success: true, usesStack: false, message: result.message };
+    }
+    
+    // Import X-activated abilities module
+    const { detectXAbility, executeXAbility } = 
+      await import("../state/modules/x-activated-abilities.js");
+    
+    // Detect X-cost activated abilities from oracle text (pattern-based)
+    const xAbilityInfo = detectXAbility(oracleText, cardName);
+    
+    if (xAbilityInfo) {
+      // Check if X value was provided
+      if (ability.xValue === undefined || ability.xValue === null) {
+        return { success: false, error: "X value is required for this ability" };
+      }
+      
+      // Check once per turn restriction
+      if (xAbilityInfo.oncePerTurn && (perm as any).activatedThisTurn) {
+        return { success: false, error: "This ability can only be activated once per turn" };
+      }
+      
+      // Execute the X ability based on detected pattern
+      const result = executeXAbility(
+        game as any,
+        playerId,
+        perm,
+        ability.xValue,
+        xAbilityInfo
+      );
+      
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+      
+      // Mark as activated this turn if once per turn
+      if (xAbilityInfo.oncePerTurn) {
+        (perm as any).activatedThisTurn = true;
+      }
+      
+      // Generate message based on result
+      let message = result.message;
+      if (!message && result.destroyedCount !== undefined) {
+        message = `${card?.name || 'Permanent'} (X=${ability.xValue}): Destroyed ${result.destroyedCount} permanent(s) with mana value ${ability.xValue}`;
+      }
+      
+      return {
+        success: true,
+        usesStack: false,
+        message,
+      };
     }
     
     // Check for group draw effects (Temple Bell, etc.)

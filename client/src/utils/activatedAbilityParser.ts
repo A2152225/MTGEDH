@@ -33,6 +33,9 @@ export interface ParsedActivatedAbility {
   lifeCost?: number;
   loyaltyCost?: number;  // For planeswalker abilities
   otherCosts?: string[];
+  // X cost support
+  hasXCost?: boolean;  // Whether the cost contains {X}
+  xCount?: number;  // Number of X symbols in cost (e.g., {X}{X} = 2)
   // Tap other permanents cost (e.g., "Tap an untapped Merfolk you control")
   tapOtherPermanentsCost?: TapOtherPermanentsCost;
   // Ability characteristics
@@ -239,6 +242,8 @@ function parseCostComponents(costStr: string): {
   loyaltyCost?: number;
   otherCosts: string[];
   tapOtherPermanentsCost?: TapOtherPermanentsCost;
+  hasXCost?: boolean;
+  xCount?: number;
 } {
   const result: {
     requiresTap: boolean;
@@ -251,6 +256,8 @@ function parseCostComponents(costStr: string): {
     loyaltyCost?: number;
     otherCosts: string[];
     tapOtherPermanentsCost?: TapOtherPermanentsCost;
+    hasXCost?: boolean;
+    xCount?: number;
   } = {
     requiresTap: false,
     requiresUntap: false,
@@ -262,6 +269,8 @@ function parseCostComponents(costStr: string): {
     loyaltyCost: undefined,
     otherCosts: [],
     tapOtherPermanentsCost: undefined,
+    hasXCost: false,
+    xCount: 0,
   };
 
   const lowerCost = costStr.toLowerCase();
@@ -293,6 +302,13 @@ function parseCostComponents(costStr: string): {
     ).join('');
     if (manaPart) {
       result.manaCost = manaPart;
+      
+      // Check for X in mana cost
+      const xMatches = manaPart.match(/\{X\}/gi);
+      if (xMatches) {
+        result.hasXCost = true;
+        result.xCount = xMatches.length;
+      }
     }
   }
   
