@@ -531,6 +531,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
       
       if (!inCommandZone.includes(commanderId)) {
+        debug(1, `[castCommander] Commander ${commanderId} NOT in command zone, rejecting cast`);
         socket.emit("error", {
           code: "COMMANDER_NOT_IN_CZ",
           message: "Commander is not in the command zone (may already be on the stack or battlefield)",
@@ -538,8 +539,11 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      debug(2, `[castCommander] Commander is in command zone, checking priority`);
+      
       // Check priority - only active player can cast spells during their turn
       if (game.state.priority !== pid) {
+        debug(1, `[castCommander] Priority check failed: priority=${game.state.priority}, playerId=${pid}`);
         socket.emit("error", {
           code: "NO_PRIORITY",
           message: "You don't have priority",
@@ -547,15 +551,25 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      debug(2, `[castCommander] Priority check passed, getting commander card details`);
+      debug(2, `[castCommander] Looking for commanderId ${commanderId} in commanderCards array:`, commanderInfo.commanderCards);
+      
       // Get commander card details
       const commanderCard = commanderInfo.commanderCards?.find((c: any) => c.id === commanderId);
       if (!commanderCard) {
+        debugError(1, `[castCommander] Commander card NOT FOUND in commanderCards!`, {
+          commanderId,
+          commanderCards: commanderInfo.commanderCards,
+          commanderIds: commanderInfo.commanderIds
+        });
         socket.emit("error", {
           code: "COMMANDER_CARD_NOT_FOUND",
           message: "Commander card details not found",
         });
         return;
       }
+      
+      debug(2, `[castCommander] Found commander card: ${commanderCard.name}`);
       
       // Parse the mana cost to validate payment
       const manaCost = commanderCard.mana_cost || "";
@@ -582,6 +596,8 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
       const totalCost = coloredCostTotal + totalGeneric;
       
+      debug(2, `[castCommander] Validating mana payment: totalCost=${totalCost}, coloredCostTotal=${coloredCostTotal}, totalGeneric=${totalGeneric}`);
+      
       // Validate if total available mana can pay the cost
       if (totalCost > 0) {
         const validationError = validateManaPayment(totalAvailable, totalColored, totalGeneric);
@@ -591,12 +607,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             errorMsg += ` (includes {${commanderTax}} commander tax)`;
           }
           errorMsg += ` ${validationError}`;
+          debugError(1, `[castCommander] Mana validation failed:`, { validationError, totalAvailable, totalColored, totalGeneric });
           socket.emit("error", {
             code: "INSUFFICIENT_MANA",
             message: errorMsg,
           });
           return;
         }
+        debug(2, `[castCommander] Mana validation passed`);
       }
       
       debug(1, `[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
