@@ -185,6 +185,8 @@ function executeDestroyManaValueX(
     }
     
     // Find permanents controlled by damaged players
+    // Important: Only targets permanents controlled by OPPONENTS who were dealt damage
+    // Not the controller's own permanents (even if somehow self-damaged)
     const toDestroy: any[] = [];
     
     for (const perm of battlefield) {
@@ -193,6 +195,10 @@ function executeDestroyManaValueX(
       
       // Skip if controller wasn't dealt damage
       if (!dealtDamageTo.has(controller)) continue;
+      
+      // Skip permanents controlled by the ability's controller (your own permanents)
+      // Steel Hellkite only destroys opponents' permanents
+      if (controller === playerId) continue;
       
       // Skip lands (usually specified in the ability)
       const typeLine = (card?.type_line || '').toLowerCase();

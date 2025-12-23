@@ -1033,7 +1033,7 @@ async function processActivateAbility(
       // Generate message based on result
       let message = result.message;
       if (!message && result.destroyedCount !== undefined) {
-        message = `${card?.name || 'Permanent'}: Destroyed ${result.destroyedCount} permanent(s) with mana value ${ability.xValue}`;
+        message = `${card?.name || 'Permanent'} (X=${ability.xValue}): Destroyed ${result.destroyedCount} permanent(s) with mana value ${ability.xValue}`;
       }
       
       return {
