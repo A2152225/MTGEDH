@@ -172,6 +172,7 @@ export interface ClientToServerEvents {
     abilityIndex: number;
     targets?: string[];
     manaPayment?: Array<{ permanentId: string; manaColor: string }>;
+    xValue?: number;
   }) => void;
   exchangeTextBoxes: (payload: {
     gameId: GameID;

@@ -158,7 +158,7 @@ export function registerAutomationHandlers(
    * Handle ability activation
    */
   socket.on("activateAbility", async (payload) => {
-    const { gameId, permanentId, abilityIndex, targets, manaPayment } = payload;
+    const { gameId, permanentId, abilityIndex, targets, manaPayment, xValue } = payload;
     const playerId = socket.data.playerId;
     
     if (!playerId) {
@@ -172,7 +172,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    debug(2, `[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}`);
+    debug(2, `[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}${xValue !== undefined ? ` with X=${xValue}` : ''}`);
     
     try {
       const result = await processActivateAbility(gameId, playerId, {
@@ -180,6 +180,7 @@ export function registerAutomationHandlers(
         abilityIndex,
         targets,
         manaPayment,
+        xValue,
       });
       
       if (!result.success) {
@@ -866,6 +867,7 @@ async function processActivateAbility(
     abilityIndex: number;
     targets?: string[];
     manaPayment?: Array<{ permanentId: string; manaColor: string }>;
+    xValue?: number;
   }
 ): Promise<{ success: boolean; error?: string; usesStack?: boolean; stack?: any[]; message?: string }> {
   try {
