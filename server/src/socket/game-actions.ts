@@ -7831,14 +7831,27 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Detect special attach abilities (like Bloodthirsty Blade) that target opponent creatures
+      // Pattern: "{X}: Attach ~ to target creature an opponent controls"
+      const specialAttachMatch = oracleText.match(/\{([^}]+)\}:\s*attach[^.]*(?:creature\s+an?\s+opponent|opponent[^.]*creature)/i);
+      const targetsOpponentCreatures = !!specialAttachMatch;
+      
       // Parse equip cost from oracle text
-      // Supports patterns like: "Equip {2}", "Equip {1}{W}", "Equip—Pay 3 life"
-      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      let equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+      // First check for special attach ability, then fall back to standard equip
+      let equipCost: string;
+      if (specialAttachMatch) {
+        equipCost = `{${specialAttachMatch[1]}}`;
+        debug(2, `[equipAbility] Detected special attach ability targeting opponent creatures: ${equipCost}`);
+      } else {
+        // Supports patterns like: "Equip {2}", "Equip {1}{W}", "Equip—Pay 3 life"
+        const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+        equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+      }
       
       // Check for Puresteel Paladin metalcraft effect (equip costs {0})
       // Use centralized hasMetalcraft from game-state-effects
-      const hasMetalcraftEquipReduction = battlefield.some((p: any) => {
+      // Note: Metalcraft only applies to standard equip, not special attach abilities
+      const hasMetalcraftEquipReduction = !targetsOpponentCreatures && battlefield.some((p: any) => {
         if (p.controller !== playerId) return false;
         const pOracle = (p.card?.oracle_text || '').toLowerCase();
         // Puresteel Paladin: "Metalcraft — Equipment you control have equip {0}"
@@ -7859,7 +7872,13 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!targetCreatureId) {
         // No target specified - send list of valid targets
         const validTargets = battlefield.filter((p: any) => {
-          if (p.controller !== playerId) return false;
+          // For special attach abilities (like Bloodthirsty Blade), target opponent creatures
+          // For standard equip, target own creatures
+          if (targetsOpponentCreatures) {
+            if (p.controller === playerId) return false; // Must be opponent's creature
+          } else {
+            if (p.controller !== playerId) return false; // Must be own creature
+          }
           const pTypeLine = (p.card?.type_line || "").toLowerCase();
           return pTypeLine.includes("creature");
         });
@@ -7875,6 +7894,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           playerId,
           equipment: { ...equipment }, // Copy full equipment object
           validTargetIds: validTargets.map((c: any) => c.id),
+          targetsOpponentCreatures, // Track if this targets opponents' creatures
         };
 
         socket.emit("selectEquipTarget", {
@@ -7903,10 +7923,19 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Check target is a creature the player controls
-      if (targetCreature.controller !== playerId) {
-        socket.emit("error", { code: "NOT_YOUR_CREATURE", message: "You can only equip to creatures you control" });
-        return;
+      // Check target validity based on whether this is a special attach ability or standard equip
+      if (targetsOpponentCreatures) {
+        // For special attach abilities (like Bloodthirsty Blade), target must be opponent's creature
+        if (targetCreature.controller === playerId) {
+          socket.emit("error", { code: "INVALID_TARGET", message: "This ability can only target opponent creatures" });
+          return;
+        }
+      } else {
+        // For standard equip, target must be player's own creature
+        if (targetCreature.controller !== playerId) {
+          socket.emit("error", { code: "NOT_YOUR_CREATURE", message: "You can only equip to creatures you control" });
+          return;
+        }
       }
 
       const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();

@@ -212,25 +212,16 @@ export function collectPillowfortEffects(
 ): AttackCostRequirement[] {
   const requirements: AttackCostRequirement[] = [];
   
-  // Check the defending player's battlefield for pillowfort permanents
+  // Check the defending player's centralized battlefield for pillowfort permanents
   const defender = state.players.find(p => p.id === defendingPlayerId);
   if (!defender) return requirements;
   
-  // Check defender's permanents
-  const defenderBattlefield = defender.battlefield || [];
-  for (const permanent of defenderBattlefield as any[]) {
-    const effect = detectPillowfortEffect(permanent, defendingPlayerId);
-    if (effect) {
-      requirements.push(effect);
-    }
-  }
-  
-  // Also check global battlefield if present
+  // Check defender's permanents on centralized battlefield
   if (state.battlefield) {
     for (const permanent of state.battlefield as any[]) {
       if (permanent.controller === defendingPlayerId || permanent.controllerId === defendingPlayerId) {
         const effect = detectPillowfortEffect(permanent, defendingPlayerId);
-        if (effect && !requirements.some(r => r.sourceId === effect.sourceId)) {
+        if (effect) {
           requirements.push(effect);
         }
       }
@@ -280,7 +271,9 @@ export function calculateTotalAttackCost(
     // Domain multiplier (Collective Restraint)
     if (req.multiplierSourceType === 'basic_land_type' && defender) {
       const basicLandTypes = new Set<string>();
-      for (const perm of defender.battlefield || [] as any[]) {
+      // Count basic land types on centralized battlefield controlled by defender
+      for (const perm of state.battlefield || [] as any[]) {
+        if (perm.controller !== defender.id) continue;
         const typeLine = (perm.card?.type_line || '').toLowerCase();
         if (typeLine.includes('plains')) basicLandTypes.add('plains');
         if (typeLine.includes('island')) basicLandTypes.add('island');

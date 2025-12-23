@@ -134,10 +134,13 @@ function checkCreatureDeaths(state: GameState): {
     battlefield: allPermanents.filter((p: any) => !creatureDeaths.includes(p.id)),
     players: state.players.map(player => ({
       ...player,
-      battlefield: (player.battlefield || []).filter((p: any) => !creatureDeaths.includes(p.id)),
       graveyard: [
         ...(player.graveyard || []),
-        ...(player.battlefield || []).filter((p: any) => creatureDeaths.includes(p.id)),
+        // Find dead creatures from centralized battlefield that this player owned
+        ...allPermanents.filter((p: any) => 
+          creatureDeaths.includes(p.id) && 
+          (p.owner === player.id || p.controller === player.id)
+        ),
       ],
     })),
   };

@@ -1180,20 +1180,9 @@ export class RulesEngineAdapter {
     // Check all battlefields
     const allPermanents: any[] = [];
     
-    // Collect from global battlefield
+    // Collect from global battlefield (centralized in state.battlefield)
     if (state.battlefield) {
       allPermanents.push(...(state.battlefield as any[]));
-    }
-    
-    // Collect from player battlefields
-    for (const player of state.players) {
-      if (player.battlefield) {
-        for (const perm of player.battlefield as any[]) {
-          if (!allPermanents.some(p => p.id === perm.id)) {
-            allPermanents.push(perm);
-          }
-        }
-      }
     }
     
     for (const perm of allPermanents) {
@@ -1262,18 +1251,9 @@ export class RulesEngineAdapter {
     
     const allPermanents: any[] = [];
     
+    // Collect from global battlefield (centralized in state.battlefield)
     if (state.battlefield) {
       allPermanents.push(...(state.battlefield as any[]));
-    }
-    
-    for (const player of state.players) {
-      if (player.battlefield) {
-        for (const perm of player.battlefield as any[]) {
-          if (!allPermanents.some(p => p.id === perm.id)) {
-            allPermanents.push(perm);
-          }
-        }
-      }
     }
     
     for (const perm of allPermanents) {
@@ -1317,8 +1297,12 @@ export class RulesEngineAdapter {
     // Group legends by controller and name
     const legendsByControllerAndName = new Map<string, any[]>();
     
+    // Check for legendary permanents controlled by each player
+    const battlefield = state.battlefield || [];
     for (const player of state.players) {
-      for (const perm of (player.battlefield || []) as any[]) {
+      // Filter battlefield by controller
+      const playerPerms = battlefield.filter((p: any) => p.controller === player.id);
+      for (const perm of playerPerms) {
         const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
         const superTypes = typeLine.split('—')[0];
         
@@ -1375,18 +1359,9 @@ export class RulesEngineAdapter {
     
     const allPermanents: any[] = [];
     
+    // Collect from global battlefield (centralized in state.battlefield)
     if (state.battlefield) {
       allPermanents.push(...(state.battlefield as any[]));
-    }
-    
-    for (const player of state.players) {
-      if (player.battlefield) {
-        for (const perm of player.battlefield as any[]) {
-          if (!allPermanents.some(p => p.id === perm.id)) {
-            allPermanents.push(perm);
-          }
-        }
-      }
     }
     
     for (const perm of allPermanents) {
@@ -1427,24 +1402,16 @@ export class RulesEngineAdapter {
       (p: any) => p.id !== permanent.id
     );
     
-    // Update player battlefields and add to graveyard
+    // Update player graveyards
     const updatedPlayers = state.players.map(player => {
-      const updatedPlayerBattlefield = (player.battlefield || []).filter(
-        (p: any) => p.id !== permanent.id
-      );
-      
       if (player.id === ownerId) {
         return {
           ...player,
-          battlefield: updatedPlayerBattlefield,
           graveyard: [...(player.graveyard || []), permanent.card || permanent],
         };
       }
       
-      return {
-        ...player,
-        battlefield: updatedPlayerBattlefield,
-      };
+      return player;
     });
     
     return {

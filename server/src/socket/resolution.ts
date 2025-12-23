@@ -4127,7 +4127,17 @@ async function handlePlayerChoiceResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
-  const selectedPlayerId = response.selections as string;
+  // Handle different types of selections
+  let selectedPlayerId: string;
+  if (typeof response.selections === 'string') {
+    selectedPlayerId = response.selections;
+  } else if (Array.isArray(response.selections) && response.selections.length > 0) {
+    selectedPlayerId = response.selections[0];
+  } else {
+    debugError(1, `[Resolution] Invalid player choice response: ${JSON.stringify(response.selections)}`);
+    return;
+  }
+  
   const stepData = step as any;
   
   debug(2, `[Resolution] Player choice response: selected player ${selectedPlayerId}`);
@@ -4252,12 +4262,20 @@ async function handleOptionChoiceResponse(
     }
     
     // Store this player's selection
-    if (selectedOption && selectedOption !== 'decline' && Array.isArray(selectedOption)) {
-      const creatureId = selectedOption[0];
-      if (creatureId && creatureId !== 'decline') {
-        state._agitatorAntSelections[playerId] = creatureId;
-        debug(2, `[Resolution] Agitator Ant: ${playerId} chose creature ${creatureId}`);
+    // Handle different types of selections
+    let creatureId: string | undefined;
+    if (Array.isArray(selectedOption) && selectedOption.length > 0) {
+      const firstSelection = selectedOption[0];
+      if (typeof firstSelection === 'string' && firstSelection !== 'decline') {
+        creatureId = firstSelection;
       }
+    } else if (typeof selectedOption === 'string' && selectedOption !== 'decline') {
+      creatureId = selectedOption;
+    }
+    
+    if (creatureId) {
+      state._agitatorAntSelections[playerId] = creatureId;
+      debug(2, `[Resolution] Agitator Ant: ${playerId} chose creature ${creatureId}`);
     }
     
     // Check if this was the last player to respond
@@ -4273,8 +4291,9 @@ async function handleOptionChoiceResponse(
       const creaturesWithCounters: string[] = [];
       
       // Apply +1/+1 counters to selected creatures
-      for (const [playerId, creatureId] of Object.entries(selections)) {
-        const creature = battlefield.find((p: any) => p.id === creatureId);
+      for (const [playerId, selectedCreatureId] of Object.entries(selections)) {
+        if (typeof selectedCreatureId !== 'string') continue;
+        const creature = battlefield.find((p: any) => p.id === selectedCreatureId);
         if (creature) {
           creature.counters = creature.counters || {};
           creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + 2;

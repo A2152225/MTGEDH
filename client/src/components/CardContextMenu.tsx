@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { parseActivatedAbilities as parseAbilitiesFull, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 
@@ -178,7 +179,7 @@ export function CardContextMenu({
     cursor: 'not-allowed',
   };
   
-  return (
+  const menuContent = (
     <div
       ref={menuRef}
       style={{
@@ -481,6 +482,9 @@ export function CardContextMenu({
       )}
     </div>
   );
+
+  // Render in a portal to ensure it's on top of everything
+  return createPortal(menuContent, document.body);
 }
 
 export default CardContextMenu;

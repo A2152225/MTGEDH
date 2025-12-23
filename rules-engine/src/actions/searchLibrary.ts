@@ -160,7 +160,7 @@ export function executeSearchLibrary(
   const criteria = action.criteria || {};
   let library = [...(player.library || [])];
   let hand = [...(player.hand || [])];
-  let battlefield = [...(player.battlefield || [])];
+  let battlefield = [...(state.battlefield || [])]; // Use centralized battlefield
   let graveyard = [...(player.graveyard || [])];
   const logs: string[] = [];
   

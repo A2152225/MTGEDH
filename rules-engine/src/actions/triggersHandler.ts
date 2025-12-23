@@ -76,58 +76,57 @@ export function processTriggers(
 export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
   const abilities: TriggeredAbility[] = [];
   
-  // Scan all permanents for triggered abilities
-  for (const player of state.players) {
-    for (const perm of player.battlefield || []) {
-      const card = perm.card as KnownCardRef;
-      if (!card) continue;
-      
-      const cardName = card.name || '';
-      const oracleText = card.oracle_text || '';
-      
-      // Check for special card-specific triggers first
-      if (hasSpecialTriggeredAbility(cardName)) {
-        const config = getTriggeredAbilityConfig(cardName);
-        if (config) {
-          abilities.push({
-            id: `${perm.id}-special-trigger`,
-            sourceId: perm.id,
-            sourceName: cardName,
-            controllerId: player.id,
-            keyword: 'whenever' as any,
-            event: config.triggerEvent,
-            condition: config.triggerCondition,
-            effect: config.effect,
-            optional: config.requiresChoice,
-          });
-        }
+  // Scan all permanents on centralized battlefield for triggered abilities
+  for (const perm of state.battlefield || []) {
+    const card = perm.card as KnownCardRef;
+    if (!card) continue;
+    
+    const cardName = card.name || '';
+    const oracleText = card.oracle_text || '';
+    const controllerId = perm.controller || perm.controllerId || '';
+    
+    // Check for special card-specific triggers first
+    if (hasSpecialTriggeredAbility(cardName)) {
+      const config = getTriggeredAbilityConfig(cardName);
+      if (config) {
+        abilities.push({
+          id: `${perm.id}-special-trigger`,
+          sourceId: perm.id,
+          sourceName: cardName,
+          controllerId: controllerId,
+          keyword: 'whenever' as any,
+          event: config.triggerEvent,
+          condition: config.triggerCondition,
+          effect: config.effect,
+          optional: config.requiresChoice,
+        });
       }
-      
-      // Check for ETB token creator triggers
-      if (isETBTokenCreator(cardName)) {
-        const etbConfig = getETBTokenConfig(cardName);
-        if (etbConfig) {
-          abilities.push({
-            id: `${perm.id}-etb-tokens`,
-            sourceId: perm.id,
-            sourceName: cardName,
-            controllerId: player.id,
-            keyword: 'when' as any,
-            event: TriggerEvent.ENTERS_BATTLEFIELD,
-            effect: `Create ${etbConfig.tokenCount} ${etbConfig.tokenType} token(s).`,
-          });
-        }
-      }
-      
-      // Parse additional triggers from oracle text
-      const parsedTriggers = parseTriggeredAbilitiesFromText(
-        oracleText,
-        perm.id,
-        player.id,
-        cardName
-      );
-      abilities.push(...parsedTriggers);
     }
+    
+    // Check for ETB token creator triggers
+    if (isETBTokenCreator(cardName)) {
+      const etbConfig = getETBTokenConfig(cardName);
+      if (etbConfig) {
+        abilities.push({
+          id: `${perm.id}-etb-tokens`,
+          sourceId: perm.id,
+          sourceName: cardName,
+          controllerId: controllerId,
+          keyword: 'when' as any,
+          event: TriggerEvent.ENTERS_BATTLEFIELD,
+          effect: `Create ${etbConfig.tokenCount} ${etbConfig.tokenType} token(s).`,
+        });
+      }
+    }
+    
+    // Parse additional triggers from oracle text
+    const parsedTriggers = parseTriggeredAbilitiesFromText(
+      oracleText,
+      perm.id,
+      controllerId,
+      cardName
+    );
+    abilities.push(...parsedTriggers);
   }
   
   return abilities;
@@ -209,37 +208,35 @@ export function checkTribalCastTriggers(
     ? getAllCreatureTypes(typeLine, oracleText)
     : getAllCreatureTypes(typeLine, '');
   
-  // Find all tribal triggers on battlefield
-  for (const player of state.players) {
-    if (player.id !== casterId) continue; // Only trigger for controller
+  // Find all tribal triggers on battlefield (only for controller)
+  for (const perm of state.battlefield || []) {
+    if (perm.controller !== casterId) continue; // Only trigger for controller
     
-    for (const perm of player.battlefield || []) {
-      const permCard = perm.card as KnownCardRef;
-      if (!permCard) continue;
-      
-      const cardName = permCard.name || '';
-      
-      // Check for special tribal triggers (Deeproot Waters, etc.)
-      if (hasSpecialTriggeredAbility(cardName)) {
-        const config = getTriggeredAbilityConfig(cardName);
-        if (config?.triggerEvent === TriggerEvent.CREATURE_SPELL_CAST && config.creatureTypeFilter) {
-          // Check if the cast creature matches the required type
-          const requiredType = config.creatureTypeFilter.toLowerCase();
-          const matchesType = creatureTypes.some(t => t.toLowerCase() === requiredType);
-          
-          if (matchesType) {
-            logs.push(`${cardName} triggered from casting ${castCard.name}`);
-            triggeredAbilities.push({
-              id: `${perm.id}-tribal-cast-${Date.now()}`,
-              sourceId: perm.id,
-              sourceName: cardName,
-              controllerId: player.id,
-              keyword: 'whenever' as any,
-              event: TriggerEvent.CREATURE_SPELL_CAST,
-              effect: config.effect,
-              optional: config.requiresChoice,
-            });
-          }
+    const permCard = perm.card as KnownCardRef;
+    if (!permCard) continue;
+    
+    const cardName = permCard.name || '';
+    
+    // Check for special tribal triggers (Deeproot Waters, etc.)
+    if (hasSpecialTriggeredAbility(cardName)) {
+      const config = getTriggeredAbilityConfig(cardName);
+      if (config?.triggerEvent === TriggerEvent.CREATURE_SPELL_CAST && config.creatureTypeFilter) {
+        // Check if the cast creature matches the required type
+        const requiredType = config.creatureTypeFilter.toLowerCase();
+        const matchesType = creatureTypes.some(t => t.toLowerCase() === requiredType);
+        
+        if (matchesType) {
+          logs.push(`${cardName} triggered from casting ${castCard.name}`);
+          triggeredAbilities.push({
+            id: `${perm.id}-tribal-cast-${Date.now()}`,
+            sourceId: perm.id,
+            sourceName: cardName,
+            controllerId: perm.controller || casterId,
+            keyword: 'whenever' as any,
+            event: TriggerEvent.CREATURE_SPELL_CAST,
+            effect: config.effect,
+            optional: config.requiresChoice,
+          });
         }
       }
     }
