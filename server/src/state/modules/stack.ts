@@ -1446,9 +1446,11 @@ function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "each player may put two +1/+1 counters on a creature they control. Goad each creature that had counters put on it this way"
-  // Agitator Ant and similar effects
-  if (desc.includes('each player may put') && desc.includes('+1/+1 counter') && desc.includes('goad')) {
+  // Pattern: "each player may put two +1/+1 counters on a creature they control"
+  // Matches: Agitator Ant (with goad), Orzhov Advokist (with can't attack), and similar effects
+  // Scalable regex pattern to detect these effects
+  const eachPlayerCountersPattern = /each player may put (?:two|\d+) \+1\/\+1 counters? on a creature (?:they|that player) controls?/i;
+  if (eachPlayerCountersPattern.test(desc)) {
     // Get all players
     const turnOrder = players.map((p: any) => p.id);
     const activePlayerId = state.activePlayer || controller;
@@ -1481,8 +1483,19 @@ function executeTriggerEffect(
         sourceId: triggerItem?.permanentId || triggerItem?.sourceId,
         sourceName,
         sourceImage: triggerItem?.card?.image_uris?.small,
-        // Store creatures and metadata for later
-        agitatorAntTrigger: true,
+        // SCALABLE METADATA for conditional "If a player does" effects
+        // This pattern works for many cards: Agitator Ant, Orzhov Advokist, Akroan Horse, etc.
+        counterPlacementTrigger: true,
+        sourceController: controller, // Who controls the source (for "can't attack you" effects)
+        effectType: desc.toLowerCase().includes('goad') ? 'goad' : 
+                   desc.toLowerCase().includes("can't attack") ? 'cant_attack' : 'none',
+        conditionalEffect: {
+          // Store what happens "if a player does" make the choice
+          trigger: 'counter_placement', // What choice they made
+          onAccept: desc.toLowerCase().includes('goad') ? 'goad' :
+                   desc.toLowerCase().includes("can't attack") ? 'cant_attack_controller' : null,
+        },
+        triggerDescription: desc, // Store full description for context
         availableCreatures: playerCreatures.map((perm: any) => ({
           permanentId: perm.id,
           cardName: perm.card?.name || 'Creature',
@@ -1508,7 +1521,7 @@ function executeTriggerEffect(
       activePlayerId
     );
     
-    debug(2, `[executeTriggerEffect] ${sourceName} (Agitator Ant): created ${players.length} resolution steps for counter placement (gameId: ${gameId})`);
+    debug(2, `[executeTriggerEffect] ${sourceName} (counter placement effect): created ${players.length} resolution steps for counter placement (gameId: ${gameId})`);
     return;
   }
   
@@ -1925,70 +1938,81 @@ function executeTriggerEffect(
     const sourceId = triggerItem.source || triggerItem.permanentId;
     const sourcePerm = (state.battlefield || []).find((p: any) => p?.id === sourceId);
     
-    if (sourcePerm) {
-      // Find what this equipment is attached to
-      const attachedTo = sourcePerm.attachedTo;
-      if (attachedTo) {
-        const equippedCreature = (state.battlefield || []).find((p: any) => p?.id === attachedTo);
-        
-        if (equippedCreature && equippedCreature.card) {
-          // Create a token copy
-          const tokenId = uid("token");
-          const originalCard = equippedCreature.card;
-          const originalTypeLine = (originalCard.type_line || '').toLowerCase();
-          
-          // Remove "Legendary" from the type line (handle all positions)
-          let tokenTypeLine = originalCard.type_line || 'Token';
-          tokenTypeLine = tokenTypeLine.replace(/\bLegendary\s+/i, '').replace(/\s+Legendary\b/i, '').trim();
-          
-          // If the copy would have haste, ensure it doesn't have summoning sickness
-          const hasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
-                          (Array.isArray(originalCard.keywords) && 
-                           originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')) ||
-                          desc.includes('haste');
-          
-          const isCreature = originalTypeLine.includes('creature');
-          
-          const tokenCopy = {
-            id: tokenId,
-            controller,
-            owner: controller,
-            tapped: false,
-            counters: { ...equippedCreature.counters },
-            basePower: equippedCreature.basePower,
-            baseToughness: equippedCreature.baseToughness,
-            // Tokens that are copies with haste don't have summoning sickness
-            summoningSickness: isCreature && !hasHaste,
-            isToken: true,
-            card: {
-              ...originalCard,
-              id: tokenId,
-              type_line: tokenTypeLine,
-              zone: 'battlefield',
-              // Add haste if specified by the effect (Helm of the Host adds haste)
-              oracle_text: hasHaste && !(originalCard.oracle_text || '').toLowerCase().includes('haste')
-                ? (originalCard.oracle_text || '') + (originalCard.oracle_text ? '\n' : '') + 'Haste'
-                : originalCard.oracle_text,
-              keywords: hasHaste && Array.isArray(originalCard.keywords) && !originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')
-                ? [...originalCard.keywords, 'Haste']
-                : originalCard.keywords,
-            },
-          } as any;
-          
-          state.battlefield = state.battlefield || [];
-          state.battlefield.push(tokenCopy);
-          
-          debug(2, `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
-          
-          // Trigger ETB effects for the copy token (Cathars' Crusade, Soul Warden, etc.)
-          triggerETBEffectsForToken(ctx, tokenCopy, controller);
-        } else {
-          debug(2, `[executeTriggerEffect] No equipped creature found for copy token creation`);
-        }
-      } else {
-        debug(2, `[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything`);
-      }
+    if (!sourcePerm) {
+      debug(2, `[executeTriggerEffect] Equipment source not found on battlefield - trigger fizzles`);
+      return;
     }
+    
+    // Find what this equipment is attached to
+    const attachedTo = sourcePerm.attachedTo;
+    if (!attachedTo) {
+      debug(2, `[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything - trigger fizzles`);
+      return;
+    }
+    
+    const equippedCreature = (state.battlefield || []).find((p: any) => p?.id === attachedTo);
+    
+    if (!equippedCreature || !equippedCreature.card) {
+      debug(2, `[executeTriggerEffect] No equipped creature found for copy token creation - trigger fizzles`);
+      return;
+    }
+    
+    // Create a token copy
+    const tokenId = uid("token");
+    const originalCard = equippedCreature.card;
+    const originalTypeLine = (originalCard.type_line || '').toLowerCase();
+    
+    // Remove "Legendary" from the type line (handle all positions)
+    let tokenTypeLine = originalCard.type_line || 'Token';
+    tokenTypeLine = tokenTypeLine.replace(/\bLegendary\s+/i, '').replace(/\s+Legendary\b/i, '').trim();
+    
+    // Check if the trigger description says the token gains/has haste
+    // Helm of the Host: "That token gains haste" (from second sentence)
+    // Check both the original creature's haste AND whether the trigger grants it
+    const originalHasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
+                            (Array.isArray(originalCard.keywords) && 
+                             originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste'));
+    
+    // Check if trigger grants haste (look for "gains haste", "has haste", "with haste" in description)
+    const triggerGrantsHaste = /(?:gains|has|with)\s+haste/i.test(desc);
+    
+    const hasHaste = originalHasHaste || triggerGrantsHaste;
+    
+    const isCreature = originalTypeLine.includes('creature');
+    
+    const tokenCopy = {
+      id: tokenId,
+      controller,
+      owner: controller,
+      tapped: false,
+      counters: { ...equippedCreature.counters },
+      basePower: equippedCreature.basePower,
+      baseToughness: equippedCreature.baseToughness,
+      // Tokens that are copies with haste don't have summoning sickness
+      summoningSickness: isCreature && !hasHaste,
+      isToken: true,
+      card: {
+        ...originalCard,
+        id: tokenId,
+        type_line: tokenTypeLine,
+        zone: 'battlefield',
+        // Add haste to oracle text if granted by trigger and not already present
+        oracle_text: triggerGrantsHaste && !originalHasHaste
+          ? (originalCard.oracle_text || '') + (originalCard.oracle_text ? '\n' : '') + 'Haste'
+          : originalCard.oracle_text,
+        keywords: triggerGrantsHaste && Array.isArray(originalCard.keywords) && !originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')
+          ? [...originalCard.keywords, 'Haste']
+          : originalCard.keywords,
+      },
+    } as any;
+    
+    state.battlefield = state.battlefield || [];
+    state.battlefield.push(tokenCopy);
+    
+    debug(2, `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
+    
+    // Trigger ETB effects for the copy token (Cathars' Crusade, Soul Warden, etc.)
+    triggerETBEffectsForToken(ctx, tokenCopy, controller);
     return;
   }
   

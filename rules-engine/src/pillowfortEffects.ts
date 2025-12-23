@@ -262,7 +262,8 @@ export function calculateTotalAttackCost(
     
     // Additional multiplier for enchantment-count effects (Sphere of Safety)
     if (req.multiplierSourceType === 'enchantment' && defender) {
-      const enchantmentCount = (defender.battlefield || []).filter((p: any) =>
+      const enchantmentCount = (state.battlefield || []).filter((p: any) =>
+        p.controller === defendingPlayerId &&
         (p.card?.type_line || '').toLowerCase().includes('enchantment')
       ).length;
       multiplier *= enchantmentCount;
