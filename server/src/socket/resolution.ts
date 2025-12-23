@@ -166,7 +166,9 @@ async function handleAIResolutionStep(
       if (success) {
         // Trigger the response handler
         await handleStepResponse(io, game, gameId, step, response);
-        broadcastGame(io, game, gameId);
+        // NOTE: Don't broadcast here - let the STEP_COMPLETED event handler broadcast
+        // after exitResolutionMode has restored priority. This prevents a race condition
+        // where the AI gets triggered before priority is restored.
       }
     }
   } catch (error) {
