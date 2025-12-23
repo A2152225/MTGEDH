@@ -1861,8 +1861,10 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
   }
   
   // Generic "at the beginning of combat on your turn" detection
+  // ONLY add if not already in known cards list to prevent duplicates
   const beginCombatMatch = oracleText.match(/at the beginning of combat on your turn,?\s*([^.]+)/i);
-  if (beginCombatMatch && !triggers.some(t => t.description === beginCombatMatch[1].trim())) {
+  if (beginCombatMatch && triggers.length === 0) {
+    // No known trigger found, use generic detection
     triggers.push({
       permanentId,
       cardName,
@@ -1874,8 +1876,10 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
   }
   
   // "At the beginning of each combat" - triggers on all players' combats
+  // ONLY add if not already in known cards list to prevent duplicates
   const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
-  if (eachCombatMatch) {
+  if (eachCombatMatch && triggers.length === 0) {
+    // No known trigger found, use generic detection
     triggers.push({
       permanentId,
       cardName,

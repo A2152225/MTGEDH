@@ -348,13 +348,97 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Check for mana abilities in oracle text
     // Pattern: "{T}: Add {C}", "{T}: Add {C}{C}", "{T}: Add {B} or {R}", etc.
+    // Also handles costs: "{1}, {T}: Add {W}{U}" (signets)
     // Captures text after "add" until period or newline to handle "or" cases
     // Note: This pattern stops at the first period, which correctly handles most cards
     // Example: "{T}: Add {B} or {R}. Other text." captures only "{B} or {R}"
-    const manaAbilityPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
-    const matches = [...oracleText.matchAll(manaAbilityPattern)];
     
-    for (const match of matches) {
+    // First, detect if this has an activation cost (signets, etc.)
+    // Pattern: "{cost}, {T}: Add..." or "{T}, {cost}: Add..."
+    const manaAbilityWithCostPattern = /\{([0-9]+|[wubrgc])\}(?:,\s*)?\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
+    const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
+    
+    // Check for abilities with activation costs first
+    const costMatches = [...oracleText.matchAll(manaAbilityWithCostPattern)];
+    
+    for (const match of costMatches) {
+      const activationCost = match[1]; // The mana cost to activate (e.g., "1" for signets)
+      const fullManaText = match[2].trim();
+      
+      // Calculate the NET mana this source provides
+      // For signets: "{1}, {T}: Add {W}{U}" means you spend 1 to get 2, net +1 mana
+      const activationCostAmount = /^\d+$/.test(activationCost) ? parseInt(activationCost, 10) : 1;
+      
+      // Count how much mana this produces
+      const producedManaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
+      const totalProduced = producedManaTokens.length;
+      
+      // Only count if we get a net positive (or break even)
+      // Signets: cost 1, produce 2 = net +1
+      // If cost >= produced, this doesn't help us cast spells (net 0 or negative)
+      if (totalProduced <= activationCostAmount) {
+        // This mana source costs as much or more than it produces - skip it
+        debug(3, `[getAvailableMana] Skipping ${cardName}: costs ${activationCostAmount} to produce ${totalProduced}`);
+        continue;
+      }
+      
+      // Net mana gained is totalProduced - activationCostAmount
+      const netMana = totalProduced - activationCostAmount;
+      
+      // Check if this is an OR mana ability
+      const hasOrClause = /\{[wubrgc]\}(?:,?\s*\{[wubrgc]\})*,?\s+or\s+\{[wubrgc]\}/i.test(fullManaText);
+      
+      if (hasOrClause) {
+        // This is an OR mana ability - only count the net mana
+        const firstManaMatch = fullManaText.match(/\{([wubrgc])\}/i);
+        if (firstManaMatch) {
+          const color = firstManaMatch[1].toUpperCase();
+          const colorKey = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          }[color];
+          
+          if (colorKey) {
+            pool[colorKey] = (pool[colorKey] || 0) + netMana;
+          }
+        }
+      } else {
+        // Add net mana for each color produced
+        // For signets: produces 2, costs 1, so add 1 of each color
+        for (let i = 0; i < netMana; i++) {
+          for (const token of producedManaTokens) {
+            const color = token.replace(/[{}]/g, '').toUpperCase();
+            const colorKey = {
+              'W': 'white',
+              'U': 'blue',
+              'B': 'black',
+              'R': 'red',
+              'G': 'green',
+              'C': 'colorless',
+            }[color];
+            
+            if (colorKey) {
+              pool[colorKey] = (pool[colorKey] || 0) + 1;
+            }
+          }
+        }
+      }
+    }
+    
+    // Now check for abilities WITHOUT activation costs (basic lands, Sol Ring, etc.)
+    // Filter out the ones we already processed with costs
+    const noCostMatches = [...oracleText.matchAll(manaAbilityNoCostPattern)]
+      .filter(match => {
+        // Exclude if this same ability was already matched with a cost
+        const matchText = match[0];
+        return !costMatches.some(costMatch => matchText.includes(costMatch[0]));
+      });
+    
+    for (const match of noCostMatches) {
       const fullManaText = match[1].trim();
       
       // Check if this is an OR mana ability (can produce one of multiple colors)
