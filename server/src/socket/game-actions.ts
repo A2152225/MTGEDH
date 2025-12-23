@@ -8,7 +8,7 @@ import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./c
 import { requiresColorChoice, requestColorChoice } from "./color-choice";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
-import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
@@ -3700,6 +3700,62 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(castSpell) failed:', e);
+      }
+      
+      // Check for "When you cast this spell" triggers on the spell itself (Kozilek, Ulamog, etc.)
+      try {
+        const eldraziEffect = detectEldraziEffect(cardInHand, { id: cardId, controller: playerId });
+        if (eldraziEffect && eldraziEffect.castTrigger) {
+          debug(2, `[castSpellFromHand] On-cast trigger: ${cardInHand.name} - ${eldraziEffect.castTrigger}`);
+          
+          const triggerLower = eldraziEffect.castTrigger.toLowerCase();
+          
+          // Kozilek, Butcher of Truth: "When you cast this spell, draw four cards"
+          if (triggerLower.includes('draw four cards') || triggerLower.includes('draw 4 cards')) {
+            if (typeof game.drawCards === 'function') {
+              const drawn = game.drawCards(playerId, 4);
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `${cardInHand.name}: ${getPlayerName(game, playerId)} draws 4 cards.`,
+                ts: Date.now(),
+              });
+              debug(1, `[castSpellFromHand] ${cardInHand.name} on-cast trigger: ${getPlayerName(game, playerId)} drew 4 cards`);
+            }
+          }
+          
+          // Ulamog, the Infinite Gyre: "When you cast this spell, destroy target permanent"
+          // Ulamog, the Ceaseless Hunger: "When you cast this spell, exile two target permanents"
+          // These require targets, which should be handled via resolution queue
+          // For now, just log them
+          if (triggerLower.includes('destroy target permanent') || 
+              triggerLower.includes('exile two target permanents') ||
+              triggerLower.includes('exile target opponent')) {
+            debug(2, `[castSpellFromHand] ${cardInHand.name} has targeting on-cast trigger: ${eldraziEffect.castTrigger}`);
+            // TODO: Add these triggers to the resolution queue for target selection
+          }
+          
+          // Emrakul, the Aeons Torn: "Take an extra turn after this one"
+          if (triggerLower.includes('extra turn')) {
+            // Mark that an extra turn should be taken
+            (game.state as any).pendingExtraTurns = (game.state as any).pendingExtraTurns || [];
+            (game.state as any).pendingExtraTurns.push({
+              playerId: playerId,
+              source: cardInHand.name,
+            });
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${cardInHand.name}: ${getPlayerName(game, playerId)} will take an extra turn after this one.`,
+              ts: Date.now(),
+            });
+            debug(1, `[castSpellFromHand] ${cardInHand.name} on-cast trigger: extra turn queued for ${playerId}`);
+          }
+        }
+      } catch (err) {
+        debugWarn(1, '[castSpellFromHand] Failed to process on-cast triggers:', err);
       }
       
       // Check for spell-cast triggers (Jeskai Ascendancy, Beast Whisperer, etc.)

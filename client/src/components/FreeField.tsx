@@ -148,7 +148,7 @@ export function FreeField(props: {
   // Context menu callbacks
   onTap?: (id: string) => void;
   onUntap?: (id: string) => void;
-  onActivateAbility?: (permanentId: string, abilityId: string, ability?: ParsedActivatedAbility) => void;
+  onActivateAbility?: (permanentId: string, abilityId: string, ability?: ParsedActivatedAbility, xValue?: number) => void;
   onAddCounter?: (id: string, kind: string, delta: number) => void;
   onSacrifice?: (id: string) => void;
   onRemove?: (id: string) => void;

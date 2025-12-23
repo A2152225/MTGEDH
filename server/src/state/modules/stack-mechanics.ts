@@ -30,6 +30,8 @@
  */
 
 import type { GameContext } from "../context.js";
+import { debug } from "../../utils/debug.js";
+import { checkGraveyardTrigger } from "./triggered-abilities.js";
 
 export interface StackItem {
   id: string;
@@ -336,6 +338,11 @@ export function counterStackItem(
       zones.graveyard = zones.graveyard || [];
       zones.graveyard.push({ ...item.card, zone: 'graveyard' });
       zones.graveyardCount = zones.graveyard.length;
+      
+      // Check for graveyard triggers (Eldrazi shuffle)
+      if (checkGraveyardTrigger(ctx, item.card, item.controller)) {
+        debug(2, `[counterSpell] ${item.card?.name} triggered graveyard shuffle for ${item.controller}`);
+      }
     }
   }
   

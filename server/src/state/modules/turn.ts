@@ -864,6 +864,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // This is used for cards like Reciprocate that can only target creatures that dealt damage to you
             trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, actualDamage);
             
+            // Track combat damage for X abilities that require it
+            // Generic tracking for any card with oracle text containing "combat damage"
+            const oracleText = (card.oracle_text || '').toLowerCase();
+            if (oracleText.includes('{x}') && oracleText.includes('combat damage')) {
+              // Initialize or update the set of players dealt damage this turn
+              let dealtDamageTo = (attacker as any).dealtCombatDamageTo as Set<string> | undefined;
+              if (!dealtDamageTo) {
+                dealtDamageTo = new Set<string>();
+                (attacker as any).dealtCombatDamageTo = dealtDamageTo;
+              }
+              dealtDamageTo.add(defendingPlayerId);
+              debug(3, `${ts()} [dealCombatDamage] ${card.name || 'Creature'} tracked combat damage to player ${defendingPlayerId} (for X ability)`);
+            }
+            
             // Lifelink: Controller gains life equal to damage dealt
             if (keywords.lifelink) {
               const controllerLife = life[attackerController] ?? startingLife;
@@ -1320,6 +1334,18 @@ function endTemporaryEffects(ctx: GameContext) {
       }
       if (permanent.blockedThisTurn) {
         delete permanent.blockedThisTurn;
+      }
+      
+      // Clear Steel Hellkite combat damage tracking
+      if (permanent.dealtCombatDamageTo) {
+        delete permanent.dealtCombatDamageTo;
+        endedCount++;
+      }
+      
+      // Clear "activated this turn" flags for once-per-turn abilities
+      if (permanent.activatedThisTurn) {
+        delete permanent.activatedThisTurn;
+        endedCount++;
       }
       
       // Clear crewed status from vehicles (they stop being creatures at end of turn)

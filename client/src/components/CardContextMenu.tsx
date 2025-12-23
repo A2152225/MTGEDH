@@ -191,7 +191,7 @@ export function CardContextMenu({
         boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         minWidth: 200,
         maxWidth: 300,
-        zIndex: 10000,
+        zIndex: 100000, // Very high to ensure it appears on top of all other elements
         color: '#fff',
         overflow: 'hidden',
       }}
