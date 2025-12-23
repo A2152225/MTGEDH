@@ -80,7 +80,7 @@ export interface PlayerRef {
   hand?: any[];
   library?: any[];
   graveyard?: any[];
-  battlefield?: any[];
+  // battlefield removed - use state.battlefield filtered by controller
   exile?: any[];
   commandZone?: any[];
   counters?: Record<string, number>;
@@ -108,7 +108,7 @@ export interface Player {
   experienceCounters?: number;
   commanderDamage?: Record<string, number>;
   commandZone?: any[];
-  battlefield?: any[];
+  // battlefield removed - use state.battlefield filtered by controller
   exile?: any[];
   manaPool?: any;
 }

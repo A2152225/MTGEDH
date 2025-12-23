@@ -785,7 +785,7 @@ function getPermanentToughness(permanent: any): number {
 export function getLegalAttackers(state: GameState, playerId: string): string[] {
   const legalAttackers: string[] = [];
   
-  // Check global battlefield
+  // Check global battlefield (single source of truth)
   if (state.battlefield) {
     for (const perm of state.battlefield as any[]) {
       if (perm.controller === playerId) {
@@ -793,17 +793,6 @@ export function getLegalAttackers(state: GameState, playerId: string): string[] 
         if (result.canParticipate) {
           legalAttackers.push(perm.id);
         }
-      }
-    }
-  }
-  
-  // Check player-specific battlefield
-  const player = state.players?.find((p: any) => p.id === playerId);
-  if (player?.battlefield) {
-    for (const perm of player.battlefield as any[]) {
-      const result = canPermanentAttack(perm, playerId);
-      if (result.canParticipate && !legalAttackers.includes(perm.id)) {
-        legalAttackers.push(perm.id);
       }
     }
   }
@@ -826,27 +815,12 @@ export function getGoadedAttackers(state: GameState, playerId: string): string[]
   const currentTurn = state.turn;
   const battlefield = state.battlefield as any[] || [];
   
-  // Check global battlefield
-  if (battlefield.length > 0) {
-    for (const perm of battlefield) {
-      if (perm.controller === playerId && isGoaded(perm, currentTurn)) {
-        const result = canPermanentAttack(perm, playerId);
-        if (result.canParticipate) {
-          goadedAttackers.push(perm.id);
-        }
-      }
-    }
-  }
-  
-  // Check player-specific battlefield
-  const player = state.players?.find((p: any) => p.id === playerId);
-  if (player?.battlefield) {
-    for (const perm of player.battlefield as any[]) {
-      if (isGoaded(perm, currentTurn)) {
-        const result = canPermanentAttack(perm, playerId);
-        if (result.canParticipate && !goadedAttackers.includes(perm.id)) {
-          goadedAttackers.push(perm.id);
-        }
+  // Check global battlefield (single source of truth)
+  for (const perm of battlefield) {
+    if (perm.controller === playerId && isGoaded(perm, currentTurn)) {
+      const result = canPermanentAttack(perm, playerId);
+      if (result.canParticipate) {
+        goadedAttackers.push(perm.id);
       }
     }
   }
@@ -877,7 +851,7 @@ export function getLegalBlockers(state: GameState, playerId: string, attackerId?
     }
   }
   
-  // Check global battlefield
+  // Check global battlefield (single source of truth)
   if (state.battlefield) {
     for (const perm of state.battlefield as any[]) {
       if (perm.controller === playerId) {
@@ -885,17 +859,6 @@ export function getLegalBlockers(state: GameState, playerId: string, attackerId?
         if (result.canParticipate) {
           legalBlockers.push(perm.id);
         }
-      }
-    }
-  }
-  
-  // Check player-specific battlefield
-  const player = state.players?.find((p: any) => p.id === playerId);
-  if (player?.battlefield) {
-    for (const perm of player.battlefield as any[]) {
-      const result = canPermanentBlock(perm, attacker);
-      if (result.canParticipate && !legalBlockers.includes(perm.id)) {
-        legalBlockers.push(perm.id);
       }
     }
   }
@@ -930,18 +893,10 @@ export function validateDeclareAttackers(
   
   // Validate each attacker using comprehensive validation
   for (const attacker of action.attackers) {
-    // Check global battlefield and player-specific battlefield
-    let permanent = state.battlefield?.find(
+    // Check global battlefield (single source of truth)
+    const permanent = state.battlefield?.find(
       (p: any) => p.id === attacker.creatureId && p.controller === action.playerId
     );
-    
-    // Also check player's own battlefield if not found globally
-    if (!permanent) {
-      const player = state.players.find(p => p.id === action.playerId);
-      permanent = player?.battlefield?.find(
-        (p: any) => p.id === attacker.creatureId
-      );
-    }
     
     if (!permanent) {
       return { legal: false, reason: `Permanent ${attacker.creatureId} not found on battlefield` };
@@ -978,12 +933,8 @@ export function validateDeclareAttackers(
   
   for (const goadedId of goadedCreatures) {
     if (!attackingCreatureIds.has(goadedId)) {
-      // Find the creature for error message
-      let creature = state.battlefield?.find((p: any) => p.id === goadedId);
-      if (!creature) {
-        const player = state.players.find(p => p.id === action.playerId);
-        creature = player?.battlefield?.find((p: any) => p.id === goadedId);
-      }
+      // Find the creature for error message (global battlefield only)
+      const creature = state.battlefield?.find((p: any) => p.id === goadedId);
       const creatureName = creature?.card?.name || 'Goaded creature';
       return { 
         legal: false, 
