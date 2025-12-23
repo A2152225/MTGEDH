@@ -980,6 +980,45 @@ export function triggerETBEffectsForPermanent(
       debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
     }
   }
+  
+  // Check for pending control change effects (Vislor Turlough, Xantcha, Akroan Horse)
+  if ((permanent as any).pendingControlChange) {
+    const controlChangeInfo = (permanent as any).pendingControlChange;
+    debug(2, `[triggerETBEffectsForPermanent] ${permanent.card?.name} has pending control change: ${controlChangeInfo.type}`);
+    
+    // Queue a resolution step for the control change
+    const gameId = (ctx as any).gameId || 'unknown';
+    const { ResolutionQueueManager, ResolutionStepType } = require('../resolution/index.js');
+    
+    if (controlChangeInfo.type === 'may_give_opponent' || controlChangeInfo.type === 'enters_under_opponent_control') {
+      const isOptional = controlChangeInfo.type === 'may_give_opponent';
+      
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.PLAYER_CHOICE,
+        playerId: controller,
+        description: isOptional 
+          ? `${permanent.card?.name}: You may have an opponent gain control of it`
+          : `${permanent.card?.name}: Choose an opponent to control this permanent`,
+        mandatory: !isOptional,
+        sourceId: permanent.id,
+        sourceName: permanent.card?.name,
+        sourceImage: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+        promptTitle: isOptional ? "Control Change (Optional)" : "Choose Opponent",
+        promptDescription: isOptional
+          ? `Do you want to give control of ${permanent.card?.name} to an opponent? If you do, it will be goaded.`
+          : `Choose which opponent will control ${permanent.card?.name}.`,
+        options: [], // Will be filled with opponent list by the resolution handler
+        controlChangeData: {
+          permanentId: permanent.id,
+          isOptional,
+          goadsOnChange: controlChangeInfo.goadsOnChange || false,
+          mustAttackEachCombat: controlChangeInfo.mustAttackEachCombat || false,
+          cantAttackOwner: controlChangeInfo.cantAttackOwner || false,
+        },
+      });
+      debug(2, `[triggerETBEffectsForPermanent] Queued control change step for ${permanent.card?.name} (optional: ${isOptional})`);
+    }
+  }
 }
 
 /**
