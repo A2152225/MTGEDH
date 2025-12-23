@@ -1801,7 +1801,14 @@ function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost
       const cmc = totalCost.generic + Object.values(totalCost.colors).reduce((a, b) => a + b, 0);
       
       debug(1, '[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', cmc);
+      debug(2, '[AI] Mana available:', JSON.stringify(manaPool));
+      debug(2, '[AI] Cost required:', JSON.stringify(totalCost));
       return { card, cost: totalCost, isBackground };
+    } else {
+      // Log why commander is not castable (at debug level 2 to avoid spam)
+      debug(2, '[AI] Cannot cast commander:', card.name, 
+        'Cost:', JSON.stringify(totalCost), 
+        'Available:', JSON.stringify(manaPool));
     }
   }
   

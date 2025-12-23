@@ -286,6 +286,86 @@ export function getManaPoolFromState(state: any, playerId: PlayerID): Record<str
 }
 
 /**
+ * Helper function to get colors that opponent lands can produce
+ * Used for conditional mana sources like Exotic Orchard, Fellwar Stone, etc.
+ * 
+ * @param state Game state
+ * @param playerId The player who controls the conditional mana source
+ * @returns Set of color keys that opponent lands can produce
+ */
+function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
+  const opponentColors = new Set<string>();
+  const battlefield = state.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    // Skip this player's permanents - we only care about opponents
+    if (permanent.controller === playerId) continue;
+    if (!permanent.card) continue;
+    
+    const typeLine = (permanent.card.type_line || "").toLowerCase();
+    const cardName = (permanent.card.name || "").toLowerCase();
+    const oracleText = (permanent.card.oracle_text || "").toLowerCase();
+    
+    // Only process lands
+    if (!typeLine.includes("land")) continue;
+    
+    // Check basic lands first
+    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+      const landToColor: Record<string, string> = {
+        'plains': 'white',
+        'island': 'blue',
+        'swamp': 'black',
+        'mountain': 'red',
+        'forest': 'green',
+      };
+      const colorKey = landToColor[cardName];
+      if (colorKey) {
+        opponentColors.add(colorKey);
+      }
+      continue;
+    }
+    
+    // Check for mana abilities in oracle text
+    const manaAbilityPattern = /\{t\}[^:]*:\s*add\s+([^.\n]+)/gi;
+    const matches = [...oracleText.matchAll(manaAbilityPattern)];
+    
+    for (const match of matches) {
+      const fullManaText = match[1].trim();
+      
+      // Extract mana symbols from the ability text
+      const manaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
+      
+      for (const token of manaTokens) {
+        const color = token.replace(/[{}]/g, '').toUpperCase();
+        const colorKey = {
+          'W': 'white',
+          'U': 'blue',
+          'B': 'black',
+          'R': 'red',
+          'G': 'green',
+          'C': 'colorless',
+        }[color];
+        
+        if (colorKey) {
+          opponentColors.add(colorKey);
+        }
+      }
+      
+      // Handle "any color" lands on opponent's side
+      // These allow Exotic Orchard to produce any color
+      if (/one mana of any color|add.*any color/i.test(fullManaText)) {
+        // Don't check for conditional here - if opponent has a conditional source,
+        // we need to recursively check, which is complex. For now, treat opponent's
+        // "any color" sources conservatively (they can't produce any color for us)
+        // This prevents infinite recursion and is more accurate in most cases
+      }
+    }
+  }
+  
+  return opponentColors;
+}
+
+/**
  * Get total available mana for a player, including:
  * 1. Floating mana in their mana pool
  * 2. Potential mana from untapped mana-producing permanents
@@ -534,7 +614,16 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       // This represents available options, not simultaneous production.
       // The actual mana payment logic (canPayManaCost) handles the choice correctly.
       // We also track the count in 'anyColor' so getTotalManaFromPool can calculate correctly.
-      if (/one mana of any color|add.*any color/i.test(fullManaText)) {
+      //
+      // IMPORTANT: Exclude conditional "any color" sources like Exotic Orchard which require
+      // checking opponent's lands. These patterns indicate conditional production:
+      // - "that a land" / "that lands" (Exotic Orchard, Fellwar Stone, etc.)
+      // - "among lands" (Reflecting Pool)
+      // - "that a permanent" / "among permanents" 
+      const isConditionalAnyColor = /that (?:a |an )?(?:land|permanent)|among (?:lands|permanents)/i.test(fullManaText);
+      const isUnconditionalAnyColor = /one mana of any color|add.*any color/i.test(fullManaText);
+      
+      if (isUnconditionalAnyColor && !isConditionalAnyColor) {
         pool.white = (pool.white || 0) + 1;
         pool.blue = (pool.blue || 0) + 1;
         pool.black = (pool.black || 0) + 1;
@@ -542,6 +631,19 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         pool.green = (pool.green || 0) + 1;
         // Track how many "any color" sources we have for correct total calculation
         pool.anyColor = (pool.anyColor || 0) + 1;
+      } else if (isConditionalAnyColor) {
+        // Handle conditional "any color" sources like Exotic Orchard, Fellwar Stone, etc.
+        // These can only produce colors that opponent lands/permanents can produce
+        const opponentColors = getOpponentLandColors(state, playerId);
+        
+        // Add 1 to each color that opponents can produce
+        // This ensures we only count mana we can actually produce
+        for (const colorKey of opponentColors) {
+          pool[colorKey] = (pool[colorKey] || 0) + 1;
+        }
+        
+        // Note: We don't track these in 'anyColor' because they're not truly "any color"
+        // They're restricted to what opponents can produce
       }
     }
   }
