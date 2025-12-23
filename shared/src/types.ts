@@ -85,6 +85,7 @@ export interface PlayerRef {
   commandZone?: any[];
   counters?: Record<string, number>;
   hasLost?: boolean;
+  lostReason?: string; // Reason why player lost (e.g., "Life total reached 0 or less")
   commanderDamage?: Record<string, number>;
   manaPool?: ManaPool;
 }

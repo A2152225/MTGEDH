@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
 import { processPendingCascades, processPendingScry, processPendingSurveil, processPendingProliferate, processPendingFateseal, processPendingClash, processPendingVote, processPendingPonder } from "./resolution.js";
 import { appendEvent } from "../db";
@@ -1660,8 +1661,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Check if this is a Modal Double-Faced Card (MDFC) like Blightstep Pathway
-      const layout = (cardInHand as any)?.layout;
-      const cardFaces = (cardInHand as any)?.card_faces;
+      let layout = (cardInHand as any)?.layout;
+      let cardFaces = (cardInHand as any)?.card_faces;
       const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
       
       // If MDFC and no face selected yet, prompt the player to choose
@@ -1738,8 +1739,33 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Validate that the card is actually a land (check type_line)
+      // For double-faced cards (transform), check the current front face, not the entire type_line
       const typeLine = (cardInHand as any)?.type_line || "";
-      const isLand = /\bland\b/i.test(typeLine);
+      layout = (cardInHand as any)?.layout;
+      cardFaces = (cardInHand as any)?.card_faces;
+      
+      let isLand = false;
+      
+      // For transform cards (like Growing Rites of Itlimoc), check the FRONT face only
+      if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(cardFaces) && cardFaces.length >= 2) {
+        // Check front face (index 0) - this is what you play from hand
+        const frontFace = cardFaces[0];
+        const frontTypeLine = frontFace?.type_line || "";
+        isLand = /\bland\b/i.test(frontTypeLine);
+        
+        if (!isLand) {
+          debugWarn(2, `[playLand] Transform card ${cardName} front face is not a land. Front face type: ${frontTypeLine}`);
+          socket.emit("error", {
+            code: "NOT_A_LAND",
+            message: `${cardName || "This card"} must be cast as a spell, not played as a land. Its back face transforms into a land.`,
+          });
+          return;
+        }
+      } else {
+        // Regular card or MDFC - check type_line normally
+        isLand = /\bland\b/i.test(typeLine);
+      }
+      
       if (!isLand) {
         debugWarn(2, `[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
         socket.emit("error", {
@@ -4277,6 +4303,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       broadcastGame(io, game, gameId);
+      
+      // Check for pending damage triggers (Brash Taunter, Boros Reckoner, etc.)
+      // These are queued during combat damage or spell resolution
+      checkAndEmitDamageTriggers(io, game, gameId);
     } catch (err: any) {
       debugError(1, `passPriority error for game ${gameId}:`, err);
       socket.emit("error", {
@@ -4285,6 +4315,52 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
     }
   });
+  
+  /**
+   * Check for pending damage triggers and emit them to the appropriate players.
+   * Damage triggers are queued in game.state.pendingDamageTriggers during:
+   * - Combat damage (turn.ts dealCombatDamage)
+   * - Fight resolution (interaction.ts)
+   * - Spell damage effects
+   */
+  function checkAndEmitDamageTriggers(io: Server, game: InMemoryGame, gameId: string) {
+    const pendingTriggers = (game.state as any).pendingDamageTriggers;
+    if (!pendingTriggers || typeof pendingTriggers !== 'object') return;
+    
+    const triggerIds = Object.keys(pendingTriggers);
+    if (triggerIds.length === 0) return;
+    
+    // Emit each pending trigger to its controller
+    for (const triggerId of triggerIds) {
+      const trigger = pendingTriggers[triggerId];
+      if (!trigger) continue;
+      
+      const { sourceId, sourceName, controller, damageAmount, targetType, targetRestriction } = trigger;
+      
+      // Find the source permanent to get its image
+      const battlefield = (game.state as any).battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p?.id === sourceId);
+      const imageUrl = sourcePerm?.card?.image_uris?.small || sourcePerm?.card?.image_uris?.normal;
+      
+      // Emit trigger to the controller for target selection
+      emitToPlayer(io, controller, "damageTriggerTargetRequest", {
+        gameId,
+        triggerId,
+        source: {
+          id: sourceId,
+          name: sourceName,
+          imageUrl,
+        },
+        damageAmount,
+        targetType,
+        targetRestriction: targetRestriction || '',
+        title: `${sourceName} - Damage Trigger`,
+        description: `${sourceName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
+      });
+      
+      debug(2, `[checkAndEmitDamageTriggers] Emitted damage trigger for ${sourceName} (${damageAmount} damage) to ${controller}`);
+    }
+  }
 
   /**
    * Batch resolve all triggered abilities on the stack.
@@ -4974,6 +5050,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       broadcastGame(io, game, gameId);
+      
+      // Check for pending damage triggers
+      checkAndEmitDamageTriggers(io, game, gameId);
     } catch (err: any) {
       debugError(1, `nextStep error for game ${gameId}:`, err);
       socket.emit("error", {

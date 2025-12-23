@@ -359,6 +359,55 @@ export function getAttackTriggersForCreatures(
     }
   }
   
+  // Check for Background enchantments that grant abilities to commanders
+  // Example: Agent of the Shadow Thieves - grants attack trigger to commanders
+  const commandZone = (ctx.state as any).commandZone?.[attackingPlayer];
+  const commanderIds = commandZone?.commanderIds || [];
+  
+  for (const attacker of attackingCreatures) {
+    // Check if this attacking creature is a commander owned by the attacking player
+    const isCommander = commanderIds.includes(attacker.card?.id) || 
+                       (attacker.card?.name && commandZone?.commanderNames?.includes(attacker.card.name));
+    
+    if (isCommander) {
+      // Check all permanents for backgrounds that grant abilities to commanders
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== attackingPlayer) continue;
+        
+        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+        const cardName = (permanent.card?.name || "").toLowerCase();
+        const typeLine = (permanent.card?.type_line || "").toLowerCase();
+        
+        // Check if this is a Background enchantment
+        if (!typeLine.includes('background')) continue;
+        
+        // Agent of the Shadow Thieves: "Commander creatures you own have 'Whenever this creature attacks a player...'"
+        if (cardName.includes('agent of the shadow thieves') ||
+            (oracleText.includes('commander creatures you own') && 
+             oracleText.includes('whenever this creature attacks'))) {
+          // Extract the granted ability
+          const grantedAbilityMatch = oracleText.match(/commander creatures you own have "([^"]+)"/i);
+          if (grantedAbilityMatch) {
+            const grantedAbility = grantedAbilityMatch[1];
+            triggers.push({
+              permanentId: attacker.id,
+              cardName: attacker.card?.name || 'Commander',
+              description: grantedAbility,
+              triggerType: 'attacks',
+              mandatory: true,
+              value: {
+                grantedBy: permanent.id,
+                grantedByName: permanent.card?.name,
+                defendingPlayer: defendingPlayer, // Pass defending player for conditional check
+              },
+            });
+            debug(2, `[getAttackTriggersForCreatures] Background ${permanent.card?.name} granted attack trigger to commander ${attacker.card?.name} (defending ${defendingPlayer})`);
+          }
+        }
+      }
+    }
+  }
+  
   return triggers;
 }
 
@@ -632,5 +681,86 @@ export function getEndOfCombatTriggers(
   }
   
   return triggers;
+}
+
+// ============================================================================
+// Damage Received Triggers
+// ============================================================================
+
+/**
+ * Information about a damage received trigger that needs to be queued for resolution
+ */
+export interface DamageReceivedTriggerInfo {
+  triggerId: string;
+  sourceId: string;
+  sourceName: string;
+  controller: string;
+  damageAmount: number;
+  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller';
+  targetRestriction?: string;
+}
+
+/**
+ * Check if a permanent has a "whenever this creature is dealt damage" trigger
+ * and return the trigger information if it does.
+ * 
+ * This supports cards like:
+ * - Brash Taunter: "Whenever Brash Taunter is dealt damage, it deals that much damage to target opponent."
+ * - Boros Reckoner: "Whenever Boros Reckoner is dealt damage, it deals that much damage to any target."
+ * - Stuffy Doll: "Whenever Stuffy Doll is dealt damage, it deals that much damage to the chosen player."
+ */
+export function checkDamageReceivedTrigger(
+  permanent: any,
+  damageAmount: number
+): DamageReceivedTriggerInfo | null {
+  if (!permanent || damageAmount <= 0) return null;
+  
+  const card = permanent.card;
+  if (!card) return null;
+  
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  const creatureName = card.name || "Unknown";
+  const lowerName = creatureName.toLowerCase();
+  
+  // Check if this card has a damage received trigger
+  // Pattern 1: "Whenever this creature is dealt damage"
+  // Pattern 2: "Whenever [CardName] is dealt damage"
+  const hasTrigger = 
+    oracleText.includes("whenever this creature is dealt damage") ||
+    oracleText.includes(`whenever ${lowerName} is dealt damage`);
+  
+  if (!hasTrigger) return null;
+  
+  // Determine target type from oracle text
+  let targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller' = 'any';
+  let targetRestriction = '';
+  
+  if (oracleText.includes("target opponent")) {
+    targetType = 'opponent';
+    targetRestriction = 'opponent';
+  } else if (oracleText.includes("any target that isn't a dragon")) {
+    targetType = 'any_non_dragon';
+    targetRestriction = "that isn't a Dragon";
+  } else if (oracleText.includes("the chosen player")) {
+    targetType = 'chosen_player';
+    targetRestriction = 'chosen player';
+  } else if (oracleText.includes("each opponent")) {
+    targetType = 'each_opponent';
+    targetRestriction = 'each opponent';
+  } else if (oracleText.includes("any target")) {
+    targetType = 'any';
+  }
+  
+  const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  
+  return {
+    triggerId,
+    sourceId: permanent.id,
+    sourceName: creatureName,
+    controller: permanent.controller,
+    damageAmount,
+    targetType,
+    targetRestriction,
+  };
 }
 

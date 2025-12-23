@@ -2492,6 +2492,26 @@ export function calculateEquipmentBonus(
       continue;
     }
     
+    // Tenza, Godo's Maul - conditional bonuses based on creature type
+    // "Equipped creature gets +1/+1. As long as it's legendary, it gets an additional +2/+2. 
+    //  As long as it's red, it has trample."
+    if (cardName.includes("tenza") || cardName.includes("godo's maul")) {
+      // Base bonus
+      powerBonus += 1;
+      toughnessBonus += 1;
+      
+      // Additional bonus if legendary
+      const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
+      if (creatureTypeLine.includes('legendary')) {
+        powerBonus += 2;
+        toughnessBonus += 2;
+      }
+      
+      // Trample if red is handled separately in keyword detection
+      // Just track the bonus here
+      continue;
+    }
+    
     // ===== CHECK KNOWN STATIC EQUIPMENT BONUSES =====
     if (EQUIPMENT_BONUSES[cardName]) {
       powerBonus += EQUIPMENT_BONUSES[cardName].power;

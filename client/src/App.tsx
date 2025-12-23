@@ -686,6 +686,11 @@ export function App() {
     sourceImageUrl?: string;
     title?: string;
     description?: string;
+    targetFilter?: {
+      types?: string[];
+      controller?: 'you' | 'opponent' | 'any';
+      excludeSource?: boolean;
+    };
   } | null>(null);
   
   // Counter Movement Modal state - for Nesting Grounds, etc.
@@ -2879,6 +2884,7 @@ export function App() {
         sourceImageUrl: data.source.imageUrl,
         title: data.title,
         description: data.description,
+        targetFilter: data.targetFilter,
       });
       setFightTargetModalOpen(true);
     };
@@ -5398,10 +5404,10 @@ export function App() {
         }}
         action='tap' // Reuse tap UI but it's for fight selection
         targetFilter={{
-          types: ['creature'],
-          controller: 'opponent',
-          tapStatus: 'any',
-          excludeSource: true,
+          types: fightTargetModalData?.targetFilter?.types || ['creature'],
+          controller: fightTargetModalData?.targetFilter?.controller || 'any',
+          tapStatus: 'any', // Fight can target tapped or untapped creatures
+          excludeSource: fightTargetModalData?.targetFilter?.excludeSource !== false,
         }}
         targetCount={1}
         availablePermanents={safeView?.battlefield || []}

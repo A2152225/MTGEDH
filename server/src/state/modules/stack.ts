@@ -980,6 +980,45 @@ export function triggerETBEffectsForPermanent(
       debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
     }
   }
+  
+  // Check for pending control change effects (Vislor Turlough, Xantcha, Akroan Horse)
+  if ((permanent as any).pendingControlChange) {
+    const controlChangeInfo = (permanent as any).pendingControlChange;
+    debug(2, `[triggerETBEffectsForPermanent] ${permanent.card?.name} has pending control change: ${controlChangeInfo.type}`);
+    
+    // Queue a resolution step for the control change
+    const gameId = (ctx as any).gameId || 'unknown';
+    const { ResolutionQueueManager, ResolutionStepType } = require('../resolution/index.js');
+    
+    if (controlChangeInfo.type === 'may_give_opponent' || controlChangeInfo.type === 'enters_under_opponent_control') {
+      const isOptional = controlChangeInfo.type === 'may_give_opponent';
+      
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.PLAYER_CHOICE,
+        playerId: controller,
+        description: isOptional 
+          ? `${permanent.card?.name}: You may have an opponent gain control of it`
+          : `${permanent.card?.name}: Choose an opponent to control this permanent`,
+        mandatory: !isOptional,
+        sourceId: permanent.id,
+        sourceName: permanent.card?.name,
+        sourceImage: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+        promptTitle: isOptional ? "Control Change (Optional)" : "Choose Opponent",
+        promptDescription: isOptional
+          ? `Do you want to give control of ${permanent.card?.name} to an opponent? If you do, it will be goaded.`
+          : `Choose which opponent will control ${permanent.card?.name}.`,
+        options: [], // Will be filled with opponent list by the resolution handler
+        controlChangeData: {
+          permanentId: permanent.id,
+          isOptional,
+          goadsOnChange: controlChangeInfo.goadsOnChange || false,
+          mustAttackEachCombat: controlChangeInfo.mustAttackEachCombat || false,
+          cantAttackOwner: controlChangeInfo.cantAttackOwner || false,
+        },
+      });
+      debug(2, `[triggerETBEffectsForPermanent] Queued control change step for ${permanent.card?.name} (optional: ${isOptional})`);
+    }
+  }
 }
 
 /**
@@ -1026,6 +1065,127 @@ function executeTriggerEffect(
   
   // ===== SPECIAL HANDLERS =====
   // These need to be checked before general pattern matching
+  
+  // Handle Elixir of Immortality - "You gain 5 life. Shuffle this artifact and your graveyard into their owner's library."
+  if (sourceName.toLowerCase().includes('elixir of immortality') ||
+      (desc.includes('shuffle') && desc.includes('graveyard') && desc.includes('into') && desc.includes('library'))) {
+    // Gain 5 life
+    modifyLife(controller, 5);
+    debug(2, `[executeTriggerEffect] Elixir of Immortality: ${controller} gained 5 life`);
+    
+    // Trigger life gain effects
+    triggerLifeGainEffects(ctx, controller, 5);
+    
+    // Shuffle graveyard and the artifact into library
+    const zones = state.zones?.[controller];
+    const sourceId = (triggerItem as any).source; // The permanent ID of the elixir
+    
+    if (zones && ctx.libraries) {
+      const graveyard = zones.graveyard || [];
+      const library = ctx.libraries.get(controller) || [];
+      const battlefield = state.battlefield || [];
+      
+      // Find the Elixir on the battlefield
+      const elixirPerm = battlefield.find((p: any) => p.id === sourceId);
+      
+      // Collect all cards to shuffle into library
+      const cardsToShuffle: any[] = [...graveyard.map((c: any) => ({ ...c, zone: 'library' }))];
+      
+      // Add the Elixir itself if found on battlefield
+      if (elixirPerm && elixirPerm.card) {
+        cardsToShuffle.push({ ...elixirPerm.card, zone: 'library' });
+        
+        // Remove from battlefield
+        const elixirIndex = battlefield.findIndex((p: any) => p.id === sourceId);
+        if (elixirIndex >= 0) {
+          battlefield.splice(elixirIndex, 1);
+        }
+      }
+      
+      if (cardsToShuffle.length > 0) {
+        // Clear graveyard
+        zones.graveyard = [];
+        zones.graveyardCount = 0;
+        
+        // Add all cards to library
+        const newLibrary = [...library, ...cardsToShuffle];
+        
+        // Shuffle using RNG
+        const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
+        for (let i = newLibrary.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
+        }
+        
+        // Update library
+        ctx.libraries.set(controller, newLibrary);
+        zones.libraryCount = newLibrary.length;
+        
+        debug(1, `[executeTriggerEffect] Elixir of Immortality: shuffled ${cardsToShuffle.length} cards into ${controller}'s library`);
+      }
+    }
+    
+    return; // Early return, effect is fully handled
+  }
+  
+  // Handle Agent of the Shadow Thieves commander attack trigger
+  // "Whenever this creature attacks a player, if no opponent has more life than that player, 
+  //  put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."
+  if (desc.includes('whenever this creature attacks a player') && 
+      desc.includes('if no opponent has more life') &&
+      desc.includes('+1/+1 counter')) {
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    const battlefield = state.battlefield || [];
+    const perm = battlefield.find((p: any) => p?.id === sourceId);
+    
+    if (perm) {
+      // Get the defending player from the trigger context
+      const effectData = (triggerItem as any).effectData || (triggerItem as any).value || {};
+      const defendingPlayerId = effectData.defendingPlayer;
+      
+      if (defendingPlayerId) {
+        // Check if no opponent has more life than the defending player
+        const defendingPlayerLife = state.life[defendingPlayerId] ?? (state.startingLife || 40);
+        const players = state.players || [];
+        const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
+        
+        const noOpponentHasMoreLife = opponents.every((opponent: any) => {
+          const opponentLife = state.life[opponent.id] ?? (state.startingLife || 40);
+          return opponentLife <= defendingPlayerLife;
+        });
+        
+        if (noOpponentHasMoreLife) {
+          // Add +1/+1 counter
+          perm.counters = perm.counters || {};
+          perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+          debug(2, `[executeTriggerEffect] Agent trigger: Added +1/+1 counter to ${perm.card?.name || perm.id}`);
+          
+          // Grant deathtouch and indestructible until end of turn
+          perm.temporaryAbilities = perm.temporaryAbilities || [];
+          if (!perm.temporaryAbilities.includes('deathtouch')) {
+            perm.temporaryAbilities.push('deathtouch');
+          }
+          if (!perm.temporaryAbilities.includes('indestructible')) {
+            perm.temporaryAbilities.push('indestructible');
+          }
+          
+          // Track that these abilities should be removed at end of turn
+          state.endOfTurnEffects = state.endOfTurnEffects || [];
+          state.endOfTurnEffects.push({
+            type: 'remove_temporary_abilities',
+            permanentId: sourceId,
+            abilities: ['deathtouch', 'indestructible'],
+          });
+          
+          debug(2, `[executeTriggerEffect] Agent trigger: ${perm.card?.name || perm.id} gained deathtouch and indestructible until end of turn`);
+        } else {
+          debug(2, `[executeTriggerEffect] Agent trigger: Condition not met (opponent has more life than defending player)`);
+        }
+      }
+    }
+    
+    return; // Early return, effect is fully handled
+  }
   
   // Handle Join Forces triggered abilities (Mana-Charged Dragon)
   // These require all players to contribute mana
@@ -4476,6 +4636,33 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       
       debug(1, `[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${targetControllerForRemovalEffects}`);
+    }
+    
+    // Handle Nature's Claim - "Destroy target artifact or enchantment. Its controller gains 4 life."
+    // Use captured target info from BEFORE the destroy happened
+    const isNaturesClaim = effectiveCard.name?.toLowerCase().includes("nature's claim") ||
+        effectiveCard.name?.toLowerCase().includes("natures claim") ||
+        ((oracleTextLower.includes('destroy target artifact') || oracleTextLower.includes('destroy target enchantment')) && 
+         oracleTextLower.includes('its controller gains 4 life'));
+    
+    if (isNaturesClaim && targetControllerForRemovalEffects) {
+      // Give 4 life to the controller of the destroyed permanent
+      const players = (state as any).players || [];
+      const player = players.find((p: any) => p?.id === targetControllerForRemovalEffects);
+      
+      // Update both player.life and state.life to ensure consistency
+      const startingLife = (state as any).startingLife || 40;
+      state.life = state.life || {};
+      const currentLife = state.life[targetControllerForRemovalEffects] ?? player?.life ?? startingLife;
+      state.life[targetControllerForRemovalEffects] = currentLife + 4;
+      
+      if (player) {
+        player.life = state.life[targetControllerForRemovalEffects];
+        debug(2, `[resolveTopOfStack] Nature's Claim: ${targetControllerForRemovalEffects} gains 4 life (${currentLife} -> ${state.life[targetControllerForRemovalEffects]})`);
+      }
+      
+      // Trigger life gain effects (Ajani's Pridemate, etc.)
+      triggerLifeGainEffects(ctx, targetControllerForRemovalEffects, 4);
     }
     
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 

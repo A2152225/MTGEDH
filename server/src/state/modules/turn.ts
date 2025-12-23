@@ -27,7 +27,8 @@ import {
   applyUntapStepEffect,
   isPermanentPreventedFromUntapping,
   detectCombatDamageTriggers,
-  getTriggersForTiming
+  getTriggersForTiming,
+  checkDamageReceivedTrigger
 } from "./triggered-abilities.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
@@ -42,6 +43,43 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
   return new Date().toISOString();
+}
+
+/**
+ * Queue a damage received trigger for later processing by the socket layer.
+ * This is used when a creature with a "whenever this creature is dealt damage" trigger
+ * is dealt damage during combat, from spells, or from any other source.
+ * 
+ * The trigger is added to game.state.pendingDamageTriggers and will be processed
+ * by the socket layer which will emit the appropriate UI prompts to the player.
+ * 
+ * @param ctx Game context
+ * @param permanent The permanent that was dealt damage
+ * @param damageAmount Amount of damage dealt
+ */
+function queueDamageReceivedTrigger(ctx: GameContext, permanent: any, damageAmount: number): void {
+  if (!permanent || damageAmount <= 0) return;
+  
+  const triggerInfo = checkDamageReceivedTrigger(permanent, damageAmount);
+  if (!triggerInfo) return;
+  
+  // Initialize pendingDamageTriggers if needed
+  if (!(ctx as any).state.pendingDamageTriggers) {
+    (ctx as any).state.pendingDamageTriggers = {};
+  }
+  
+  // Add the trigger to the pending list
+  (ctx as any).state.pendingDamageTriggers[triggerInfo.triggerId] = {
+    sourceId: triggerInfo.sourceId,
+    sourceName: triggerInfo.sourceName,
+    controller: triggerInfo.controller,
+    damageAmount: triggerInfo.damageAmount,
+    triggerType: 'dealt_damage',
+    targetType: triggerInfo.targetType,
+    targetRestriction: triggerInfo.targetRestriction,
+  };
+  
+  debug(2, `${ts()} [queueDamageReceivedTrigger] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${damageAmount} damage`);
 }
 
 /**
@@ -679,6 +717,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   
   try {
     const battlefield = (ctx as any).state?.battlefield;
+    const state = (ctx as any).state;
     if (!Array.isArray(battlefield)) {
       debug(2, `${ts()} [COMBAT_DAMAGE] No battlefield array, returning early`);
       return result;
@@ -720,7 +759,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       const card = attacker.card || {};
       let keywords;
       try {
-        keywords = parseCreatureKeywords(card, attacker);
+        keywords = parseCreatureKeywords(card, attacker, state);
       } catch (err) {
         debugError(1, `${ts()} [dealCombatDamage] CRASH parsing keywords for ${card.name || attacker.id}:`, err);
         // Fallback to empty keywords to prevent crash
@@ -966,6 +1005,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
             
+            // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+            queueDamageReceivedTrigger(ctx, blocker, damageToBlocker);
+            
             // Check if blocker dies
             const totalDamageOnBlocker = blocker.markedDamage || 0;
             const isDead = totalDamageOnBlocker >= blockerToughness || (keywords.deathtouch && totalDamageOnBlocker > 0);
@@ -1046,7 +1088,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           
           let blockerKeywords;
           try {
-            blockerKeywords = parseCreatureKeywords(blockerCard, blocker);
+            blockerKeywords = parseCreatureKeywords(blockerCard, blocker, state);
             debug(2, `${ts()} [COMBAT_DAMAGE] Blocker keywords parsed successfully`);
           } catch (err) {
             debugError(1, `${ts()} [COMBAT_DAMAGE] CRASH parsing keywords for blocker ${blockerCard.name || blockerId}:`, err);
@@ -1106,6 +1148,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             attacker.markedDamage = (attacker.markedDamage || 0) + blockerPower;
             
             debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerPower} damage to attacker ${card.name || attacker.id}`);
+            
+            // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+            queueDamageReceivedTrigger(ctx, attacker, blockerPower);
             
             // Check if attacker dies
             const attackerToughness = parseInt(String(attacker.baseToughness ?? card.toughness ?? '0'), 10) || 0;

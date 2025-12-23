@@ -58,6 +58,9 @@ export {
   // End of combat
   detectEndOfCombatTriggers,
   getEndOfCombatTriggers,
+  // Damage received triggers
+  checkDamageReceivedTrigger,
+  type DamageReceivedTriggerInfo,
   // Types
   type CombatTriggeredAbility,
   type AttachmentAttackTrigger,
