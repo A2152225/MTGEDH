@@ -40,8 +40,34 @@ export function setCommander(
   
   info.commanderIds = cleanCommanderIds.slice();
   info.commanderNames = cleanCommanderNames.slice();
-  // Initialize inCommandZone to all commander IDs (all start in the command zone)
-  (info as any).inCommandZone = cleanCommanderIds.slice();
+  
+  // CRITICAL FIX: Only initialize inCommandZone if it doesn't exist or is empty
+  // This preserves the state of which commanders have been cast vs still in command zone
+  const existingInCZ = (info as any).inCommandZone as string[] | undefined;
+  if (!existingInCZ || existingInCZ.length === 0) {
+    // First time setting commanders - all start in command zone
+    (info as any).inCommandZone = cleanCommanderIds.slice();
+    debug(1, `[setCommander] Initialized inCommandZone for ${playerId}:`, cleanCommanderIds);
+  } else {
+    // Commanders were already set - preserve existing inCommandZone state
+    // but filter out any commanders that are no longer in commanderIds (if the list changed)
+    const updatedInCZ = existingInCZ.filter((id: string) => cleanCommanderIds.includes(id));
+    
+    // Add any new commanders that weren't in the previous list
+    for (const id of cleanCommanderIds) {
+      if (!existingInCZ.includes(id)) {
+        updatedInCZ.push(id);
+      }
+    }
+    
+    (info as any).inCommandZone = updatedInCZ;
+    debug(1, `[setCommander] Preserved inCommandZone for ${playerId}:`, {
+      previous: existingInCZ,
+      updated: updatedInCZ,
+      commanderIds: cleanCommanderIds
+    });
+  }
+  
   if (!info.taxById) info.taxById = {};
   info.tax = Object.values(info.taxById || {}).reduce((a: number, b: number) => a + b, 0);
 
