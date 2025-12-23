@@ -1027,6 +1027,68 @@ function executeTriggerEffect(
   // ===== SPECIAL HANDLERS =====
   // These need to be checked before general pattern matching
   
+  // Handle Elixir of Immortality - "You gain 5 life. Shuffle this artifact and your graveyard into their owner's library."
+  if (sourceName.toLowerCase().includes('elixir of immortality') ||
+      (desc.includes('shuffle') && desc.includes('graveyard') && desc.includes('into') && desc.includes('library'))) {
+    // Gain 5 life
+    modifyLife(controller, 5);
+    debug(2, `[executeTriggerEffect] Elixir of Immortality: ${controller} gained 5 life`);
+    
+    // Trigger life gain effects
+    triggerLifeGainEffects(ctx, controller, 5);
+    
+    // Shuffle graveyard and the artifact into library
+    const zones = state.zones?.[controller];
+    const sourceId = (triggerItem as any).source; // The permanent ID of the elixir
+    
+    if (zones && ctx.libraries) {
+      const graveyard = zones.graveyard || [];
+      const library = ctx.libraries.get(controller) || [];
+      const battlefield = state.battlefield || [];
+      
+      // Find the Elixir on the battlefield
+      const elixirPerm = battlefield.find((p: any) => p.id === sourceId);
+      
+      // Collect all cards to shuffle into library
+      const cardsToShuffle: any[] = [...graveyard.map((c: any) => ({ ...c, zone: 'library' }))];
+      
+      // Add the Elixir itself if found on battlefield
+      if (elixirPerm && elixirPerm.card) {
+        cardsToShuffle.push({ ...elixirPerm.card, zone: 'library' });
+        
+        // Remove from battlefield
+        const elixirIndex = battlefield.findIndex((p: any) => p.id === sourceId);
+        if (elixirIndex >= 0) {
+          battlefield.splice(elixirIndex, 1);
+        }
+      }
+      
+      if (cardsToShuffle.length > 0) {
+        // Clear graveyard
+        zones.graveyard = [];
+        zones.graveyardCount = 0;
+        
+        // Add all cards to library
+        const newLibrary = [...library, ...cardsToShuffle];
+        
+        // Shuffle using RNG
+        const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
+        for (let i = newLibrary.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
+        }
+        
+        // Update library
+        ctx.libraries.set(controller, newLibrary);
+        zones.libraryCount = newLibrary.length;
+        
+        debug(1, `[executeTriggerEffect] Elixir of Immortality: shuffled ${cardsToShuffle.length} cards into ${controller}'s library`);
+      }
+    }
+    
+    return; // Early return, effect is fully handled
+  }
+  
   // Handle Join Forces triggered abilities (Mana-Charged Dragon)
   // These require all players to contribute mana
   // Uses the unified ResolutionQueueManager for proper APNAP ordering
