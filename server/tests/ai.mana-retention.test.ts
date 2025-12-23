@@ -63,6 +63,7 @@ describe('AI Mana Retention', () => {
       const cardName = 'omnath, locus of mana';
       const oracleText = "You don't lose unspent green mana as steps and phases end.";
       
+      // Check includes both straight (') and curly (') apostrophe styles
       const hasGreenRetention = cardName.includes('omnath, locus of mana') || 
         (oracleText.toLowerCase().includes('green mana') && 
          (oracleText.toLowerCase().includes("doesn't empty") || oracleText.toLowerCase().includes("doesn't empty") ||
@@ -75,6 +76,7 @@ describe('AI Mana Retention', () => {
       const cardName = 'leyline tyrant';
       const oracleText = "You don't lose unspent red mana as steps and phases end.";
       
+      // Check includes both straight (') and curly (') apostrophe styles
       const hasRedRetention = cardName.includes('leyline tyrant') ||
         (oracleText.toLowerCase().includes('red mana') && 
          (oracleText.toLowerCase().includes("don't lose") || oracleText.toLowerCase().includes("don't lose") ||
@@ -97,6 +99,7 @@ describe('AI Mana Retention', () => {
       const cardName = 'llanowar elves';
       const oracleText = '{T}: Add {G}.';
       
+      // Check includes both straight (') and curly (') apostrophe styles
       const hasGreenRetention = cardName.includes('omnath, locus of mana') || 
         (oracleText.toLowerCase().includes('green mana') && 
          (oracleText.toLowerCase().includes("doesn't empty") || oracleText.toLowerCase().includes("doesn't empty") ||

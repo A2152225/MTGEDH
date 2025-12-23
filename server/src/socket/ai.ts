@@ -40,6 +40,10 @@ const INITIAL_HAND_SIZE = 7;
 /** Probability that AI gives up control of optional creatures (0.3 = 30%) */
 const AI_OPTIONAL_GIVE_CONTROL_PROBABILITY = 0.3;
 
+/** Mana retention tapping strategy constants */
+const MIN_UNTAPPED_LANDS_FOR_INSTANTS = 3; // Keep at least 3 lands untapped for instant-speed responses
+const UNTAPPED_LAND_RATIO = 0.4; // Keep at least 40% of lands untapped
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -2759,7 +2763,7 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
     }
     
     // Upwelling - All mana doesn't empty
-    // Handle different apostrophe styles
+    // Handle different apostrophe styles (straight ' vs curly ')
     if (cardName.includes('upwelling') ||
         (oracleText.includes('mana pools') && 
          (oracleText.includes("don't empty") || oracleText.includes("don't empty")))) {
@@ -2913,10 +2917,10 @@ async function executeAITapLandsForMana(
     }
   }
   
-  // Conservative strategy: Keep at least 3 lands untapped for instant-speed responses
+  // Conservative strategy: Keep lands untapped for instant-speed responses
   // Tap at most 60% of available lands, ensuring we don't tap all resources
   const totalTappable = tappableLands.length;
-  const minToKeepUntapped = Math.max(3, Math.ceil(totalTappable * 0.4)); // Keep 40% or at least 3, whichever is MORE
+  const minToKeepUntapped = Math.max(MIN_UNTAPPED_LANDS_FOR_INSTANTS, Math.ceil(totalTappable * UNTAPPED_LAND_RATIO));
   const maxToTap = Math.max(0, totalTappable - minToKeepUntapped);
   const landsToTap = tappableLands.slice(0, maxToTap);
   
