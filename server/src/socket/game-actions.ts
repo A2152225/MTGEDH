@@ -4302,6 +4302,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       broadcastGame(io, game, gameId);
+      
+      // Check for pending damage triggers (Brash Taunter, Boros Reckoner, etc.)
+      // These are queued during combat damage or spell resolution
+      checkAndEmitDamageTriggers(io, game, gameId);
     } catch (err: any) {
       debugError(1, `passPriority error for game ${gameId}:`, err);
       socket.emit("error", {
@@ -4310,6 +4314,52 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
     }
   });
+  
+  /**
+   * Check for pending damage triggers and emit them to the appropriate players.
+   * Damage triggers are queued in game.state.pendingDamageTriggers during:
+   * - Combat damage (turn.ts dealCombatDamage)
+   * - Fight resolution (interaction.ts)
+   * - Spell damage effects
+   */
+  function checkAndEmitDamageTriggers(io: Server, game: InMemoryGame, gameId: string) {
+    const pendingTriggers = (game.state as any).pendingDamageTriggers;
+    if (!pendingTriggers || typeof pendingTriggers !== 'object') return;
+    
+    const triggerIds = Object.keys(pendingTriggers);
+    if (triggerIds.length === 0) return;
+    
+    // Emit each pending trigger to its controller
+    for (const triggerId of triggerIds) {
+      const trigger = pendingTriggers[triggerId];
+      if (!trigger) continue;
+      
+      const { sourceId, sourceName, controller, damageAmount, targetType, targetRestriction } = trigger;
+      
+      // Find the source permanent to get its image
+      const battlefield = (game.state as any).battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p?.id === sourceId);
+      const imageUrl = sourcePerm?.card?.image_uris?.small || sourcePerm?.card?.image_uris?.normal;
+      
+      // Emit trigger to the controller for target selection
+      emitToPlayer(io, controller, "damageTriggerTargetRequest", {
+        gameId,
+        triggerId,
+        source: {
+          id: sourceId,
+          name: sourceName,
+          imageUrl,
+        },
+        damageAmount,
+        targetType,
+        targetRestriction: targetRestriction || '',
+        title: `${sourceName} - Damage Trigger`,
+        description: `${sourceName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
+      });
+      
+      debug(2, `[checkAndEmitDamageTriggers] Emitted damage trigger for ${sourceName} (${damageAmount} damage) to ${controller}`);
+    }
+  }
 
   /**
    * Batch resolve all triggered abilities on the stack.
@@ -4999,6 +5049,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       broadcastGame(io, game, gameId);
+      
+      // Check for pending damage triggers
+      checkAndEmitDamageTriggers(io, game, gameId);
     } catch (err: any) {
       debugError(1, `nextStep error for game ${gameId}:`, err);
       socket.emit("error", {
