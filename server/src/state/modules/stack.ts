@@ -17,6 +17,7 @@ import {
   shouldGoadOnControlChange,
   mustAttackEachCombat,
   cantAttackOwner,
+  checkGraveyardTrigger,
 } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
@@ -2310,6 +2311,11 @@ function executeTriggerEffect(
               targetPerm.card.zone = 'graveyard';
               ownerZones.graveyard.push(targetPerm.card);
               ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
+              
+              // Check for graveyard triggers (Eldrazi shuffle)
+              if (checkGraveyardTrigger(ctx, targetPerm.card, targetPerm.owner)) {
+                debug(2, `[executeTriggerEffect] ${targetPerm.card?.name} triggered graveyard shuffle for ${targetPerm.owner}`);
+              }
             }
             debug(2, `[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
           }
@@ -4840,6 +4846,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         z.graveyard = z.graveyard || [];
         (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
         z.graveyardCount = (z.graveyard as any[]).length;
+        
+        // Check for graveyard triggers (Eldrazi shuffle)
+        if (checkGraveyardTrigger(ctx, card, controller)) {
+          debug(2, `[resolveTopOfStack] ${card.name} triggered graveyard shuffle for ${controller}`);
+        }
+        
         debug(2, `[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
       }
     }

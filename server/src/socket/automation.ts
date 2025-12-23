@@ -16,6 +16,7 @@ import { games } from "./socket.js";
 import GameManager from "../GameManager.js";
 import { canRespond, canAct } from "../state/modules/can-respond.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { detectGroupDrawEffect } from "../state/modules/triggered-abilities.js";
 
 /**
  * Register automation-related socket handlers
@@ -989,6 +990,64 @@ async function processActivateAbility(
       }
       
       return { success: true, usesStack: false, message: result.message };
+    }
+    
+    // Check for group draw effects (Temple Bell, etc.)
+    const groupDrawEffect = detectGroupDrawEffect(card, perm);
+    
+    // Handle group draw effects (Temple Bell, etc.)
+    if (groupDrawEffect) {
+      // Check if tapped (most group draw cards require tap)
+      if (groupDrawEffect.cost.includes('{T}') && (perm as any).tapped) {
+        return { success: false, error: `${groupDrawEffect.cardName} is already tapped` };
+      }
+      
+      // Tap the permanent if it requires tap
+      if (groupDrawEffect.cost.includes('{T}')) {
+        (perm as any).tapped = true;
+      }
+      
+      // Execute the draw effect for affected players
+      const affectedPlayers = [];
+      const players = game.state.players || [];
+      
+      switch (groupDrawEffect.affectedPlayers) {
+        case 'all':
+          // All players draw (Temple Bell, Howling Mine)
+          for (const player of players) {
+            if (typeof game.drawCards === 'function') {
+              game.drawCards(player.id, groupDrawEffect.drawAmount);
+              affectedPlayers.push(player.id);
+            }
+          }
+          break;
+          
+        case 'each_opponent':
+          // Each opponent draws (Master of the Feast)
+          for (const player of players) {
+            if (player.id !== playerId && typeof game.drawCards === 'function') {
+              game.drawCards(player.id, groupDrawEffect.drawAmount);
+              affectedPlayers.push(player.id);
+            }
+          }
+          break;
+          
+        case 'you':
+          // Only controller draws
+          if (typeof game.drawCards === 'function') {
+            game.drawCards(playerId, groupDrawEffect.drawAmount);
+            affectedPlayers.push(playerId);
+          }
+          break;
+      }
+      
+      debug(1, `[processActivateAbility] ${groupDrawEffect.cardName}: ${affectedPlayers.length} player(s) drew ${groupDrawEffect.drawAmount} card(s)`);
+      
+      return { 
+        success: true, 
+        usesStack: false, 
+        message: `${groupDrawEffect.cardName}: ${affectedPlayers.length} player(s) drew ${groupDrawEffect.drawAmount} card(s)` 
+      };
     }
     
     if (isManaAbility) {

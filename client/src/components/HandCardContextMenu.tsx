@@ -146,7 +146,7 @@ export function HandCardContextMenu({
         borderRadius: 8,
         boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         minWidth: 200,
-        zIndex: 10000,
+        zIndex: 100000, // Very high to ensure it appears on top of all other elements
         overflow: 'hidden',
       }}
       onClick={(e) => e.stopPropagation()}
