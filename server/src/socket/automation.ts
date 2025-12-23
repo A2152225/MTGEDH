@@ -994,6 +994,57 @@ async function processActivateAbility(
       return { success: true, usesStack: false, message: result.message };
     }
     
+    // Import X-activated abilities module
+    const { hasXActivatedAbility, getXActivatedAbility, executeSteelHellkiteAbility } = 
+      await import("../state/modules/x-activated-abilities.js");
+    
+    // Handle X-cost activated abilities (Steel Hellkite, etc.)
+    if (hasXActivatedAbility(cardName)) {
+      const xAbilityConfig = getXActivatedAbility(cardName);
+      
+      if (!xAbilityConfig) {
+        return { success: false, error: "X ability configuration not found" };
+      }
+      
+      // Check if X value was provided
+      if (ability.xValue === undefined || ability.xValue === null) {
+        return { success: false, error: "X value is required for this ability" };
+      }
+      
+      // Check once per turn restriction
+      if (xAbilityConfig.oncePerTurn && (perm as any).activatedThisTurn) {
+        return { success: false, error: "This ability can only be activated once per turn" };
+      }
+      
+      // Handle Steel Hellkite specifically
+      if (cardName === 'steel hellkite') {
+        const result = executeSteelHellkiteAbility(
+          game as any,
+          playerId,
+          ability.permanentId,
+          ability.xValue
+        );
+        
+        if (!result.success) {
+          return { success: false, error: result.error };
+        }
+        
+        // Mark as activated this turn if once per turn
+        if (xAbilityConfig.oncePerTurn) {
+          (perm as any).activatedThisTurn = true;
+        }
+        
+        return {
+          success: true,
+          usesStack: false,
+          message: `Steel Hellkite: Destroyed ${result.destroyedCount} permanent(s) with mana value ${ability.xValue}`,
+        };
+      }
+      
+      // Other X abilities would be handled here
+      return { success: false, error: "X ability not fully implemented yet" };
+    }
+    
     // Check for group draw effects (Temple Bell, etc.)
     const groupDrawEffect = detectGroupDrawEffect(card, perm);
     
