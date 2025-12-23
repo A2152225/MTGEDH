@@ -418,6 +418,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Accept both commanderId and commanderNameOrId for backwards compatibility
       let commanderId = payload.commanderId ?? payload.commanderNameOrId;
       
+      debug(1, `[castCommander] Received payload:`, { 
+        gameId, 
+        commanderId: payload.commanderId, 
+        commanderNameOrId: payload.commanderNameOrId,
+        resolvedCommanderId: commanderId,
+        hasPayment: !!payment 
+      });
+      
       const pid: PlayerID | undefined = socket.data.playerId;
       const spectator = socket.data.spectator;
       
@@ -470,24 +478,58 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       if (!commanderInfo.commanderIds.includes(commanderId)) {
         // Try to find by name
         const commanderNames = (commanderInfo as any).commanderNames || [];
+        debug(1, `[castCommander] CommanderId not in commanderIds, attempting name resolution:`, {
+          commanderId,
+          commanderIds: commanderInfo.commanderIds,
+          commanderNames
+        });
         const nameIndex = commanderNames.findIndex((n: string) => 
           n?.toLowerCase() === commanderId?.toLowerCase()
         );
         if (nameIndex >= 0 && commanderInfo.commanderIds[nameIndex]) {
-          commanderId = commanderInfo.commanderIds[nameIndex];
+          const resolvedId = commanderInfo.commanderIds[nameIndex];
+          debug(1, `[castCommander] Resolved commander name "${commanderId}" to ID: ${resolvedId}`);
+          commanderId = resolvedId;
         } else {
+          debugError(1, `[castCommander] Failed to resolve commander:`, {
+            commanderId,
+            nameIndex,
+            commanderIds: commanderInfo.commanderIds,
+            commanderNames
+          });
           socket.emit("error", {
             code: "INVALID_COMMANDER",
             message: "That is not your commander or commander not found",
           });
           return;
         }
+      } else {
+        debug(1, `[castCommander] CommanderId ${commanderId} found in commanderIds, no resolution needed`);
       }
       
       // Check if the commander is in the command zone
       const inCommandZone = Array.isArray((commanderInfo as any).inCommandZone) 
         ? (commanderInfo as any).inCommandZone as string[]
         : commanderInfo.commanderIds.slice();
+      
+      debug(1, `[castCommander] Checking if commander ${commanderId} is in command zone:`, {
+        commanderId,
+        inCommandZone,
+        commanderIds: commanderInfo.commanderIds
+      });
+      
+      if (!commanderId) {
+        debugError(1, `[castCommander] CRITICAL: commanderId is undefined after resolution!`, {
+          originalPayload: { commanderId: payload.commanderId, commanderNameOrId: payload.commanderNameOrId },
+          commanderInfo: { commanderIds: commanderInfo.commanderIds, commanderNames: (commanderInfo as any).commanderNames }
+        });
+        socket.emit("error", {
+          code: "COMMANDER_ID_UNDEFINED",
+          message: "Commander ID is undefined - this is a bug. Please report this issue.",
+        });
+        return;
+      }
+      
       if (!inCommandZone.includes(commanderId)) {
         socket.emit("error", {
           code: "COMMANDER_NOT_IN_CZ",
@@ -558,6 +600,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
       
       debug(1, `[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
+      debug(1, `[castCommander] Commander info before casting:`, {
+        commanderId,
+        commanderName: commanderCard.name,
+        inCommandZone: (commanderInfo as any).inCommandZone,
+        tax: (commanderInfo as any).taxById?.[commanderId] || commanderInfo.tax || 0
+      });
       
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       if (payment && payment.length > 0) {
@@ -638,6 +686,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         
         // Update commander tax and remove from command zone
         if (typeof (game as any).castCommander === "function") {
+          debug(1, `[castCommander] Calling game.castCommander with playerId: ${pid}, commanderId: ${commanderId}`);
           (game as any).castCommander(pid, commanderId);
         }
         
@@ -646,6 +695,15 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           (game as any).bumpSeq();
         }
         
+        debug(1, `[castCommander] Appending event with playerId: ${pid}, commanderId: ${commanderId}`);
+        if (!commanderId) {
+          debugError(1, `[castCommander] CRITICAL: Attempting to append castCommander event with undefined commanderId!`, {
+            playerId: pid,
+            commanderId,
+            payload
+          });
+          throw new Error("Cannot persist castCommander event with undefined commanderId");
+        }
         appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment });
         
         io.to(gameId).emit("chat", {
