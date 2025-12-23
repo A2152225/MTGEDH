@@ -4478,6 +4478,33 @@ export function resolveTopOfStack(ctx: GameContext) {
       debug(1, `[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${targetControllerForRemovalEffects}`);
     }
     
+    // Handle Nature's Claim - "Destroy target artifact or enchantment. Its controller gains 4 life."
+    // Use captured target info from BEFORE the destroy happened
+    const isNaturesClaim = effectiveCard.name?.toLowerCase().includes("nature's claim") ||
+        effectiveCard.name?.toLowerCase().includes("natures claim") ||
+        ((oracleTextLower.includes('destroy target artifact') || oracleTextLower.includes('destroy target enchantment')) && 
+         oracleTextLower.includes('its controller gains 4 life'));
+    
+    if (isNaturesClaim && targetControllerForRemovalEffects) {
+      // Give 4 life to the controller of the destroyed permanent
+      const players = (state as any).players || [];
+      const player = players.find((p: any) => p?.id === targetControllerForRemovalEffects);
+      
+      // Update both player.life and state.life to ensure consistency
+      const startingLife = (state as any).startingLife || 40;
+      state.life = state.life || {};
+      const currentLife = state.life[targetControllerForRemovalEffects] ?? player?.life ?? startingLife;
+      state.life[targetControllerForRemovalEffects] = currentLife + 4;
+      
+      if (player) {
+        player.life = state.life[targetControllerForRemovalEffects];
+        debug(2, `[resolveTopOfStack] Nature's Claim: ${targetControllerForRemovalEffects} gains 4 life (${currentLife} -> ${state.life[targetControllerForRemovalEffects]})`);
+      }
+      
+      // Trigger life gain effects (Ajani's Pridemate, etc.)
+      triggerLifeGainEffects(ctx, targetControllerForRemovalEffects, 4);
+    }
+    
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
     // You create X 1/1 white Soldier creature tokens, where X is that creature's toughness."
     const isEntrapmentManeuver = effectiveCard.name?.toLowerCase().includes('entrapment maneuver') ||
