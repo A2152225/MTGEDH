@@ -7,6 +7,7 @@
 
 import type { PlayerID } from "../../../../shared/src";
 import { creatureHasHaste } from "../../socket/game-actions.js";
+import { debug } from "../../utils/debug.js";
 
 /**
  * Phyrexian mana can be paid with 2 life instead of the colored mana
@@ -373,17 +374,14 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       const producedManaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
       const totalProduced = producedManaTokens.length;
       
-      // Only count if we get a net positive (or break even)
-      // Signets: cost 1, produce 2 = net +1
-      // If cost >= produced, this doesn't help us cast spells (net 0 or negative)
-      if (totalProduced <= activationCostAmount) {
-        // This mana source costs as much or more than it produces - skip it
-        debug(3, `[getAvailableMana] Skipping ${cardName}: costs ${activationCostAmount} to produce ${totalProduced}`);
-        continue;
-      }
+      // Calculate net mana: even if cost >= produced, still include for mana fixing
+      // Example: "{1}, {T}: Add {W}" costs 1 colorless to get 1 white (mana fixing)
+      // Signets: "{1}, {T}: Add {W}{U}" costs 1 to get 2 (net +1)
+      const netMana = Math.max(1, totalProduced - activationCostAmount);
       
-      // Net mana gained is totalProduced - activationCostAmount
-      const netMana = totalProduced - activationCostAmount;
+      // For mana fixing sources (cost >= produced), we still count them but as 1 mana
+      // This represents the ability to convert generic mana into specific colors
+      const manaToAdd = totalProduced > activationCostAmount ? totalProduced - activationCostAmount : 1;
       
       // Check if this is an OR mana ability
       const hasOrClause = /\{[wubrgc]\}(?:,?\s*\{[wubrgc]\})*,?\s+or\s+\{[wubrgc]\}/i.test(fullManaText);
@@ -403,27 +401,30 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
           }[color];
           
           if (colorKey) {
-            pool[colorKey] = (pool[colorKey] || 0) + netMana;
+            pool[colorKey] = (pool[colorKey] || 0) + manaToAdd;
           }
         }
       } else {
-        // Add net mana for each color produced
-        // For signets: produces 2, costs 1, so add 1 of each color
-        for (let i = 0; i < netMana; i++) {
-          for (const token of producedManaTokens) {
-            const color = token.replace(/[{}]/g, '').toUpperCase();
-            const colorKey = {
-              'W': 'white',
-              'U': 'blue',
-              'B': 'black',
-              'R': 'red',
-              'G': 'green',
-              'C': 'colorless',
-            }[color];
-            
-            if (colorKey) {
-              pool[colorKey] = (pool[colorKey] || 0) + 1;
-            }
+        // Add mana for each color produced, accounting for activation cost
+        // For signets: produces {W}{U}, costs {1}, so we add 1 of each color (net +1 total)
+        // For mana fixing: produces {W}, costs {1}, we add 1 white (for color fixing)
+        let addedCount = 0;
+        for (const token of producedManaTokens) {
+          if (addedCount >= manaToAdd) break;
+          
+          const color = token.replace(/[{}]/g, '').toUpperCase();
+          const colorKey = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          }[color];
+          
+          if (colorKey) {
+            pool[colorKey] = (pool[colorKey] || 0) + 1;
+            addedCount++;
           }
         }
       }

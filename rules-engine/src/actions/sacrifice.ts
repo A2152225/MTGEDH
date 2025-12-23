@@ -37,7 +37,7 @@ export function validateSacrifice(
   }
   
   // Check controller (Rule 701.21b)
-  const controllerId = permanent.controllerId || permanent.controller || action.playerId;
+  const controllerId = permanent.controller || action.playerId;
   if (controllerId !== action.playerId) {
     return { legal: false, reason: 'Cannot sacrifice a permanent you do not control' };
   }
@@ -102,7 +102,7 @@ export function executeSacrifice(
   };
   
   // Emit event
-  const cardName = sacrificed?.name || sacrificed?.card?.name || 'permanent';
+  const cardName = sacrificed?.card?.name || 'permanent';
   context.emit({
     type: RulesEngineEvent.PERMANENT_SACRIFICED,
     timestamp: Date.now(),

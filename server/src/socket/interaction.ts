@@ -6200,7 +6200,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     debug(2, `[abilityTargetChosen] ${targetCreature.card?.name} granted "${abilityText}" from ${pendingGrant.sourceName}`);
     
     // Broadcast updated game state
-    broadcastManaPoolUpdate(io, gameId, pid, pool, 'Ability activated', game);
+    broadcastManaPoolUpdate(io, gameId, pid, pool as any, 'Ability activated', game);
     broadcastGame(io, game, gameId);
   });
 
