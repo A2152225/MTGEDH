@@ -884,8 +884,9 @@ export class AIEngine {
       
       // Factor 3: Board presence
       // More creatures = higher threat in Commander
-      const creatureCount = (opp.battlefield || []).filter((p: any) =>
-        p.card?.type_line?.toLowerCase().includes('creature')
+      const battlefield = gameState.battlefield || [];
+      const creatureCount = battlefield.filter((p: any) =>
+        p.controller === opp.id && p.card?.type_line?.toLowerCase().includes('creature')
       ).length;
       score += creatureCount * 10;
       
@@ -931,13 +932,27 @@ export class AIEngine {
       };
     }
     
-    // Get the player's battlefield to evaluate creatures
+    // Get the player and global battlefield
     const player = context.gameState.players.find(p => p.id === context.playerId);
-    if (!player?.battlefield) {
+    const globalBattlefield = context.gameState.battlefield || [];
+    
+    // Helper to find a permanent by ID in global battlefield
+    const findPermanent = (id: string) => {
+      return globalBattlefield.find((p: any) => p.id === id);
+    };
+    
+    // If we can't find the player, attack with all legal attackers as a fallback
+    if (!player) {
+      const targetPlayer = this.selectAttackTarget(context.gameState, context.playerId);
+      const attackers = legalAttackerIds.map(id => ({
+        creatureId: id,
+        defendingPlayerId: targetPlayer,
+      }));
+      
       return {
         type: AIDecisionType.DECLARE_ATTACKERS,
         playerId: context.playerId,
-        action: { attackers: legalAttackerIds },
+        action: { attackers },
         reasoning: `Attacking with ${legalAttackerIds.length} legal creatures`,
         confidence: 0.6,
       };
@@ -953,7 +968,7 @@ export class AIEngine {
     // Build attack targets for goaded creatures
     const goadedAttackers: Array<{ creatureId: string; defendingPlayerId: string }> = [];
     for (const goadedId of goadedCreatureIds) {
-      const perm = player.battlefield.find((p: BattlefieldPermanent) => p.id === goadedId);
+      const perm = findPermanent(goadedId);
       if (!perm) continue;
       
       // Get valid targets for this goaded creature
@@ -981,7 +996,7 @@ export class AIEngine {
     // Evaluate each non-goaded legal attacker for combat value
     const nonGoadedLegalAttackerIds = legalAttackerIds.filter(id => !goadedSet.has(id));
     const attackerEvaluations = nonGoadedLegalAttackerIds.map(id => {
-      const perm = player.battlefield.find((p: BattlefieldPermanent) => p.id === id);
+      const perm = findPermanent(id);
       if (!perm) return { id, value: 0, wantsToGetKilled: false };
       
       const evaluation = this.evaluateCombatValue(perm, true);
@@ -1082,21 +1097,21 @@ export class AIEngine {
       };
     }
     
-    // Get player's blockers as permanents
-    const player = context.gameState.players.find(p => p.id === context.playerId);
-    if (!player?.battlefield) {
+    // Get blockers from global battlefield
+    const globalBattlefield = context.gameState.battlefield || [];
+    const blockerPermanents = globalBattlefield.filter((p: any) => 
+      p.controller === context.playerId && legalBlockerIds.includes(p.id)
+    );
+    
+    if (blockerPermanents.length === 0) {
       return {
         type: AIDecisionType.DECLARE_BLOCKERS,
         playerId: context.playerId,
         action: { blockers: [] },
-        reasoning: 'No battlefield found',
-        confidence: 0,
+        reasoning: 'No blockers available',
+        confidence: 1,
       };
     }
-    
-    const blockerPermanents = player.battlefield.filter((p: BattlefieldPermanent) => 
-      legalBlockerIds.includes(p.id)
-    );
     
     // Evaluate each blocker for combat value and death trigger benefits
     const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
@@ -1118,8 +1133,11 @@ export class AIEngine {
       return null;
     }).filter(Boolean) as CombatCreature[];
     
+    // Get player info for life total
+    const player = context.gameState.players.find(p => p.id === context.playerId);
+    
     // Calculate total unblocked damage to assess lethality
-    const playerLife = player.life || DEFAULT_COMMANDER_LIFE;
+    const playerLife = player?.life || DEFAULT_COMMANDER_LIFE;
     const totalAttackerDamage = attackerCreatures.reduce((sum, a) => sum + a.power, 0);
     let isLethalIfUnblocked = totalAttackerDamage >= playerLife;
     
@@ -1558,9 +1576,9 @@ export class AIEngine {
       // Auras need targets
       if (typeLine.includes('aura')) {
         // Check if we have valid targets
-        const player = gameState.players.find(p => p.id === playerId);
-        const hasCreatures = (player?.battlefield || []).some((p: any) => 
-          p.card?.type_line?.toLowerCase().includes('creature')
+        const battlefield = gameState.battlefield || [];
+        const hasCreatures = battlefield.some((p: any) => 
+          p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
         );
         if (!hasCreatures) {
           value += AIEngine.AURA_NO_TARGET_PENALTY; // No targets for aura
@@ -1575,9 +1593,9 @@ export class AIEngine {
     }
     
     // Board state awareness
-    const player = gameState.players.find(p => p.id === playerId);
-    const creatureCount = (player?.battlefield || []).filter((p: any) =>
-      p.card?.type_line?.toLowerCase().includes('creature')
+    const battlefield = gameState.battlefield || [];
+    const creatureCount = battlefield.filter((p: any) =>
+      p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
     ).length;
     
     // Buff spells more valuable with creatures
@@ -1685,14 +1703,15 @@ export class AIEngine {
         const opponents = gameState.players.filter(p => p.id !== playerId);
         
         // Check if we have board presence
-        const myCreatureCount = (player?.battlefield || []).filter((p: any) =>
-          p.card?.type_line?.toLowerCase().includes('creature')
+        const battlefield = gameState.battlefield || [];
+        const myCreatureCount = battlefield.filter((p: any) =>
+          p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
         ).length;
         
         const opponentCreatureCount = opponents.reduce((sum, opp) => 
-          sum + ((opp.battlefield || []).filter((p: any) =>
-            p.card?.type_line?.toLowerCase().includes('creature')
-          ).length), 0);
+          sum + battlefield.filter((p: any) =>
+            p.controller === opp.id && p.card?.type_line?.toLowerCase().includes('creature')
+          ).length, 0);
         
         // Check if any opponent is low on life (potential kill)
         const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
@@ -1812,12 +1831,13 @@ export class AIEngine {
         
         // Attack if life is reasonably safe (>15) or if we have a significant creature advantage
         const opponents = gameState.players.filter(p => p.id !== playerId);
-        const myCreatureCount = (player?.battlefield || []).filter((p: any) =>
-          p.card?.type_line?.toLowerCase().includes('creature')
+        const battlefield = gameState.battlefield || [];
+        const myCreatureCount = battlefield.filter((p: any) =>
+          p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
         ).length;
         const maxOpponentCreatures = Math.max(...opponents.map(opp =>
-          (opp.battlefield || []).filter((p: any) =>
-            p.card?.type_line?.toLowerCase().includes('creature')
+          battlefield.filter((p: any) =>
+            p.controller === opp.id && p.card?.type_line?.toLowerCase().includes('creature')
           ).length
         ));
         
@@ -1826,7 +1846,7 @@ export class AIEngine {
           // Attack with "vanilla" creatures (those without abilities)
           // Combo pieces typically have valuable abilities in their text
           const vanillaAttackers = legalAttackerIds.filter(id => {
-            const perm = player?.battlefield?.find((p: any) => p.id === id);
+            const perm = battlefield.find((p: any) => p.id === id);
             const text = (perm?.card?.oracle_text || '').toLowerCase();
             // Attack with creatures that don't have activated abilities or important triggers
             return !text.includes(':') && !text.includes('whenever') && !text.includes('when');
@@ -1929,11 +1949,11 @@ export class AIEngine {
       
       case AIDecisionType.SACRIFICE: {
         // Combo AI tries to avoid sacrificing combo pieces
-        const player = gameState.players.find(p => p.id === playerId);
-        const battlefield = player?.battlefield || [];
+        const battlefield = gameState.battlefield || [];
+        const playerPermanents = battlefield.filter((p: any) => p.controller === playerId);
         
         // Sort by combo value (sacrifice least valuable first)
-        const sorted = [...battlefield].sort((a: any, b: any) => {
+        const sorted = [...playerPermanents].sort((a: any, b: any) => {
           const aText = (a.card?.oracle_text || '').toLowerCase();
           const bText = (b.card?.oracle_text || '').toLowerCase();
           
@@ -1980,9 +2000,11 @@ export class AIEngine {
     const sacrificeCount = constraints?.count || 1;
     const permanentType = constraints?.type || 'permanent';
     
-    // Get player's permanents that can be sacrificed
-    const player = context.gameState.players.find(p => p.id === playerId);
-    if (!player || !player.battlefield) {
+    // Get permanents from global battlefield that can be sacrificed
+    const globalBattlefield = context.gameState.battlefield || [];
+    const playerPermanents = globalBattlefield.filter((p: any) => p.controller === playerId);
+    
+    if (playerPermanents.length === 0) {
       return {
         type: AIDecisionType.SACRIFICE,
         playerId,
@@ -1993,7 +2015,7 @@ export class AIEngine {
     }
     
     // Filter to only valid sacrifice targets
-    let validTargets = player.battlefield.filter((perm: BattlefieldPermanent) => {
+    let validTargets = playerPermanents.filter((perm: BattlefieldPermanent) => {
       const card = perm.card as KnownCardRef;
       const typeLine = (card?.type_line || '').toLowerCase();
       

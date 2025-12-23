@@ -2407,6 +2407,20 @@ export async function handleAIPriority(
         });
       }
       
+      // IMPORTANT: Tap lands for mana retention effects BEFORE combat
+      // This is critical for cards like Omnath, Locus of Mana which gain power from green mana in pool
+      // By tapping green-producing lands now, Omnath will be stronger during the combat phase
+      const shouldTapLands = checkShouldTapLandsForManaRetention(game, playerId);
+      if (shouldTapLands.shouldTap) {
+        debug(1, `[AI] Tapping lands for mana retention before combat (${shouldTapLands.reason})`);
+        await executeAITapLandsForMana(io, gameId, playerId);
+        // After tapping lands, continue with more actions (in case we can now cast something)
+        setTimeout(() => {
+          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
+        }, AI_THINK_TIME_MS);
+        return;
+      }
+      
       // Try to use activated abilities (before casting spells)
       // This prioritizes card draw and other beneficial effects
       // BUT: Skip if we need to discard - prioritize casting spells instead
@@ -2697,6 +2711,228 @@ function shouldAIPayShockLandLife(game: any, playerId: PlayerID): boolean {
   
   // If life is low, enter tapped to preserve life
   return false;
+}
+
+/**
+ * Check if AI should tap lands for mana due to mana retention effects
+ * Returns { shouldTap: boolean, reason: string }
+ */
+function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { shouldTap: boolean; reason: string } {
+  const battlefield = game.state?.battlefield || [];
+  
+  // Check for mana retention effects
+  let hasGreenRetention = false;
+  let hasRedRetention = false;
+  let hasAllRetention = false;
+  let hasColorlessConversion = false;
+  
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card?.name || '').toLowerCase();
+    const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+    
+    // Omnath, Locus of Mana - Green mana doesn't empty
+    if (cardName.includes('omnath, locus of mana') || 
+        (oracleText.includes('green mana') && oracleText.includes("doesn't empty"))) {
+      hasGreenRetention = true;
+    }
+    
+    // Leyline Tyrant - Red mana doesn't empty
+    if (cardName.includes('leyline tyrant') ||
+        (oracleText.includes('red mana') && 
+         (oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
+      hasRedRetention = true;
+    }
+    
+    // Kruphix, God of Horizons / Horizon Stone - Unspent mana becomes colorless
+    if (cardName.includes('kruphix') || cardName.includes('horizon stone') ||
+        oracleText.includes('mana becomes colorless instead')) {
+      hasColorlessConversion = true;
+    }
+    
+    // Upwelling - All mana doesn't empty
+    if (cardName.includes('upwelling') ||
+        (oracleText.includes('mana pools') && oracleText.includes("don't empty"))) {
+      hasAllRetention = true;
+    }
+  }
+  
+  // If no retention effects, don't tap lands
+  if (!hasGreenRetention && !hasRedRetention && !hasColorlessConversion && !hasAllRetention) {
+    return { shouldTap: false, reason: 'No mana retention effects' };
+  }
+  
+  // Check if we have untapped lands that could produce the retained colors
+  let hasUntappedRetainableLands = false;
+  
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId || perm.tapped) continue;
+    
+    // Check if this is a land or mana source
+    const typeLine = (perm.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('land') && !hasManaAbility(perm.card)) continue;
+    
+    // Skip creatures with summoning sickness
+    if (typeLine.includes('creature') && hasCreatureSummoningSickness(perm)) continue;
+    
+    // Check what colors this produces
+    const producedColors = getManaProduction(perm.card);
+    
+    // Check if any produced color is retained
+    for (const color of producedColors) {
+      if (hasAllRetention) {
+        hasUntappedRetainableLands = true;
+        break;
+      }
+      if (hasGreenRetention && color === 'G') {
+        hasUntappedRetainableLands = true;
+        break;
+      }
+      if (hasRedRetention && color === 'R') {
+        hasUntappedRetainableLands = true;
+        break;
+      }
+      if (hasColorlessConversion) {
+        // Any color can be converted to colorless
+        hasUntappedRetainableLands = true;
+        break;
+      }
+    }
+    
+    if (hasUntappedRetainableLands) break;
+  }
+  
+  if (!hasUntappedRetainableLands) {
+    return { shouldTap: false, reason: 'No untapped lands producing retained colors' };
+  }
+  
+  // We have retention effects and untapped lands - tap them!
+  let reason = 'Tapping lands for ';
+  const reasons = [];
+  if (hasGreenRetention) reasons.push('Omnath/green retention');
+  if (hasRedRetention) reasons.push('Leyline Tyrant/red retention');
+  if (hasColorlessConversion) reasons.push('Kruphix/colorless conversion');
+  if (hasAllRetention) reasons.push('Upwelling/all retention');
+  reason += reasons.join(', ');
+  
+  return { shouldTap: true, reason };
+}
+
+/**
+ * Execute AI tapping lands for mana (when mana retention effects are present)
+ */
+async function executeAITapLandsForMana(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  const battlefield = game.state?.battlefield || [];
+  
+  // Detect which colors are retained
+  let retainedColors = new Set<string>();
+  let hasAllRetention = false;
+  let hasColorlessConversion = false;
+  
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card?.name || '').toLowerCase();
+    const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+    
+    if (cardName.includes('omnath, locus of mana') || 
+        (oracleText.includes('green mana') && oracleText.includes("doesn't empty"))) {
+      retainedColors.add('G');
+    }
+    
+    if (cardName.includes('leyline tyrant') ||
+        (oracleText.includes('red mana') && 
+         (oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
+      retainedColors.add('R');
+    }
+    
+    if (cardName.includes('kruphix') || cardName.includes('horizon stone') ||
+        oracleText.includes('mana becomes colorless instead')) {
+      hasColorlessConversion = true;
+    }
+    
+    if (cardName.includes('upwelling') ||
+        (oracleText.includes('mana pools') && oracleText.includes("don't empty"))) {
+      hasAllRetention = true;
+    }
+  }
+  
+  // Tap all untapped lands that produce retained colors
+  const manaPool = game.state.manaPool[playerId] || {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+  };
+  
+  let tappedCount = 0;
+  
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId || perm.tapped) continue;
+    
+    const typeLine = (perm.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('land') && !hasManaAbility(perm.card)) continue;
+    
+    // Skip creatures with summoning sickness
+    if (typeLine.includes('creature') && hasCreatureSummoningSickness(perm)) continue;
+    
+    const producedColors = getManaProduction(perm.card);
+    if (producedColors.length === 0) continue;
+    
+    // Check if this produces a retained color
+    let shouldTap = false;
+    if (hasAllRetention || hasColorlessConversion) {
+      shouldTap = true;
+    } else {
+      for (const color of producedColors) {
+        if (retainedColors.has(color)) {
+          shouldTap = true;
+          break;
+        }
+      }
+    }
+    
+    if (!shouldTap) continue;
+    
+    // Tap the land/permanent
+    perm.tapped = true;
+    tappedCount++;
+    
+    // Add mana to pool based on what it produces
+    // Simplification: Add the first color it produces, or any color if it can produce any
+    const colorMap: Record<string, string> = {
+      'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless'
+    };
+    
+    if (producedColors.includes('W') && producedColors.includes('U') && 
+        producedColors.includes('B') && producedColors.includes('R') && producedColors.includes('G')) {
+      // Can produce any color - choose based on retention
+      if (retainedColors.has('G')) {
+        manaPool.green++;
+      } else if (retainedColors.has('R')) {
+        manaPool.red++;
+      } else {
+        // Use first produced color
+        const poolColor = colorMap[producedColors[0]] || 'colorless';
+        (manaPool as any)[poolColor]++;
+      }
+    } else {
+      // Add the first color it produces
+      const poolColor = colorMap[producedColors[0]] || 'colorless';
+      (manaPool as any)[poolColor]++;
+    }
+  }
+  
+  if (tappedCount > 0) {
+    game.state.manaPool[playerId] = manaPool;
+    broadcastGame(io, game, gameId);
+    debug(1, `[AI] Tapped ${tappedCount} lands for mana retention`);
+  }
 }
 
 /**
@@ -4189,19 +4425,46 @@ async function executeDeclareAttackers(
   io: Server,
   gameId: string,
   playerId: PlayerID,
-  attackerIds: string[]
+  attackers: Array<{ creatureId: string; defendingPlayerId: string }>
 ): Promise<void> {
   const game = ensureGame(gameId);
   if (!game) return;
   
-  debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackerIds });
+  debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackers });
   
   try {
+    // Extract creature IDs for game.declareAttackers
+    const attackerIds = attackers.map(a => a.creatureId);
+    
+    // Mark creatures as attacking and tap them
+    const battlefield = game.state?.battlefield || [];
+    for (const attacker of attackers) {
+      const creature = battlefield.find((perm: any) => 
+        perm.id === attacker.creatureId && perm.controller === playerId
+      );
+      
+      if (creature) {
+        // Mark as attacking the defending player
+        (creature as any).attacking = attacker.defendingPlayerId;
+        
+        // Tap the attacker (unless it has vigilance)
+        const hasVigilance = (creature as any).card?.keywords?.some((k: string) => 
+          k.toLowerCase().includes('vigilance')
+        ) || (creature as any).grantedAbilities?.some((k: string) => 
+          k.toLowerCase().includes('vigilance')
+        );
+        
+        if (!hasVigilance) {
+          (creature as any).tapped = true;
+        }
+      }
+    }
+    
     if (typeof (game as any).declareAttackers === 'function') {
       (game as any).declareAttackers(playerId, attackerIds);
     }
     
-    await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', { playerId, attackerIds });
+    await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', { playerId, attackers });
     broadcastGame(io, game, gameId);
     
     // After declaring attackers, pass priority to allow opponents to respond
