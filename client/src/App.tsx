@@ -3701,6 +3701,13 @@ export function App() {
 
   // Handle casting commander - opens payment modal
   const handleCastCommander = (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => {
+    // Defensive validation: ensure commanderId is not undefined or empty
+    if (!commanderId || (typeof commanderId === 'string' && commanderId.trim() === '')) {
+      console.error('[handleCastCommander] Invalid commanderId:', { commanderId, commanderName });
+      alert(`Cannot cast commander: Invalid commander ID. This may be a bug - please refresh and try again.`);
+      return;
+    }
+    
     // Calculate total cost including tax
     const totalManaCost = addTaxToManaCost(manaCost, tax || 0);
     

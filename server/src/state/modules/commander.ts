@@ -26,10 +26,48 @@ export function setCommander(
   const { commandZone, libraries, pendingInitialDraw, bumpSeq, state } = ctx;
   const zones = state.zones = state.zones || {};
   const info = commandZone[playerId] ?? { commanderIds: [], commanderNames: [], tax: 0, taxById: {}, inCommandZone: [] };
-  info.commanderIds = commanderIds.slice();
-  info.commanderNames = commanderNames.slice();
-  // Initialize inCommandZone to all commander IDs (all start in the command zone)
-  (info as any).inCommandZone = commanderIds.slice();
+  
+  // Filter out any undefined, null, or empty string IDs to prevent corruption
+  const cleanCommanderIds = commanderIds.filter((id) => id && typeof id === 'string' && id.trim() !== '');
+  const cleanCommanderNames = commanderNames.filter((name) => name && typeof name === 'string' && name.trim() !== '');
+  
+  if (cleanCommanderIds.length !== commanderIds.length) {
+    debugWarn(1, `[setCommander] Filtered out ${commanderIds.length - cleanCommanderIds.length} invalid commander IDs`, {
+      original: commanderIds,
+      cleaned: cleanCommanderIds
+    });
+  }
+  
+  info.commanderIds = cleanCommanderIds.slice();
+  info.commanderNames = cleanCommanderNames.slice();
+  
+  // CRITICAL FIX: Only initialize inCommandZone if it doesn't exist or is empty
+  // This preserves the state of which commanders have been cast vs still in command zone
+  const existingInCZ = (info as any).inCommandZone as string[] | undefined;
+  if (!existingInCZ || existingInCZ.length === 0) {
+    // First time setting commanders - all start in command zone
+    (info as any).inCommandZone = cleanCommanderIds.slice();
+    debug(1, `[setCommander] Initialized inCommandZone for ${playerId}:`, cleanCommanderIds);
+  } else {
+    // Commanders were already set - preserve existing inCommandZone state
+    // but filter out any commanders that are no longer in commanderIds (if the list changed)
+    const updatedInCZ = existingInCZ.filter((id: string) => cleanCommanderIds.includes(id));
+    
+    // Add any new commanders that weren't in the previous list
+    for (const id of cleanCommanderIds) {
+      if (!existingInCZ.includes(id)) {
+        updatedInCZ.push(id);
+      }
+    }
+    
+    (info as any).inCommandZone = updatedInCZ;
+    debug(1, `[setCommander] Preserved inCommandZone for ${playerId}:`, {
+      previous: existingInCZ,
+      updated: updatedInCZ,
+      commanderIds: cleanCommanderIds
+    });
+  }
+  
   if (!info.taxById) info.taxById = {};
   info.tax = Object.values(info.taxById || {}).reduce((a: number, b: number) => a + b, 0);
 
@@ -156,19 +194,28 @@ export function setCommander(
 }
 
 export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId: string) {
+  debug(1, `[castCommander] Called with playerId: ${playerId}, commanderId: ${commanderId}`);
+  
   const { commandZone, bumpSeq, state } = ctx;
   const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {}, inCommandZone: [] };
+  
+  debug(1, `[castCommander] Commander info for player ${playerId}:`, {
+    commanderIds: info.commanderIds,
+    inCommandZone: (info as any).inCommandZone,
+    tax: info.tax,
+    taxById: info.taxById
+  });
   
   // Check if the commander is in the command zone
   const inCZ = (info as any).inCommandZone as string[] || [];
   if (!inCZ.includes(commanderId)) {
-    debugWarn(2, `[castCommander] Commander ${commanderId} is not in command zone for player ${playerId}`);
+    debugWarn(1, `[castCommander] Commander ${commanderId} is not in command zone for player ${playerId}. inCommandZone:`, inCZ);
     return; // Don't allow casting if not in command zone
   }
   
   // Remove commander from inCommandZone
   (info as any).inCommandZone = inCZ.filter((id: string) => id !== commanderId);
-  debug(2, `[castCommander] Removed commander ${commanderId} from command zone. Remaining in CZ:`, (info as any).inCommandZone);
+  debug(1, `[castCommander] Removed commander ${commanderId} from command zone. Remaining in CZ:`, (info as any).inCommandZone);
   
   if (!info.taxById) info.taxById = {};
   info.taxById[commanderId] = (info.taxById[commanderId] ?? 0) + 2;
@@ -179,6 +226,8 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
   if (state && state.commandZone) {
     (state.commandZone as any)[playerId] = info;
   }
+  
+  debug(1, `[castCommander] Updated tax for ${commanderId}: ${info.taxById[commanderId]}, total tax: ${info.tax}`);
   
   bumpSeq();
 }
