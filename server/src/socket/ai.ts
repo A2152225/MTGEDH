@@ -1222,11 +1222,26 @@ function getManaProduction(card: any): string[] {
   if (oracleText.includes('{g}') || oracleText.includes('add {g}')) colors.push('G');
   if (oracleText.includes('{c}') || oracleText.includes('add {c}')) colors.push('C');
   
+  // Special case: Cards that produce mana based on opponents' lands
+  // Exotic Orchard: "Add one mana of any color that a land an opponent controls could produce."
+  // Fellwar Stone: "Add one mana of any color that a land an opponent controls could produce."
+  // These should NOT return all colors here - they need context about opponents' lands
+  // For now, we'll handle these specially and return empty to indicate they need special handling
+  const cardName = (card?.name || '').toLowerCase();
+  if (cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) {
+    // These need special handling in getPaymentSources - they can only produce colors
+    // that opponent lands can produce. Return empty here to signal special handling needed.
+    return [];
+  }
+  
   // Permanents that add any color (e.g., Command Tower, City of Brass, Mana Confluence, Chromatic Lantern affected permanents)
-  if (oracleText.includes('add one mana of any color') || 
-      oracleText.includes('any color of mana') ||
-      oracleText.includes('mana of any one color') ||
-      oracleText.includes('add one mana of any type')) {
+  // IMPORTANT: Check that it's NOT a conditional "any color" like Exotic Orchard
+  if ((oracleText.includes('add one mana of any color') || 
+       oracleText.includes('any color of mana') ||
+       oracleText.includes('mana of any one color') ||
+       oracleText.includes('add one mana of any type')) &&
+      !oracleText.includes('land an opponent controls') && // Exclude Exotic Orchard, Fellwar Stone
+      !oracleText.includes('opponents control')) { // Exclude other conditional cards
     return ['W', 'U', 'B', 'R', 'G']; // Can produce any color
   }
   
@@ -1359,7 +1374,33 @@ function calculateAvailableMana(game: any, playerId: PlayerID): { total: number;
       // Creatures with summoning sickness can't tap for mana
       if (hasCreatureSummoningSickness(perm)) continue;
       
-      const producedColors = getManaProduction(perm.card);
+      let producedColors = getManaProduction(perm.card);
+      
+      // Special handling for cards that produce mana based on opponents' lands
+      if (producedColors.length === 0) {
+        const cardName = (perm.card?.name || '').toLowerCase();
+        const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+        
+        if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
+            oracleText.includes('land an opponent controls')) {
+          const opponentColors = new Set<string>();
+          
+          for (const opponentPerm of battlefield) {
+            if (!opponentPerm || opponentPerm.controller === playerId) continue;
+            
+            const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
+            if (!opponentTypeLine.includes('land')) continue;
+            
+            const opponentLandColors = getManaProduction(opponentPerm.card);
+            if (opponentLandColors.length === 0) continue;
+            
+            opponentLandColors.forEach(c => opponentColors.add(c));
+          }
+          
+          producedColors = Array.from(opponentColors);
+        }
+      }
+      
       if (producedColors.length === 0) continue;
       
       // Track which sources can produce each color
@@ -1928,7 +1969,40 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
       // Creatures with summoning sickness can't tap for mana
       if (hasCreatureSummoningSickness(perm)) continue;
       
-      const producedColors = getManaProduction(perm.card);
+      let producedColors = getManaProduction(perm.card);
+      
+      // Special handling for cards that produce mana based on opponents' lands
+      // (Exotic Orchard, Fellwar Stone, etc.)
+      if (producedColors.length === 0) {
+        const cardName = (perm.card?.name || '').toLowerCase();
+        const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+        
+        if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
+            oracleText.includes('land an opponent controls')) {
+          // Determine what colors opponents' lands can produce
+          const opponentColors = new Set<string>();
+          
+          for (const opponentPerm of battlefield) {
+            if (!opponentPerm || opponentPerm.controller === playerId) continue;
+            
+            const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
+            if (!opponentTypeLine.includes('land')) continue;
+            
+            // Get what colors this opponent land produces
+            // Note: This might return empty for other Exotic Orchards, which is correct -
+            // you can't chain Exotic Orchards together
+            const opponentLandColors = getManaProduction(opponentPerm.card);
+            
+            // Skip lands that themselves need context (other Exotic Orchards, etc.)
+            if (opponentLandColors.length === 0) continue;
+            
+            opponentLandColors.forEach(c => opponentColors.add(c));
+          }
+          
+          producedColors = Array.from(opponentColors);
+        }
+      }
+      
       if (producedColors.length === 0) continue;
       
       const typeLine = (perm.card?.type_line || '').toLowerCase();
@@ -2803,7 +2877,32 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
     if (typeLine.includes('creature') && hasCreatureSummoningSickness(perm)) continue;
     
     // Check what colors this produces
-    const producedColors = getManaProduction(perm.card);
+    let producedColors = getManaProduction(perm.card);
+    
+    // Special handling for Exotic Orchard / Fellwar Stone
+    if (producedColors.length === 0) {
+      const cardName = (perm.card?.name || '').toLowerCase();
+      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+      
+      if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
+          oracleText.includes('land an opponent controls')) {
+        const opponentColors = new Set<string>();
+        
+        for (const opponentPerm of battlefield) {
+          if (!opponentPerm || opponentPerm.controller === playerId) continue;
+          
+          const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
+          if (!opponentTypeLine.includes('land')) continue;
+          
+          const opponentLandColors = getManaProduction(opponentPerm.card);
+          if (opponentLandColors.length === 0) continue;
+          
+          opponentLandColors.forEach(c => opponentColors.add(c));
+        }
+        
+        producedColors = Array.from(opponentColors);
+      }
+    }
     
     // Check if any produced color is retained
     for (const color of producedColors) {
@@ -2909,7 +3008,34 @@ async function executeAITapLandsForMana(
     // Skip creatures with summoning sickness
     if (typeLine.includes('creature') && hasCreatureSummoningSickness(perm)) continue;
     
-    const producedColors = getManaProduction(perm.card);
+    let producedColors = getManaProduction(perm.card);
+    
+    // Special handling for Exotic Orchard / Fellwar Stone
+    if (producedColors.length === 0) {
+      const cardName = (perm.card?.name || '').toLowerCase();
+      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+      
+      if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
+          oracleText.includes('land an opponent controls')) {
+        const opponentColors = new Set<string>();
+        const battlefield = game.state?.battlefield || [];
+        
+        for (const opponentPerm of battlefield) {
+          if (!opponentPerm || opponentPerm.controller === playerId) continue;
+          
+          const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
+          if (!opponentTypeLine.includes('land')) continue;
+          
+          const opponentLandColors = getManaProduction(opponentPerm.card);
+          if (opponentLandColors.length === 0) continue;
+          
+          opponentLandColors.forEach(c => opponentColors.add(c));
+        }
+        
+        producedColors = Array.from(opponentColors);
+      }
+    }
+    
     if (producedColors.length === 0) continue;
     
     // Check if this produces a retained color
@@ -3199,7 +3325,34 @@ export async function handleBounceLandETB(game: any, playerId: PlayerID, bounceL
     }
     
     // Lands that only produce colorless are less valuable
-    const producedColors = getManaProduction(card);
+    let producedColors = getManaProduction(card);
+    
+    // Special handling for Exotic Orchard / Fellwar Stone
+    if (producedColors.length === 0) {
+      const cardName = (card?.name || '').toLowerCase();
+      const oracleText = (card?.oracle_text || '').toLowerCase();
+      
+      if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
+          oracleText.includes('land an opponent controls')) {
+        const opponentColors = new Set<string>();
+        const battlefield = game.state?.battlefield || [];
+        
+        for (const opponentPerm of battlefield) {
+          if (!opponentPerm || opponentPerm.controller === playerId) continue;
+          
+          const opponentTypeLine = (opponentPerm.card?.type_line || '').toLowerCase();
+          if (!opponentTypeLine.includes('land')) continue;
+          
+          const opponentLandColors = getManaProduction(opponentPerm.card);
+          if (opponentLandColors.length === 0) continue;
+          
+          opponentLandColors.forEach(c => opponentColors.add(c));
+        }
+        
+        producedColors = Array.from(opponentColors);
+      }
+    }
+    
     if (producedColors.length === 1 && producedColors[0] === 'C') {
       score -= 5;
     }

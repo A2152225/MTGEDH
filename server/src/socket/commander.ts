@@ -577,7 +577,8 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       
       // Calculate total mana cost including commander tax
       // Use ?? instead of || to properly handle tax of 0
-      const commanderTax = (commanderInfo as any).taxById?.[commanderId] ?? commanderInfo.tax ?? 0;
+      // IMPORTANT: Only use taxById[commanderId], NOT commanderInfo.tax (which is the TOTAL tax for ALL commanders)
+      const commanderTax = (commanderInfo as any).taxById?.[commanderId] ?? 0;
       debug(2, `[castCommander] Commander tax for ${commanderId}: ${commanderTax} (taxById: ${(commanderInfo as any).taxById?.[commanderId]}, total tax: ${commanderInfo.tax})`);
       const totalGeneric = parsedCost.generic + commanderTax;
       const totalColored = parsedCost.colors;
@@ -624,7 +625,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         commanderId,
         commanderName: commanderCard.name,
         inCommandZone: (commanderInfo as any).inCommandZone,
-        tax: (commanderInfo as any).taxById?.[commanderId] || commanderInfo.tax || 0
+        tax: (commanderInfo as any).taxById?.[commanderId] ?? 0
       });
       
       debug(2, `[castCommander] About to process payment and cast commander`);
