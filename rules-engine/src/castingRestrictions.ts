@@ -245,32 +245,31 @@ export function collectCastingRestrictions(
     }
   }
   
-  // Check all permanents for continuous restrictions
-  for (const player of state.players) {
-    const controllerId = player.id;
+  // Check all permanents on centralized battlefield for continuous restrictions
+  for (const permanent of (state.battlefield || []) as any[]) {
+    const controllerId = permanent.controller || permanent.controllerId;
+    if (!controllerId) continue;
     
-    for (const permanent of (player.battlefield || []) as any[]) {
-      const restrictions = detectCastingRestrictions(permanent, controllerId);
-      
-      for (const restriction of restrictions) {
-        // Skip restrictions that only apply during controller's turn
-        if (restriction.onlyDuringYourTurn) {
-          const activePlayerIndex = state.activePlayerIndex || 0;
-          const activePlayer = state.players[activePlayerIndex];
-          if (activePlayer?.id !== controllerId) {
-            continue; // Not controller's turn, restriction doesn't apply
-          }
+    const restrictions = detectCastingRestrictions(permanent, controllerId);
+    
+    for (const restriction of restrictions) {
+      // Skip restrictions that only apply during controller's turn
+      if (restriction.onlyDuringYourTurn) {
+        const activePlayerIndex = state.activePlayerIndex || 0;
+        const activePlayer = state.players[activePlayerIndex];
+        if (activePlayer?.id !== controllerId) {
+          continue; // Not controller's turn, restriction doesn't apply
         }
-        
-        // Add to affected players
-        const affected = getAffectedPlayers(state, restriction);
-        for (const playerId of affected) {
-          const existing = playerRestrictions.get(playerId) || [];
-          // Avoid duplicates
-          if (!existing.some(r => r.id === restriction.id)) {
-            existing.push(restriction);
-            playerRestrictions.set(playerId, existing);
-          }
+      }
+      
+      // Add to affected players
+      const affected = getAffectedPlayers(state, restriction);
+      for (const playerId of affected) {
+        const existing = playerRestrictions.get(playerId) || [];
+        // Avoid duplicates
+        if (!existing.some(r => r.id === restriction.id)) {
+          existing.push(restriction);
+          playerRestrictions.set(playerId, existing);
         }
       }
     }

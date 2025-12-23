@@ -159,17 +159,11 @@ export function collectPlayerProtection(
 ): PlayerProtectionEffect[] {
   const effects: PlayerProtectionEffect[] = [];
   
-  // Check the player's own battlefield
+  // Check the player's permanents on centralized battlefield
   const player = state.players.find(p => p.id === playerId);
   if (!player) return effects;
   
-  const playerBattlefield = player.battlefield || [];
-  for (const permanent of playerBattlefield as any[]) {
-    const detected = detectPlayerProtection(permanent, playerId);
-    effects.push(...detected);
-  }
-  
-  // Check global battlefield
+  // Check centralized battlefield for permanents controlled by player
   if (state.battlefield) {
     for (const permanent of state.battlefield as any[]) {
       const controllerId = permanent.controller || permanent.controllerId;
