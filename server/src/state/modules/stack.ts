@@ -3219,6 +3219,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         power: "2",
         toughness: "2",
       } : { ...effectiveCard, zone: "battlefield" },
+      // Preserve isCommander flag from stack item if it exists
+      isCommander: (item as any).card?.isCommander || (effectiveCard as any).isCommander || false,
     };
     
     // Store face-down information
