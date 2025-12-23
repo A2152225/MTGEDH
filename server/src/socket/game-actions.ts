@@ -2007,59 +2007,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // NOTE: Bounce land ETB triggers are now handled in stack.ts playLand function
       // via the unified ETB trigger detection system. No need for duplicate handling here.
 
-      // ========================================================================
-      // LANDFALL TRIGGERS: Check for and process landfall triggers
-      // This is CRITICAL - landfall triggers should fire when a land ETBs
-      // ========================================================================
-      try {
-        const landfallTriggers = getLandfallTriggers(game as any, playerId as string);
-        if (landfallTriggers.length > 0) {
-          debug(2, `[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
-          
-          // Initialize stack if needed
-          (game.state as any).stack = (game.state as any).stack || [];
-          
-          // Push each landfall trigger onto the stack
-          for (const trigger of landfallTriggers) {
-            const triggerId = `landfall_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            (game.state as any).stack.push({
-              id: triggerId,
-              type: 'triggered_ability',
-              controller: playerId,
-              source: trigger.permanentId,
-              sourceName: trigger.cardName,
-              description: `Landfall - ${trigger.effect}`,
-              triggerType: 'landfall',
-              mandatory: trigger.mandatory,
-              effect: trigger.effect,
-              requiresChoice: trigger.requiresChoice,
-              // Include target requirement info for triggers like Geode Rager
-              requiresTarget: trigger.requiresTarget,
-              targetType: trigger.targetType,
-              // Modal options for choose X triggers
-              isModal: trigger.isModal,
-              modalOptions: trigger.modalOptions,
-            });
-            debug(2, `[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
-            
-            // Emit chat message about the trigger
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `${trigger.cardName}'s landfall ability triggers!`,
-              ts: Date.now(),
-            });
-          }
-          
-          // Give priority to active player to respond to triggers
-          if ((game.state as any).stack.length > 0) {
-            (game.state as any).priority = (game.state as any).turnPlayer || playerId;
-          }
-        }
-      } catch (err) {
-        debugWarn(1, `[playLand] Failed to process landfall triggers:`, err);
-      }
+      // NOTE: Landfall triggers are now handled in stack.ts playLand function
+      // via the unified trigger detection system. No need for duplicate handling here.
+      // This prevents double-triggering issues like the one with Geode Rager and Helm of the Host.
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {

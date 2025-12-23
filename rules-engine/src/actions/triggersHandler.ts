@@ -83,7 +83,7 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
     
     const cardName = card.name || '';
     const oracleText = card.oracle_text || '';
-    const controllerId = perm.controller || perm.controllerId || '';
+    const controllerId = perm.controller || '';
     
     // Check for special card-specific triggers first
     if (hasSpecialTriggeredAbility(cardName)) {

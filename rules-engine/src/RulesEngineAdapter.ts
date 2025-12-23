@@ -1303,11 +1303,11 @@ export class RulesEngineAdapter {
       // Filter battlefield by controller
       const playerPerms = battlefield.filter((p: any) => p.controller === player.id);
       for (const perm of playerPerms) {
-        const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
         const superTypes = typeLine.split('—')[0];
         
         if (superTypes.includes('legendary')) {
-          const name = perm.card?.name || perm.name;
+          const name = perm.card?.name || 'Unknown';
           const key = `${player.id}:${name}`;
           
           const existing = legendsByControllerAndName.get(key) || [];
