@@ -328,8 +328,11 @@ function getCommanderColorIdentity(state: any, playerId: PlayerID): Set<string> 
 }
 
 /**
- * Helper function to get colors that opponent lands can produce
+ * Helper function to get colors that opponent permanents can produce
  * Used for conditional mana sources like Exotic Orchard, Fellwar Stone, etc.
+ * 
+ * This function is designed to work with any permanents, but cards like Exotic Orchard
+ * that say "land" should only check lands. The counter tracking works for all permanents.
  * 
  * Implements Rule 106.7: "Some abilities produce mana based on the type of mana another 
  * permanent or permanents 'could produce.' The type of mana a permanent could produce at 
@@ -340,9 +343,10 @@ function getCommanderColorIdentity(state: any, playerId: PlayerID): Set<string> 
  * 
  * @param state Game state
  * @param playerId The player who controls the conditional mana source
- * @returns Set of color keys that opponent lands can produce
+ * @param onlyLands If true, only check lands (for Exotic Orchard). If false, check all permanents.
+ * @returns Set of color keys that opponent permanents can produce
  */
-function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
+function getOpponentPermanentColors(state: any, playerId: PlayerID, onlyLands: boolean = true): Set<string> {
   const opponentColors = new Set<string>();
   const battlefield = state.battlefield || [];
   
@@ -354,9 +358,10 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
     const typeLine = (permanent.card.type_line || "").toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
     const oracleText = (permanent.card.oracle_text || "").toLowerCase();
+    const counters = permanent.counters || {};
     
-    // Only process lands
-    if (!typeLine.includes("land")) continue;
+    // Filter to only lands if requested (for cards like Exotic Orchard that say "land")
+    if (onlyLands && !typeLine.includes("land")) continue;
     
     // Check basic lands first
     if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
@@ -376,7 +381,7 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
     
     // Per Rule 106.7, check ALL abilities that could produce mana if they resolved
     // This includes activated abilities, triggered abilities (ETB), and static abilities
-    // We ignore whether costs can be paid or conditions are met
+    // We check current permanent state (like counters) to determine what it COULD produce
     
     // Pattern to find mana-producing text
     // More specific than just "add" to avoid false matches in flavor text
@@ -393,19 +398,23 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
     for (const match of matches) {
       const fullManaText = match[1].trim();
       
+      // Get full context to check for conditional clauses
+      const fullAbilityContext = match.input?.substring(
+        Math.max(0, match.index! - ABILITY_CONTEXT_WINDOW), 
+        match.index! + ABILITY_CONTEXT_WINDOW
+      ) || '';
+      
       // Check for "any color" abilities
       // Note: We need to handle these specially based on conditions
       if (/one mana of any color/i.test(fullManaText)) {
-        // Check if this is conditional on other factors
-        const fullAbilityContext = match.input?.substring(
-          Math.max(0, match.index! - ABILITY_CONTEXT_WINDOW), 
-          match.index! + ABILITY_CONTEXT_WINDOW
-        ) || '';
-        
         // Check for conditions that restrict what can be produced
         const hasCommanderCondition = /commander.*color identity/i.test(fullAbilityContext);
         const hasLandCondition = /that (?:a |an )?land.*could produce/i.test(fullAbilityContext);
         const hasPermanentCondition = /that (?:a |an )?permanent.*could produce/i.test(fullAbilityContext);
+        
+        // Check for replacement effects that depend on counters (Gemstone Caverns)
+        // Pattern: "If X has a Y counter on it, instead add one mana of any color"
+        const hasCounterReplacement = /if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter.*instead\s+add\s+one\s+mana\s+of\s+any\s+color/i.test(fullAbilityContext);
         
         if (hasCommanderCondition) {
           // Command Tower type - need to check opponent's commander
@@ -413,6 +422,21 @@ function getOpponentLandColors(state: any, playerId: PlayerID): Set<string> {
           continue;
         } else if (hasLandCondition || hasPermanentCondition) {
           // Exotic Orchard type - skip to avoid infinite recursion
+          continue;
+        } else if (hasCounterReplacement) {
+          // Extract the counter type from the replacement effect
+          const counterMatch = fullAbilityContext.match(/if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter/i);
+          const requiredCounterType = counterMatch ? counterMatch[1].toLowerCase() : null;
+          
+          if (requiredCounterType && counters[requiredCounterType] && counters[requiredCounterType] > 0) {
+            // This permanent HAS the required counter, so it can produce any color
+            opponentColors.add('white');
+            opponentColors.add('blue');
+            opponentColors.add('black');
+            opponentColors.add('red');
+            opponentColors.add('green');
+          }
+          // If it doesn't have the counter, fall through to check the base ability
           continue;
         } else {
           // Unconditional "any color" - add all colors
@@ -736,8 +760,8 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         }
       } else if (isConditionalAnyColor) {
         // Handle conditional "any color" sources like Exotic Orchard, Fellwar Stone, etc.
-        // These can only produce colors that opponent lands/permanents can produce
-        const opponentColors = getOpponentLandColors(state, playerId);
+        // These can only produce colors that opponent permanents can produce
+        const opponentColors = getOpponentPermanentColors(state, playerId);
         
         // Add 1 to each color that opponents can produce
         // This ensures we only count mana we can actually produce

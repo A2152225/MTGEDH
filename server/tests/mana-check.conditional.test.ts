@@ -442,7 +442,7 @@ describe('Conditional Mana Sources', () => {
       expect(mana.green).toBe(1);
     });
 
-    it('should handle Gemstone Caverns replacement ability', () => {
+    it('should handle Gemstone Caverns WITHOUT luck counter (only colorless)', () => {
       const state = {
         battlefield: [
           {
@@ -455,11 +455,12 @@ describe('Conditional Mana Sources', () => {
               oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
             },
           },
-          // Opponent has Gemstone Caverns
+          // Opponent has Gemstone Caverns WITHOUT luck counter
           {
             id: 'perm_2',
             controller: 'player2',
             tapped: false,
+            counters: {}, // No luck counter
             card: {
               name: 'Gemstone Caverns',
               type_line: 'Legendary Land',
@@ -474,14 +475,58 @@ describe('Conditional Mana Sources', () => {
 
       const mana = getAvailableMana(state, 'player1');
       
-      // Gemstone Caverns has both {C} and "any color" abilities
-      // Per Rule 106.7, we check what it COULD produce (including the replacement)
-      // So Exotic Orchard can produce any color OR colorless
-      // NOTE: This is a limitation - ideally we'd check if it has a luck counter
-      // For now, we optimistically assume it could produce any color
-      expect(mana.colorless).toBeGreaterThanOrEqual(1);
-      // It may also be able to produce colors if the implementation detects the "any color" text
-      // This is acceptable behavior given the complexity of tracking conditional replacements
+      // Gemstone Caverns without luck counter can only produce {C}
+      // So Exotic Orchard can only produce colorless
+      expect(mana.white).toBe(0);
+      expect(mana.blue).toBe(0);
+      expect(mana.black).toBe(0);
+      expect(mana.red).toBe(0);
+      expect(mana.green).toBe(0);
+      expect(mana.colorless).toBe(1);
+    });
+
+    it('should handle Gemstone Caverns WITH luck counter (any color)', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'perm_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Exotic Orchard',
+              type_line: 'Land',
+              oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+            },
+          },
+          // Opponent has Gemstone Caverns WITH luck counter
+          {
+            id: 'perm_2',
+            controller: 'player2',
+            tapped: false,
+            counters: { luck: 1 }, // HAS luck counter
+            card: {
+              name: 'Gemstone Caverns',
+              type_line: 'Legendary Land',
+              oracle_text: 'If Gemstone Caverns is in your opening hand and you\'re not the starting player, you may begin the game with Gemstone Caverns on the battlefield with a luck counter on it. If you do, exile a card from your hand.\n{T}: Add {C}. If Gemstone Caverns has a luck counter on it, instead add one mana of any color.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      
+      // Gemstone Caverns WITH luck counter can produce any color
+      // So Exotic Orchard can produce all colors
+      expect(mana.white).toBe(1);
+      expect(mana.blue).toBe(1);
+      expect(mana.black).toBe(1);
+      expect(mana.red).toBe(1);
+      expect(mana.green).toBe(1);
+      // Also includes the base {C} ability
+      expect(mana.colorless).toBe(1);
     });
   });
 
@@ -525,6 +570,141 @@ describe('Conditional Mana Sources', () => {
       expect(mana.black).toBe(0);
       expect(mana.red).toBe(0);
       expect(mana.green).toBe(0);
+    });
+
+    it('should work with mana-producing artifacts (not just lands)', () => {
+      const state = {
+        battlefield: [
+          // Player 1's Fellwar Stone
+          {
+            id: 'perm_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Fellwar Stone',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+            },
+          },
+          // Opponent has a mana-producing artifact (not a land)
+          {
+            id: 'perm_2',
+            controller: 'player2',
+            tapped: false,
+            card: {
+              name: 'Sol Ring',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      
+      // Fellwar Stone looks at opponent LANDS, so Sol Ring (artifact) doesn't count
+      // Should produce no colored mana
+      expect(mana.white).toBe(0);
+      expect(mana.blue).toBe(0);
+      expect(mana.black).toBe(0);
+      expect(mana.red).toBe(0);
+      expect(mana.green).toBe(0);
+    });
+  });
+
+  describe('Counter tracking for all permanents', () => {
+    it('should verify Exotic Orchard only checks lands (not all permanents)', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'perm_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Exotic Orchard',
+              type_line: 'Land',
+              oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+            },
+          },
+          // Opponent has a creature that produces mana
+          {
+            id: 'perm_2',
+            controller: 'player2',
+            tapped: false,
+            card: {
+              name: 'Birds of Paradise',
+              type_line: 'Creature — Bird',
+              oracle_text: 'Flying\n{T}: Add one mana of any color.',
+            },
+          },
+          // Opponent has an artifact that produces mana  
+          {
+            id: 'perm_3',
+            controller: 'player2',
+            tapped: false,
+            card: {
+              name: 'Chromatic Lantern',
+              type_line: 'Artifact',
+              oracle_text: 'Lands you control have "{T}: Add one mana of any color."\n{T}: Add one mana of any color.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      
+      // Exotic Orchard's text says "that a LAND an opponent controls could produce"
+      // Birds of Paradise and Chromatic Lantern are not lands, so they don't count
+      // Should produce no mana
+      expect(mana.white).toBe(0);
+      expect(mana.blue).toBe(0);
+      expect(mana.black).toBe(0);
+      expect(mana.red).toBe(0);
+      expect(mana.green).toBe(0);
+    });
+
+    it('should track counters on mana-producing artifacts', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'perm_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Exotic Orchard',
+              type_line: 'Land',
+              oracle_text: '{T}: Add one mana of any color that a land an opponent controls could produce.',
+            },
+          },
+          // Opponent has a land with counters that affects mana production
+          {
+            id: 'perm_2',
+            controller: 'player2',
+            tapped: false,
+            counters: { mire: 2 }, // Example: land with mire counters
+            card: {
+              name: 'Hickory Woodlot',
+              type_line: 'Land',
+              oracle_text: 'Hickory Woodlot enters the battlefield tapped with two depletion counters on it.\n{T}, Remove a depletion counter from Hickory Woodlot: Add {G}{G}.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      
+      // Hickory Woodlot can produce {G}{G} (ignoring the counter cost per Rule 106.7)
+      // So Exotic Orchard can produce green
+      expect(mana.green).toBeGreaterThanOrEqual(1);
     });
   });
 });
