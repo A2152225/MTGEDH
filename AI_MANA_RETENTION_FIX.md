@@ -17,8 +17,9 @@ Modified `executeAITapLandsForMana` to implement a conservative strategy:
 
 1. **Collect** all tappable lands that produce retained colors
 2. **Calculate** how many to actually tap:
-   - Keep at least 40% of lands untapped
-   - Keep at least 3 lands untapped (whichever is MORE)
+   - Keep at least 40% of lands untapped (UNTAPPED_LAND_RATIO constant)
+   - Keep at least 3 lands untapped (MIN_UNTAPPED_LANDS_FOR_INSTANTS constant)
+   - Use whichever is MORE to maintain flexibility
 3. **Tap** only the calculated portion
 
 ### Examples
@@ -45,5 +46,14 @@ Created `server/tests/ai.mana-retention.test.ts` with comprehensive unit tests c
 All tests pass ✅
 
 ## Files Changed
-- `server/src/socket/ai.ts`: Modified `executeAITapLandsForMana` function
+- `server/src/socket/ai.ts`: Modified `executeAITapLandsForMana` and `checkShouldTapLandsForManaRetention` functions
 - `server/tests/ai.mana-retention.test.ts`: New comprehensive test suite
+- `AI_MANA_RETENTION_FIX.md`: This documentation
+
+## Future Improvements
+Potential refactoring opportunities identified during code review:
+1. Extract oracle text matching into a reusable helper function to reduce duplication
+2. Consider making the detection logic more consistent between AI tapping and mana pool clearing
+3. Extract detection logic into separate testable functions to avoid duplication between tests and implementation
+
+These are not critical and the current implementation works correctly, but could improve code maintainability.
