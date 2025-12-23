@@ -516,10 +516,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "castCommander": {
+        const playerId = (e as any).playerId;
+        const commanderId = (e as any).commanderId;
+        debug(1, `[applyEvent] Replaying castCommander event:`, { playerId, commanderId });
         castCommander(
           ctx as any,
-          (e as any).playerId,
-          (e as any).commanderId
+          playerId,
+          commanderId
         );
         break;
       }
