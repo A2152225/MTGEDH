@@ -717,6 +717,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   
   try {
     const battlefield = (ctx as any).state?.battlefield;
+    const state = (ctx as any).state;
     if (!Array.isArray(battlefield)) {
       debug(2, `${ts()} [COMBAT_DAMAGE] No battlefield array, returning early`);
       return result;
@@ -758,7 +759,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       const card = attacker.card || {};
       let keywords;
       try {
-        keywords = parseCreatureKeywords(card, attacker);
+        keywords = parseCreatureKeywords(card, attacker, state);
       } catch (err) {
         debugError(1, `${ts()} [dealCombatDamage] CRASH parsing keywords for ${card.name || attacker.id}:`, err);
         // Fallback to empty keywords to prevent crash
@@ -1087,7 +1088,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           
           let blockerKeywords;
           try {
-            blockerKeywords = parseCreatureKeywords(blockerCard, blocker);
+            blockerKeywords = parseCreatureKeywords(blockerCard, blocker, state);
             debug(2, `${ts()} [COMBAT_DAMAGE] Blocker keywords parsed successfully`);
           } catch (err) {
             debugError(1, `${ts()} [COMBAT_DAMAGE] CRASH parsing keywords for blocker ${blockerCard.name || blockerId}:`, err);

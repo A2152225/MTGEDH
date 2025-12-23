@@ -102,7 +102,7 @@ export interface CombatState {
 /**
  * Parse creature keywords from card data
  */
-export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywords {
+export function parseCreatureKeywords(card: any, permanent?: any, gameState?: any): CreatureKeywords {
   try {
     const cardName = card?.name || 'Unknown';
     const oracleText = (card?.oracle_text || "").toLowerCase();
@@ -130,29 +130,71 @@ export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywo
       return inKeywords || inOracle;
     };
     
+    // Check for equipment/aura granted keywords
+    let grantedKeywords: string[] = [];
+    if (permanent && gameState) {
+      const battlefield = gameState.battlefield || [];
+      // Find equipment/auras attached to this creature
+      for (const attachment of battlefield) {
+        if (!attachment || !attachment.card) continue;
+        const attachedTo = attachment.attachedTo;
+        if (attachedTo !== permanent.id) continue;
+        
+        const attachmentOracle = (attachment.card.oracle_text || '').toLowerCase();
+        const attachmentName = (attachment.card.name || '').toLowerCase();
+        
+        // Tenza, Godo's Maul: "As long as it's red, it has trample."
+        if ((attachmentName.includes('tenza') || attachmentName.includes("godo's maul"))) {
+          const creatureColors = card?.colors || [];
+          if (creatureColors.some((c: string) => c === 'R' || c.toLowerCase() === 'red')) {
+            grantedKeywords.push('trample');
+          }
+        }
+        
+        // Generic parsing for "equipped creature has [keyword]" or "enchanted creature has [keyword]"
+        const keywordPatterns = [
+          /equipped creature has (flying|trample|lifelink|deathtouch|vigilance|haste|hexproof|indestructible)/gi,
+          /enchanted creature has (flying|trample|lifelink|deathtouch|vigilance|haste|hexproof|indestructible)/gi,
+        ];
+        
+        for (const pattern of keywordPatterns) {
+          const matches = attachmentOracle.matchAll(pattern);
+          for (const match of matches) {
+            if (match[1]) {
+              grantedKeywords.push(match[1].toLowerCase());
+            }
+          }
+        }
+      }
+    }
+    
+    const hasKeywordOrGranted = (kw: string) => {
+      return hasKeyword(kw) || grantedKeywords.includes(kw.toLowerCase());
+    };
+    
     const result = {
-      flying: hasKeyword("flying"),
-      reach: hasKeyword("reach"),
-      shadow: hasKeyword("shadow"),
-      horsemanship: hasKeyword("horsemanship"),
-      fear: hasKeyword("fear"),
-      intimidate: hasKeyword("intimidate"),
-      menace: hasKeyword("menace"),
-      skulk: hasKeyword("skulk"),
+      flying: hasKeywordOrGranted("flying"),
+      reach: hasKeywordOrGranted("reach"),
+      shadow: hasKeywordOrGranted("shadow"),
+      horsemanship: hasKeywordOrGranted("horsemanship"),
+      fear: hasKeywordOrGranted("fear"),
+      intimidate: hasKeywordOrGranted("intimidate"),
+      menace: hasKeywordOrGranted("menace"),
+      skulk: hasKeywordOrGranted("skulk"),
       unblockable: oracleText.includes("can't be blocked") || 
                     oracleText.includes("is unblockable"),
-      firstStrike: hasKeyword("first strike") && !hasKeyword("double strike"),
-      doubleStrike: hasKeyword("double strike"),
-      lifelink: hasKeyword("lifelink"),
-      deathtouch: hasKeyword("deathtouch"),
-      trample: hasKeyword("trample"),
-      vigilance: hasKeyword("vigilance"),
-      indestructible: hasKeyword("indestructible"),
-      hexproof: hasKeyword("hexproof"),
-      shroud: hasKeyword("shroud"),
-      haste: hasKeyword("haste"),
-      defender: hasKeyword("defender"),
-      cantAttack: oracleText.includes("can't attack") || hasKeyword("defender"),
+      firstStrike: hasKeywordOrGranted("first strike") && !hasKeywordOrGranted("double strike"),
+      doubleStrike: hasKeywordOrGranted("double strike"),
+      lifelink: hasKeywordOrGranted("lifelink"),
+      deathtouch: hasKeywordOrGranted("deathtouch") || (permanent?.temporaryAbilities?.includes('deathtouch')),
+      trample: hasKeywordOrGranted("trample"),
+      vigilance: hasKeywordOrGranted("vigilance"),
+      indestructible: hasKeywordOrGranted("indestructible") || (permanent?.temporaryAbilities?.includes('indestructible')),
+      hexproof: hasKeywordOrGranted("hexproof"),
+      shroud: hasKeywordOrGranted("shroud"),
+      haste: hasKeywordOrGranted("haste"),
+      defender: hasKeywordOrGranted("defender"),
+      cantAttack: oracleText.includes("can't attack") || hasKeywordOrGranted("defender"),
       cantBlock: oracleText.includes("can't block"),
     };
     
