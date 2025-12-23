@@ -864,10 +864,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // This is used for cards like Reciprocate that can only target creatures that dealt damage to you
             trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, actualDamage);
             
-            // Track Steel Hellkite combat damage for its X ability
-            // Steel Hellkite: "{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn."
-            const cardNameLower = (card.name || '').toLowerCase();
-            if (cardNameLower === 'steel hellkite') {
+            // Track combat damage for X abilities that require it
+            // Generic tracking for any card with oracle text containing "combat damage"
+            const oracleText = (card.oracle_text || '').toLowerCase();
+            if (oracleText.includes('{x}') && oracleText.includes('combat damage')) {
               // Initialize or update the set of players dealt damage this turn
               let dealtDamageTo = (attacker as any).dealtCombatDamageTo as Set<string> | undefined;
               if (!dealtDamageTo) {
@@ -875,7 +875,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 (attacker as any).dealtCombatDamageTo = dealtDamageTo;
               }
               dealtDamageTo.add(defendingPlayerId);
-              debug(3, `${ts()} [dealCombatDamage] Steel Hellkite tracked combat damage to player ${defendingPlayerId}`);
+              debug(3, `${ts()} [dealCombatDamage] ${card.name || 'Creature'} tracked combat damage to player ${defendingPlayerId} (for X ability)`);
             }
             
             // Lifelink: Controller gains life equal to damage dealt

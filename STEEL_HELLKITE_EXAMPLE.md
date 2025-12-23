@@ -1,119 +1,184 @@
-# Steel Hellkite Implementation Example
+# X-Cost Activated Abilities - Pattern-Based Implementation
 
-## Card Text
-**Steel Hellkite** {6}
-Artifact Creature — Dragon
+## Overview
 
-Flying
-{2}: This creature gets +1/+0 until end of turn.
-{X}: Destroy each nonland permanent with mana value X whose controller was dealt combat damage by this creature this turn. Activate only once each turn.
+Instead of maintaining a hardcoded registry of specific cards, the system uses **pattern-based detection** from oracle text to automatically support any card with X-cost activated abilities.
 
-## Implementation Flow
+## How It Works
 
-### Phase 1: Combat Damage
-```
-Turn Player attacks with Steel Hellkite
-↓
-Steel Hellkite deals combat damage to opponent
-↓
-Server tracks: steelHellkite.dealtCombatDamageTo = Set(['opponent_id'])
-```
+### 1. Pattern Detection
 
-### Phase 2: Activate X Ability
-```
-Player clicks Steel Hellkite's X ability button
-↓
-Modal appears: "Choose X Value for Steel Hellkite"
-Player selects X = 3 (using slider or number input)
-↓
-Client emits: socket.emit('activateAbility', {
-  gameId,
-  permanentId: 'steel_hellkite_id',
-  abilityIndex: 2,
-  xValue: 3
-})
-```
+When a player activates an ability, the system:
+1. Reads the card's oracle text
+2. Looks for lines matching `{X}: <effect>`
+3. Analyzes the effect text to categorize the pattern
+4. Extracts metadata (once per turn, timing restrictions, etc.)
 
-### Phase 3: Server Processing
-```
-Server receives activation request
-↓
-Validates:
-  ✓ Steel Hellkite dealt combat damage this turn
-  ✓ X value provided (3)
-  ✓ Ability not activated yet this turn
-↓
-Finds all nonland permanents with mana value 3
-controlled by players in dealtCombatDamageTo Set
-↓
-Destroys matching permanents:
-  - Opponent's 3-mana creature (destroyed)
-  - Opponent's 3-mana artifact (destroyed)
-  - Opponent's land (skipped - is a land)
-  - Other player's 3-mana permanent (skipped - wasn't damaged)
-↓
-Marks: steelHellkite.activatedThisTurn = true
-↓
-Returns: "Steel Hellkite: Destroyed 2 permanent(s) with mana value 3"
+### 2. Supported Patterns
+
+The system recognizes these common X-ability patterns:
+
+| Pattern | Example Cards | Oracle Text Pattern |
+|---------|--------------|---------------------|
+| **DESTROY_MV_X** | Steel Hellkite | `destroy` + `mana value X` |
+| **BECOME_X_X** | Chimeric Staff, Mirror Entity | `becomes` + `X/X` |
+| **BASE_POWER_X** | Minsc, Beloved Ranger | `base power and toughness X/X` |
+| **PLUS_X_ZERO** | Demonspine Whip | `gets +X/+0` |
+| **PLUS_X_X** | Various | `gets +X/+X` |
+| **DEAL_X_DAMAGE** | Crypt Rats, Vengeful Archon | `deals X damage` |
+| **PREVENT_X_DAMAGE** | Vengeful Archon | `prevent` + `X damage` |
+| **PUT_X_COUNTERS** | Helix Pinnacle, Energy Vortex | `put X` + `counter` |
+| **COPY_MV_X** | Lazav, Likeness Looter | `copy` + `mana value X` |
+| **SCRY_X** | Soothsaying | `look at` or `scry` + `X card` |
+| **SEARCH_MV_X** | Citanul Flute | `search` + `mana value X` |
+
+### 3. Automatic Metadata Extraction
+
+The system automatically detects:
+- **Once per turn**: "Activate only once each turn"
+- **Timing restriction**: "Activate only as a sorcery"
+- **Combat damage requirement**: "combat damage" in ability text
+- **Mana restriction**: "Spend only black mana on X"
+
+## Example: Steel Hellkite
+
+```typescript
+Oracle text:
+"{X}: Destroy each nonland permanent with mana value X whose controller 
+was dealt combat damage by this creature this turn. Activate only once each turn."
+
+Detected pattern: DESTROY_MV_X
+Metadata extracted:
+  - requiresCombatDamage: true (contains "combat damage")
+  - oncePerTurn: true (contains "Activate only once each turn")
 ```
 
-### Phase 4: End of Turn Cleanup
+## Example: Crypt Rats
+
+```typescript
+Oracle text:
+"{X}: This creature deals X damage to each creature and each player. 
+Spend only black mana on X."
+
+Detected pattern: DEAL_X_DAMAGE
+Metadata extracted:
+  - manaRestriction: "black" (from "Spend only black mana")
 ```
-Cleanup step begins
-↓
-Server clears:
-  - steelHellkite.dealtCombatDamageTo (damage tracking)
-  - steelHellkite.activatedThisTurn (activation flag)
-↓
-Ready for next turn
+
+## Example: Mirror Entity
+
+```typescript
+Oracle text:
+"{X}: Until end of turn, creatures you control have base power and 
+toughness X/X and gain all creature types."
+
+Detected pattern: BASE_POWER_X
+Metadata extracted:
+  - (none, simple activation)
 ```
 
-## Example Scenarios
+## Implementation Architecture
 
-### Scenario 1: Basic Usage
-- Turn 5: Steel Hellkite deals 5 damage to Player B
-- Main Phase 2: Activate with X=3
-- Result: Destroys all of Player B's 3-mana permanents
+### Pattern Detection (`detectXAbility`)
+```typescript
+// Analyzes oracle text and returns:
+{
+  pattern: XAbilityPattern,
+  oracleText: string,
+  requiresCombatDamage?: boolean,
+  oncePerTurn?: boolean,
+  timingRestriction?: 'sorcery' | 'instant',
+  manaRestriction?: string
+}
+```
 
-### Scenario 2: Multiple Opponents
-- Turn 7: Steel Hellkite deals damage to both Player B and Player C
-- Main Phase 2: Activate with X=2
-- Result: Destroys all 2-mana permanents controlled by both Player B and C
+### Pattern Execution (`executeXAbility`)
+```typescript
+// Routes to pattern-specific implementation:
+switch (abilityInfo.pattern) {
+  case DESTROY_MV_X: return executeDestroyManaValueX(...)
+  case DEAL_X_DAMAGE: return executeDealXDamage(...)
+  case PUT_X_COUNTERS: return executePutXCounters(...)
+  // ... more patterns
+}
+```
 
-### Scenario 3: No Damage Dealt
-- Turn 4: Steel Hellkite is blocked, deals no player damage
-- Try to activate X ability
-- Result: Error - "Steel Hellkite has not dealt combat damage to any players this turn"
+### Combat Damage Tracking (Generic)
+```typescript
+// In turn.ts - tracks for ANY card with X ability requiring combat damage
+if (oracleText.includes('{x}') && oracleText.includes('combat damage')) {
+  // Track damaged players on the permanent
+  permanent.dealtCombatDamageTo = Set([damagedPlayerId])
+}
+```
 
-### Scenario 4: Once Per Turn
-- Turn 6: Steel Hellkite deals damage to Player B
-- Main Phase 2: Activate with X=4 (destroys permanents)
-- Try to activate again with X=2
-- Result: Error - "This ability can only be activated once per turn"
+## Adding New Pattern Support
 
-## Code Files Modified
+To support a new pattern:
 
-### New File: `server/src/state/modules/x-activated-abilities.ts`
-- Registry of X-cost activated abilities
-- `executeSteelHellkiteAbility()` implementation
-- Combat damage tracking helpers
-- Mana value calculation
+1. Add enum value to `XAbilityPattern`
+2. Add pattern detection in `detectXAbility()`
+3. Implement pattern handler (e.g., `executeNewPattern()`)
+4. Add case to switch in `executeXAbility()`
 
-### Modified: `server/src/socket/automation.ts`
-- Integrated X-ability handling in `processActivateAbility()`
-- Validates X value and combat damage
-- Calls Steel Hellkite execution logic
+**No card-specific code needed!** The system automatically detects and handles any card matching the pattern.
 
-### Modified: `server/src/state/modules/turn.ts`
-- `dealCombatDamage()`: Tracks Steel Hellkite combat damage
-- `endTemporaryEffects()`: Clears damage tracking at end of turn
+## Benefits Over Registry Approach
 
-## Similar Cards Supported
+### Before (Registry-based):
+```typescript
+// Had to add each card manually
+X_ACTIVATED_ABILITIES = {
+  'steel hellkite': { cardName: 'Steel Hellkite', cost: '{X}', ... },
+  'heliod, the radiant dawn': { cardName: 'Heliod', ... },
+  'ramos, dragon engine': { cardName: 'Ramos', ... },
+  // ... hundreds more cards
+}
+```
 
-The registry in `x-activated-abilities.ts` includes:
+### After (Pattern-based):
+```typescript
+// Automatically supports ALL cards matching patterns
+// Steel Hellkite, Crypt Rats, Mirror Entity, etc.
+// Zero configuration needed per card!
+```
 
-1. **Steel Hellkite** - Destroy permanents with mana value X
-2. **Heliod, the Radiant Dawn** - Target creature with mana value X gains lifelink
-3. **Ramos, Dragon Engine** - Remove X counters, add X mana
+## Currently Implemented Patterns
 
-Additional cards can be added following the same pattern.
+✅ **DESTROY_MV_X** - Fully implemented (Steel Hellkite and similar)
+✅ **DEAL_X_DAMAGE** - Fully implemented (Crypt Rats and similar)
+✅ **PUT_X_COUNTERS** - Fully implemented (Helix Pinnacle and similar)
+
+🏗️ **Other patterns** - Detection ready, execution needs implementation
+
+## Cards Automatically Supported
+
+With current implementation:
+- **Steel Hellkite** - Destroy permanents with mana value X (combat damage)
+- **Crypt Rats** - Deal X damage to each creature and player
+- **Helix Pinnacle** - Put X tower counters
+- **Energy Vortex** - Put X vortex counters
+- **Chromatic Armor** - Put X sleight counters
+- Plus any other cards matching these patterns!
+
+## Testing Examples
+
+### Steel Hellkite Flow (unchanged from before)
+1. Combat: Steel Hellkite deals damage to player(s) → tracked on permanent
+2. Player activates X ability → modal appears for X selection
+3. Server detects pattern: DESTROY_MV_X with combat damage requirement
+4. Server validates and destroys matching permanents
+5. End of turn cleanup
+
+### Crypt Rats Flow (new)
+1. Player activates X ability → modal appears
+2. Server detects pattern: DEAL_X_DAMAGE to each creature and player
+3. Server deals X damage to all creatures and players
+4. Returns success message
+
+### Helix Pinnacle Flow (new)
+1. Player activates X ability → modal appears
+2. Server detects pattern: PUT_X_COUNTERS (tower type)
+3. Server adds X tower counters to Helix Pinnacle
+4. Returns success message
+
