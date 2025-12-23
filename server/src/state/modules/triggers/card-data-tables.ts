@@ -593,6 +593,10 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
     effect: "Whenever another Elf enters the battlefield under your control, put a +1/+1 counter on Marwyn, the Nurturer",
     triggerOn: 'creature',
   },
+  "bojuka bog": {
+    effect: "Target player exiles all cards from their graveyard",
+    triggerOn: 'self',
+  },
 };
 
 // ============================================================================
@@ -833,6 +837,15 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
     mandatory: true,
     requiresChoice: true,
     modalOptions: ["You gain 1 life", "Return a creature card with mana value 1 or less from your graveyard to the battlefield"],
+  },
+  // Agitator Ant - At the beginning of your end step, each player may put two +1/+1 counters on a creature they control.
+  // Goad each creature that had counters put on it this way. (Until your next turn, those creatures attack each combat
+  // if able and attack a player other than you if able.)
+  "agitator ant": {
+    effect: "Each player may put two +1/+1 counters on a creature they control. Goad each creature that had counters put on it this way.",
+    mandatory: true,
+    requiresChoice: true,
+    affectsAllPlayers: true,
   },
 };
 
