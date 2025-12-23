@@ -2813,6 +2813,86 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle activated abilities that grant abilities/keywords to target creatures
+    // Pattern: "{cost}: Target creature you control gains/gets {ability} until end of turn"
+    // Examples: Fire Nation Palace ("{1}{R}, {T}: Target creature you control gains firebending 4")
+    //           Various lords and pump effects
+    // Note: This also applies to instants/sorceries that grant abilities, but those are handled
+    // during spell resolution via the targeting system
+    const grantAbilityMatch = oracleText.match(/\{([^}]+(?:\}\s*,\s*\{[^}]+)*)\}:\s*target\s+creature\s+(you control|an opponent controls)?.*?(gains?|gets?)\s+([^.]+)/i);
+    
+    if (grantAbilityMatch && abilityId.includes("grant-ability")) {
+      const costStr = `{${grantAbilityMatch[1]}}`;
+      const targetRestriction = grantAbilityMatch[2]?.toLowerCase() || "you control";
+      const grantVerb = grantAbilityMatch[3];
+      let abilityGranted = grantAbilityMatch[4].trim();
+      
+      // Clean up the ability text
+      abilityGranted = abilityGranted.replace(/\s+until end of turn$/i, '').trim();
+      
+      debug(2, `[activateBattlefieldAbility] Grant ability detected: ${cardName} - "${abilityGranted}" (restriction: ${targetRestriction})`);
+      
+      // Determine if this targets own or opponent creatures
+      const targetsOpponentCreatures = targetRestriction.includes("opponent");
+      
+      // Get valid target creatures
+      const validTargets = battlefield.filter((p: any) => {
+        const pTypeLine = (p.card?.type_line || "").toLowerCase();
+        if (!pTypeLine.includes("creature")) return false;
+        
+        if (targetsOpponentCreatures) {
+          return p.controller !== pid; // Opponent's creatures
+        } else {
+          return p.controller === pid; // Own creatures
+        }
+      });
+      
+      if (validTargets.length === 0) {
+        socket.emit("error", {
+          code: "NO_VALID_TARGETS",
+          message: targetsOpponentCreatures 
+            ? "No opponent creatures to target"
+            : "You have no creatures to target",
+        });
+        return;
+      }
+      
+      // Store pending ability activation for when target is chosen
+      const effectId = `grant_ability_${permanentId}_${Date.now()}`;
+      (game.state as any).pendingAbilityGrants = (game.state as any).pendingAbilityGrants || {};
+      (game.state as any).pendingAbilityGrants[effectId] = {
+        sourceId: permanentId,
+        sourceName: cardName,
+        cost: costStr,
+        abilityGranted,
+        playerId: pid,
+        permanent: { ...permanent },
+        validTargetIds: validTargets.map((c: any) => c.id),
+        targetsOpponentCreatures,
+      };
+      
+      // Send target selection prompt
+      socket.emit("selectAbilityTarget", {
+        gameId,
+        sourceId: permanentId,
+        sourceName: cardName,
+        cost: costStr,
+        abilityGranted,
+        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        effectId,
+        validTargets: validTargets.map((c: any) => ({
+          id: c.id,
+          name: c.card?.name || "Creature",
+          power: c.card?.power || c.basePower || "0",
+          toughness: c.card?.toughness || c.baseToughness || "0",
+          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+        })),
+      });
+      
+      debug(2, `[activateBattlefieldAbility] Ability grant on ${cardName}: ability="${abilityGranted}", prompting for target selection (effectId: ${effectId})`);
+      return;
+    }
+    
     // Handle graveyard exile abilities (Keen-Eyed Curator, etc.)
     // Pattern: "{1}: Exile target card from a graveyard"
     const hasGraveyardExileAbility = oracleText.includes("exile target card from a graveyard") ||
@@ -5998,6 +6078,129 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
     
     // Broadcast updated game state
+    broadcastGame(io, game, gameId);
+  });
+
+  // Ability target selection handler (for effects that grant abilities to creatures)
+  socket.on("abilityTargetChosen", ({
+    gameId,
+    targetCreatureId,
+    effectId,
+  }: {
+    gameId: string;
+    targetCreatureId: string;
+    effectId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Retrieve pending ability grant
+    const pendingGrants = (game.state as any).pendingAbilityGrants || {};
+    const pendingGrant = pendingGrants[effectId];
+    
+    if (!pendingGrant) {
+      socket.emit("error", {
+        code: "INVALID_EFFECT",
+        message: "Ability grant effect not found or expired",
+      });
+      return;
+    }
+    
+    // Validate target
+    if (!pendingGrant.validTargetIds.includes(targetCreatureId)) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Invalid target for ability grant",
+      });
+      return;
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+    
+    if (!targetCreature) {
+      socket.emit("error", {
+        code: "TARGET_NOT_FOUND",
+        message: "Target creature not found",
+      });
+      delete pendingGrants[effectId];
+      return;
+    }
+    
+    // Parse and pay the cost
+    const cost = pendingGrant.cost;
+    const parsedCost = parseManaCost(cost);
+    const pool = getOrInitManaPool(game.state, pid);
+    const totalAvailable = calculateTotalAvailableMana(pool, []);
+    
+    // Validate mana payment
+    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+    if (validationError) {
+      socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+      delete pendingGrants[effectId];
+      return;
+    }
+    
+    // Consume mana
+    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[abilityTargetChosen]');
+    
+    // Tap the source permanent if it has {T} in the cost
+    const sourceId = pendingGrant.sourceId;
+    const sourcePermanent = battlefield.find((p: any) => p.id === sourceId);
+    if (sourcePermanent && cost.toLowerCase().includes('{t}')) {
+      sourcePermanent.tapped = true;
+    }
+    
+    // Grant the ability to the target creature until end of turn
+    const abilityText = pendingGrant.abilityGranted;
+    if (!targetCreature.grantedAbilities) {
+      targetCreature.grantedAbilities = [];
+    }
+    
+    // Add the ability with an expiration marker
+    const grantedAbility = `${abilityText} (until end of turn)`;
+    if (!targetCreature.grantedAbilities.includes(grantedAbility)) {
+      targetCreature.grantedAbilities.push(grantedAbility);
+    }
+    
+    // Track temporary abilities for cleanup at end of turn
+    if (!(game.state as any).temporaryAbilities) {
+      (game.state as any).temporaryAbilities = [];
+    }
+    (game.state as any).temporaryAbilities.push({
+      creatureId: targetCreatureId,
+      ability: grantedAbility,
+      expiresAt: 'end_of_turn',
+      grantedBy: sourceId,
+    });
+    
+    // Clean up pending state
+    delete pendingGrants[effectId];
+    
+    // Bump seq
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    // Log to chat
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated ${pendingGrant.sourceName}: ${targetCreature.card?.name} gains ${abilityText} until end of turn`,
+      ts: Date.now(),
+    });
+    
+    debug(2, `[abilityTargetChosen] ${targetCreature.card?.name} granted "${abilityText}" from ${pendingGrant.sourceName}`);
+    
+    // Broadcast updated game state
+    broadcastManaPoolUpdate(io, gameId, pid, pool, 'Ability activated', game);
     broadcastGame(io, game, gameId);
   });
 
