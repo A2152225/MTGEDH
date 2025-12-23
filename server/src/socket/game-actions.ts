@@ -1660,8 +1660,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Check if this is a Modal Double-Faced Card (MDFC) like Blightstep Pathway
-      const layout = (cardInHand as any)?.layout;
-      const cardFaces = (cardInHand as any)?.card_faces;
+      let layout = (cardInHand as any)?.layout;
+      let cardFaces = (cardInHand as any)?.card_faces;
       const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
       
       // If MDFC and no face selected yet, prompt the player to choose
@@ -1738,8 +1738,33 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Validate that the card is actually a land (check type_line)
+      // For double-faced cards (transform), check the current front face, not the entire type_line
       const typeLine = (cardInHand as any)?.type_line || "";
-      const isLand = /\bland\b/i.test(typeLine);
+      layout = (cardInHand as any)?.layout;
+      cardFaces = (cardInHand as any)?.card_faces;
+      
+      let isLand = false;
+      
+      // For transform cards (like Growing Rites of Itlimoc), check the FRONT face only
+      if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(cardFaces) && cardFaces.length >= 2) {
+        // Check front face (index 0) - this is what you play from hand
+        const frontFace = cardFaces[0];
+        const frontTypeLine = frontFace?.type_line || "";
+        isLand = /\bland\b/i.test(frontTypeLine);
+        
+        if (!isLand) {
+          debugWarn(2, `[playLand] Transform card ${cardName} front face is not a land. Front face type: ${frontTypeLine}`);
+          socket.emit("error", {
+            code: "NOT_A_LAND",
+            message: `${cardName || "This card"} must be cast as a spell, not played as a land. Its back face transforms into a land.`,
+          });
+          return;
+        }
+      } else {
+        // Regular card or MDFC - check type_line normally
+        isLand = /\bland\b/i.test(typeLine);
+      }
+      
       if (!isLand) {
         debugWarn(2, `[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
         socket.emit("error", {

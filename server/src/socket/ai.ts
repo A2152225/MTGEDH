@@ -40,6 +40,10 @@ const INITIAL_HAND_SIZE = 7;
 /** Probability that AI gives up control of optional creatures (0.3 = 30%) */
 const AI_OPTIONAL_GIVE_CONTROL_PROBABILITY = 0.3;
 
+/** Mana retention tapping strategy constants */
+const MIN_UNTAPPED_LANDS_FOR_INSTANTS = 3; // Keep at least 3 lands untapped for instant-speed responses
+const UNTAPPED_LAND_RATIO = 0.4; // Keep at least 40% of lands untapped
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -1147,6 +1151,19 @@ export function getAIPlayers(gameId: string): PlayerID[] {
  */
 function isLandCard(card: any): boolean {
   const typeLine = (card?.type_line || '').toLowerCase();
+  const layout = card?.layout;
+  const cardFaces = card?.card_faces;
+  
+  // For transform cards, check if the FRONT face is a land
+  // (Growing Rites of Itlimoc has "Legendary Enchantment // Legendary Land" 
+  // but only the back face is a land, so it should NOT be playable as a land)
+  if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(cardFaces) && cardFaces.length >= 2) {
+    const frontFace = cardFaces[0];
+    const frontTypeLine = (frontFace?.type_line || '').toLowerCase();
+    return frontTypeLine.includes('land');
+  }
+  
+  // For regular cards and MDFCs, check the type_line
   return typeLine.includes('land');
 }
 
@@ -2733,15 +2750,22 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
     const oracleText = (perm.card?.oracle_text || '').toLowerCase();
     
     // Omnath, Locus of Mana - Green mana doesn't empty
+    // Oracle text: "You don't lose unspent green mana as steps and phases end."
+    // Handle different apostrophe styles and text variations
     if (cardName.includes('omnath, locus of mana') || 
-        (oracleText.includes('green mana') && oracleText.includes("doesn't empty"))) {
+        (oracleText.includes('green mana') && 
+         (oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty") ||
+          oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
       hasGreenRetention = true;
     }
     
     // Leyline Tyrant - Red mana doesn't empty
+    // Oracle text: "You don't lose unspent red mana as steps and phases end."
+    // Handle different apostrophe styles and text variations
     if (cardName.includes('leyline tyrant') ||
         (oracleText.includes('red mana') && 
-         (oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
+         (oracleText.includes("don't lose") || oracleText.includes("don't lose") ||
+          oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty")))) {
       hasRedRetention = true;
     }
     
@@ -2752,8 +2776,10 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
     }
     
     // Upwelling - All mana doesn't empty
+    // Handle different apostrophe styles (straight ' vs curly ')
     if (cardName.includes('upwelling') ||
-        (oracleText.includes('mana pools') && oracleText.includes("don't empty"))) {
+        (oracleText.includes('mana pools') && 
+         (oracleText.includes("don't empty") || oracleText.includes("don't empty")))) {
       hasAllRetention = true;
     }
   }
@@ -2821,6 +2847,8 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
 
 /**
  * Execute AI tapping lands for mana (when mana retention effects are present)
+ * Strategy: Only tap a portion of lands (keeping ~40% or at least 3 untapped) to maintain
+ * flexibility for instant-speed responses while still benefiting from retention effects.
  */
 async function executeAITapLandsForMana(
   io: Server,
@@ -2844,13 +2872,16 @@ async function executeAITapLandsForMana(
     const oracleText = (perm.card?.oracle_text || '').toLowerCase();
     
     if (cardName.includes('omnath, locus of mana') || 
-        (oracleText.includes('green mana') && oracleText.includes("doesn't empty"))) {
+        (oracleText.includes('green mana') && 
+         (oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty") ||
+          oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
       retainedColors.add('G');
     }
     
     if (cardName.includes('leyline tyrant') ||
         (oracleText.includes('red mana') && 
-         (oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
+         (oracleText.includes("don't lose") || oracleText.includes("don't lose") ||
+          oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty")))) {
       retainedColors.add('R');
     }
     
@@ -2865,12 +2896,9 @@ async function executeAITapLandsForMana(
     }
   }
   
-  // Tap all untapped lands that produce retained colors
-  const manaPool = game.state.manaPool[playerId] || {
-    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-  };
-  
-  let tappedCount = 0;
+  // Collect all tappable lands that produce retained colors
+  // Strategy: Only tap a portion of lands to keep flexibility for instants
+  const tappableLands: any[] = [];
   
   for (const perm of battlefield) {
     if (!perm || perm.controller !== playerId || perm.tapped) continue;
@@ -2897,8 +2925,27 @@ async function executeAITapLandsForMana(
       }
     }
     
-    if (!shouldTap) continue;
-    
+    if (shouldTap) {
+      tappableLands.push({ perm, producedColors });
+    }
+  }
+  
+  // Conservative strategy: Keep lands untapped for instant-speed responses
+  // Tap at most 60% of available lands, ensuring we don't tap all resources
+  const totalTappable = tappableLands.length;
+  const minToKeepUntapped = Math.max(MIN_UNTAPPED_LANDS_FOR_INSTANTS, Math.ceil(totalTappable * UNTAPPED_LAND_RATIO));
+  const maxToTap = Math.max(0, totalTappable - minToKeepUntapped);
+  const landsToTap = tappableLands.slice(0, maxToTap);
+  
+  debug(2, `[AI] Mana retention: ${totalTappable} tappable lands, will tap ${landsToTap.length}, keep ${totalTappable - landsToTap.length} untapped for flexibility`);
+  
+  const manaPool = game.state.manaPool[playerId] || {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+  };
+  
+  let tappedCount = 0;
+  
+  for (const { perm, producedColors } of landsToTap) {
     // Tap the land/permanent
     perm.tapped = true;
     tappedCount++;

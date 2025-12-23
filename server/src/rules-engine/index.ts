@@ -23,6 +23,7 @@ export type EngineCounterUpdate = {
 export type EngineSBAResult = {
   readonly counterUpdates: readonly EngineCounterUpdate[];
   readonly destroys: readonly string[];
+  readonly playersLost: readonly string[]; // Player IDs who have lost due to SBA (Rule 704.5a)
 };
 
 // Normalize counters: positives only; +1/+1 and -1/-1 cancel pairwise
@@ -258,7 +259,24 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     }
   }
 
-  return { counterUpdates: updates, destroys };
+  // CR 704.5a: If a player has 0 or less life, that player loses the game.
+  const playersLost: string[] = [];
+  const life = (state as any).life || {};
+  const players = Array.isArray((state as any).players) 
+    ? (state as any).players 
+    : [];
+  
+  for (const player of players) {
+    if (!player || !player.id) continue;
+    if (player.hasLost || player.eliminated || player.conceded) continue;
+    
+    const playerLife = life[player.id];
+    if (typeof playerLife === 'number' && playerLife <= 0) {
+      playersLost.push(player.id);
+    }
+  }
+
+  return { counterUpdates: updates, destroys, playersLost };
 }
 
 // Damage evaluation (wither/infect → -1/-1 counters)
