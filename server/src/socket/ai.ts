@@ -2733,15 +2733,22 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
     const oracleText = (perm.card?.oracle_text || '').toLowerCase();
     
     // Omnath, Locus of Mana - Green mana doesn't empty
+    // Oracle text: "You don't lose unspent green mana as steps and phases end."
+    // Handle different apostrophe styles and text variations
     if (cardName.includes('omnath, locus of mana') || 
-        (oracleText.includes('green mana') && oracleText.includes("doesn't empty"))) {
+        (oracleText.includes('green mana') && 
+         (oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty") ||
+          oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
       hasGreenRetention = true;
     }
     
     // Leyline Tyrant - Red mana doesn't empty
+    // Oracle text: "You don't lose unspent red mana as steps and phases end."
+    // Handle different apostrophe styles and text variations
     if (cardName.includes('leyline tyrant') ||
         (oracleText.includes('red mana') && 
-         (oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
+         (oracleText.includes("don't lose") || oracleText.includes("don't lose") ||
+          oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty")))) {
       hasRedRetention = true;
     }
     
@@ -2752,8 +2759,10 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
     }
     
     // Upwelling - All mana doesn't empty
+    // Handle different apostrophe styles
     if (cardName.includes('upwelling') ||
-        (oracleText.includes('mana pools') && oracleText.includes("don't empty"))) {
+        (oracleText.includes('mana pools') && 
+         (oracleText.includes("don't empty") || oracleText.includes("don't empty")))) {
       hasAllRetention = true;
     }
   }
@@ -2846,13 +2855,16 @@ async function executeAITapLandsForMana(
     const oracleText = (perm.card?.oracle_text || '').toLowerCase();
     
     if (cardName.includes('omnath, locus of mana') || 
-        (oracleText.includes('green mana') && oracleText.includes("doesn't empty"))) {
+        (oracleText.includes('green mana') && 
+         (oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty") ||
+          oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
       retainedColors.add('G');
     }
     
     if (cardName.includes('leyline tyrant') ||
         (oracleText.includes('red mana') && 
-         (oracleText.includes("don't lose") || oracleText.includes("don't lose")))) {
+         (oracleText.includes("don't lose") || oracleText.includes("don't lose") ||
+          oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty")))) {
       retainedColors.add('R');
     }
     

@@ -64,7 +64,9 @@ describe('AI Mana Retention', () => {
       const oracleText = "You don't lose unspent green mana as steps and phases end.";
       
       const hasGreenRetention = cardName.includes('omnath, locus of mana') || 
-        (oracleText.toLowerCase().includes('green mana') && oracleText.toLowerCase().includes("doesn't empty"));
+        (oracleText.toLowerCase().includes('green mana') && 
+         (oracleText.toLowerCase().includes("doesn't empty") || oracleText.toLowerCase().includes("doesn't empty") ||
+          oracleText.toLowerCase().includes("don't lose") || oracleText.toLowerCase().includes("don't lose")));
       
       expect(hasGreenRetention).toBe(true);
     });
@@ -75,7 +77,8 @@ describe('AI Mana Retention', () => {
       
       const hasRedRetention = cardName.includes('leyline tyrant') ||
         (oracleText.toLowerCase().includes('red mana') && 
-         (oracleText.toLowerCase().includes("don't lose") || oracleText.toLowerCase().includes("don't lose")));
+         (oracleText.toLowerCase().includes("don't lose") || oracleText.toLowerCase().includes("don't lose") ||
+          oracleText.toLowerCase().includes("doesn't empty") || oracleText.toLowerCase().includes("doesn't empty")));
       
       expect(hasRedRetention).toBe(true);
     });
@@ -95,7 +98,9 @@ describe('AI Mana Retention', () => {
       const oracleText = '{T}: Add {G}.';
       
       const hasGreenRetention = cardName.includes('omnath, locus of mana') || 
-        (oracleText.toLowerCase().includes('green mana') && oracleText.toLowerCase().includes("doesn't empty"));
+        (oracleText.toLowerCase().includes('green mana') && 
+         (oracleText.toLowerCase().includes("doesn't empty") || oracleText.toLowerCase().includes("doesn't empty") ||
+          oracleText.toLowerCase().includes("don't lose") || oracleText.toLowerCase().includes("don't lose")));
       
       expect(hasGreenRetention).toBe(false);
     });
