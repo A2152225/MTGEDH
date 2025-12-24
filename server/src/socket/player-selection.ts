@@ -168,7 +168,7 @@ export function requestPlayerSelection(
           id: p.id,
           name: p.name || p.id,
           life: game.state?.life?.[p.id] ?? 40,
-          libraryCount: (game.state?.zones?.[p.id]?.library as any)?.length ?? 0,
+          libraryCount: (game.state?.zones?.[p.id] as any)?.libraryCount ?? 0,
         })),
       });
     }
@@ -355,9 +355,7 @@ function executePlayerSelectionEffect(
     effectType: effectData.type,
     permanentId: effectData.permanentId,
     wasTimeout,
-  }).then(() => {
-    // Event persisted successfully
-  }).catch(err => debugWarn(1, "[playerSelection] Failed to persist event:", err));
+  });
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();

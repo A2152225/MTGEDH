@@ -2721,12 +2721,17 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if this spell requires paying X life (Toxic Deluge, Hatred, etc.)
       // If the player hasn't specified the life payment amount, prompt for it
+      // Skip this check for permanents (creatures, artifacts, enchantments) - they have activated abilities, not cast costs
       const cardNameLower = (cardInHand.name || '').toLowerCase();
+      const cardTypeLine = (cardInHand.type_line || '').toLowerCase();
+      const isPermanent = cardTypeLine.includes('creature') || cardTypeLine.includes('artifact') || 
+                         cardTypeLine.includes('enchantment') || cardTypeLine.includes('planeswalker') || 
+                         cardTypeLine.includes('land');
       const payXLifeInfo = PAY_X_LIFE_CARDS[cardNameLower];
       const lifePaymentProvided = (payment as any[])?.some((p: any) => typeof p.lifePayment === 'number') ||
                                    (targets as any)?.lifePayment !== undefined;
       
-      if (payXLifeInfo && !lifePaymentProvided) {
+      if (payXLifeInfo && !lifePaymentProvided && !isPermanent) {
         // Get the player's current life to determine max payment
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life?.[playerId] ?? startingLife;
@@ -2850,6 +2855,37 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           debug(2, `[castSpellFromHand] Requesting sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
           return; // Wait for sacrifice selection
+        } else if (additionalCost.type === 'pay_life') {
+          // Pay X life as an additional cost (Vampiric Tutor, etc.)
+          const startingLife = game.state.startingLife || 40;
+          const currentLife = game.state.life?.[playerId] ?? startingLife;
+          
+          // Validate that player can pay the life
+          if (currentLife < additionalCost.amount) {
+            socket.emit("error", {
+              code: "CANNOT_PAY_COST",
+              message: `Cannot cast ${cardInHand.name}: You need to pay ${additionalCost.amount} life but only have ${currentLife} life.`,
+            });
+            return;
+          }
+          
+          // Pay the life immediately
+          game.state.life = game.state.life || {};
+          game.state.life[playerId] = currentLife - additionalCost.amount;
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardInHand.name}. (${currentLife} → ${game.state.life[playerId]})`,
+            ts: Date.now(),
+          });
+          
+          debug(2, `[castSpellFromHand] Player paid ${additionalCost.amount} life for ${cardInHand.name}`);
+          
+          // Mark additional cost as paid
+          (targets as any) = (targets as any) || {};
+          (targets as any).additionalCostPaid = true;
         } else if (additionalCost.type === 'squad') {
           // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times"
           // Prompt the player to choose how many times to pay the squad cost
@@ -3870,6 +3906,34 @@ export function registerGameActions(io: Server, socket: Socket) {
               message: `${trigger.cardName}: ${getPlayerName(game, playerId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}.`,
               ts: Date.now(),
             });
+          }
+          
+          // Loyalty counter effect (Ral, Crackling Wit and similar planeswalkers)
+          if (trigger.addsLoyaltyCounters && trigger.addsLoyaltyCounters > 0) {
+            // Find the planeswalker permanent on the battlefield
+            const battlefield = game.state?.battlefield || [];
+            const planeswalker = battlefield.find((perm: any) => 
+              perm.id === trigger.permanentId && 
+              perm.controller === playerId
+            );
+            
+            if (planeswalker) {
+              planeswalker.counters = planeswalker.counters || {};
+              const currentLoyalty = parseInt(String(planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0), 10) || 0;
+              const newLoyalty = currentLoyalty + trigger.addsLoyaltyCounters;
+              // Cast to any to bypass readonly restriction
+              (planeswalker.counters as any).loyalty = newLoyalty;
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `${trigger.cardName}: ${getPlayerName(game, playerId)} adds ${trigger.addsLoyaltyCounters} loyalty counter${trigger.addsLoyaltyCounters > 1 ? 's' : ''} (now ${newLoyalty}).`,
+                ts: Date.now(),
+              });
+              
+              debug(2, `[castSpellFromHand] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${newLoyalty}`);
+            }
           }
         }
       } catch (err) {

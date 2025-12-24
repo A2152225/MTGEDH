@@ -4395,7 +4395,7 @@ export function App() {
     socket.emit("activateGraveyardAbility", {
       gameId: safeView.id,
       cardId,
-      abilityIndex: abilityId ? parseInt(abilityId, 10) || 0 : 0,
+      abilityId,
     });
     
     setGraveyardModalOpen(false);
