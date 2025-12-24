@@ -750,6 +750,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Validate attackers are valid creatures controlled by the player
       const battlefield = game.state?.battlefield || [];
       const attackerIds: string[] = [];
+      const currentTurn = (game.state as any).turn || 0;
       
       // Check for Ghostly Prison, Windborn Muse, Propaganda, etc. effects
       // These require payment per attacking creature
@@ -1083,7 +1084,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Goaded creatures attack each combat if able
       // ========================================================================
       // Check if there are any goaded creatures that should have attacked but didn't
-      const currentTurn = (game.state as any).turn || 0;
       const goadedCreaturesNotAttacking: any[] = [];
       
       for (const perm of battlefield) {

@@ -439,8 +439,11 @@ export interface GameState {
   turnOrder?: PlayerID[];
   startedAt?: number;
   turn?: number;
+  turnNumber?: number; // Current turn number (incremented each turn)
   activePlayerIndex?: number;
   landsPlayedThisTurn?: Record<PlayerID, number>;
+  // AI mana retention taps tracking - prevents infinite loops
+  aiManaRetentionTaps?: Record<PlayerID, number>;
   // Special game designations (Rules 724-730)
   monarch?: PlayerID | null;
   initiative?: PlayerID | null;
