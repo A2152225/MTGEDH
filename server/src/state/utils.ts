@@ -2237,6 +2237,144 @@ export function calculateEquipmentBonusWithSources(
       continue;
     }
     
+    // Bonehoard - +X/+X where X is creatures in all graveyards
+    if (cardName.includes('bonehoard')) {
+      let creatureCount = 0;
+      const allPlayers = gameState?.players || [];
+      for (const player of allPlayers) {
+        const playerZones = zones[player.id];
+        const graveyard = playerZones?.graveyard || [];
+        for (const card of graveyard) {
+          if ((card.type_line || '').toLowerCase().includes('creature')) {
+            creatureCount++;
+          }
+        }
+      }
+      sources.push({ name: perm.card.name, power: creatureCount, toughness: creatureCount, type: sourceType });
+      continue;
+    }
+    
+    // Runechanter's Pike - +X/+0 where X is instants and sorceries in your graveyard
+    if (cardName.includes("runechanter's pike")) {
+      const playerZones = zones[controllerId];
+      const graveyard = playerZones?.graveyard || [];
+      let count = 0;
+      for (const card of graveyard) {
+        const tl = (card.type_line || '').toLowerCase();
+        if (tl.includes('instant') || tl.includes('sorcery')) {
+          count++;
+        }
+      }
+      sources.push({ name: perm.card.name, power: count, toughness: 0, type: sourceType });
+      continue;
+    }
+    
+    // Trepanation Blade - variable based on last attack (stored on equipment)
+    if (cardName.includes('trepanation blade')) {
+      const storedBonus = perm.trepanationBonus || perm.lastTrepanationBonus || 0;
+      if (storedBonus > 0) {
+        sources.push({ name: perm.card.name, power: storedBonus, toughness: 0, type: sourceType });
+      }
+      continue;
+    }
+    
+    // Stoneforge Masterwork - +1/+1 for each creature sharing a type with equipped creature
+    if (cardName.includes('stoneforge masterwork')) {
+      const creatureTypes = extractCreatureTypes(creaturePerm.card?.type_line || '');
+      let matchCount = 0;
+      for (const p of battlefield) {
+        if (!p || !p.card || p.id === creaturePerm.id) continue;
+        if (p.controller !== controllerId) continue;
+        const pTypeLine = (p.card.type_line || '').toLowerCase();
+        if (!pTypeLine.includes('creature')) continue;
+        
+        for (const cType of creatureTypes) {
+          if (pTypeLine.includes(cType.toLowerCase())) {
+            matchCount++;
+            break;
+          }
+        }
+      }
+      sources.push({ name: perm.card.name, power: matchCount, toughness: matchCount, type: sourceType });
+      continue;
+    }
+    
+    // Conqueror's Flail - +1/+1 for each color among permanents you control
+    if (cardName.includes("conqueror's flail")) {
+      const colors = new Set<string>();
+      for (const p of battlefield) {
+        if (p.controller !== controllerId) continue;
+        const cardColors = p.card?.colors || [];
+        for (const c of cardColors) {
+          colors.add(c);
+        }
+      }
+      const bonus = colors.size;
+      sources.push({ name: perm.card.name, power: bonus, toughness: bonus, type: sourceType });
+      continue;
+    }
+    
+    // Blazing Sunsteel - +1/+0 for each opponent
+    // Oracle text: "Equipped creature gets +1/+0 for each opponent you have."
+    if (cardName.includes('blazing sunsteel')) {
+      const allPlayers = gameState?.players || [];
+      // Count opponents (all players except the controller of the equipped creature)
+      const opponentCount = allPlayers.filter((p: any) => 
+        p && p.id !== controllerId && !p.hasLost
+      ).length;
+      sources.push({ name: perm.card.name, power: opponentCount, toughness: 0, type: sourceType });
+      continue;
+    }
+    
+    // All That Glitters - +1/+1 for each artifact and enchantment you control
+    if (cardName.includes('all that glitters')) {
+      const count = battlefield.filter((p: any) => {
+        if (p.controller !== controllerId) return false;
+        const tl = (p.card?.type_line || '').toLowerCase();
+        return tl.includes('artifact') || tl.includes('enchantment');
+      }).length;
+      sources.push({ name: perm.card.name, power: count, toughness: count, type: sourceType });
+      continue;
+    }
+    
+    // Ethereal Armor - +1/+1 for each enchantment you control
+    if (cardName.includes('ethereal armor')) {
+      const enchantments = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('enchantment')
+      );
+      const bonus = enchantments.length;
+      sources.push({ name: perm.card.name, power: bonus, toughness: bonus, type: sourceType });
+      continue;
+    }
+    
+    // Ancestral Mask - +2/+2 for each other enchantment on the battlefield
+    if (cardName.includes('ancestral mask')) {
+      const enchantments = battlefield.filter((p: any) => {
+        if (p.id === perm.id) return false; // Don't count itself
+        return (p.card?.type_line || '').toLowerCase().includes('enchantment');
+      });
+      const bonus = enchantments.length * 2;
+      sources.push({ name: perm.card.name, power: bonus, toughness: bonus, type: sourceType });
+      continue;
+    }
+    
+    // Tenza, Godo's Maul - conditional bonuses based on creature type
+    if (cardName.includes("tenza") || cardName.includes("godo's maul")) {
+      let power = 1;
+      let toughness = 1;
+      
+      // Additional bonus if legendary
+      const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
+      if (creatureTypeLine.includes('legendary')) {
+        power += 2;
+        toughness += 2;
+      }
+      
+      sources.push({ name: perm.card.name, power, toughness, type: sourceType });
+      continue;
+    }
+    
     // Known static equipment/aura bonuses
     if (EQUIPMENT_BONUSES[cardName]) {
       const bonus = EQUIPMENT_BONUSES[cardName];

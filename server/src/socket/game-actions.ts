@@ -7,6 +7,7 @@ import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { requiresColorChoice, requestColorChoice } from "./color-choice";
+import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
@@ -370,6 +371,58 @@ function checkColorChoiceForNewPermanents(
       );
       
       debug(2, `[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
+    }
+  }
+}
+
+/**
+ * Check newly entered permanents for player selection requirements
+ * and request selection from the player if needed.
+ * 
+ * Uses generic player selection system that routes to appropriate effects:
+ * - Stuffy Doll: set chosenPlayer property
+ * - Vislor Turlough/Xantcha: control change with optional goad
+ */
+function checkPlayerSelectionForNewPermanents(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  const battlefield = game.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    // Skip if already has chosen player or pending selection
+    if (permanent.chosenPlayer || permanent.pendingPlayerSelection) continue;
+    
+    // Detect if this card requires player selection
+    const detection = detectETBPlayerSelection(permanent.card);
+    
+    if (detection.required && detection.effectData) {
+      const controller = permanent.controller;
+      const cardName = permanent.card.name || "Unknown";
+      const permanentId = permanent.id;
+      
+      // Mark as pending to avoid duplicate requests
+      (permanent as any).pendingPlayerSelection = true;
+      
+      // Set permanentId in effect data
+      detection.effectData.permanentId = permanentId;
+      
+      // Request player selection from the controller
+      requestPlayerSelection(
+        io,
+        gameId,
+        controller,
+        cardName,
+        detection.description,
+        detection.effectData,
+        detection.allowOpponentsOnly,
+        detection.isOptional
+      );
+      
+      debug(2, `[game-actions] Requesting player selection for ${cardName} (${permanentId}) from ${controller}`);
     }
   }
 }
@@ -2026,6 +2079,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check for color choice requirements (e.g., Caged Sun, Gauntlet of Power)
       checkColorChoiceForNewPermanents(io, game, gameId);
+      
+      // Check for player selection requirements (e.g., Stuffy Doll, Vislor Turlough)
+      checkPlayerSelectionForNewPermanents(io, game, gameId);
       
       // Check for enchantment ETB triggers (e.g., Growing Rites of Itlimoc)
       checkEnchantmentETBTriggers(io, game, gameId);
@@ -4135,6 +4191,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           // (e.g., Caged Sun, Gauntlet of Power)
           checkColorChoiceForNewPermanents(io, game, gameId);
           
+          // Check for player selection requirements on newly entered permanents
+          // (e.g., Stuffy Doll, Vislor Turlough, Xantcha)
+          checkPlayerSelectionForNewPermanents(io, game, gameId);
+          
           // Check for enchantment ETB triggers (e.g., Growing Rites of Itlimoc)
           checkEnchantmentETBTriggers(io, game, gameId);
           
@@ -4960,6 +5020,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
           checkColorChoiceForNewPermanents(io, game, gameId);
+          checkPlayerSelectionForNewPermanents(io, game, gameId);
           checkEnchantmentETBTriggers(io, game, gameId);
         }
         appendGameEvent(game, gameId, "resolveTopOfStack");

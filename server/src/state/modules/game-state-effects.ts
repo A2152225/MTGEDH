@@ -2377,6 +2377,16 @@ export function detectDamageReplacementEffects(
         controllerId: controller,
       });
     }
+    
+    // The Sound of Drums - double combat damage from enchanted creature
+    // Oracle text: "If enchanted creature would deal combat damage to a permanent or player, it deals double that damage instead."
+    if (cardName.includes("sound of drums") && perm.attachedTo === damageDealer) {
+      effects.push({
+        type: 'double',
+        source: "The Sound of Drums",
+        controllerId: controller,
+      });
+    }
   }
   
   return effects;

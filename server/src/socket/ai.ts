@@ -2508,15 +2508,18 @@ export async function handleAIPriority(
       // IMPORTANT: Tap lands for mana retention effects BEFORE combat
       // This is critical for cards like Omnath, Locus of Mana which gain power from green mana in pool
       // By tapping green-producing lands now, Omnath will be stronger during the combat phase
+      // HOWEVER: Only do this ONCE per turn to avoid infinite loops
       const shouldTapLands = checkShouldTapLandsForManaRetention(game, playerId);
       if (shouldTapLands.shouldTap) {
         debug(1, `[AI] Tapping lands for mana retention before combat (${shouldTapLands.reason})`);
-        await executeAITapLandsForMana(io, gameId, playerId);
-        // After tapping lands, continue with more actions (in case we can now cast something)
-        setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-        }, AI_THINK_TIME_MS);
-        return;
+        const didTap = await executeAITapLandsForMana(io, gameId, playerId);
+        if (didTap) {
+          // After tapping lands, continue with more actions (in case we can now cast something)
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
+          }, AI_THINK_TIME_MS);
+          return;
+        }
       }
       
       // Try to use activated abilities (before casting spells)
@@ -2817,6 +2820,16 @@ function shouldAIPayShockLandLife(game: any, playerId: PlayerID): boolean {
  */
 function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { shouldTap: boolean; reason: string } {
   const battlefield = game.state?.battlefield || [];
+  const turnNumber = game.state?.turnNumber || 0;
+  
+  // Check if we already tapped lands for mana retention this turn
+  // This prevents infinite loops where AI keeps tapping lands repeatedly
+  const aiManaRetentionTaps = game.state?.aiManaRetentionTaps || {};
+  const lastTapTurn = aiManaRetentionTaps[playerId] || -1;
+  
+  if (lastTapTurn === turnNumber) {
+    return { shouldTap: false, reason: 'Already tapped lands for mana retention this turn' };
+  }
   
   // Check for mana retention effects
   let hasGreenRetention = false;
@@ -2955,16 +2968,18 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
  * Execute AI tapping lands for mana (when mana retention effects are present)
  * Strategy: Only tap a portion of lands (keeping ~40% or at least 3 untapped) to maintain
  * flexibility for instant-speed responses while still benefiting from retention effects.
+ * Returns true if lands were tapped, false if no lands were tapped or already tapped this turn.
  */
 async function executeAITapLandsForMana(
   io: Server,
   gameId: string,
   playerId: PlayerID
-): Promise<void> {
+): Promise<boolean> {
   const game = ensureGame(gameId);
-  if (!game) return;
+  if (!game) return false;
   
   const battlefield = game.state?.battlefield || [];
+  const turnNumber = game.state?.turnNumber || 0;
   
   // Detect which colors are retained
   let retainedColors = new Set<string>();
@@ -3110,9 +3125,19 @@ async function executeAITapLandsForMana(
   
   if (tappedCount > 0) {
     game.state.manaPool[playerId] = manaPool;
+    
+    // Track that we tapped lands for mana retention this turn to prevent infinite loops
+    if (!game.state.aiManaRetentionTaps) {
+      game.state.aiManaRetentionTaps = {};
+    }
+    game.state.aiManaRetentionTaps[playerId] = turnNumber;
+    
     broadcastGame(io, game, gameId);
     debug(1, `[AI] Tapped ${tappedCount} lands for mana retention`);
+    return true;
   }
+  
+  return false;
 }
 
 /**
