@@ -3562,14 +3562,14 @@ export function resolveTopOfStack(ctx: GameContext) {
       newPermanent.morphCost = morphCost;
     }
     
-    state.battlefield.push(newPermanent);
-    
     // Add loyalty metadata only for planeswalkers
     if (isPlaneswalker) {
       // Keep both for client display: loyalty = current counters, baseLoyalty = printed
       newPermanent.loyalty = modifiedCounters.loyalty ?? initialCounters.loyalty;
       newPermanent.baseLoyalty = initialCounters.loyalty ?? 0;
     }
+    
+    state.battlefield.push(newPermanent);
     
     // Handle aura and equipment attachments
     // Auras are enchantments with "Aura" subtype that target when cast
