@@ -15,7 +15,7 @@ import { appendEvent, createGameIfNotExists, getEvents, gameExistsInDb } from ".
 import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
-import type { GameID, PlayerID } from "../../../shared/src/index.js";
+import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
@@ -57,6 +57,13 @@ const DEVOTION_COLOR_PATTERNS: Record<string, RegExp> = {
   R: /\{R\}/gi,
   G: /\{G\}/gi,
 };
+
+/**
+ * Mana color keys used in ManaPool interface
+ * Extracted as constant to ensure consistency across mana pool operations
+ */
+const MANA_COLOR_KEYS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+type ManaColorKey = typeof MANA_COLOR_KEYS[number];
 
 // ============================================================================
 // Helper function for timestamps in debug logging
@@ -2604,7 +2611,7 @@ export function parseManaCost(
  * @returns The mana consumed and remaining in pool
  */
 export function consumeManaFromPool(
-  pool: Record<string, number>,
+  pool: ManaPool | Record<string, number>,
   coloredCost: Record<string, number>,
   genericCost: number,
   logPrefix?: string
@@ -2657,22 +2664,29 @@ export function consumeManaFromPool(
   
   // Log remaining mana in pool
   if (logPrefix) {
-    const remainingMana = Object.entries(pool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
+    const remainingMana = Object.entries(pool).filter(([_, v]) => typeof v === 'number' && v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
     if (remainingMana) {
       debug(2, `${logPrefix} Unspent mana remaining in pool: ${remainingMana}`);
     }
   }
   
-  return { consumed, remaining: { ...pool } };
+  // Return only the mana color properties for the remaining pool
+  const remaining: Record<string, number> = {};
+  for (const key of MANA_COLOR_KEYS) {
+    remaining[key] = pool[key] || 0;
+  }
+  
+  return { consumed, remaining };
 }
 
 /**
  * Gets the current mana pool for a player, initializing it if needed.
+ * Returns the enhanced ManaPool interface with support for restricted mana.
  */
 export function getOrInitManaPool(
   gameState: any,
   playerId: string
-): Record<string, number> {
+): ManaPool {
   gameState.manaPool = gameState.manaPool || {};
   gameState.manaPool[playerId] = gameState.manaPool[playerId] || {
     white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
@@ -2946,7 +2960,7 @@ export function getTotalManaPool(
  * Returns the combined pool in the same format as the mana pool (using color names as keys).
  */
 export function calculateTotalAvailableMana(
-  existingPool: Record<string, number>,
+  existingPool: ManaPool | Record<string, number>,
   newPayment: Array<{ mana: string; count?: number }> | undefined
 ): Record<string, number> {
   // Start with a copy of the existing pool
@@ -2979,7 +2993,7 @@ export function calculateTotalAvailableMana(
  * Returns null if payment is sufficient, or an error message describing what's missing.
  */
 export function validateManaPayment(
-  totalAvailable: Record<string, number>,
+  totalAvailable: ManaPool | Record<string, number>,
   coloredCost: Record<string, number>,
   genericCost: number
 ): string | null {
@@ -3001,7 +3015,8 @@ export function validateManaPayment(
   }
   
   // Check generic requirement with remaining mana
-  const remainingTotal = Object.values(pool).reduce((a, b) => a + b, 0);
+  // Only sum numeric color values from the known mana color keys
+  const remainingTotal = MANA_COLOR_KEYS.reduce((sum, key) => sum + (pool[key] || 0), 0);
   const missingGeneric = Math.max(0, genericCost - remainingTotal);
   
   if (missingColors.length > 0 || missingGeneric > 0) {
@@ -3991,72 +4006,11 @@ export function emitToPlayer(
 // ============================================================================
 
 /**
- * Mana restriction types for restricted mana
- */
-export type ManaRestrictionType = 
-  | 'creatures'           // Can only be spent on creatures
-  | 'abilities'           // Can only be spent on abilities
-  | 'colorless_spells'    // Can only be spent on colorless spells
-  | 'artifacts'           // Can only be spent on artifacts
-  | 'legendary'           // Can only be spent on legendary spells
-  | 'multicolored'        // Can only be spent on multicolored spells
-  | 'commander'           // Can only be spent on commander costs
-  | 'activated_abilities' // Can only be spent to activate abilities
-  | 'instant_sorcery'     // Can only be spent on instants and sorceries
-  | 'specific_card';      // Can only be spent on a specific card or permanent
-
-/**
- * Restricted mana entry in the mana pool
- */
-export interface RestrictedManaEntry {
-  /** The type of mana (primary field for identifying the mana color) */
-  type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  amount: number;
-  restriction: ManaRestrictionType;
-  restrictedTo?: string;
-  sourceId?: string;
-  sourceName?: string;
-}
-
-/**
  * Helper function to get the color from a restricted mana entry
  * Uses the 'type' field as the primary source
  */
 export function getManaEntryColor(entry: RestrictedManaEntry): 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless' {
-  return entry.type || 'colorless';
-}
-
-/**
- * Enhanced mana pool with restricted mana support
- */
-export interface EnhancedManaPool {
-  white: number;
-  blue: number;
-  black: number;
-  red: number;
-  green: number;
-  colorless: number;
-  restricted?: RestrictedManaEntry[];
-  doesNotEmpty?: boolean;
-  /** Target color to convert mana to (e.g., 'colorless', 'black', 'red') */
-  convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  /** @deprecated Use convertsTo instead */
-  convertsToColorless?: boolean;
-  noEmptySourceIds?: string[];
-}
-
-/**
- * Get or initialize enhanced mana pool for a player
- */
-export function getOrInitEnhancedManaPool(
-  gameState: any,
-  playerId: string
-): EnhancedManaPool {
-  gameState.manaPool = gameState.manaPool || {};
-  gameState.manaPool[playerId] = gameState.manaPool[playerId] || {
-    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-  };
-  return gameState.manaPool[playerId];
+  return entry.type;
 }
 
 /**
@@ -4072,11 +4026,18 @@ export function addRestrictedManaToPool(
   sourceId?: string,
   sourceName?: string
 ): void {
-  const pool = getOrInitEnhancedManaPool(gameState, playerId);
-  pool.restricted = pool.restricted || [];
+  const pool = getOrInitManaPool(gameState, playerId);
+  // NOTE: ManaPool interface marks properties as readonly for immutability guarantees.
+  // However, server-side code needs to mutate the pool. We use `as any` here because:
+  // 1. We own the game state and control all mutations
+  // 2. The readonly is for client-side type safety, not server-side enforcement
+  // 3. Alternative solutions (separate mutable type) would duplicate the interface
+  const mutablePool = pool as any;
+  const restricted = (mutablePool.restricted as RestrictedManaEntry[] | undefined) || [];
+  mutablePool.restricted = restricted;
   
   // Check if there's already an entry with the same attributes (check both type and color for compatibility)
-  const existingIndex = pool.restricted.findIndex(
+  const existingIndex = restricted.findIndex(
     entry => getManaEntryColor(entry) === color && 
              entry.restriction === restriction && 
              entry.sourceId === sourceId &&
@@ -4085,10 +4046,10 @@ export function addRestrictedManaToPool(
   
   if (existingIndex >= 0) {
     // Add to existing entry
-    pool.restricted[existingIndex].amount += amount;
+    restricted[existingIndex].amount += amount;
   } else {
     // Create new entry
-    pool.restricted.push({
+    restricted.push({
       type: color,
       amount,
       restriction,
@@ -4108,21 +4069,22 @@ export function removeRestrictedManaFromPool(
   restrictedIndex: number,
   amount: number = 1
 ): boolean {
-  const pool = getOrInitEnhancedManaPool(gameState, playerId);
-  if (!pool.restricted || restrictedIndex >= pool.restricted.length) {
+  const pool = getOrInitManaPool(gameState, playerId);
+  const restricted = pool.restricted as RestrictedManaEntry[] | undefined;
+  if (!restricted || restrictedIndex >= restricted.length) {
     return false;
   }
   
-  const entry = pool.restricted[restrictedIndex];
+  const entry = restricted[restrictedIndex];
   if (entry.amount < amount) {
     return false;
   }
   
   if (entry.amount === amount) {
     // Remove the entry entirely
-    pool.restricted.splice(restrictedIndex, 1);
-    if (pool.restricted.length === 0) {
-      delete pool.restricted;
+    restricted.splice(restrictedIndex, 1);
+    if (restricted.length === 0) {
+      delete (pool as any).restricted;
     }
   } else {
     entry.amount -= amount;
@@ -4145,21 +4107,23 @@ export function setManaPoolDoesNotEmpty(
   convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless',
   convertsToColorless: boolean = false
 ): void {
-  const pool = getOrInitEnhancedManaPool(gameState, playerId);
-  pool.doesNotEmpty = true;
+  const pool = getOrInitManaPool(gameState, playerId);
+  // Cast to allow modification of readonly properties
+  const mutablePool = pool as any;
+  mutablePool.doesNotEmpty = true;
   
   // Support both new convertsTo and deprecated convertsToColorless
   if (convertsTo) {
-    pool.convertsTo = convertsTo;
+    mutablePool.convertsTo = convertsTo;
   } else if (convertsToColorless) {
-    pool.convertsTo = 'colorless';
-    pool.convertsToColorless = true;
+    mutablePool.convertsTo = 'colorless';
+    mutablePool.convertsToColorless = true;
   }
   
-  pool.noEmptySourceIds = pool.noEmptySourceIds || [];
+  mutablePool.noEmptySourceIds = mutablePool.noEmptySourceIds || [];
   
-  if (!pool.noEmptySourceIds.includes(sourceId)) {
-    pool.noEmptySourceIds.push(sourceId);
+  if (!mutablePool.noEmptySourceIds.includes(sourceId)) {
+    mutablePool.noEmptySourceIds.push(sourceId);
   }
 }
 
@@ -4172,17 +4136,18 @@ export function removeManaPoolDoesNotEmpty(
   playerId: string,
   sourceId: string
 ): void {
-  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  const pool = getOrInitManaPool(gameState, playerId);
+  const mutablePool = pool as any;
   
-  if (!pool.noEmptySourceIds) return;
+  if (!mutablePool.noEmptySourceIds) return;
   
-  pool.noEmptySourceIds = pool.noEmptySourceIds.filter(id => id !== sourceId);
+  mutablePool.noEmptySourceIds = mutablePool.noEmptySourceIds.filter((id: string) => id !== sourceId);
   
-  if (pool.noEmptySourceIds.length === 0) {
-    delete pool.doesNotEmpty;
-    delete pool.convertsTo;
-    delete pool.convertsToColorless;
-    delete pool.noEmptySourceIds;
+  if (mutablePool.noEmptySourceIds.length === 0) {
+    delete mutablePool.doesNotEmpty;
+    delete mutablePool.convertsTo;
+    delete mutablePool.convertsToColorless;
+    delete mutablePool.noEmptySourceIds;
   }
 }
 
@@ -4193,7 +4158,7 @@ export function getTotalManaInPool(
   gameState: any,
   playerId: string
 ): number {
-  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  const pool = getOrInitManaPool(gameState, playerId);
   const regularMana = (pool.white || 0) + (pool.blue || 0) + (pool.black || 0) +
                       (pool.red || 0) + (pool.green || 0) + (pool.colorless || 0);
   const restrictedMana = pool.restricted?.reduce((sum, entry) => sum + entry.amount, 0) || 0;
@@ -4209,7 +4174,7 @@ export function getTotalManaOfColorInPool(
   playerId: string,
   color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless'
 ): number {
-  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  const pool = getOrInitManaPool(gameState, playerId);
   const regularMana = pool[color] || 0;
   const restrictedMana = pool.restricted
     ?.filter(entry => getManaEntryColor(entry) === color)
@@ -4269,7 +4234,7 @@ export function broadcastManaPoolUpdate(
   io: Server,
   gameId: string,
   playerId: string,
-  manaPool: EnhancedManaPool,
+  manaPool: ManaPool,
   reason?: string,
   game?: any
 ): void {
