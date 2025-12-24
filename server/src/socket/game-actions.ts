@@ -2723,10 +2723,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       // If the player hasn't specified the life payment amount, prompt for it
       // Skip this check for permanents (creatures, artifacts, enchantments) - they have activated abilities, not cast costs
       const cardNameLower = (cardInHand.name || '').toLowerCase();
-      const typeLine = (cardInHand.type_line || '').toLowerCase();
-      const isPermanent = typeLine.includes('creature') || typeLine.includes('artifact') || 
-                         typeLine.includes('enchantment') || typeLine.includes('planeswalker') || 
-                         typeLine.includes('land');
+      const cardTypeLine = (cardInHand.type_line || '').toLowerCase();
+      const isPermanent = cardTypeLine.includes('creature') || cardTypeLine.includes('artifact') || 
+                         cardTypeLine.includes('enchantment') || cardTypeLine.includes('planeswalker') || 
+                         cardTypeLine.includes('land');
       const payXLifeInfo = PAY_X_LIFE_CARDS[cardNameLower];
       const lifePaymentProvided = (payment as any[])?.some((p: any) => typeof p.lifePayment === 'number') ||
                                    (targets as any)?.lifePayment !== undefined;
@@ -3919,17 +3919,20 @@ export function registerGameActions(io: Server, socket: Socket) {
             
             if (planeswalker) {
               planeswalker.counters = planeswalker.counters || {};
-              planeswalker.counters.loyalty = (planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0) + trigger.addsLoyaltyCounters;
+              const currentLoyalty = parseInt(String(planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0), 10) || 0;
+              const newLoyalty = currentLoyalty + trigger.addsLoyaltyCounters;
+              // Cast to any to bypass readonly restriction
+              (planeswalker.counters as any).loyalty = newLoyalty;
               
               io.to(gameId).emit("chat", {
                 id: `m_${Date.now()}`,
                 gameId,
                 from: "system",
-                message: `${trigger.cardName}: ${getPlayerName(game, playerId)} adds ${trigger.addsLoyaltyCounters} loyalty counter${trigger.addsLoyaltyCounters > 1 ? 's' : ''} (now ${planeswalker.counters.loyalty}).`,
+                message: `${trigger.cardName}: ${getPlayerName(game, playerId)} adds ${trigger.addsLoyaltyCounters} loyalty counter${trigger.addsLoyaltyCounters > 1 ? 's' : ''} (now ${newLoyalty}).`,
                 ts: Date.now(),
               });
               
-              debug(2, `[castSpellFromHand] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${planeswalker.counters.loyalty}`);
+              debug(2, `[castSpellFromHand] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${newLoyalty}`);
             }
           }
         }

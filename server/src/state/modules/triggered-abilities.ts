@@ -2549,6 +2549,7 @@ export interface SpellCastTrigger {
     types: string;
     abilities?: string[];
   };
+  addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)
   mandatory: boolean;
 }
 
