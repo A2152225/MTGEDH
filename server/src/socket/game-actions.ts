@@ -2721,12 +2721,17 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if this spell requires paying X life (Toxic Deluge, Hatred, etc.)
       // If the player hasn't specified the life payment amount, prompt for it
+      // Skip this check for permanents (creatures, artifacts, enchantments) - they have activated abilities, not cast costs
       const cardNameLower = (cardInHand.name || '').toLowerCase();
+      const typeLine = (cardInHand.type_line || '').toLowerCase();
+      const isPermanent = typeLine.includes('creature') || typeLine.includes('artifact') || 
+                         typeLine.includes('enchantment') || typeLine.includes('planeswalker') || 
+                         typeLine.includes('land');
       const payXLifeInfo = PAY_X_LIFE_CARDS[cardNameLower];
       const lifePaymentProvided = (payment as any[])?.some((p: any) => typeof p.lifePayment === 'number') ||
                                    (targets as any)?.lifePayment !== undefined;
       
-      if (payXLifeInfo && !lifePaymentProvided) {
+      if (payXLifeInfo && !lifePaymentProvided && !isPermanent) {
         // Get the player's current life to determine max payment
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life?.[playerId] ?? startingLife;

@@ -1492,7 +1492,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${getPlayerName(game, pid)} created a token copy of ${cardName} using ${abilityId}.`,
         ts: Date.now(),
       });
-    } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated" || abilityId.includes("-return-")) {
+    } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated" || (abilityId && abilityId.includes("-return-"))) {
       // Generic return from graveyard ability (like Magma Phoenix, Summon the School)
       // Parse the oracle text to determine the destination and mana cost
       const oracleText = (card.oracle_text || "").toLowerCase();
