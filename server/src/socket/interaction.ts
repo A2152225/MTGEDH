@@ -4937,7 +4937,40 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           const produces = ability.produces || [];
           
           if (produces.length > 0) {
-            if (produces.length > 1) {
+            // ========================================================================
+            // Check if this ability produces ALL colors at once (like bounce lands)
+            // If producesAllAtOnce is true, add all mana at once without prompting
+            // ========================================================================
+            if (ability.producesAllAtOnce && produces.length > 1) {
+              // Multi-mana producer like Rakdos Carnarium - add ALL colors at once
+              const manaAdded: string[] = [];
+              
+              for (const manaColor of produces) {
+                const poolKey = colorToPoolKey[manaColor] || 'colorless';
+                (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
+                manaAdded.push(`{${manaColor}}`);
+              }
+              
+              const manaStr = manaAdded.join('');
+              let message = `${getPlayerName(game, pid)} tapped ${cardName} for ${manaStr}`;
+              if (effectiveMultiplier > 1) {
+                message += ` (×${effectiveMultiplier})`;
+              }
+              message += '.';
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message,
+                ts: Date.now(),
+              });
+              
+              // Broadcast mana pool update
+              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+            }
+            // If produces multiple colors but NOT all at once (like "any color"), prompt user for choice
+            else if (produces.length > 1) {
               // Multi-color production - emit choice to player
               const baseAmount = 1;
               const totalAmount = baseAmount * effectiveMultiplier;
@@ -6800,7 +6833,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -6878,7 +6911,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -6978,7 +7011,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -7080,7 +7113,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -7219,7 +7252,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
