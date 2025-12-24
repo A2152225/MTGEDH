@@ -3248,6 +3248,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     const description = (item as any).description || '';
     const triggerController = (item as any).controller || controller;
     const triggerType = (item as any).triggerType;
+    const sourceId = (item as any).id;
     
     debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
     
@@ -3309,6 +3310,43 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       } else {
         debugWarn(2, `[resolveTopOfStack] Bounce land trigger: permanent ${permanentId} not found on battlefield`);
+      }
+    }
+
+    // Aura Shards style: "destroy target artifact or enchantment"
+    if (sourceName.toLowerCase().includes('aura shards') ||
+        description.toLowerCase().includes('destroy target artifact or enchantment')) {
+      const battlefield = state.battlefield || [];
+      const gameId = (ctx as any).gameId || 'unknown';
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!isReplaying) {
+        const validTargets = battlefield
+          .filter((p: any) => {
+            const tl = (p.card?.type_line || '').toLowerCase();
+            return tl.includes('artifact') || tl.includes('enchantment');
+          })
+          .map((p: any) => ({
+            id: p.id,
+            label: p.card?.name || 'Permanent',
+            description: p.card?.type_line,
+            image: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
+        if (validTargets.length > 0) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: triggerController as PlayerID,
+            description: `${sourceName}: Destroy target artifact or enchantment`,
+            mandatory: true,
+            sourceId,
+            sourceName,
+            validTargets,
+            targetTypes: ['artifact', 'enchantment'],
+            minTargets: 1,
+            maxTargets: 1,
+            action: 'destroy_artifact_enchantment',
+          } as any);
+          return;
+        }
       }
     }
     

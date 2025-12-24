@@ -1040,6 +1040,28 @@ function handleTargetSelectionResponse(
       debugWarn(2, `[Resolution] Stack item ${sourceId} not found to store targets`);
     }
   }
+
+  // Execute immediate actions for certain target-selection steps
+  const action = (step as any).action;
+  if (action === 'destroy_artifact_enchantment') {
+    const state = game.state || {};
+    const battlefield = state.battlefield || [];
+    for (const tid of selections) {
+      const perm = battlefield.find((p: any) => p.id === tid);
+      if (!perm) continue;
+      const idx = battlefield.indexOf(perm);
+      if (idx >= 0) battlefield.splice(idx, 1);
+      const controller = perm.controller;
+      state.zones = state.zones || {};
+      state.zones[controller] = state.zones[controller] || { graveyard: [], graveyardCount: 0 } as any;
+      const graveyard = state.zones[controller].graveyard || [];
+      graveyard.push({ ...(perm.card || {}), zone: 'graveyard' });
+      state.zones[controller].graveyard = graveyard;
+      state.zones[controller].graveyardCount = graveyard.length;
+      debug(2, `[Resolution] Destroyed ${perm.card?.name || perm.id} (Aura Shards effect)`);
+    }
+    broadcastGame(io, game, gameId);
+  }
   
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
   
