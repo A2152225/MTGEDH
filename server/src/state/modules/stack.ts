@@ -485,6 +485,94 @@ export function creatureWillHaveHaste(
   }
 }
 
+function enqueueLibrarySearchStep(
+  ctx: GameContext,
+  controller: PlayerID,
+  options: {
+    description?: string;
+    searchFor?: string;
+    destination?: 'hand' | 'top' | 'battlefield' | 'graveyard' | 'split';
+    tapped?: boolean;
+    optional?: boolean;
+    source?: string;
+    shuffleAfter?: boolean;
+    filter?: any;
+    maxSelections?: number;
+    minSelections?: number;
+    reveal?: boolean;
+    remainderDestination?: string;
+    splitDestination?: boolean;
+    toBattlefield?: number;
+    toHand?: number;
+    entersTapped?: boolean;
+    lifeLoss?: number;
+  }
+): void {
+  const gameId = (ctx as any).gameId || 'unknown';
+  const lib = ctx.libraries?.get(controller) || [];
+  if (!lib.length) {
+    debug(2, `[enqueueLibrarySearchStep] Player ${controller} has empty library, skipping search`);
+    return;
+  }
+
+  const {
+    description = options.searchFor || 'Search your library',
+    searchFor = 'a card',
+    destination = 'hand',
+    tapped = false,
+    optional = false,
+    source = 'Library Search',
+    shuffleAfter = true,
+    filter = {},
+    maxSelections = 1,
+    minSelections = optional ? 0 : 1,
+    reveal = true,
+    remainderDestination = 'shuffle',
+    splitDestination = false,
+    toBattlefield = 0,
+    toHand = 0,
+    entersTapped = tapped,
+    lifeLoss,
+  } = options;
+
+  const availableCards = lib.map((card: any) => ({
+    id: card.id,
+    name: card.name,
+    type_line: card.type_line,
+    oracle_text: card.oracle_text,
+    image_uris: card.image_uris,
+    mana_cost: card.mana_cost,
+    cmc: card.cmc,
+    colors: card.colors,
+    power: (card as any).power,
+    toughness: (card as any).toughness,
+    loyalty: (card as any).loyalty,
+  }));
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.LIBRARY_SEARCH,
+    playerId: controller as PlayerID,
+    description,
+    mandatory: !optional,
+    sourceName: source,
+    searchCriteria: searchFor,
+    minSelections,
+    maxSelections,
+    destination,
+    reveal,
+    shuffleAfter,
+    availableCards,
+    entersTapped,
+    remainderDestination,
+    remainderRandomOrder: true,
+    splitDestination,
+    toBattlefield,
+    toHand,
+    filter,
+    lifeLoss,
+  });
+}
+
 /**
  * Check if a creature should enter the battlefield tapped due to effects on the battlefield.
  * This handles cards like:
@@ -2975,24 +3063,19 @@ export function resolveTopOfStack(ctx: GameContext) {
     if (abilityType === 'fetch-land') {
       debug(2, `[resolveTopOfStack] Resolving fetch land ability from ${sourceName} for ${controller}`);
       
-      // Set up pending library search - the socket layer will send the search prompt
       const searchParams = (item as any).searchParams || {};
-      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-      (state as any).pendingLibrarySearch[controller] = {
-        type: 'fetch-land',
+      enqueueLibrarySearchStep(ctx, controller as PlayerID, {
         searchFor: searchParams.searchDescription || 'a land card',
+        description: `${sourceName}: Search your library for ${searchParams.searchDescription || 'a land'}`,
         destination: 'battlefield',
-        // Use entersTapped from searchParams if available
-        // Standard fetch lands (Polluted Delta, Flooded Strand, etc.) put lands onto battlefield untapped.
-        // Lands like Terramorphic Expanse or Evolving Wilds specify "enters the battlefield tapped".
         entersTapped: searchParams.entersTapped || false,
         optional: false,
         source: sourceName,
         shuffleAfter: true,
         filter: searchParams.filter || { types: ['land'] },
         maxSelections: searchParams.maxSelections || 1,
-        cardImageUrl: searchParams.cardImageUrl,
-      };
+        minSelections: 1,
+      });
       
       const searchDesc = searchParams.searchDescription || 'a land card';
       const maxSel = searchParams.maxSelections || 1;
@@ -4314,23 +4397,22 @@ export function resolveTopOfStack(ctx: GameContext) {
     // These need to trigger a library search prompt for the player
     const tutorInfo = detectTutorSpell(oracleText);
     if (tutorInfo.isTutor) {
-      // Set up pending library search - the socket layer will send the search prompt
-      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-      (state as any).pendingLibrarySearch[controller] = {
-        type: 'tutor',
-        searchFor: tutorInfo.searchCriteria || 'card',
+      const isVampiric = (effectiveCard.name || '').toLowerCase().trim() === 'vampiric tutor';
+      enqueueLibrarySearchStep(ctx, controller as PlayerID, {
+        searchFor: tutorInfo.searchCriteria || 'a card',
+        description: `${effectiveCard.name}: Search your library for ${tutorInfo.searchCriteria || 'a card'}`,
         destination: tutorInfo.destination || 'hand',
-        tapped: tutorInfo.entersTapped ?? (tutorInfo.destination === 'battlefield'), // Cards put onto battlefield from tutors are usually tapped
+        entersTapped: tutorInfo.entersTapped ?? (tutorInfo.destination === 'battlefield'),
         optional: tutorInfo.optional || false,
         source: effectiveCard.name || 'Tutor',
         shuffleAfter: true,
         maxSelections: tutorInfo.maxSelections || 1,
-        // For split-destination effects (Kodama's Reach, Cultivate)
+        minSelections: tutorInfo.optional ? 0 : 1,
         splitDestination: tutorInfo.splitDestination || false,
         toBattlefield: tutorInfo.toBattlefield,
         toHand: tutorInfo.toHand,
-        entersTapped: tutorInfo.entersTapped,
-      };
+        lifeLoss: isVampiric ? 2 : undefined,
+      });
       debug(2, `[resolveTopOfStack] Tutor spell ${effectiveCard.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
     }
     
@@ -4339,19 +4421,16 @@ export function resolveTopOfStack(ctx: GameContext) {
     const isGamble = effectiveCard.name?.toLowerCase().trim() === 'gamble';
     
     if (isGamble) {
-      // Set up pending library search with special flag for random discard
-      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-      (state as any).pendingLibrarySearch[controller] = {
-        type: 'tutor',
-        searchFor: 'a card', // Gamble can search for any card
+      enqueueLibrarySearchStep(ctx, controller as PlayerID, {
+        searchFor: 'a card',
+        description: 'Gamble: Search your library for a card',
         destination: 'hand',
+        optional: false,
         source: 'Gamble',
         shuffleAfter: true,
         maxSelections: 1,
-        // Special flag for Gamble: after the tutor, discard random
-        discardRandomAfter: true,
-      };
-      debug(2, `[resolveTopOfStack] Gamble: ${controller} will search for a card and then discard a random card`);
+      });
+      debug(2, `[resolveTopOfStack] Gamble: ${controller} will search for a card (discard handled separately)`);
     }
     
     // Handle Gift of Estates - "If an opponent controls more lands than you, 
@@ -4366,19 +4445,17 @@ export function resolveTopOfStack(ctx: GameContext) {
       const { myLandCount, anyOpponentHasMoreLands } = checkOpponentHasMoreLands(state, controller);
       
       if (anyOpponentHasMoreLands) {
-        // Condition met - set up library search for up to 3 Plains
-        (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-        (state as any).pendingLibrarySearch[controller] = {
-          type: 'gift_of_estates',
+        enqueueLibrarySearchStep(ctx, controller as PlayerID, {
           searchFor: 'Plains cards',
+          description: `${effectiveCard.name}: Search for up to three Plains cards`,
           destination: 'hand',
-          tapped: false,
           optional: true,
           source: effectiveCard.name || 'Gift of Estates',
           shuffleAfter: true,
           maxSelections: 3,
-          filter: { subtypes: ['Plains'] },
-        };
+          filter: { subtypes: ['plains'] },
+          minSelections: 0,
+        });
         debug(2, `[resolveTopOfStack] Gift of Estates: Condition met (opponent has more lands) - ${controller} may search for up to 3 Plains`);
       } else {
         debug(2, `[resolveTopOfStack] Gift of Estates: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
@@ -4448,19 +4525,18 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       }
       
-      // Set up library search for up to X basic lands
-      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-      (state as any).pendingLibrarySearch[controller] = {
-        type: 'traverse_outlands',
+      enqueueLibrarySearchStep(ctx, controller as PlayerID, {
         searchFor: 'basic land cards',
+        description: `${effectiveCard.name}: Search for up to ${greatestPower} basic lands`,
         destination: 'battlefield',
-        tapped: true,
+        entersTapped: true,
         optional: true,
         source: effectiveCard.name || 'Traverse the Outlands',
         shuffleAfter: true,
         maxSelections: greatestPower,
         filter: { types: ['land'], supertypes: ['basic'] },
-      };
+        minSelections: 0,
+      });
       debug(2, `[resolveTopOfStack] Traverse the Outlands: ${controller} may search for up to ${greatestPower} basic lands (greatest power with counters/modifiers)`);
     }
     
@@ -4480,19 +4556,18 @@ export function resolveTopOfStack(ctx: GameContext) {
         (p.card?.type_line || '').toLowerCase().includes('land')
       ).length;
       
-      // Set up library search for up to X basic lands
-      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-      (state as any).pendingLibrarySearch[controller] = {
-        type: 'boundless_realms',
+      enqueueLibrarySearchStep(ctx, controller as PlayerID, {
         searchFor: 'basic land cards',
+        description: `${effectiveCard.name}: Search for up to ${landCount} basic lands`,
         destination: 'battlefield',
-        tapped: true,
+        entersTapped: true,
         optional: true,
         source: effectiveCard.name || 'Boundless Realms',
         shuffleAfter: true,
         maxSelections: landCount,
         filter: { types: ['land'], supertypes: ['basic'] },
-      };
+        minSelections: 0,
+      });
       debug(2, `[resolveTopOfStack] Boundless Realms: ${controller} may search for up to ${landCount} basic lands (lands controlled)`);
     }
     
@@ -4511,19 +4586,18 @@ export function resolveTopOfStack(ctx: GameContext) {
         atk.defendingPlayer === controller
       ).length;
       
-      // Set up library search for up to X basic lands
-      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-      (state as any).pendingLibrarySearch[controller] = {
-        type: 'jaheiras_respite',
+      enqueueLibrarySearchStep(ctx, controller as PlayerID, {
         searchFor: 'basic land cards',
+        description: `${effectiveCard.name}: Search for up to ${attackingController} basic lands`,
         destination: 'battlefield',
-        tapped: true,
+        entersTapped: true,
         optional: true,
         source: effectiveCard.name || "Jaheira's Respite",
         shuffleAfter: true,
         maxSelections: attackingController,
         filter: { types: ['land'], supertypes: ['basic'] },
-      };
+        minSelections: 0,
+      });
       debug(2, `[resolveTopOfStack] Jaheira's Respite: ${controller} may search for up to ${attackingController} basic lands (creatures attacking)`);
     }
     
@@ -4535,16 +4609,18 @@ export function resolveTopOfStack(ctx: GameContext) {
          oracleTextLower.includes('basic land'));
     
     if (isPathToExile && targetControllerForRemovalEffects) {
-      // Set up pending search - the creature's controller may search for a basic land
-      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-      (state as any).pendingLibrarySearch[targetControllerForRemovalEffects] = {
-        type: 'path_to_exile',
+      enqueueLibrarySearchStep(ctx, targetControllerForRemovalEffects as PlayerID, {
         searchFor: 'basic land',
+        description: `${effectiveCard.name}: Search for a basic land`,
         destination: 'battlefield',
-        tapped: true,
+        entersTapped: true,
         optional: true,
         source: effectiveCard.name || 'Path to Exile',
-      };
+        shuffleAfter: true,
+        maxSelections: 1,
+        minSelections: 0,
+        filter: { types: ['land'], supertypes: ['basic'] },
+      });
       debug(2, `[resolveTopOfStack] Path to Exile: ${targetControllerForRemovalEffects} may search for a basic land (tapped)`);
     }
     
@@ -6488,5 +6564,3 @@ export function manifestCard(ctx: GameContext, card: any, controller: string): s
     return null;
   }
 }
-
-

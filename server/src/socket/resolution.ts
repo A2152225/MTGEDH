@@ -556,6 +556,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('nonSelectableCards' in step) fields.nonSelectableCards = step.nonSelectableCards;
       if ('contextValue' in step) fields.contextValue = step.contextValue;
       if ('entersTapped' in step) fields.entersTapped = step.entersTapped;
+      if ('filter' in step) fields.filter = (step as any).filter;
+      if ('splitDestination' in step) fields.splitDestination = (step as any).splitDestination;
+      if ('toBattlefield' in step) fields.toBattlefield = (step as any).toBattlefield;
+      if ('toHand' in step) fields.toHand = (step as any).toHand;
+      if ('lifeLoss' in step) fields.lifeLoss = (step as any).lifeLoss;
       break;
       
     case ResolutionStepType.OPTION_CHOICE:
@@ -2679,6 +2684,7 @@ async function handleLibrarySearchResponse(
   const contextValue = searchStep.contextValue;
   const entersTapped = searchStep.entersTapped || false;
   const sourceName = step.sourceName || 'Library Search';
+  const lifeLoss = (searchStep as any).lifeLoss;
   
   debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}`);
   
@@ -2707,37 +2713,49 @@ async function handleLibrarySearchResponse(
   // Create a map of card ID to full card data
   const allRevealedCards = [...availableCards, ...nonSelectableCards];
   const cardMap = new Map(allRevealedCards.map((c: any) => [c.id, c]));
+  const takeCardFromLibrary = (cardId: string) => {
+    const idx = lib.findIndex((c: any) => c.id === cardId);
+    if (idx >= 0) {
+      return lib.splice(idx, 1)[0];
+    }
+    return cardMap.get(cardId);
+  };
+  
+  const selectedCards = selectedIds.map(id => takeCardFromLibrary(id)).filter(Boolean);
+  
+  // For destination=top with shuffleAfter, place selected after shuffling remainder
+  const deferTopPlacement = destination === 'top' && shuffleAfter;
   
   // Process selected cards based on destination
-  for (const cardId of selectedIds) {
-    const card = cardMap.get(cardId);
-    if (!card) continue;
-    
-    if (destination === 'battlefield') {
-      // Put onto battlefield (used by Genesis Wave, etc.)
-      await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game);
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield`);
-    } else if (destination === 'hand') {
-      z.hand = z.hand || [];
-      z.hand.push({ ...card, zone: 'hand' });
-      z.handCount = z.hand.length;
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand`);
-    } else if (destination === 'graveyard') {
-      z.graveyard = z.graveyard || [];
-      z.graveyard.push({ ...card, zone: 'graveyard' });
-      z.graveyardCount = z.graveyard.length;
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
-    } else if (destination === 'exile') {
-      z.exile = z.exile || [];
-      z.exile.push({ ...card, zone: 'exile' });
-      z.exileCount = z.exile.length;
-      debug(2, `[Resolution] ${sourceName}: Exiled ${card.name}`);
-    } else if (destination === 'top') {
-      lib.unshift({ ...card, zone: 'library' });
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library`);
-    } else if (destination === 'bottom') {
-      lib.push({ ...card, zone: 'library' });
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on bottom of library`);
+  if (!deferTopPlacement) {
+    for (const card of selectedCards) {
+      if (!card) continue;
+      
+      if (destination === 'battlefield') {
+        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game);
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield`);
+      } else if (destination === 'hand') {
+        z.hand = z.hand || [];
+        z.hand.push({ ...card, zone: 'hand' });
+        z.handCount = z.hand.length;
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand`);
+      } else if (destination === 'graveyard') {
+        z.graveyard = z.graveyard || [];
+        z.graveyard.push({ ...card, zone: 'graveyard' });
+        z.graveyardCount = z.graveyard.length;
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
+      } else if (destination === 'exile') {
+        z.exile = z.exile || [];
+        z.exile.push({ ...card, zone: 'exile' });
+        z.exileCount = z.exile.length;
+        debug(2, `[Resolution] ${sourceName}: Exiled ${card.name}`);
+      } else if (destination === 'top') {
+        lib.unshift({ ...card, zone: 'library' });
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library`);
+      } else if (destination === 'bottom') {
+        lib.push({ ...card, zone: 'library' });
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} on bottom of library`);
+      }
     }
   }
   
@@ -2747,7 +2765,8 @@ async function handleLibrarySearchResponse(
   if (remainderDestination === 'graveyard') {
     z.graveyard = z.graveyard || [];
     for (const card of unselectedCards) {
-      z.graveyard.push({ ...card, zone: 'graveyard' });
+      const fromLib = takeCardFromLibrary(card.id) || card;
+      z.graveyard.push({ ...fromLib, zone: 'graveyard' });
     }
     z.graveyardCount = z.graveyard.length;
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards into graveyard`);
@@ -2756,7 +2775,8 @@ async function handleLibrarySearchResponse(
       ? [...unselectedCards].sort(() => Math.random() - 0.5)
       : unselectedCards;
     for (const card of cardsToBottom) {
-      lib.push({ ...card, zone: 'library' });
+      const fromLib = takeCardFromLibrary(card.id) || card;
+      lib.push({ ...fromLib, zone: 'library' });
     }
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on bottom${remainderRandomOrder ? ' in random order' : ''}`);
   } else if (remainderDestination === 'top') {
@@ -2764,7 +2784,8 @@ async function handleLibrarySearchResponse(
       ? [...unselectedCards].sort(() => Math.random() - 0.5)
       : unselectedCards;
     for (const card of cardsToTop.reverse()) {
-      lib.unshift({ ...card, zone: 'library' });
+      const fromLib = takeCardFromLibrary(card.id) || card;
+      lib.unshift({ ...fromLib, zone: 'library' });
     }
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on top${remainderRandomOrder ? ' in random order' : ''}`);
   } else if (remainderDestination === 'shuffle' || remainderDestination === 'hand') {
@@ -2772,13 +2793,12 @@ async function handleLibrarySearchResponse(
     if (remainderDestination === 'hand') {
       z.hand = z.hand || [];
       for (const card of unselectedCards) {
-        z.hand.push({ ...card, zone: 'hand' });
+        const fromLib = takeCardFromLibrary(card.id) || card;
+        z.hand.push({ ...fromLib, zone: 'hand' });
       }
       z.handCount = z.hand.length;
     } else {
-      for (const card of unselectedCards) {
-        lib.push({ ...card, zone: 'library' });
-      }
+      // remainderDestination shuffle: leave cards in library (already present)
     }
   }
   
@@ -2790,9 +2810,27 @@ async function handleLibrarySearchResponse(
     }
     debug(2, `[Resolution] ${sourceName}: Shuffled library`);
   }
+
+  if (deferTopPlacement && selectedCards.length > 0) {
+    for (let i = selectedCards.length - 1; i >= 0; i--) {
+      const card = selectedCards[i];
+      if (!card) continue;
+      lib.unshift({ ...card, zone: 'library' });
+      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library after shuffling`);
+    }
+  }
   
   // Update library count
   z.libraryCount = lib.length;
+
+  // Apply life loss if specified (e.g., Vampiric Tutor)
+  if (lifeLoss && lifeLoss > 0) {
+    const startingLife = game.state.startingLife || 40;
+    const currentLife = game.state.life?.[pid] ?? startingLife;
+    game.state.life = game.state.life || {};
+    game.state.life[pid] = currentLife - lifeLoss;
+    debug(2, `[Resolution] ${sourceName}: ${pid} loses ${lifeLoss} life (${currentLife} → ${game.state.life[pid]})`);
+  }
   
   // Send appropriate chat message
   const selectedCount = selectedIds.length;
@@ -4397,4 +4435,3 @@ async function handleOptionChoiceResponse(
 
 
 export default { registerResolutionHandlers };
-

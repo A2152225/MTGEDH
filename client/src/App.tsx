@@ -2683,7 +2683,7 @@ export function App() {
           cards: step.availableCards || [],
           title: step.sourceName || 'Search Library',
           description: step.description || step.searchCriteria || 'Search your library',
-          filter: {}, // Filter already applied on server
+          filter: step.filter || {},
           maxSelections: step.maxSelections || 1,
           moveTo: step.destination || 'hand',
           shuffleAfter: step.shuffleAfter !== false,
@@ -6951,4 +6951,3 @@ export function App() {
 }
 
 export default App;
-
