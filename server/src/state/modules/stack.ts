@@ -3541,7 +3541,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
       // Keep both for client display: loyalty = current counters, baseLoyalty = printed
       loyalty: modifiedCounters.loyalty !== undefined ? modifiedCounters.loyalty : initialCounters.loyalty,
-      baseLoyalty: initialCounters.loyalty,
+      baseLoyalty: initialCounters.loyalty ?? 0,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,

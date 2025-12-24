@@ -306,6 +306,7 @@ function checkCreatureTypeSelectionForNewPermanents(
   gameId: string
 ): void {
   const battlefield = game.state?.battlefield || [];
+  let broadcastNeeded = false;
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
@@ -346,8 +347,12 @@ function checkCreatureTypeSelectionForNewPermanents(
       }
       
       debug(2, `[game-actions] Queued creature type selection for ${cardName} (${permanentId}) from ${controller}`);
-      broadcastGame(io, game, gameId);
+      broadcastNeeded = true;
     }
+  }
+  
+  if (broadcastNeeded) {
+    broadcastGame(io, game, gameId);
   }
 }
 
