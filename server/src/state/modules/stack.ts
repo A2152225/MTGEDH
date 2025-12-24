@@ -3539,6 +3539,8 @@ export function resolveTopOfStack(ctx: GameContext) {
       owner: controller,
       tapped: shouldEnterTapped,
       counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
+      loyalty: initialCounters.loyalty,
+      baseLoyalty: initialCounters.loyalty,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,

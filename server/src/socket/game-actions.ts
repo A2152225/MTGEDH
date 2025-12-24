@@ -346,6 +346,7 @@ function checkCreatureTypeSelectionForNewPermanents(
       }
       
       debug(2, `[game-actions] Queued creature type selection for ${cardName} (${permanentId}) from ${controller}`);
+      broadcastGame(io, game, gameId);
     }
   }
 }
