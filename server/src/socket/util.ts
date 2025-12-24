@@ -58,6 +58,13 @@ const DEVOTION_COLOR_PATTERNS: Record<string, RegExp> = {
   G: /\{G\}/gi,
 };
 
+/**
+ * Mana color keys used in ManaPool interface
+ * Extracted as constant to ensure consistency across mana pool operations
+ */
+const MANA_COLOR_KEYS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+type ManaColorKey = typeof MANA_COLOR_KEYS[number];
+
 // ============================================================================
 // Helper function for timestamps in debug logging
 // ============================================================================
@@ -2663,15 +2670,11 @@ export function consumeManaFromPool(
     }
   }
   
-  // Return only the color properties for the remaining pool
-  const remaining = {
-    white: pool.white || 0,
-    blue: pool.blue || 0,
-    black: pool.black || 0,
-    red: pool.red || 0,
-    green: pool.green || 0,
-    colorless: pool.colorless || 0,
-  };
+  // Return only the mana color properties for the remaining pool
+  const remaining: Record<string, number> = {};
+  for (const key of MANA_COLOR_KEYS) {
+    remaining[key] = pool[key] || 0;
+  }
   
   return { consumed, remaining };
 }
@@ -3012,9 +3015,8 @@ export function validateManaPayment(
   }
   
   // Check generic requirement with remaining mana
-  // Only sum numeric color values
-  const colorKeys = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
-  const remainingTotal = colorKeys.reduce((sum, key) => sum + (pool[key] || 0), 0);
+  // Only sum numeric color values from the known mana color keys
+  const remainingTotal = MANA_COLOR_KEYS.reduce((sum, key) => sum + (pool[key] || 0), 0);
   const missingGeneric = Math.max(0, genericCost - remainingTotal);
   
   if (missingColors.length > 0 || missingGeneric > 0) {
@@ -4025,7 +4027,11 @@ export function addRestrictedManaToPool(
   sourceName?: string
 ): void {
   const pool = getOrInitManaPool(gameState, playerId);
-  // Cast to mutable for modification (readonly is for type safety, we own the mutation)
+  // NOTE: ManaPool interface marks properties as readonly for immutability guarantees.
+  // However, server-side code needs to mutate the pool. We use `as any` here because:
+  // 1. We own the game state and control all mutations
+  // 2. The readonly is for client-side type safety, not server-side enforcement
+  // 3. Alternative solutions (separate mutable type) would duplicate the interface
   const mutablePool = pool as any;
   const restricted = (mutablePool.restricted as RestrictedManaEntry[] | undefined) || [];
   mutablePool.restricted = restricted;
