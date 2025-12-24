@@ -6833,7 +6833,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -6911,7 +6911,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -7011,7 +7011,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -7113,7 +7113,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
@@ -7252,7 +7252,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !game.state) return;
 
-    const pid = (socket as any).playerId as PlayerID;
+    const pid = socket.data.playerId as PlayerID;
     if (!pid) {
       socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
       return;
