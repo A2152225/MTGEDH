@@ -562,6 +562,12 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('toHand' in step) fields.toHand = (step as any).toHand;
       if ('lifeLoss' in step) fields.lifeLoss = (step as any).lifeLoss;
       break;
+    
+    case ResolutionStepType.CREATURE_TYPE_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('reason' in step) fields.reason = (step as any).reason;
+      break;
       
     case ResolutionStepType.OPTION_CHOICE:
     case ResolutionStepType.MODAL_CHOICE:
@@ -794,6 +800,10 @@ async function handleStepResponse(
       
     case ResolutionStepType.OPTION_CHOICE:
       await handleOptionChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.CREATURE_TYPE_CHOICE:
+      await handleCreatureTypeChoiceResponse(io, game, gameId, step, response);
       break;
     
     // Add more handlers as needed
@@ -3055,6 +3065,31 @@ function handleDevourSelectionResponse(
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
   }
+}
+
+/**
+ * Handle creature type choice response via resolution queue
+ */
+async function handleCreatureTypeChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const rawSelection = response.selections as any;
+  const selection = Array.isArray(rawSelection) ? rawSelection[0] : rawSelection;
+  if (!selection || typeof selection !== 'string') {
+    debugWarn(2, `[Resolution] Creature type choice missing selection`);
+    return;
+  }
+  
+  const { applyCreatureTypeSelection } = await import("./creature-type.js");
+  const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
+  
+  applyCreatureTypeSelection(io, game, gameId, pid, permanentId, cardName, selection, false);
 }
 
 /**

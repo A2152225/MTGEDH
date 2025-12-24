@@ -5,7 +5,7 @@ import { processPendingCascades, processPendingScry, processPendingSurveil, proc
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
-import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
+import { requiresCreatureTypeSelection, requestCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
 import { requiresColorChoice, requestColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
@@ -16,6 +16,7 @@ import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequi
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -319,18 +320,32 @@ function checkCreatureTypeSelectionForNewPermanents(
       const controller = permanent.controller;
       const cardName = permanent.card.name || "Unknown";
       const permanentId = permanent.id;
-      
-      // Request creature type selection from the controller
-      requestCreatureTypeSelection(
-        io,
-        gameId,
-        controller,
+      const isAI = isAIPlayer(game, controller);
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+        playerId: controller as any,
+        description: reason || `Choose a creature type for ${cardName}`,
+        mandatory: true,
+        sourceId: permanentId,
+        sourceName: cardName,
         permanentId,
         cardName,
-        reason
-      );
+        reason,
+      });
       
-      debug(2, `[game-actions] Requesting creature type selection for ${cardName} (${permanentId}) from ${controller}`);
+      // Auto-resolve for AI players to avoid blocking the queue
+      if (isAI && step) {
+        const chosenType = getDominantCreatureType(game, controller);
+        ResolutionQueueManager.completeStep(gameId, step.id, {
+          stepId: step.id,
+          playerId: controller,
+          selections: [chosenType],
+          cancelled: false,
+          timestamp: Date.now(),
+        });
+      }
+      
+      debug(2, `[game-actions] Queued creature type selection for ${cardName} (${permanentId}) from ${controller}`);
     }
   }
 }
@@ -9668,6 +9683,3 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 }
-
-
-
