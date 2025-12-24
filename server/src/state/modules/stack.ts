@@ -3539,9 +3539,6 @@ export function resolveTopOfStack(ctx: GameContext) {
       owner: controller,
       tapped: shouldEnterTapped,
       counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
-      // Keep both for client display: loyalty = current counters, baseLoyalty = printed
-      loyalty: modifiedCounters.loyalty !== undefined ? modifiedCounters.loyalty : initialCounters.loyalty,
-      baseLoyalty: initialCounters.loyalty ?? 0,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,
@@ -3566,6 +3563,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     state.battlefield.push(newPermanent);
+    
+    // Add loyalty metadata only for planeswalkers
+    if (isPlaneswalker) {
+      // Keep both for client display: loyalty = current counters, baseLoyalty = printed
+      newPermanent.loyalty = modifiedCounters.loyalty ?? initialCounters.loyalty;
+      newPermanent.baseLoyalty = initialCounters.loyalty ?? 0;
+    }
     
     // Handle aura and equipment attachments
     // Auras are enchantments with "Aura" subtype that target when cast
