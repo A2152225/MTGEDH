@@ -1061,6 +1061,32 @@ function handleTargetSelectionResponse(
       debug(2, `[Resolution] Destroyed ${perm.card?.name || perm.id} (Aura Shards effect)`);
     }
     broadcastGame(io, game, gameId);
+    return;
+  }
+  
+  if (action === 'tap_or_untap_target') {
+    const targetId = selections[0];
+    const battlefield = game.state?.battlefield || [];
+    const targetPerm = battlefield.find((p: any) => p.id === targetId);
+    const targetName = targetPerm?.card?.name || 'Permanent';
+    // Enqueue follow-up option choice for tap/untap decision
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: pid as any,
+      description: `${step.sourceName || 'Ability'}: Tap or untap ${targetName}`,
+      mandatory: true,
+      sourceId: step.sourceId,
+      sourceName: step.sourceName,
+      options: [
+        { id: 'tap', label: 'Tap it' },
+        { id: 'untap', label: 'Untap it' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      action: 'tap_or_untap_decision',
+      legacyData: { targetId },
+    } as any);
+    return;
   }
   
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
@@ -4487,6 +4513,77 @@ async function handleOptionChoiceResponse(
         (game as any).bumpSeq();
       }
     }
+  }
+  
+  // Handle tap/untap decision
+  if ((step as any).action === 'tap_or_untap_decision') {
+    const targetId = stepData.legacyData?.targetId;
+    if (!targetId) return;
+    const battlefield = game.state?.battlefield || [];
+    const perm = battlefield.find((p: any) => p.id === targetId);
+    if (!perm) return;
+    const choice = Array.isArray(selectedOption) ? selectedOption[0] : selectedOption;
+    if (choice === 'tap') {
+      (perm as any).tapped = true;
+      debug(2, `[Resolution] Tap/Untap: tapped ${perm.card?.name || perm.id}`);
+    } else if (choice === 'untap') {
+      (perm as any).tapped = false;
+      debug(2, `[Resolution] Tap/Untap: untapped ${perm.card?.name || perm.id}`);
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+  
+  if ((step as any).action === 'mox_diamond_choice') {
+    const selection = Array.isArray(selectedOption) ? selectedOption[0] : selectedOption;
+    const state = game.state || {};
+    state.stack = state.stack || [];
+    const stackIndex = state.stack.findIndex((s: any) => s.id === step.sourceId);
+    if (stackIndex === -1) return;
+    const stackItem = state.stack[stackIndex];
+    const controller = stackItem.controller as PlayerID;
+    const zones = state.zones = state.zones || {};
+    zones[controller] = zones[controller] || { hand: [], graveyard: [], graveyardCount: 0 } as any;
+    const playerZones = zones[controller] as any;
+    playerZones.hand = playerZones.hand || [];
+    playerZones.graveyard = playerZones.graveyard || [];
+    
+    // Remove Mox from stack
+    state.stack.splice(stackIndex, 1);
+    
+    if (selection && selection !== 'DECLINE') {
+      const hand = playerZones.hand;
+      const landIdx = hand.findIndex((c: any) => c?.id === selection);
+      if (landIdx !== -1) {
+        const landCard = hand.splice(landIdx, 1)[0];
+        playerZones.handCount = hand.length;
+        playerZones.graveyard.push({ ...landCard, zone: 'graveyard' });
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        
+        // Put Mox Diamond onto battlefield
+        state.battlefield = state.battlefield || [];
+        state.battlefield.push({
+          id: stackItem.id,
+          card: stackItem.card,
+          controller,
+          tapped: false,
+        });
+        debug(2, `[Resolution] Mox Diamond: discarded ${landCard.name}, put onto battlefield`);
+      } else {
+        // If land missing, fall back to graveyard
+        playerZones.graveyard.push({ ...(stackItem.card || {}), zone: 'graveyard' });
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        debugWarn(2, `[Resolution] Mox Diamond: selected land not found, card to graveyard`);
+      }
+    } else {
+      // Decline: put Mox Diamond into graveyard
+      playerZones.graveyard.push({ ...(stackItem.card || {}), zone: 'graveyard' });
+      playerZones.graveyardCount = playerZones.graveyard.length;
+      debug(2, `[Resolution] Mox Diamond: declined discard, card to graveyard`);
+    }
+    
+    broadcastGame(io, game, gameId);
+    return;
   }
 }
 

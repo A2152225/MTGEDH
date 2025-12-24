@@ -4223,31 +4223,34 @@ export function registerGameActions(io: Server, socket: Socket) {
         // "If Mox Diamond would enter the battlefield, you may discard a land card instead."
         const isMoxDiamondCard = (resolvedCard?.name || '').toLowerCase().trim() === 'mox diamond';
         if (resolvedCard && resolvedController && isMoxDiamondCard) {
-          // Don't resolve yet - prompt the player for their choice
           const zones = game.state?.zones?.[resolvedController];
           const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-          
-          // Find land cards in hand (using land type check)
           const landCardsInHand = hand
             .filter((c: any) => c && /\bland\b/i.test(c.type_line || ''))
             .map((c: any) => ({
               id: c.id,
-              name: c.name || 'Unknown Land',
-              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+              label: `Discard ${c.name || 'Land'}`,
+              image: c.image_uris?.small || c.image_uris?.normal,
             }));
           
-          // Emit prompt to the controller
-          emitToPlayer(io, resolvedController as string, "moxDiamondPrompt", {
-            gameId,
-            stackItemId: topItem.id,
-            cardImageUrl: resolvedCard.image_uris?.normal || resolvedCard.image_uris?.small,
-            landCardsInHand,
-          });
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: resolvedController as PlayerID,
+            description: 'Mox Diamond — Discard a land to put it onto the battlefield, or decline to put it into the graveyard',
+            mandatory: true,
+            sourceId: topItem.id,
+            sourceName: resolvedCard.name || 'Mox Diamond',
+            options: [
+              ...landCardsInHand,
+              { id: 'DECLINE', label: 'Don’t discard (put Mox Diamond into graveyard)' },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            action: 'mox_diamond_choice',
+          } as any);
           
-          debug(2, `[passPriority] Mox Diamond replacement effect: prompting ${resolvedController} to discard a land or put in graveyard`);
+          debug(2, `[passPriority] Mox Diamond replacement effect: queued option choice for ${resolvedController}`);
           
-          // Don't resolve the stack item yet - wait for moxDiamondChoice event
-          // Bump sequence and broadcast to show updated state
           if (typeof game.bumpSeq === 'function') {
             game.bumpSeq();
           }

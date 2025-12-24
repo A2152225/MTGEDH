@@ -3350,6 +3350,37 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Merrow Reejerey style: "tap or untap target permanent"
+    if (description.toLowerCase().includes('tap or untap target permanent')) {
+      const battlefield = state.battlefield || [];
+      const gameId = (ctx as any).gameId || 'unknown';
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!isReplaying) {
+        const validTargets = battlefield.map((p: any) => ({
+          id: p.id,
+          label: p.card?.name || 'Permanent',
+          description: p.card?.type_line,
+          image: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
+        if (validTargets.length > 0) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: triggerController as PlayerID,
+            description: `${sourceName}: Tap or untap target permanent`,
+            mandatory: true,
+            sourceId,
+            sourceName,
+            validTargets,
+            targetTypes: ['permanent'],
+            minTargets: 1,
+            maxTargets: 1,
+            action: 'tap_or_untap_target',
+          } as any);
+          return;
+        }
+      }
+    }
+    
     // ========================================================================
     // ETB TRIGGERS WITH TARGETING: Add resolution step for target selection
     // Handles cards like Bojuka Bog ("exile target player's graveyard"), 
