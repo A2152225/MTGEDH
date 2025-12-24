@@ -61,16 +61,6 @@ export function detectAdditionalCost(oracleText: string): AdditionalCostResult |
     };
   }
   
-  // "Pay X life." at the start of oracle text (Vampiric Tutor, etc.)
-  // Pattern: "Pay X life." or "Pay X life,"
-  const payLifeStartMatch = oracleText.match(/^Pay\s+(\d+)\s+life[.,]/i);
-  if (payLifeStartMatch) {
-    return {
-      type: 'pay_life',
-      amount: parseInt(payLifeStartMatch[1], 10),
-    };
-  }
-  
   // "As an additional cost to cast this spell, discard a card"
   const discardMatch = lowerText.match(/as an additional cost.*discard\s+(?:a|(\d+))\s+cards?/i);
   if (discardMatch) {
