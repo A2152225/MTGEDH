@@ -3540,7 +3540,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       tapped: shouldEnterTapped,
       counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
       // Keep both for client display: loyalty = current counters, baseLoyalty = printed
-      loyalty: modifiedCounters.loyalty ?? initialCounters.loyalty,
+      loyalty: modifiedCounters.loyalty !== undefined ? modifiedCounters.loyalty : initialCounters.loyalty,
       baseLoyalty: initialCounters.loyalty,
       basePower: baseP,
       baseToughness: baseT,
