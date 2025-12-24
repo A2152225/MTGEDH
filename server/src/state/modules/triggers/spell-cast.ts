@@ -43,6 +43,7 @@ export interface SpellCastTrigger {
     types: string;
     abilities?: string[];
   };
+  addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)
   mandatory: boolean;
 }
 
@@ -328,6 +329,37 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         mandatory: true,
       });
     }
+  }
+  
+  // Planeswalker loyalty counter trigger pattern
+  // "Whenever you cast a noncreature spell, put a loyalty counter on ~"
+  // (Ral, Crackling Wit and similar)
+  const loyaltyMatch = lowerOracle.match(/whenever you cast (?:a |an )?(noncreature|creature|instant|sorcery|instant or sorcery)?\s*spell,?\s*put (?:a |an )?(\w+)?\s*loyalty counter/i);
+  if (loyaltyMatch) {
+    const spellType = loyaltyMatch[1]?.toLowerCase() || 'any';
+    const countStr = loyaltyMatch[2]?.toLowerCase();
+    
+    let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
+    if (spellType === 'noncreature') spellCondition = 'noncreature';
+    else if (spellType === 'creature') spellCondition = 'creature';
+    else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') spellCondition = 'instant_sorcery';
+    
+    // Parse the count (one, two, three, etc.)
+    const countMap: Record<string, number> = {
+      'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+    };
+    const loyaltyCount = countMap[countStr] || 1;
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you cast a ${spellType} spell, put a loyalty counter on ${cardName}`,
+      effect: `put ${loyaltyCount} loyalty counter${loyaltyCount > 1 ? 's' : ''} on ${cardName}`,
+      spellCondition,
+      addsLoyaltyCounters: loyaltyCount,
+      mandatory: true,
+    });
   }
   
   return triggers;

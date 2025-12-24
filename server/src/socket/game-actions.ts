@@ -2855,6 +2855,37 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           debug(2, `[castSpellFromHand] Requesting sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
           return; // Wait for sacrifice selection
+        } else if (additionalCost.type === 'pay_life') {
+          // Pay X life as an additional cost (Vampiric Tutor, etc.)
+          const startingLife = game.state.startingLife || 40;
+          const currentLife = game.state.life?.[playerId] ?? startingLife;
+          
+          // Validate that player can pay the life
+          if (currentLife < additionalCost.amount) {
+            socket.emit("error", {
+              code: "CANNOT_PAY_COST",
+              message: `Cannot cast ${cardInHand.name}: You need to pay ${additionalCost.amount} life but only have ${currentLife} life.`,
+            });
+            return;
+          }
+          
+          // Pay the life immediately
+          game.state.life = game.state.life || {};
+          game.state.life[playerId] = currentLife - additionalCost.amount;
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardInHand.name}. (${currentLife} → ${game.state.life[playerId]})`,
+            ts: Date.now(),
+          });
+          
+          debug(2, `[castSpellFromHand] Player paid ${additionalCost.amount} life for ${cardInHand.name}`);
+          
+          // Mark additional cost as paid
+          (targets as any) = (targets as any) || {};
+          (targets as any).additionalCostPaid = true;
         } else if (additionalCost.type === 'squad') {
           // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times"
           // Prompt the player to choose how many times to pay the squad cost
@@ -3875,6 +3906,31 @@ export function registerGameActions(io: Server, socket: Socket) {
               message: `${trigger.cardName}: ${getPlayerName(game, playerId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}.`,
               ts: Date.now(),
             });
+          }
+          
+          // Loyalty counter effect (Ral, Crackling Wit and similar planeswalkers)
+          if (trigger.addsLoyaltyCounters && trigger.addsLoyaltyCounters > 0) {
+            // Find the planeswalker permanent on the battlefield
+            const battlefield = game.state?.battlefield || [];
+            const planeswalker = battlefield.find((perm: any) => 
+              perm.id === trigger.permanentId && 
+              perm.controller === playerId
+            );
+            
+            if (planeswalker) {
+              planeswalker.counters = planeswalker.counters || {};
+              planeswalker.counters.loyalty = (planeswalker.counters.loyalty || planeswalker.card?.loyalty || 0) + trigger.addsLoyaltyCounters;
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `${trigger.cardName}: ${getPlayerName(game, playerId)} adds ${trigger.addsLoyaltyCounters} loyalty counter${trigger.addsLoyaltyCounters > 1 ? 's' : ''} (now ${planeswalker.counters.loyalty}).`,
+                ts: Date.now(),
+              });
+              
+              debug(2, `[castSpellFromHand] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${planeswalker.counters.loyalty}`);
+            }
           }
         }
       } catch (err) {
