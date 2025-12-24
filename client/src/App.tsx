@@ -425,6 +425,7 @@ export function App() {
     permanentId: string;
     cardName: string;
     reason: string;
+    stepId?: string;
   } | null>(null);
   
   // Sacrifice selection modal state (for Grave Pact, Dictate of Erebos, etc.)
@@ -2683,7 +2684,7 @@ export function App() {
           cards: step.availableCards || [],
           title: step.sourceName || 'Search Library',
           description: step.description || step.searchCriteria || 'Search your library',
-          filter: {}, // Filter already applied on server
+          filter: step.filter || {},
           maxSelections: step.maxSelections || 1,
           moveTo: step.destination || 'hand',
           shuffleAfter: step.shuffleAfter !== false,
@@ -2691,6 +2692,17 @@ export function App() {
           stepId: step.id,  // Store for resolution response
         });
         setLibrarySearchModalOpen(true);
+      }
+      // Handle creature type choice via resolution queue
+      else if (step.type === 'creature_type_choice') {
+        setCreatureTypeModalData({
+          stepId: step.id,
+          confirmId: step.id,
+          permanentId: (step as any).permanentId,
+          cardName: (step as any).cardName || step.sourceName,
+          reason: (step as any).reason || step.description,
+        });
+        setCreatureTypeModalOpen(true);
       }
     };
     
@@ -6085,11 +6097,20 @@ export function App() {
         cardName={creatureTypeModalData?.cardName}
         onSelect={(creatureType) => {
           if (creatureTypeModalData && safeView?.id) {
-            socket.emit("creatureTypeSelected", {
-              gameId: safeView.id,
-              confirmId: creatureTypeModalData.confirmId,
-              creatureType,
-            });
+            if (creatureTypeModalData.stepId) {
+              socket.emit("submitResolutionResponse", {
+                gameId: safeView.id,
+                stepId: creatureTypeModalData.stepId,
+                selections: creatureType,
+                cancelled: false,
+              });
+            } else {
+              socket.emit("creatureTypeSelected", {
+                gameId: safeView.id,
+                confirmId: creatureTypeModalData.confirmId,
+                creatureType,
+              });
+            }
             setCreatureTypeModalOpen(false);
             setCreatureTypeModalData(null);
           }
@@ -6951,4 +6972,3 @@ export function App() {
 }
 
 export default App;
-

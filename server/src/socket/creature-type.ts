@@ -50,7 +50,7 @@ const AI_CREATURE_TYPE_SELECTION_DELAY_MS = 100;
  * Analyzes the player's library, hand, battlefield, and graveyard to find
  * the creature type that appears most frequently.
  */
-function getDominantCreatureType(game: any, playerId: string): string {
+export function getDominantCreatureType(game: any, playerId: string): string {
   const creatureTypeCounts: Record<string, number> = {};
   
   // Helper to count creature types from a card
@@ -129,7 +129,7 @@ function getDominantCreatureType(game: any, playerId: string): string {
 /**
  * Check if a player is an AI player
  */
-function isAIPlayer(game: any, playerId: string): boolean {
+export function isAIPlayer(game: any, playerId: string): boolean {
   const players = game.state?.players || [];
   const player = players.find((p: any) => p?.id === playerId);
   return player?.isAI === true;
@@ -138,19 +138,19 @@ function isAIPlayer(game: any, playerId: string): boolean {
 /**
  * Handle AI creature type selection automatically
  */
-function handleAICreatureTypeSelection(
-  io: Server,
+export function applyCreatureTypeSelection(
+  io: Server | null,
   game: any,
   gameId: string,
   playerId: string,
   permanentId: string,
   cardName: string,
-  confirmId: string
+  chosenTypeValue: string,
+  isAI: boolean
 ): void {
-  // Determine the best creature type for the AI based on their deck
-  const chosenType = getDominantCreatureType(game, playerId);
+  const chosenType = chosenTypeValue;
   
-  debug(2, `[creatureType] AI ${playerId} automatically choosing ${chosenType} for ${cardName}`);
+  debug(2, `[creatureType] Applying creature type ${chosenType} for ${cardName} (player ${playerId})`);
   
   // Apply the selection to the permanent
   const battlefield = game.state?.battlefield || [];
@@ -175,10 +175,10 @@ function handleAICreatureTypeSelection(
       permanentId,
       creatureType: chosenType,
       cardName,
-      isAI: true,
+      isAI,
     });
   } catch (e) {
-    debugWarn(1, "appendEvent(creatureTypeSelected) failed for AI:", e);
+    debugWarn(1, "appendEvent(creatureTypeSelected) failed:", e);
   }
   
   // Bump sequence
@@ -186,27 +186,41 @@ function handleAICreatureTypeSelection(
     game.bumpSeq();
   }
   
-  // Notify all players
-  io.to(gameId).emit("creatureTypeSelectionConfirmed", {
-    confirmId,
-    gameId,
-    permanentId,
-    playerId,
-    creatureType: chosenType,
-    cardName,
-    isAI: true,
-  });
-  
-  io.to(gameId).emit("chat", {
-    id: `m_${Date.now()}`,
-    gameId,
-    from: "system",
-    message: `${getPlayerName(game, playerId)} (AI) chose ${chosenType} for ${cardName}.`,
-    ts: Date.now(),
-  });
-  
-  // Broadcast updated game state
-  broadcastGame(io, game, gameId);
+  if (io) {
+    io.to(gameId).emit("creatureTypeSelectionConfirmed", {
+      confirmId: null,
+      gameId,
+      permanentId,
+      playerId,
+      creatureType: chosenType,
+      cardName,
+      isAI,
+    });
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, playerId)}${isAI ? " (AI)" : ""} chose ${chosenType} for ${cardName}.`,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
+  }
+}
+
+export function handleAICreatureTypeSelection(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  permanentId: string,
+  cardName: string,
+  confirmId: string
+): void {
+  const chosenType = getDominantCreatureType(game, playerId);
+  debug(2, `[creatureType] AI ${playerId} automatically choosing ${chosenType} for ${cardName}`);
+  applyCreatureTypeSelection(io, game, gameId, playerId, permanentId, cardName, chosenType, true);
 }
 
 /**
@@ -595,4 +609,3 @@ export function hasPendingCreatureTypeSelections(gameId: string): boolean {
   }
   return false;
 }
-

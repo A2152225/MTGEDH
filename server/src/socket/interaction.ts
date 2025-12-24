@@ -20,6 +20,7 @@ import {
   detectManaModifiers
 } from "../state/modules/mana-abilities";
 import { exchangePermanentOracleText } from "../state/utils";
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
@@ -4343,6 +4344,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       const ability = abilities[abilityIndex];
       
+      // Enqueue activation in the resolution queue for unified handling/ordering
+      try {
+        const step = ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.ACTIVATED_ABILITY,
+          playerId: pid as PlayerID,
+          description: `${cardName}: ${ability.text}`,
+          mandatory: true,
+          sourceId: permanentId,
+          sourceName: cardName,
+          legacyData: { abilityIndex, loyaltyCost: ability.loyaltyCost },
+        });
+        ResolutionQueueManager.completeStep(gameId, step.id, {
+          stepId: step.id,
+          playerId: pid as PlayerID,
+          selections: abilityIndex,
+          cancelled: false,
+          timestamp: Date.now(),
+        });
+      } catch (e) {
+        debugWarn(2, `[planeswalker] Failed to enqueue activation for ${cardName}:`, e);
+      }
+      
       // Get current loyalty
       const currentLoyalty = (permanent as any).counters?.loyalty || 0;
       const loyaltyCost = ability.loyaltyCost;
@@ -7857,4 +7880,3 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 }
-

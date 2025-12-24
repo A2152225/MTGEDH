@@ -5,7 +5,7 @@ import { processPendingCascades, processPendingScry, processPendingSurveil, proc
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
-import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
+import { requiresCreatureTypeSelection, requestCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
 import { requiresColorChoice, requestColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
@@ -16,6 +16,7 @@ import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequi
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -319,20 +320,36 @@ function checkCreatureTypeSelectionForNewPermanents(
       const controller = permanent.controller;
       const cardName = permanent.card.name || "Unknown";
       const permanentId = permanent.id;
-      
-      // Request creature type selection from the controller
-      requestCreatureTypeSelection(
-        io,
-        gameId,
-        controller,
+      const isAI = isAIPlayer(game, controller);
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+        playerId: controller as any,
+        description: reason || `Choose a creature type for ${cardName}`,
+        mandatory: true,
+        sourceId: permanentId,
+        sourceName: cardName,
         permanentId,
         cardName,
-        reason
-      );
+        reason,
+      });
       
-      debug(2, `[game-actions] Requesting creature type selection for ${cardName} (${permanentId}) from ${controller}`);
+      // Auto-resolve for AI players to avoid blocking the queue
+      if (isAI && step) {
+        const chosenType = getDominantCreatureType(game, controller);
+        ResolutionQueueManager.completeStep(gameId, step.id, {
+          stepId: step.id,
+          playerId: controller,
+          selections: [chosenType],
+          cancelled: false,
+          timestamp: Date.now(),
+        });
+      }
+      
+      debug(2, `[game-actions] Queued creature type selection for ${cardName} (${permanentId}) from ${controller}`);
     }
   }
+  
+  broadcastGame(io, game, gameId);
 }
 
 /**
@@ -4208,31 +4225,34 @@ export function registerGameActions(io: Server, socket: Socket) {
         // "If Mox Diamond would enter the battlefield, you may discard a land card instead."
         const isMoxDiamondCard = (resolvedCard?.name || '').toLowerCase().trim() === 'mox diamond';
         if (resolvedCard && resolvedController && isMoxDiamondCard) {
-          // Don't resolve yet - prompt the player for their choice
           const zones = game.state?.zones?.[resolvedController];
           const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-          
-          // Find land cards in hand (using land type check)
           const landCardsInHand = hand
             .filter((c: any) => c && /\bland\b/i.test(c.type_line || ''))
             .map((c: any) => ({
               id: c.id,
-              name: c.name || 'Unknown Land',
-              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+              label: `Discard ${c.name || 'Land'}`,
+              image: c.image_uris?.small || c.image_uris?.normal,
             }));
           
-          // Emit prompt to the controller
-          emitToPlayer(io, resolvedController as string, "moxDiamondPrompt", {
-            gameId,
-            stackItemId: topItem.id,
-            cardImageUrl: resolvedCard.image_uris?.normal || resolvedCard.image_uris?.small,
-            landCardsInHand,
-          });
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: resolvedController as PlayerID,
+            description: 'Mox Diamond — Discard a land to put it onto the battlefield, or decline to put it into the graveyard',
+            mandatory: true,
+            sourceId: topItem.id,
+            sourceName: resolvedCard.name || 'Mox Diamond',
+            options: [
+              ...landCardsInHand,
+              { id: 'DECLINE', label: 'Don’t discard (put Mox Diamond into graveyard)' },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            action: 'mox_diamond_choice',
+          } as any);
           
-          debug(2, `[passPriority] Mox Diamond replacement effect: prompting ${resolvedController} to discard a land or put in graveyard`);
+          debug(2, `[passPriority] Mox Diamond replacement effect: queued option choice for ${resolvedController}`);
           
-          // Don't resolve the stack item yet - wait for moxDiamondChoice event
-          // Bump sequence and broadcast to show updated state
           if (typeof game.bumpSeq === 'function') {
             game.bumpSeq();
           }
@@ -9668,6 +9688,3 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 }
-
-
-

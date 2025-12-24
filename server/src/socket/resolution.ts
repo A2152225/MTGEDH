@@ -556,6 +556,17 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('nonSelectableCards' in step) fields.nonSelectableCards = step.nonSelectableCards;
       if ('contextValue' in step) fields.contextValue = step.contextValue;
       if ('entersTapped' in step) fields.entersTapped = step.entersTapped;
+      if ('filter' in step) fields.filter = (step as any).filter;
+      if ('splitDestination' in step) fields.splitDestination = (step as any).splitDestination;
+      if ('toBattlefield' in step) fields.toBattlefield = (step as any).toBattlefield;
+      if ('toHand' in step) fields.toHand = (step as any).toHand;
+      if ('lifeLoss' in step) fields.lifeLoss = (step as any).lifeLoss;
+      break;
+    
+    case ResolutionStepType.CREATURE_TYPE_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('reason' in step) fields.reason = (step as any).reason;
       break;
       
     case ResolutionStepType.OPTION_CHOICE:
@@ -791,6 +802,10 @@ async function handleStepResponse(
       await handleOptionChoiceResponse(io, game, gameId, step, response);
       break;
     
+    case ResolutionStepType.CREATURE_TYPE_CHOICE:
+      await handleCreatureTypeChoiceResponse(io, game, gameId, step, response);
+      break;
+    
     // Add more handlers as needed
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
@@ -1024,6 +1039,54 @@ function handleTargetSelectionResponse(
     } else {
       debugWarn(2, `[Resolution] Stack item ${sourceId} not found to store targets`);
     }
+  }
+
+  // Execute immediate actions for certain target-selection steps
+  const action = (step as any).action;
+  if (action === 'destroy_artifact_enchantment') {
+    const state = game.state || {};
+    const battlefield = state.battlefield || [];
+    for (const tid of selections) {
+      const perm = battlefield.find((p: any) => p.id === tid);
+      if (!perm) continue;
+      const idx = battlefield.indexOf(perm);
+      if (idx >= 0) battlefield.splice(idx, 1);
+      const controller = perm.controller;
+      state.zones = state.zones || {};
+      state.zones[controller] = state.zones[controller] || { graveyard: [], graveyardCount: 0 } as any;
+      const graveyard = state.zones[controller].graveyard || [];
+      graveyard.push({ ...(perm.card || {}), zone: 'graveyard' });
+      state.zones[controller].graveyard = graveyard;
+      state.zones[controller].graveyardCount = graveyard.length;
+      debug(2, `[Resolution] Destroyed ${perm.card?.name || perm.id} (Aura Shards effect)`);
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+  
+  if (action === 'tap_or_untap_target') {
+    const targetId = selections[0];
+    const battlefield = game.state?.battlefield || [];
+    const targetPerm = battlefield.find((p: any) => p.id === targetId);
+    const targetName = targetPerm?.card?.name || 'Permanent';
+    // Enqueue follow-up option choice for tap/untap decision
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: pid as any,
+      description: `${step.sourceName || 'Ability'}: Tap or untap ${targetName}`,
+      mandatory: true,
+      sourceId: step.sourceId,
+      sourceName: step.sourceName,
+      options: [
+        { id: 'tap', label: 'Tap it' },
+        { id: 'untap', label: 'Untap it' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      action: 'tap_or_untap_decision',
+      legacyData: { targetId },
+    } as any);
+    return;
   }
   
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
@@ -2679,6 +2742,7 @@ async function handleLibrarySearchResponse(
   const contextValue = searchStep.contextValue;
   const entersTapped = searchStep.entersTapped || false;
   const sourceName = step.sourceName || 'Library Search';
+  const lifeLoss = (searchStep as any).lifeLoss;
   
   debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}`);
   
@@ -2707,37 +2771,49 @@ async function handleLibrarySearchResponse(
   // Create a map of card ID to full card data
   const allRevealedCards = [...availableCards, ...nonSelectableCards];
   const cardMap = new Map(allRevealedCards.map((c: any) => [c.id, c]));
+  const takeCardFromLibrary = (cardId: string) => {
+    const idx = lib.findIndex((c: any) => c.id === cardId);
+    if (idx >= 0) {
+      return lib.splice(idx, 1)[0];
+    }
+    return cardMap.get(cardId);
+  };
+  
+  const selectedCards = selectedIds.map(id => takeCardFromLibrary(id)).filter(Boolean);
+  
+  // For destination=top with shuffleAfter, place selected after shuffling remainder
+  const deferTopPlacement = destination === 'top' && shuffleAfter;
   
   // Process selected cards based on destination
-  for (const cardId of selectedIds) {
-    const card = cardMap.get(cardId);
-    if (!card) continue;
-    
-    if (destination === 'battlefield') {
-      // Put onto battlefield (used by Genesis Wave, etc.)
-      await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game);
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield`);
-    } else if (destination === 'hand') {
-      z.hand = z.hand || [];
-      z.hand.push({ ...card, zone: 'hand' });
-      z.handCount = z.hand.length;
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand`);
-    } else if (destination === 'graveyard') {
-      z.graveyard = z.graveyard || [];
-      z.graveyard.push({ ...card, zone: 'graveyard' });
-      z.graveyardCount = z.graveyard.length;
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
-    } else if (destination === 'exile') {
-      z.exile = z.exile || [];
-      z.exile.push({ ...card, zone: 'exile' });
-      z.exileCount = z.exile.length;
-      debug(2, `[Resolution] ${sourceName}: Exiled ${card.name}`);
-    } else if (destination === 'top') {
-      lib.unshift({ ...card, zone: 'library' });
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library`);
-    } else if (destination === 'bottom') {
-      lib.push({ ...card, zone: 'library' });
-      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on bottom of library`);
+  if (!deferTopPlacement) {
+    for (const card of selectedCards) {
+      if (!card) continue;
+      
+      if (destination === 'battlefield') {
+        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game);
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield`);
+      } else if (destination === 'hand') {
+        z.hand = z.hand || [];
+        z.hand.push({ ...card, zone: 'hand' });
+        z.handCount = z.hand.length;
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand`);
+      } else if (destination === 'graveyard') {
+        z.graveyard = z.graveyard || [];
+        z.graveyard.push({ ...card, zone: 'graveyard' });
+        z.graveyardCount = z.graveyard.length;
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
+      } else if (destination === 'exile') {
+        z.exile = z.exile || [];
+        z.exile.push({ ...card, zone: 'exile' });
+        z.exileCount = z.exile.length;
+        debug(2, `[Resolution] ${sourceName}: Exiled ${card.name}`);
+      } else if (destination === 'top') {
+        lib.unshift({ ...card, zone: 'library' });
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library`);
+      } else if (destination === 'bottom') {
+        lib.push({ ...card, zone: 'library' });
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} on bottom of library`);
+      }
     }
   }
   
@@ -2747,7 +2823,8 @@ async function handleLibrarySearchResponse(
   if (remainderDestination === 'graveyard') {
     z.graveyard = z.graveyard || [];
     for (const card of unselectedCards) {
-      z.graveyard.push({ ...card, zone: 'graveyard' });
+      const fromLib = takeCardFromLibrary(card.id) || card;
+      z.graveyard.push({ ...fromLib, zone: 'graveyard' });
     }
     z.graveyardCount = z.graveyard.length;
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards into graveyard`);
@@ -2756,7 +2833,8 @@ async function handleLibrarySearchResponse(
       ? [...unselectedCards].sort(() => Math.random() - 0.5)
       : unselectedCards;
     for (const card of cardsToBottom) {
-      lib.push({ ...card, zone: 'library' });
+      const fromLib = takeCardFromLibrary(card.id) || card;
+      lib.push({ ...fromLib, zone: 'library' });
     }
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on bottom${remainderRandomOrder ? ' in random order' : ''}`);
   } else if (remainderDestination === 'top') {
@@ -2764,7 +2842,8 @@ async function handleLibrarySearchResponse(
       ? [...unselectedCards].sort(() => Math.random() - 0.5)
       : unselectedCards;
     for (const card of cardsToTop.reverse()) {
-      lib.unshift({ ...card, zone: 'library' });
+      const fromLib = takeCardFromLibrary(card.id) || card;
+      lib.unshift({ ...fromLib, zone: 'library' });
     }
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on top${remainderRandomOrder ? ' in random order' : ''}`);
   } else if (remainderDestination === 'shuffle' || remainderDestination === 'hand') {
@@ -2772,13 +2851,12 @@ async function handleLibrarySearchResponse(
     if (remainderDestination === 'hand') {
       z.hand = z.hand || [];
       for (const card of unselectedCards) {
-        z.hand.push({ ...card, zone: 'hand' });
+        const fromLib = takeCardFromLibrary(card.id) || card;
+        z.hand.push({ ...fromLib, zone: 'hand' });
       }
       z.handCount = z.hand.length;
     } else {
-      for (const card of unselectedCards) {
-        lib.push({ ...card, zone: 'library' });
-      }
+      // remainderDestination shuffle: leave cards in library (already present)
     }
   }
   
@@ -2790,9 +2868,27 @@ async function handleLibrarySearchResponse(
     }
     debug(2, `[Resolution] ${sourceName}: Shuffled library`);
   }
+
+  if (deferTopPlacement && selectedCards.length > 0) {
+    for (let i = selectedCards.length - 1; i >= 0; i--) {
+      const card = selectedCards[i];
+      if (!card) continue;
+      lib.unshift({ ...card, zone: 'library' });
+      debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library after shuffling`);
+    }
+  }
   
   // Update library count
   z.libraryCount = lib.length;
+
+  // Apply life loss if specified (e.g., Vampiric Tutor)
+  if (lifeLoss && lifeLoss > 0) {
+    const startingLife = game.state.startingLife || 40;
+    const currentLife = game.state.life?.[pid] ?? startingLife;
+    game.state.life = game.state.life || {};
+    game.state.life[pid] = currentLife - lifeLoss;
+    debug(2, `[Resolution] ${sourceName}: ${pid} loses ${lifeLoss} life (${currentLife} → ${game.state.life[pid]})`);
+  }
   
   // Send appropriate chat message
   const selectedCount = selectedIds.length;
@@ -3017,6 +3113,31 @@ function handleDevourSelectionResponse(
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
   }
+}
+
+/**
+ * Handle creature type choice response via resolution queue
+ */
+async function handleCreatureTypeChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const rawSelection = response.selections as any;
+  const selection = Array.isArray(rawSelection) ? rawSelection[0] : rawSelection;
+  if (!selection || typeof selection !== 'string') {
+    debugWarn(2, `[Resolution] Creature type choice missing selection`);
+    return;
+  }
+  
+  const { applyCreatureTypeSelection } = await import("./creature-type.js");
+  const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
+  
+  applyCreatureTypeSelection(io, game, gameId, pid, permanentId, cardName, selection, false);
 }
 
 /**
@@ -4393,8 +4514,78 @@ async function handleOptionChoiceResponse(
       }
     }
   }
+  
+  // Handle tap/untap decision
+  if ((step as any).action === 'tap_or_untap_decision') {
+    const targetId = stepData.legacyData?.targetId;
+    if (!targetId) return;
+    const battlefield = game.state?.battlefield || [];
+    const perm = battlefield.find((p: any) => p.id === targetId);
+    if (!perm) return;
+    const choice = Array.isArray(selectedOption) ? selectedOption[0] : selectedOption;
+    if (choice === 'tap') {
+      (perm as any).tapped = true;
+      debug(2, `[Resolution] Tap/Untap: tapped ${perm.card?.name || perm.id}`);
+    } else if (choice === 'untap') {
+      (perm as any).tapped = false;
+      debug(2, `[Resolution] Tap/Untap: untapped ${perm.card?.name || perm.id}`);
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+  
+  if ((step as any).action === 'mox_diamond_choice') {
+    const selection = Array.isArray(selectedOption) ? selectedOption[0] : selectedOption;
+    const state = game.state || {};
+    state.stack = state.stack || [];
+    const stackIndex = state.stack.findIndex((s: any) => s.id === step.sourceId);
+    if (stackIndex === -1) return;
+    const stackItem = state.stack[stackIndex];
+    const controller = stackItem.controller as PlayerID;
+    const zones = state.zones = state.zones || {};
+    zones[controller] = zones[controller] || { hand: [], graveyard: [], graveyardCount: 0 } as any;
+    const playerZones = zones[controller] as any;
+    playerZones.hand = playerZones.hand || [];
+    playerZones.graveyard = playerZones.graveyard || [];
+    
+    // Remove Mox from stack
+    state.stack.splice(stackIndex, 1);
+    
+    if (selection && selection !== 'DECLINE') {
+      const hand = playerZones.hand;
+      const landIdx = hand.findIndex((c: any) => c?.id === selection);
+      if (landIdx !== -1) {
+        const landCard = hand.splice(landIdx, 1)[0];
+        playerZones.handCount = hand.length;
+        playerZones.graveyard.push({ ...landCard, zone: 'graveyard' });
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        
+        // Put Mox Diamond onto battlefield
+        state.battlefield = state.battlefield || [];
+        state.battlefield.push({
+          id: stackItem.id,
+          card: stackItem.card,
+          controller,
+          tapped: false,
+        });
+        debug(2, `[Resolution] Mox Diamond: discarded ${landCard.name}, put onto battlefield`);
+      } else {
+        // If land missing, fall back to graveyard
+        playerZones.graveyard.push({ ...(stackItem.card || {}), zone: 'graveyard' });
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        debugWarn(2, `[Resolution] Mox Diamond: selected land not found, card to graveyard`);
+      }
+    } else {
+      // Decline: put Mox Diamond into graveyard
+      playerZones.graveyard.push({ ...(stackItem.card || {}), zone: 'graveyard' });
+      playerZones.graveyardCount = playerZones.graveyard.length;
+      debug(2, `[Resolution] Mox Diamond: declined discard, card to graveyard`);
+    }
+    
+    broadcastGame(io, game, gameId);
+    return;
+  }
 }
 
 
 export default { registerResolutionHandlers };
-
