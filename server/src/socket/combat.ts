@@ -15,6 +15,59 @@ import { getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-ch
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
+ * Get goad status for a creature.
+ * A creature is goaded if:
+ * 1. It has active goaders in its goadedBy array (from direct goad effects)
+ * 2. It's enchanted by The Sound of Drums or similar auras that continuously goad
+ * 
+ * Returns { isGoaded: boolean, goaders: PlayerID[] }
+ */
+function getCreatureGoadStatus(
+  creature: any,
+  battlefield: any[],
+  creatureController: PlayerID,
+  currentTurn: number
+): { isGoaded: boolean; goaders: PlayerID[] } {
+  const goaders: PlayerID[] = [];
+  
+  // Check for goadedBy tracking (from normal goad effects)
+  const goadedBy = creature.goadedBy;
+  const goadedUntil = creature.goadedUntil || {};
+  
+  if (goadedBy && Array.isArray(goadedBy) && goadedBy.length > 0) {
+    // Check if goad is still active
+    const activeGoaders = goadedBy.filter((goaderId: string) => {
+      const expiryTurn = goadedUntil[goaderId];
+      return expiryTurn === undefined || expiryTurn > currentTurn;
+    });
+    goaders.push(...activeGoaders);
+  }
+  
+  // Check for The Sound of Drums or similar auras that continuously goad
+  // Oracle text: "Enchanted creature is goaded."
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.attachedTo !== creature.id) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // The Sound of Drums - enchanted creature is goaded
+    if (cardName.includes('sound of drums') || oracleText.includes('enchanted creature is goaded')) {
+      const auraController = perm.controller;
+      if (!goaders.includes(auraController)) {
+        goaders.push(auraController);
+      }
+    }
+  }
+  
+  return {
+    isGoaded: goaders.length > 0,
+    goaders
+  };
+}
+
+/**
  * Process tap triggers for attacking creatures
  * This handles cards like Magda, Brazen Outlaw: "Whenever a Dwarf you control becomes tapped, create a Treasure token."
  * 
@@ -946,51 +999,42 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         // GOAD validation (Rule 701.15b)
         // Goaded creatures must attack a player other than the goader if able
         // ========================================================================
-        const goadedBy = (creature as any).goadedBy;
-        const goadedUntil = (creature as any).goadedUntil || {};
-        const currentTurn = (game.state as any).turn || 0;
+        // Check if creature is goaded (either via goadedBy tracking or The Sound of Drums aura)
+        const goadInfo = getCreatureGoadStatus(creature, battlefield, playerId, currentTurn);
         
-        if (goadedBy && Array.isArray(goadedBy) && goadedBy.length > 0) {
-          // Check if goad is still active
-          const activeGoaders = goadedBy.filter((goaderId: string) => {
-            const expiryTurn = goadedUntil[goaderId];
-            return expiryTurn === undefined || expiryTurn > currentTurn;
-          });
+        if (goadInfo.isGoaded) {
+          // Creature is currently goaded
+          const targetPlayerId = attacker.targetPlayerId;
           
-          if (activeGoaders.length > 0) {
-            // Creature is currently goaded
-            const targetPlayerId = attacker.targetPlayerId;
+          if (targetPlayerId) {
+            // Check if attacking a goader when other options exist
+            const isAttackingGoader = goadInfo.goaders.includes(targetPlayerId);
             
-            if (targetPlayerId) {
-              // Check if attacking a goader when other options exist
-              const isAttackingGoader = activeGoaders.includes(targetPlayerId);
+            if (isAttackingGoader) {
+              // Get all possible opponents (not the controller)
+              const players = (game.state as any).players || [];
+              const allOpponents = players
+                .filter((p: any) => p?.id && p.id !== playerId && !p.hasLost)
+                .map((p: any) => p.id);
               
-              if (isAttackingGoader) {
-                // Get all possible opponents (not the controller)
-                const players = (game.state as any).players || [];
-                const allOpponents = players
-                  .filter((p: any) => p?.id && p.id !== playerId && !p.hasLost)
-                  .map((p: any) => p.id);
-                
-                // Check if there are non-goader opponents available
-                const nonGoaderOpponents = allOpponents.filter((oppId: string) => 
-                  !activeGoaders.includes(oppId)
-                );
-                
-                if (nonGoaderOpponents.length > 0) {
-                  // Rule violation: attacking a goader when other options exist
-                  const goaderNames = activeGoaders
-                    .map((gId: string) => getPlayerName(game, gId))
-                    .join(', ');
-                  socket.emit("error", {
-                    code: "GOAD_VIOLATION",
-                    message: `${(creature as any).card?.name || "Creature"} is goaded by ${goaderNames} and cannot attack them (must attack another opponent if able).`,
-                  });
-                  return;
-                }
-                // Attacking goader is OK only when they're the only option
-                debug(2, `[combat] ${(creature as any).card?.name} is attacking goader ${targetPlayerId} (only option available)`);
+              // Check if there are non-goader opponents available
+              const nonGoaderOpponents = allOpponents.filter((oppId: string) => 
+                !goadInfo.goaders.includes(oppId)
+              );
+              
+              if (nonGoaderOpponents.length > 0) {
+                // Rule violation: attacking a goader when other options exist
+                const goaderNames = goadInfo.goaders
+                  .map((gId: string) => getPlayerName(game, gId))
+                  .join(', ');
+                socket.emit("error", {
+                  code: "GOAD_VIOLATION",
+                  message: `${(creature as any).card?.name || "Creature"} is goaded by ${goaderNames} and cannot attack them (must attack another opponent if able).`,
+                });
+                return;
               }
+              // Attacking goader is OK only when they're the only option
+              debug(2, `[combat] ${(creature as any).card?.name} is attacking goader ${targetPlayerId} (only option available)`);
             }
           }
         }
@@ -1032,6 +1076,66 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             });
           }
         }
+      }
+
+      // ========================================================================
+      // GOAD ENFORCEMENT (Rule 701.38b)
+      // Goaded creatures attack each combat if able
+      // ========================================================================
+      // Check if there are any goaded creatures that should have attacked but didn't
+      const currentTurn = (game.state as any).turn || 0;
+      const goadedCreaturesNotAttacking: any[] = [];
+      
+      for (const perm of battlefield) {
+        if (perm.controller !== playerId) continue;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) continue;
+        
+        const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn);
+        
+        if (goadInfo.isGoaded) {
+          // This creature is goaded - check if it's attacking
+          const isAttacking = attackerIds.includes(perm.id);
+          
+          if (!isAttacking) {
+            // Check if the creature CAN attack (not tapped, doesn't have defender, etc.)
+            const isTapped = (perm as any).tapped;
+            const hasDefender = permanentHasKeyword(perm, battlefield, playerId, 'defender');
+            const cantAttack = (perm.card?.oracle_text || '').toLowerCase().includes("can't attack");
+            
+            // Check if there's summoning sickness (creature entered this turn without haste)
+            const hasSummoningSickness = (perm as any).enteredThisTurn && 
+              !permanentHasKeyword(perm, battlefield, playerId, 'haste');
+            
+            if (!isTapped && !hasDefender && !cantAttack && !hasSummoningSickness) {
+              // Check if there are any valid targets to attack
+              const players = (game.state as any).players || [];
+              const possibleTargets = players
+                .filter((p: any) => p?.id && p.id !== playerId && !p.hasLost)
+                .map((p: any) => p.id);
+              
+              if (possibleTargets.length > 0) {
+                // This creature should have attacked but didn't
+                goadedCreaturesNotAttacking.push({
+                  id: perm.id,
+                  name: perm.card?.name || 'Unknown',
+                  goaders: goadInfo.goaders
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      if (goadedCreaturesNotAttacking.length > 0) {
+        const creatureList = goadedCreaturesNotAttacking
+          .map(c => c.name)
+          .join(', ');
+        socket.emit("error", {
+          code: "GOAD_MUST_ATTACK",
+          message: `The following goaded creature(s) must attack if able: ${creatureList}`,
+        });
+        return;
       }
 
       // Process tap triggers for creatures that became tapped from attacking
