@@ -1642,6 +1642,11 @@ function recalculateHandVisibility(ctx: GameContext): void {
     }
   }
   
+  // Initialize handVisibilityGrants if it doesn't exist
+  if (!ctx.handVisibilityGrants) {
+    ctx.handVisibilityGrants = new Map();
+  }
+  
   // Clear all existing hand visibility grants and rebuild from scratch
   // This ensures we don't have stale grants when permanents leave the battlefield
   ctx.handVisibilityGrants.clear();
