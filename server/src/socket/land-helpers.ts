@@ -154,20 +154,16 @@ export function detectScryOnETB(oracleText: string): number | null {
   const lowerText = (oracleText || "").toLowerCase();
   
   // Check for scry on ETB patterns
-  // "When ~ enters the battlefield, scry 1" (Temples)
-  // "enters the battlefield, scry 2" (some cards)
-  const scryPatterns = [
-    /when\s+(?:~|this\s+\w+)\s+enters\s+(?:the\s+battlefield)?,?\s*scry\s+(\d+)/i,
-    /enters\s+(?:the\s+battlefield)?,?\s*scry\s+(\d+)/i,
-    // Also check for ", scry X." pattern at end of ETB effect
-    /enters\s+(?:the\s+battlefield)[^.]*,\s*scry\s+(\d+)/i,
-  ];
+  // Matches various formats:
+  // - "When this land enters, scry 1" (modern format without "the battlefield")
+  // - "When ~ enters the battlefield, scry 1" (format using ~ for card name)
+  // - "When this permanent enters, scry 1" (for non-lands)
+  // The pattern makes "the battlefield" optional to handle both formats
+  const scryPattern = /when\s+(?:~|this\s+(?:land|permanent|artifact|creature|enchantment))\s+enters(?:\s+the\s+battlefield)?,\s*scry\s+(\d+)/i;
+  const match = lowerText.match(scryPattern);
   
-  for (const pattern of scryPatterns) {
-    const match = lowerText.match(pattern);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
+  if (match) {
+    return parseInt(match[1], 10);
   }
   
   return null;
