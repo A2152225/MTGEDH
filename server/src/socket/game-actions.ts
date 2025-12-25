@@ -555,6 +555,7 @@ export function calculateCostReduction(
     const cardColors = card.colors || [];
     const cardCreatureTypes = extractCreatureTypes(cardTypeLine);
     const cardName = card.name || "Unknown";
+    const cardManaCost = (card.mana_cost || "").toUpperCase();
     
     // Determine card characteristics
     const isCreature = cardTypeLine.includes("creature");
@@ -563,6 +564,13 @@ export function calculateCostReduction(
     const isArtifact = cardTypeLine.includes("artifact");
     const isEnchantment = cardTypeLine.includes("enchantment");
     const isPlaneswalker = cardTypeLine.includes("planeswalker");
+    
+    // Determine colors from both colors array and mana cost
+    const hasWhite = cardColors.includes("W") || cardColors.includes("White") || cardManaCost.includes("{W}");
+    const hasBlue = cardColors.includes("U") || cardColors.includes("Blue") || cardManaCost.includes("{U}");
+    const hasBlack = cardColors.includes("B") || cardColors.includes("Black") || cardManaCost.includes("{B}");
+    const hasRed = cardColors.includes("R") || cardColors.includes("Red") || cardManaCost.includes("{R}");
+    const hasGreen = cardColors.includes("G") || cardColors.includes("Green") || cardManaCost.includes("{G}");
     
     for (const perm of battlefield) {
       if (!perm || perm.controller !== playerId) continue;
@@ -724,37 +732,37 @@ export function calculateCostReduction(
       // ============================================
       
       // Ruby Medallion: Red spells cost {1} less
-      if (permName.includes("ruby medallion") && cardColors.includes("R")) {
+      if (permName.includes("ruby medallion") && hasRed) {
         reduction.generic += 1;
         reduction.messages.push(`Ruby Medallion: -{1} (red)`);
       }
       
       // Sapphire Medallion: Blue spells cost {1} less
-      if (permName.includes("sapphire medallion") && cardColors.includes("U")) {
+      if (permName.includes("sapphire medallion") && hasBlue) {
         reduction.generic += 1;
         reduction.messages.push(`Sapphire Medallion: -{1} (blue)`);
       }
       
       // Jet Medallion: Black spells cost {1} less
-      if (permName.includes("jet medallion") && cardColors.includes("B")) {
+      if (permName.includes("jet medallion") && hasBlack) {
         reduction.generic += 1;
         reduction.messages.push(`Jet Medallion: -{1} (black)`);
       }
       
       // Pearl Medallion: White spells cost {1} less
-      if (permName.includes("pearl medallion") && cardColors.includes("W")) {
+      if (permName.includes("pearl medallion") && hasWhite) {
         reduction.generic += 1;
         reduction.messages.push(`Pearl Medallion: -{1} (white)`);
       }
       
       // Emerald Medallion: Green spells cost {1} less
-      if (permName.includes("emerald medallion") && cardColors.includes("G")) {
+      if (permName.includes("emerald medallion") && hasGreen) {
         reduction.generic += 1;
         reduction.messages.push(`Emerald Medallion: -{1} (green)`);
       }
       
       // The Wind Crystal: White spells cost {1} less
-      if (permName.includes("wind crystal") && cardColors.includes("W")) {
+      if (permName.includes("wind crystal") && hasWhite) {
         reduction.generic += 1;
         reduction.messages.push(`The Wind Crystal: -{1} (white)`);
       }
