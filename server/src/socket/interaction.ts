@@ -2785,6 +2785,118 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle sacrifice-to-draw abilities (Sunbaked Canyon, Horizon Canopy, etc.)
+    // Pattern: "{cost}, {T}, Sacrifice ~: Draw a card"
+    // Examples: "{1}, {T}, Sacrifice ~" (Sunbaked Canyon), "{G}{W}, {T}, Sacrifice ~" (Horizon Canopy)
+    // The client generates abilityId like "{cardId}-ability-{index}" for general activated abilities
+    // Only process if oracle text actually has the sacrifice-to-draw pattern
+    const hasSacrificeDrawPattern = oracleText.includes("sacrifice") && oracleText.includes("draw a card");
+    const isSacrificeDrawAbility = (abilityId.includes("sacrifice-draw") || abilityId.includes("-ability-")) && hasSacrificeDrawPattern;
+    if (isSacrificeDrawAbility) {
+      // Parse the mana cost from oracle text
+      // Pattern: "{cost}, {T}, Sacrifice: Draw a card" (case-insensitive for {T})
+      const sacrificeCostMatch = oracleText.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*\{T\}\s*,\s*sacrifice[^:]*:\s*draw a card/i);
+      
+      if (sacrificeCostMatch) {
+        const manaCostStr = sacrificeCostMatch[1];
+        const parsedCost = parseManaCost(manaCostStr);
+        const manaPool = getOrInitManaPool(game.state, pid);
+        
+        // Check if player can pay the mana cost
+        const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+        const validationError = validateManaPayment(
+          totalAvailable,
+          parsedCost.colors,
+          parsedCost.generic
+        );
+        
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: validationError,
+          });
+          return;
+        }
+        
+        // Validate: permanent must not already be tapped
+        if ((permanent as any).tapped) {
+          socket.emit("error", {
+            code: "ALREADY_TAPPED",
+            message: `${cardName} is already tapped`,
+          });
+          return;
+        }
+        
+        // Consume the mana from the pool
+        consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} paid ${manaCostStr}.`,
+          ts: Date.now(),
+        });
+        
+        // Tap the permanent (part of cost - paid immediately)
+        (permanent as any).tapped = true;
+        
+        // Remove from battlefield (sacrifice - part of cost, paid immediately)
+        battlefield.splice(permIndex, 1);
+        
+        // Move to graveyard
+        const zones = (game.state as any)?.zones?.[pid];
+        if (zones) {
+          zones.graveyard = zones.graveyard || [];
+          zones.graveyard.push({ ...card, zone: "graveyard" });
+          zones.graveyardCount = zones.graveyard.length;
+        }
+        
+        // Draw a card (effect) - only if zones exists
+        if (zones) {
+          const lib = zones.library || [];
+          if (lib.length > 0) {
+            const drawnCard = lib.shift();
+            zones.hand = zones.hand || [];
+            zones.hand.push({ ...drawnCard, zone: "hand" });
+            zones.handCount = zones.hand.length;
+            zones.libraryCount = lib.length;
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} sacrificed ${cardName} and drew a card.`,
+              ts: Date.now(),
+            });
+          } else {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} sacrificed ${cardName} but had no cards to draw.`,
+              ts: Date.now(),
+            });
+          }
+        }
+        
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+        
+        appendEvent(gameId, (game as any).seq ?? 0, "activateSacrificeDrawAbility", { 
+          playerId: pid, 
+          permanentId, 
+          abilityId, 
+          cardName,
+          manaCost: manaCostStr,
+        });
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    }
+    
     // Handle equip abilities (equipment cards)
     // Check if this is an equip ability - abilityId contains "equip" or it's an equipment with equip cost
     const isEquipment = typeLine.includes("equipment");
@@ -7996,6 +8108,124 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       goaded: pending.goadsOnChange || false,
       mustAttackEachCombat: pending.mustAttackEachCombat || false,
       cantAttackOwner: pending.cantAttackOwner || false,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
+
+  // Cycling - discard a card from hand, pay cost, and draw a card
+  // Properly uses the stack per MTG rules (Rule 702.29)
+  socket.on("activateCycling", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    const zones = (game.state as any)?.zones?.[pid];
+    if (!zones || !zones.hand) {
+      socket.emit("error", {
+        code: "NO_HAND",
+        message: "You have no hand to cycle from",
+      });
+      return;
+    }
+
+    // Find the card in hand
+    const handIndex = zones.hand.findIndex((c: any) => c.id === cardId);
+    if (handIndex === -1) {
+      socket.emit("error", {
+        code: "CARD_NOT_IN_HAND",
+        message: "Card not found in hand",
+      });
+      return;
+    }
+
+    const card = zones.hand[handIndex];
+    const cardName = card.name || "Unknown";
+    const oracleText = (card.oracle_text || "").toLowerCase();
+
+    // Parse cycling cost
+    const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
+    if (!cyclingMatch) {
+      socket.emit("error", {
+        code: "NO_CYCLING",
+        message: `${cardName} does not have cycling`,
+      });
+      return;
+    }
+
+    const cyclingCostStr = cyclingMatch[1];
+    const parsedCost = parseManaCost(cyclingCostStr);
+    const manaPool = getOrInitManaPool(game.state, pid);
+
+    // Check if player can pay the cycling cost
+    const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+    const validationError = validateManaPayment(
+      totalAvailable,
+      parsedCost.colors,
+      parsedCost.generic
+    );
+
+    if (validationError) {
+      socket.emit("error", {
+        code: "INSUFFICIENT_MANA",
+        message: validationError,
+      });
+      return;
+    }
+
+    // Consume the mana from the pool (costs are paid when activating)
+    consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} paid ${cyclingCostStr} to cycle ${cardName}.`,
+      ts: Date.now(),
+    });
+
+    // Discard the card (cost is paid immediately)
+    zones.hand.splice(handIndex, 1);
+    zones.graveyard = zones.graveyard || [];
+    zones.graveyard.push({ ...card, zone: "graveyard" });
+    zones.handCount = zones.hand.length;
+    zones.graveyardCount = zones.graveyard.length;
+
+    // Put cycling ability on the stack (per MTG rules - Rule 702.29a)
+    // "Cycling is an activated ability that functions only while the card with cycling is in a player's hand"
+    // "Cycling {cost} means {cost}, Discard this card: Draw a card"
+    game.state.stack = game.state.stack || [];
+    const abilityStackId = `ability_cycling_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    game.state.stack.push({
+      id: abilityStackId,
+      type: 'ability',
+      controller: pid,
+      source: cardId, // The card that was cycled
+      sourceName: cardName,
+      description: `Draw a card`,
+      abilityType: 'cycling',
+      cardId: cardId,
+      cardName: cardName,
+    } as any);
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated cycling on ${cardName} (on the stack).`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game.state as any).seq ?? 0, "activateCycling", {
+      playerId: pid,
+      cardId,
+      cardName,
+      cyclingCost: cyclingCostStr,
+      stackId: abilityStackId,
     });
 
     broadcastGame(io, game, gameId);
