@@ -474,6 +474,7 @@ export interface TriggeredAbility {
     | 'etb'
     | 'etb_sacrifice_unless_pay' // Transguild Promenade, Gateway Plaza, Rupture Spire
     | 'etb_bounce_land' // Bounce lands - return a land you control to hand
+    | 'hideaway_etb' // Hideaway lands - look at top N, exile one face-down
     | 'creature_etb'
     | 'opponent_creature_etb' // Suture Priest style - when opponent's creature enters
     | 'equipment_etb'     // Whenever an Equipment enters under your control (Puresteel Paladin)
@@ -1238,6 +1239,22 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         subtypes: ['Phyrexian', 'Germ'],
         colors: ['B'], // black
       },
+    } as any);
+  }
+  
+  // Hideaway - When land enters, look at top N cards, exile one face-down, put rest on bottom
+  // Pattern: "Hideaway N" keyword or oracle text
+  const hideawayInfo = detectHideawayAbility(card);
+  if (hideawayInfo && !triggers.some(t => t.triggerType === 'hideaway_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'hideaway_etb',
+      description: `Look at the top ${hideawayInfo.hideawayCount} cards of your library, exile one face down, then put the rest on the bottom in a random order.`,
+      effect: 'hideaway_exile',
+      mandatory: true,
+      hideawayCount: hideawayInfo.hideawayCount,
+      hideawayCondition: hideawayInfo.condition,
     } as any);
   }
   

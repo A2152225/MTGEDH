@@ -8624,4 +8624,125 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana from ability', game);
     broadcastGame(io, game, gameId);
   });
+
+  // ============================================================================
+  // Cycling - Hand-Based Activated Ability
+  // ============================================================================
+  // Cycling - discard a card from hand, pay cost, and draw a card
+  // Properly uses the stack per MTG rules (Rule 702.29)
+  socket.on("activateCycling", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    const zones = (game.state as any)?.zones?.[pid];
+    if (!zones || !zones.hand) {
+      socket.emit("error", {
+        code: "NO_HAND",
+        message: "You have no hand to cycle from",
+      });
+      return;
+    }
+
+    // Find the card in hand
+    const handIndex = zones.hand.findIndex((c: any) => c.id === cardId);
+    if (handIndex === -1) {
+      socket.emit("error", {
+        code: "CARD_NOT_IN_HAND",
+        message: "Card not found in hand",
+      });
+      return;
+    }
+
+    const card = zones.hand[handIndex];
+    const cardName = card.name || "Unknown";
+    const oracleText = (card.oracle_text || "").toLowerCase();
+
+    // Parse cycling cost
+    const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
+    if (!cyclingMatch) {
+      socket.emit("error", {
+        code: "NO_CYCLING",
+        message: `${cardName} does not have cycling`,
+      });
+      return;
+    }
+
+    const cyclingCostStr = cyclingMatch[1];
+    const parsedCost = parseManaCost(cyclingCostStr);
+    const manaPool = getOrInitManaPool(game.state, pid);
+
+    // Check if player can pay the cycling cost
+    const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+    const validationError = validateManaPayment(
+      totalAvailable,
+      parsedCost.colors,
+      parsedCost.generic
+    );
+
+    if (validationError) {
+      socket.emit("error", {
+        code: "INSUFFICIENT_MANA",
+        message: validationError,
+      });
+      return;
+    }
+
+    // Consume the mana from the pool (costs are paid when activating)
+    consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} paid ${cyclingCostStr} to cycle ${cardName}.`,
+      ts: Date.now(),
+    });
+
+    // Discard the card (cost is paid immediately)
+    zones.hand.splice(handIndex, 1);
+    zones.graveyard = zones.graveyard || [];
+    zones.graveyard.push({ ...card, zone: "graveyard" });
+    zones.handCount = zones.hand.length;
+    zones.graveyardCount = zones.graveyard.length;
+
+    // Put cycling ability on the stack (per MTG rules - Rule 702.29a)
+    // "Cycling is an activated ability that functions only while the card with cycling is in a player's hand"
+    // "Cycling {cost} means {cost}, Discard this card: Draw a card"
+    game.state.stack = game.state.stack || [];
+    const abilityStackId = `ability_cycling_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    game.state.stack.push({
+      id: abilityStackId,
+      type: 'ability',
+      controller: pid,
+      source: cardId, // The card that was cycled
+      sourceName: cardName,
+      description: `Draw a card`,
+      abilityType: 'cycling',
+      cardId: cardId,
+      cardName: cardName,
+    } as any);
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated cycling on ${cardName} (on the stack).`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game.state as any).seq ?? 0, "activateCycling", {
+      playerId: pid,
+      cardId,
+      cardName,
+      cyclingCost: cyclingCostStr,
+      stackId: abilityStackId,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
 }
