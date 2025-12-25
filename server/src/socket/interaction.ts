@@ -205,6 +205,54 @@ const SPECIAL_LAND_ABILITIES: Record<string, LandAbilityConfig> = {
   },
 };
 
+/**
+ * Cards that grant permission to play lands from other zones
+ */
+const LAND_PLAY_PERMISSION_CARDS: Record<string, {
+  zones: Array<'graveyard' | 'exile'>;
+  landTypes?: string[]; // Optional filter for land types
+}> = {
+  'conduit of worlds': {
+    zones: ['graveyard'],
+  },
+  'crucible of worlds': {
+    zones: ['graveyard'],
+  },
+  'ramunap excavator': {
+    zones: ['graveyard'],
+  },
+  // Future: Add cards that allow playing from exile, etc.
+};
+
+/**
+ * Update land play permissions based on battlefield state
+ * Called when permanents enter/leave battlefield or during game state updates
+ */
+export function updateLandPlayPermissions(game: any, playerId: string) {
+  const battlefield = game.state?.battlefield || [];
+  
+  // Initialize permissions
+  game.state.landPlayPermissions = game.state.landPlayPermissions || {};
+  game.state.landPlayPermissions[playerId] = [];
+  
+  // Check each permanent for land play permission cards
+  for (const permanent of battlefield) {
+    if (permanent.controller === playerId) {
+      const cardName = permanent.card?.name?.toLowerCase();
+      const permissionCard = LAND_PLAY_PERMISSION_CARDS[cardName];
+      
+      if (permissionCard) {
+        // Grant permissions from this card
+        for (const zone of permissionCard.zones) {
+          if (!game.state.landPlayPermissions[playerId].includes(zone)) {
+            game.state.landPlayPermissions[playerId].push(zone);
+          }
+        }
+      }
+    }
+  }
+}
+
 // ============================================================================
 // Tap/Untap Ability Text Parsing
 // ============================================================================

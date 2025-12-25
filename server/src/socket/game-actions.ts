@@ -1692,7 +1692,12 @@ function checkAndPromptMiracle(
 
 export function registerGameActions(io: Server, socket: Socket) {
   // Play land from hand
-  socket.on("playLand", ({ gameId, cardId, selectedFace }: { gameId: string; cardId: string; selectedFace?: number }) => {
+  socket.on("playLand", ({ gameId, cardId, selectedFace, fromZone }: { 
+    gameId: string; 
+    cardId: string; 
+    selectedFace?: number;
+    fromZone?: 'hand' | 'graveyard';
+  }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -1715,24 +1720,41 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Find the card in hand to get its info before playing
+      // Determine which zone to check based on fromZone parameter
+      const sourceZone = fromZone || 'hand';
+      
+      // Check if player has permission to play from graveyard
+      if (sourceZone === 'graveyard') {
+        const hasConduitPermission = (game.state as any).landPlayPermissions?.[playerId]?.includes('graveyard');
+        if (!hasConduitPermission) {
+          socket.emit("error", {
+            code: "NO_PERMISSION",
+            message: "You don't have permission to play lands from your graveyard",
+          });
+          return;
+        }
+      }
+
+      // Find the card in the specified zone
       const zones = game.state?.zones?.[playerId];
-      const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-      const cardInHand = hand.find((c: any) => c?.id === cardId);
-      const cardName = (cardInHand as any)?.name || "";
-      const cardImageUrl = (cardInHand as any)?.image_uris?.small || (cardInHand as any)?.image_uris?.normal;
-      if (!cardInHand) {
-        debugWarn(2, `[playLand] Card ${cardId} not found in hand for player ${playerId}`);
+      const zone = sourceZone === 'graveyard' 
+        ? (Array.isArray(zones?.graveyard) ? zones.graveyard : [])
+        : (Array.isArray(zones?.hand) ? zones.hand : []);
+      const cardInZone = zone.find((c: any) => c?.id === cardId);
+      const cardName = (cardInZone as any)?.name || "";
+      const cardImageUrl = (cardInZone as any)?.image_uris?.small || (cardInZone as any)?.image_uris?.normal;
+      if (!cardInZone) {
+        debugWarn(2, `[playLand] Card ${cardId} not found in ${sourceZone} for player ${playerId}`);
         socket.emit("error", {
-          code: "CARD_NOT_IN_HAND",
-          message: "Card not found in hand. It may have already been played or moved.",
+          code: sourceZone === 'graveyard' ? "CARD_NOT_IN_GRAVEYARD" : "CARD_NOT_IN_HAND",
+          message: `Card not found in ${sourceZone}. It may have already been played or moved.`,
         });
         return;
       }
       
       // Check if this is a Modal Double-Faced Card (MDFC) like Blightstep Pathway
-      let layout = (cardInHand as any)?.layout;
-      let cardFaces = (cardInHand as any)?.card_faces;
+      let layout = (cardInZone as any)?.layout;
+      let cardFaces = (cardInZone as any)?.card_faces;
       const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
       
       // If MDFC and no face selected yet, prompt the player to choose
@@ -1746,10 +1768,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         // If only one face is a land, auto-select it
         if (face0IsLand && !face1IsLand) {
           // Use front face (it's a land)
-          (cardInHand as any).selectedMDFCFace = 0;
+          (cardInZone as any).selectedMDFCFace = 0;
         } else if (!face0IsLand && face1IsLand) {
           // Use back face (it's a land)
-          (cardInHand as any).selectedMDFCFace = 1;
+          (cardInZone as any).selectedMDFCFace = 1;
         } else if (face0IsLand && face1IsLand) {
           // Both are lands - prompt user to choose
           socket.emit("mdfcFaceSelectionRequest", {
@@ -1796,23 +1818,23 @@ export function registerGameActions(io: Server, socket: Socket) {
         const selectedCardFace = cardFaces[selectedFace];
         if (selectedCardFace) {
           // Update the card to use the selected face's properties
-          (cardInHand as any).name = selectedCardFace.name;
-          (cardInHand as any).type_line = selectedCardFace.type_line;
-          (cardInHand as any).oracle_text = selectedCardFace.oracle_text;
-          (cardInHand as any).mana_cost = selectedCardFace.mana_cost;
+          (cardInZone as any).name = selectedCardFace.name;
+          (cardInZone as any).type_line = selectedCardFace.type_line;
+          (cardInZone as any).oracle_text = selectedCardFace.oracle_text;
+          (cardInZone as any).mana_cost = selectedCardFace.mana_cost;
           if (selectedCardFace.image_uris) {
-            (cardInHand as any).image_uris = selectedCardFace.image_uris;
+            (cardInZone as any).image_uris = selectedCardFace.image_uris;
           }
-          (cardInHand as any).selectedMDFCFace = selectedFace;
+          (cardInZone as any).selectedMDFCFace = selectedFace;
           debug(2, `[playLand] Playing MDFC ${cardName} as ${selectedCardFace.name} (face ${selectedFace})`);
         }
       }
       
       // Validate that the card is actually a land (check type_line)
       // For double-faced cards (transform), check the current front face, not the entire type_line
-      const typeLine = (cardInHand as any)?.type_line || "";
-      layout = (cardInHand as any)?.layout;
-      cardFaces = (cardInHand as any)?.card_faces;
+      const typeLine = (cardInZone as any)?.type_line || "";
+      layout = (cardInZone as any)?.layout;
+      cardFaces = (cardInZone as any)?.card_faces;
       
       let isLand = false;
       
@@ -1896,8 +1918,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         appendEvent(gameId, (game as any).seq ?? 0, "playLand", { 
           playerId, 
           cardId,
+          fromZone: sourceZone, // Track which zone the land was played from
           // Include full card data for replay to work correctly after server restart
-          card: cardInHand
+          card: cardInZone
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(playLand) failed:', e);
@@ -1932,7 +1955,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check for other ETB-tapped lands (temples, gain lands, guildgates, etc.)
       // This detects lands that always enter tapped based on oracle text
       if (!isShockLand(cardName) && !isBounceLand(cardName)) {
-        const oracleText = (cardInHand as any)?.oracle_text || '';
+        const oracleText = (cardInZone as any)?.oracle_text || '';
         const etbPattern = detectETBTappedPattern(oracleText);
         
         // Find the permanent that was just played
@@ -2040,7 +2063,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Check for scry on ETB (Temple of Malice, etc.)
-      const oracleText = (cardInHand as any)?.oracle_text || '';
+      const oracleText = (cardInZone as any)?.oracle_text || '';
       const scryAmount = detectScryOnETB(oracleText);
       if (scryAmount && scryAmount > 0) {
         // Set pendingScry state - will be processed by processPendingScry() after stack resolution
