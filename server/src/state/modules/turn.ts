@@ -34,7 +34,7 @@ import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
-import { calculateAllPTBonuses, parsePT, uid } from "../utils.js";
+import { calculateAllPTBonuses, parsePT, uid, applyLifeGain } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
@@ -964,13 +964,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             // Lifelink: Controller gains life equal to damage dealt
             if (keywords.lifelink) {
-              const controllerLife = life[attackerController] ?? startingLife;
-              life[attackerController] = controllerLife + actualDamage;
+              const lifeGainResult = applyLifeGain(state, attackerController, actualDamage, `${card.name || 'Attacker'} (lifelink)`);
               
               result.lifeGainForPlayers[attackerController] = 
-                (result.lifeGainForPlayers[attackerController] || 0) + actualDamage;
+                (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
               
-              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${attackerController} gained ${actualDamage} life (${controllerLife} -> ${life[attackerController]})`);
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${lifeGainResult.message}`);
             }
             
             // Check for auras that grant life gain on combat damage (Spirit Loop, etc.)
@@ -989,13 +988,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                    (auraOracle.includes('enchanted creature deals') && auraOracle.includes('damage to') && 
                     auraOracle.includes('gain life equal')))) {
                 const auraController = aura.controller || attackerController;
-                const auraControllerLife = life[auraController] ?? startingLife;
-                life[auraController] = auraControllerLife + actualDamage;
+                const lifeGainResult = applyLifeGain(state, auraController, actualDamage, aura.card?.name || 'Aura');
                 
                 result.lifeGainForPlayers[auraController] = 
-                  (result.lifeGainForPlayers[auraController] || 0) + actualDamage;
+                  (result.lifeGainForPlayers[auraController] || 0) + lifeGainResult.actualChange;
                 
-                debug(2, `${ts()} [dealCombatDamage] ${aura.card?.name || 'Aura'}: ${auraController} gained ${actualDamage} life from enchanted creature dealing damage`);
+                debug(2, `${ts()} [dealCombatDamage] ${aura.card?.name || 'Aura'}: ${lifeGainResult.message}`);
               }
             }
           } else if (replacementResult.prevented) {
@@ -1064,11 +1062,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             // Lifelink for damage dealt to blocker
             if (keywords.lifelink) {
-              const controllerLife = life[attackerController] ?? startingLife;
-              life[attackerController] = controllerLife + damageToBlocker;
+              const lifeGainResult = applyLifeGain(state, attackerController, damageToBlocker, `${card.name || 'Attacker'} (lifelink)`);
               
               result.lifeGainForPlayers[attackerController] = 
-                (result.lifeGainForPlayers[attackerController] || 0) + damageToBlocker;
+                (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
             }
           }
           
@@ -1102,11 +1099,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             // Lifelink for trample damage
             if (keywords.lifelink) {
-              const controllerLife = life[attackerController] ?? startingLife;
-              life[attackerController] = controllerLife + remainingDamage;
+              const lifeGainResult = applyLifeGain(state, attackerController, remainingDamage, `${card.name || 'Attacker'} (lifelink trample)`);
               
               result.lifeGainForPlayers[attackerController] = 
-                (result.lifeGainForPlayers[attackerController] || 0) + remainingDamage;
+                (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
             }
           }
         }
@@ -1212,13 +1208,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // Lifelink for blocker
             if (blockerKeywords.lifelink) {
               const blockerController = blocker.controller;
-              const controllerLife = life[blockerController] ?? startingLife;
-              life[blockerController] = controllerLife + blockerPower;
+              const lifeGainResult = applyLifeGain(state, blockerController, blockerPower, `${blockerCard.name || 'Blocker'} (lifelink)`);
               
               result.lifeGainForPlayers[blockerController] = 
-                (result.lifeGainForPlayers[blockerController] || 0) + blockerPower;
+                (result.lifeGainForPlayers[blockerController] || 0) + lifeGainResult.actualChange;
               
-              debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} lifelink: ${blockerController} gained ${blockerPower} life`);
+              debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} lifelink: ${lifeGainResult.message}`);
             }
           }
         }
