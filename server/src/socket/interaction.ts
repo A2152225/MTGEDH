@@ -8625,9 +8625,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  // ============================================================================
-  // Cycling - Hand-Based Activated Ability
-  // ============================================================================
   // Cycling - discard a card from hand, pay cost, and draw a card
   // Properly uses the stack per MTG rules (Rule 702.29)
   socket.on("activateCycling", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
