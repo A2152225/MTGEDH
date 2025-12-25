@@ -656,6 +656,7 @@ export function App() {
     permanentId: string;
     cardName: string;
     amount: number;
+    allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
     cardImageUrl?: string;
   } | null>(null);
   
@@ -1899,6 +1900,7 @@ export function App() {
       permanentId: string;
       cardName: string;
       amount: number;
+      allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
       cardImageUrl?: string;
     }) => {
       if (payload.gameId === safeView?.id) {
@@ -1907,6 +1909,7 @@ export function App() {
           permanentId: payload.permanentId,
           cardName: payload.cardName,
           amount: payload.amount,
+          allowedColors: payload.allowedColors, // Pass through to modal
           cardImageUrl: payload.cardImageUrl,
         });
         setAnyColorManaModalOpen(true);
@@ -6286,6 +6289,7 @@ export function App() {
         permanentId={anyColorManaModalData?.permanentId || ''}
         cardName={anyColorManaModalData?.cardName || ''}
         amount={anyColorManaModalData?.amount || 1}
+        allowedColors={anyColorManaModalData?.allowedColors} // Pass allowed colors to filter modal
         cardImageUrl={anyColorManaModalData?.cardImageUrl}
         onConfirm={(chosenColor) => {
           if (safeView?.id && anyColorManaModalData) {

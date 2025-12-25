@@ -82,11 +82,20 @@ function getEffectivePowerForMana(permanent: any): number {
 
 export interface ManaAbility {
   id: string;
-  cost: string; // Usually "{T}" for tap
+  cost: string; // Usually "{T}" for tap, can include additional costs like "{T}, Pay 1 life"
   produces: string[]; // Colors that can be produced: ['W','U','B','R','G'] or ['any']
   producesAllAtOnce?: boolean; // True for lands like Rakdos Carnarium that produce {B}{R} (both, not choice)
   isGranted?: boolean; // True if granted by another permanent
   grantedBy?: string; // ID of permanent granting this ability
+  additionalCosts?: Array<{ // Additional costs beyond tapping
+    type: 'pay_life' | 'pay_mana' | 'sacrifice';
+    amount?: number; // For pay_life or pay_mana
+    manaCost?: string; // For pay_mana (e.g., "{1}")
+  }>;
+  damageEffect?: { // For pain lands like Adarkar Wastes
+    type: 'damage_self';
+    amount: number;
+  };
 }
 
 export interface ManaModifier {
@@ -431,8 +440,22 @@ export function getManaAbilitiesForPermanent(
   const card = permanent?.card;
   if (!card) return abilities;
   
-  const typeLine = (card.type_line || "").toLowerCase();
-  const oracleText = (card.oracle_text || "").toLowerCase();
+  // For MDFCs (Modal Double-Faced Cards), use the selected face if specified
+  // The selectedMDFCFace property is set when the card is played (see game-actions.ts playLand)
+  let typeLine = (card.type_line || "").toLowerCase();
+  let oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Check if this is an MDFC and which face was selected
+  const selectedFace = card.selectedMDFCFace;
+  const cardFaces = card.card_faces;
+  if (selectedFace !== undefined && Array.isArray(cardFaces) && cardFaces[selectedFace]) {
+    const face = cardFaces[selectedFace];
+    // Use the selected face's oracle text and type line for ability detection
+    typeLine = (face.type_line || "").toLowerCase();
+    oracleText = (face.oracle_text || "").toLowerCase();
+    debug(2, `[getManaAbilitiesForPermanent] Using MDFC face ${selectedFace} for ${card.name}: ${face.name}`);
+  }
+  
   const isLand = typeLine.includes("land");
   const isCreature = typeLine.includes("creature");
   const isBasic = typeLine.includes("basic");
@@ -482,9 +505,105 @@ export function getManaAbilitiesForPermanent(
   }
   
   // Parse native mana abilities from oracle text
-  // Basic lands
-  if (isBasic || typeLine.includes("plains") || typeLine.includes("island") || 
-      typeLine.includes("swamp") || typeLine.includes("mountain") || typeLine.includes("forest")) {
+  // ========================================================================
+  // CRITICAL: Check for explicit mana choice patterns FIRST
+  // This prevents dual lands with basic types (e.g., Underground Sea = Island Swamp)
+  // from being parsed as two separate single-color abilities
+  // ========================================================================
+  
+  let hasExplicitChoicePattern = false;
+  
+  if (isLand) {
+    // ========================================================================
+    // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
+    // Pattern: "{T}: Add {X}{Y}" where X and Y are different colored mana symbols
+    // These lands produce BOTH colors at once (not a choice)
+    // ========================================================================
+    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+(\{[wubrgc]\}\{[wubrgc]\})/i);
+    if (multiManaMatch) {
+      const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
+      const colors: string[] = [];
+      for (const sym of manaSymbols) {
+        const color = sym.replace(/[{}]/g, '').toUpperCase();
+        if (!colors.includes(color)) {
+          colors.push(color);
+        }
+      }
+      // Check if this produces multiple different colors (like {B}{R})
+      // vs. the same color twice (like {C}{C})
+      if (colors.length > 1) {
+        // Multi-color producer like Rakdos Carnarium - produces both at once
+        abilities.push({ 
+          id: 'native_multi', 
+          cost: '{T}', 
+          produces: colors,
+          producesAllAtOnce: true // Both colors are added, not a choice
+        });
+        hasExplicitChoicePattern = true;
+      } else if (colors.length === 1 && manaSymbols.length === 2) {
+        // Same color twice (like Sol Ring {C}{C}) - handled elsewhere
+        // This case is handled by the fixed multi-mana pattern
+      }
+    }
+    
+    // ========================================================================
+    // Check for tri-lands and dual lands with "or" format (choice of colors)
+    // Pattern: "{T}: Add {X}, {Y}, or {Z}" - tri-lands like Jungle Shrine
+    // Pattern: "{T}: Add {X} or {Y}" - filter/pain lands
+    // These lands produce ONE color of your choice (not all at once)
+    // ========================================================================
+    
+    // Tri-land pattern: "{t}: add {X}, {Y}, or {Z}" (e.g., Jungle Shrine)
+    const triLandMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\},\s*\{([wubrgc])\},\s*or\s+\{([wubrgc])\}/i);
+    if (triLandMatch) {
+      const colors = [
+        triLandMatch[1].toUpperCase(),
+        triLandMatch[2].toUpperCase(),
+        triLandMatch[3].toUpperCase()
+      ];
+      // Tri-land - offers a choice of 3 colors
+      abilities.push({
+        id: 'native_choice_3',
+        cost: '{T}',
+        produces: colors,
+        producesAllAtOnce: false // Choice, not all at once
+      });
+      hasExplicitChoicePattern = true;
+    }
+    
+    // Dual land "or" pattern: "{t}: add {X} or {Y}" (filter/pain lands)
+    // This handles: Underground Sea, Boros Guildgate, pain lands, etc.
+    const dualOrMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
+    if (dualOrMatch) {
+      const colors = [
+        dualOrMatch[1].toUpperCase(),
+        dualOrMatch[2].toUpperCase()
+      ];
+      // Only add if an ability with these exact colors and choice semantics doesn't already exist
+      const colorKey = colors.slice().sort().join(',');
+      const alreadyHasChoiceAbility = abilities.some(a => 
+        !a.producesAllAtOnce && 
+        a.produces.slice().sort().join(',') === colorKey
+      );
+      if (!alreadyHasChoiceAbility) {
+        abilities.push({
+          id: 'native_choice_2',
+          cost: '{T}',
+          produces: colors,
+          producesAllAtOnce: false // Choice, not all at once
+        });
+        hasExplicitChoicePattern = true;
+      }
+    }
+  }
+  
+  // ========================================================================
+  // Basic lands and lands with basic types
+  // ONLY parse individual abilities if no explicit choice pattern was found
+  // This prevents Underground Sea from getting U + B + (U or B choice)
+  // ========================================================================
+  if (!hasExplicitChoicePattern && (isBasic || typeLine.includes("plains") || typeLine.includes("island") || 
+      typeLine.includes("swamp") || typeLine.includes("mountain") || typeLine.includes("forest"))) {
     if (typeLine.includes("plains") || oracleText.includes("add {w}")) {
       abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
     }
@@ -514,82 +633,96 @@ export function getManaAbilitiesForPermanent(
   }
   
   // ========================================================================
-  // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
-  // Pattern: "{T}: Add {X}{Y}" where X and Y are different colored mana symbols
-  // These lands produce BOTH colors at once (not a choice)
+  // Pain lands with damage (Adarkar Wastes, Yavimaya Coast, etc.)
+  // Pattern: "{T}: Add {X} or {Y}. ~ deals 1 damage to you."
+  // These lands have TWO abilities:
+  // 1. {T}: Add {C} (already detected above)
+  // 2. {T}: Add {X} or {Y} + deal 1 damage
   // ========================================================================
   if (isLand) {
-    // Pattern to match "{t}: add {X}{Y}" with two different colored mana symbols
-    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+(\{[wubrgc]\}\{[wubrgc]\})/i);
-    if (multiManaMatch) {
-      const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
-      const colors: string[] = [];
-      for (const sym of manaSymbols) {
-        const color = sym.replace(/[{}]/g, '').toUpperCase();
-        if (!colors.includes(color)) {
-          colors.push(color);
-        }
-      }
-      // Check if this produces multiple different colors (like {B}{R})
-      // vs. the same color twice (like {C}{C})
-      if (colors.length > 1) {
-        // Multi-color producer like Rakdos Carnarium - produces both at once
-        abilities.push({ 
-          id: 'native_multi', 
-          cost: '{T}', 
-          produces: colors,
-          producesAllAtOnce: true // Both colors are added, not a choice
-        });
-      } else if (colors.length === 1 && manaSymbols.length === 2) {
-        // Same color twice (like Sol Ring {C}{C}) - handled elsewhere
-        // This case is handled by the fixed multi-mana pattern
-      }
-    }
-    
-    // ========================================================================
-    // Check for tri-lands and dual lands with "or" format (choice of colors)
-    // Pattern: "{T}: Add {X}, {Y}, or {Z}" - tri-lands like Jungle Shrine
-    // Pattern: "{T}: Add {X} or {Y}" - filter/pain lands
-    // These lands produce ONE color of your choice (not all at once)
-    // ========================================================================
-    
-    // Tri-land pattern: "{t}: add {X}, {Y}, or {Z}" (e.g., Jungle Shrine)
-    const triLandMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\},\s*\{([wubrgc])\},\s*or\s+\{([wubrgc])\}/i);
-    if (triLandMatch) {
+    // Look for pain land pattern: "{t}: add {X} or {Y}. ~ deals N damage to you"
+    // OR: "{t}: add {X} or {Y}. this land deals N damage to you"
+    const painLandMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}\.\s*(?:~|this land)\s+deals\s+(\d+)\s+damage\s+to\s+you/i);
+    if (painLandMatch) {
       const colors = [
-        triLandMatch[1].toUpperCase(),
-        triLandMatch[2].toUpperCase(),
-        triLandMatch[3].toUpperCase()
+        painLandMatch[1].toUpperCase(),
+        painLandMatch[2].toUpperCase()
       ];
-      // Tri-land - offers a choice of 3 colors
-      abilities.push({
-        id: 'native_choice_3',
-        cost: '{T}',
-        produces: colors,
-        producesAllAtOnce: false // Choice, not all at once
-      });
-    }
-    
-    // Dual land "or" pattern: "{t}: add {X} or {Y}" (filter/pain lands)
-    const dualOrMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
-    if (dualOrMatch) {
-      const colors = [
-        dualOrMatch[1].toUpperCase(),
-        dualOrMatch[2].toUpperCase()
-      ];
-      // Only add if an ability with these exact colors and choice semantics doesn't already exist
+      const damageAmount = parseInt(painLandMatch[3], 10);
+      
+      // Only add if we haven't already added this via the "or" pattern detection
       const colorKey = colors.slice().sort().join(',');
-      const alreadyHasChoiceAbility = abilities.some(a => 
-        !a.producesAllAtOnce && 
-        a.produces.slice().sort().join(',') === colorKey
+      const alreadyHasPainAbility = abilities.some(a => 
+        a.produces.slice().sort().join(',') === colorKey && a.damageEffect
       );
-      if (!alreadyHasChoiceAbility) {
+      
+      if (!alreadyHasPainAbility) {
         abilities.push({
-          id: 'native_choice_2',
+          id: 'native_pain',
           cost: '{T}',
           produces: colors,
-          producesAllAtOnce: false // Choice, not all at once
+          producesAllAtOnce: false,
+          damageEffect: {
+            type: 'damage_self',
+            amount: damageAmount
+          }
         });
+        // Mark that we found a pain land pattern to skip the generic "or" detection
+        hasExplicitChoicePattern = true;
+      }
+    }
+  }
+  
+  // ========================================================================
+  // Lands with "Pay life" costs (Sunbaked Canyon, Horizon Canopy, etc.)
+  // Pattern: "{T}, Pay N life: Add {X} or {Y}"
+  // ========================================================================
+  if (isLand) {
+    const payLifeMatch = oracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
+    if (payLifeMatch) {
+      const lifeAmount = parseInt(payLifeMatch[1], 10);
+      const colors = [
+        payLifeMatch[2].toUpperCase(),
+        payLifeMatch[3].toUpperCase()
+      ];
+      
+      abilities.push({
+        id: 'native_pay_life',
+        cost: `{T}, Pay ${lifeAmount} life`,
+        produces: colors,
+        producesAllAtOnce: false,
+        additionalCosts: [{
+          type: 'pay_life',
+          amount: lifeAmount
+        }]
+      });
+    }
+  }
+  
+  // ========================================================================
+  // Simple single-color lands (Windbrisk Heights, Desert of the Fervent, etc.)
+  // Pattern: "{T}: Add {X}." where X is a single colored mana symbol
+  // This catches lands that don't have basic types and weren't caught by choice patterns
+  // ========================================================================
+  if (isLand && !hasExplicitChoicePattern) {
+    // Check for each colored mana - only add if not already present
+    const singleColorPatterns = [
+      { pattern: /\{t\}:\s*add\s+\{w\}\.?/i, color: 'W', id: 'native_w' },
+      { pattern: /\{t\}:\s*add\s+\{u\}\.?/i, color: 'U', id: 'native_u' },
+      { pattern: /\{t\}:\s*add\s+\{b\}\.?/i, color: 'B', id: 'native_b' },
+      { pattern: /\{t\}:\s*add\s+\{r\}\.?/i, color: 'R', id: 'native_r' },
+      { pattern: /\{t\}:\s*add\s+\{g\}\.?/i, color: 'G', id: 'native_g' },
+    ];
+    
+    for (const { pattern, color, id } of singleColorPatterns) {
+      if (pattern.test(oracleText)) {
+        // Only add if we don't already have this color
+        const alreadyHasColor = abilities.some(a => 
+          a.produces.length === 1 && a.produces[0] === color && !a.additionalCosts
+        );
+        if (!alreadyHasColor) {
+          abilities.push({ id, cost: '{T}', produces: [color] });
+        }
       }
     }
   }

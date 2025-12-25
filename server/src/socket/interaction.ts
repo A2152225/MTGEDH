@@ -2004,6 +2004,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             permanentId,
             cardName,
             amount: totalAmount,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color combination
           };
           
           // Request color choice from player
@@ -2013,6 +2014,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             permanentId,
             cardName,
             amount: totalAmount,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color
             cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
           });
           
@@ -2047,11 +2049,76 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Handle standard mana abilities (lands, mana dorks, rocks)
       // ========================================================================
       else if (manaAbilities.length > 0) {
-        // Use the first mana ability's production
-        const ability = manaAbilities[0];
+        // ========================================================================
+        // Select which ability to use:
+        // If there are multiple abilities, prefer colored mana over colorless
+        // This handles pain lands like Adarkar Wastes where you have {C} and {W}/{U}
+        // ========================================================================
+        let ability = manaAbilities[0];
+        
+        if (manaAbilities.length > 1) {
+          // Prefer non-colorless abilities
+          const coloredAbility = manaAbilities.find(a => 
+            a.produces.length > 0 && !a.produces.every(c => c === 'C')
+          );
+          if (coloredAbility) {
+            ability = coloredAbility;
+          }
+        }
+        
         const produces = ability.produces || [];
         
         if (produces.length > 0) {
+          // ========================================================================
+          // Handle additional costs (pay life, etc.) for this ability
+          // ========================================================================
+          if (ability.additionalCosts && ability.additionalCosts.length > 0) {
+            for (const cost of ability.additionalCosts) {
+              if (cost.type === 'pay_life' && cost.amount) {
+                // Check if player has enough life
+                const currentLife = game.state.life?.[pid] || 40;
+                if (currentLife <= cost.amount) {
+                  socket.emit("error", {
+                    code: "INSUFFICIENT_LIFE",
+                    message: `Cannot pay ${cost.amount} life (you have ${currentLife} life)`,
+                  });
+                  return;
+                }
+                
+                // Pay the life cost
+                if (!game.state.life) game.state.life = {};
+                game.state.life[pid] = currentLife - cost.amount;
+                
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `${getPlayerName(game, pid)} paid ${cost.amount} life (${currentLife} → ${game.state.life[pid]}).`,
+                  ts: Date.now(),
+                });
+              }
+            }
+          }
+          
+          // ========================================================================
+          // Handle damage effects (pain lands like Adarkar Wastes)
+          // ========================================================================
+          if (ability.damageEffect && ability.damageEffect.type === 'damage_self') {
+            const damageAmount = ability.damageEffect.amount;
+            const currentLife = game.state.life?.[pid] || 40;
+            
+            if (!game.state.life) game.state.life = {};
+            game.state.life[pid] = currentLife - damageAmount;
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${cardName} deals ${damageAmount} damage to ${getPlayerName(game, pid)} (${currentLife} → ${game.state.life[pid]}).`,
+              ts: Date.now(),
+            });
+          }
+          
           // ========================================================================
           // Check if this ability produces ALL colors at once (like bounce lands)
           // If producesAllAtOnce is true, add all mana at once without prompting
@@ -2105,6 +2172,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               permanentId,
               cardName,
               amount: finalTotal,
+              allowedColors: produces, // Restrict to actual colors the land can produce
             };
             
             // Request color choice from player
@@ -2114,6 +2182,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               permanentId,
               cardName,
               amount: finalTotal,
+              allowedColors: produces, // Restrict to actual colors the land can produce
               cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
             });
             
@@ -6850,6 +6919,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (pending.playerId !== pid) {
       socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your mana activation" });
       return;
+    }
+    
+    // Validate chosen color is in allowed colors (if specified)
+    if (pending.allowedColors && pending.allowedColors.length > 0) {
+      const colorMap: Record<string, string> = {
+        white: 'W',
+        blue: 'U',
+        black: 'B',
+        red: 'R',
+        green: 'G',
+      };
+      const chosenColorCode = colorMap[chosenColor];
+      if (!pending.allowedColors.includes(chosenColorCode)) {
+        socket.emit("error", { 
+          code: "INVALID_COLOR_CHOICE", 
+          message: `${pending.cardName} cannot produce ${chosenColor} mana. Valid colors: ${pending.allowedColors.join(', ')}` 
+        });
+        return;
+      }
     }
 
     // Add mana to pool
