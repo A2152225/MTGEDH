@@ -8114,6 +8114,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // Cycling - discard a card from hand, pay cost, and draw a card
+  // Properly uses the stack per MTG rules (Rule 702.29)
   socket.on("activateCycling", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -8172,7 +8173,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    // Consume the mana from the pool
+    // Consume the mana from the pool (costs are paid when activating)
     consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
 
     io.to(gameId).emit("chat", {
@@ -8183,47 +8184,48 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       ts: Date.now(),
     });
 
-    // Discard the card (move from hand to graveyard)
+    // Discard the card (cost is paid immediately)
     zones.hand.splice(handIndex, 1);
     zones.graveyard = zones.graveyard || [];
     zones.graveyard.push({ ...card, zone: "graveyard" });
     zones.handCount = zones.hand.length;
     zones.graveyardCount = zones.graveyard.length;
 
-    // Draw a card
-    const lib = zones.library || [];
-    if (lib.length > 0) {
-      const drawnCard = lib.shift();
-      zones.hand.push({ ...drawnCard, zone: "hand" });
-      zones.handCount = zones.hand.length;
-      zones.libraryCount = lib.length;
+    // Put cycling ability on the stack (per MTG rules - Rule 702.29a)
+    // "Cycling is an activated ability that functions only while the card with cycling is in a player's hand"
+    // "Cycling {cost} means {cost}, Discard this card: Draw a card"
+    game.state.stack = game.state.stack || [];
+    const abilityStackId = `ability_cycling_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    game.state.stack.push({
+      id: abilityStackId,
+      type: 'ability',
+      controller: pid,
+      source: cardId, // The card that was cycled
+      sourceName: cardName,
+      description: `Draw a card`,
+      abilityType: 'cycling',
+      cardId: cardId,
+      cardName: cardName,
+    } as any);
 
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} cycled ${cardName} and drew a card.`,
-        ts: Date.now(),
-      });
-    } else {
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} cycled ${cardName} but had no cards to draw.`,
-        ts: Date.now(),
-      });
-    }
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated cycling on ${cardName} (on the stack).`,
+      ts: Date.now(),
+    });
 
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }
 
-    appendEvent(gameId, (game as any).seq ?? 0, "activateCycling", {
+    appendEvent(gameId, (game.state as any).seq ?? 0, "activateCycling", {
       playerId: pid,
       cardId,
       cardName,
       cyclingCost: cyclingCostStr,
+      stackId: abilityStackId,
     });
 
     broadcastGame(io, game, gameId);
