@@ -699,6 +699,34 @@ export function getManaAbilitiesForPermanent(
     }
   }
   
+  // ========================================================================
+  // Simple single-color lands (Windbrisk Heights, Desert of the Fervent, etc.)
+  // Pattern: "{T}: Add {X}." where X is a single colored mana symbol
+  // This catches lands that don't have basic types and weren't caught by choice patterns
+  // ========================================================================
+  if (isLand && !hasExplicitChoicePattern) {
+    // Check for each colored mana - only add if not already present
+    const singleColorPatterns = [
+      { pattern: /\{t\}:\s*add\s+\{w\}\.?/i, color: 'W', id: 'native_w' },
+      { pattern: /\{t\}:\s*add\s+\{u\}\.?/i, color: 'U', id: 'native_u' },
+      { pattern: /\{t\}:\s*add\s+\{b\}\.?/i, color: 'B', id: 'native_b' },
+      { pattern: /\{t\}:\s*add\s+\{r\}\.?/i, color: 'R', id: 'native_r' },
+      { pattern: /\{t\}:\s*add\s+\{g\}\.?/i, color: 'G', id: 'native_g' },
+    ];
+    
+    for (const { pattern, color, id } of singleColorPatterns) {
+      if (pattern.test(oracleText)) {
+        // Only add if we don't already have this color
+        const alreadyHasColor = abilities.some(a => 
+          a.produces.length === 1 && a.produces[0] === color && !a.additionalCosts
+        );
+        if (!alreadyHasColor) {
+          abilities.push({ id, cost: '{T}', produces: [color] });
+        }
+      }
+    }
+  }
+  
   // Check for creatures/artifacts with explicit tap-for-mana abilities in oracle text
   // Pattern: "{T}: Add {X}" where X is a mana symbol
   // This handles creatures like Llanowar Elves, Birds of Paradise, mana rocks, etc.
