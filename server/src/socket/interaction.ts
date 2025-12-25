@@ -8500,9 +8500,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  // ============================================================================
   // Mana Distribution Confirmation (Graven Cairns, Storage Counters, etc.)
-  // ============================================================================
   socket.on("confirmManaDistribution", ({ gameId, permanentId, distribution }: {
     gameId: string;
     permanentId: string;
