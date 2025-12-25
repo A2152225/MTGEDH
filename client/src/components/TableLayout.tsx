@@ -2008,6 +2008,16 @@ export function TableLayout(props: {
               socket.emit('discard', { gameId, cardId });
             }
           }}
+          onActivateAbility={(cardId, abilityId) => {
+            if (gameId && zoneContextMenu.zone === 'hand') {
+              if (abilityId === 'cycling') {
+                socket.emit('activateCycling', { gameId, cardId });
+              } else if (abilityId === 'foretell') {
+                // Handle foretell
+                socket.emit('foretell', { gameId, cardId });
+              }
+            }
+          }}
           onIgnoreForPlayability={(cardId, cardName, zone, imageUrl) => {
             if (gameId && you) {
               socket.emit('ignoreCardForAutoPass', { 

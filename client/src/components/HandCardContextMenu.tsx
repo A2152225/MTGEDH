@@ -24,12 +24,15 @@ export interface HandCardContextMenuProps {
   onForetell?: (cardId: string) => void;
   onCastWithKicker?: (cardId: string) => void;
   onCastWithBuyback?: (cardId: string) => void;
+  onCycle?: (cardId: string) => void;
   canCast?: boolean;
   canPlayLand?: boolean;
   canDiscard?: boolean;
   canForetell?: boolean;
+  canCycle?: boolean;
   reasonCannotCast?: string | null;
   reasonCannotPlayLand?: string | null;
+  reasonCannotCycle?: string | null;
   costAdjustment?: {
     originalCost: string;
     adjustedCost: string;
@@ -50,12 +53,15 @@ export function HandCardContextMenu({
   onForetell,
   onCastWithKicker,
   onCastWithBuyback,
+  onCycle,
   canCast = true,
   canPlayLand = true,
   canDiscard = true,
   canForetell = false,
+  canCycle = false,
   reasonCannotCast,
   reasonCannotPlayLand,
+  reasonCannotCycle,
   costAdjustment,
 }: HandCardContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -70,6 +76,9 @@ export function HandCardContextMenu({
   const hasKicker = oracleText.includes('kicker');
   const hasBuyback = oracleText.includes('buyback');
   const hasForetell = oracleText.includes('foretell');
+  const cyclingMatch = (card?.oracle_text || '').match(/cycling\s*(\{[^}]+\})/i);
+  const hasCycling = !!cyclingMatch;
+  const cyclingCost = cyclingMatch ? cyclingMatch[1] : null;
   
   // Adjust position to keep menu on screen
   // Use a small delay to ensure the menu is fully rendered before measuring
@@ -315,6 +324,41 @@ export function HandCardContextMenu({
           >
             <span>🔮</span>
             <span>Foretell ({'{2}'})</span>
+          </div>
+        )}
+        
+        {/* Cycling (if available) */}
+        {hasCycling && onCycle && (
+          <div
+            style={canCycle && !reasonCannotCycle ? menuItemStyle : disabledStyle}
+            onClick={() => {
+              if (canCycle && !reasonCannotCycle && onCycle) {
+                onCycle(card.id);
+                onClose();
+              }
+            }}
+            onMouseEnter={(e) => {
+              if (canCycle && !reasonCannotCycle) {
+                Object.assign(e.currentTarget.style, hoverStyle);
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+            title={reasonCannotCycle || undefined}
+          >
+            <span>🔄</span>
+            <span>Cycle</span>
+            {cyclingCost && (
+              <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 'auto' }}>
+                {cyclingCost}
+              </span>
+            )}
+            {reasonCannotCycle && (
+              <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 'auto' }}>
+                ({reasonCannotCycle})
+              </span>
+            )}
           </div>
         )}
         

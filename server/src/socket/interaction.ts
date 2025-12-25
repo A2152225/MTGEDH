@@ -8112,4 +8112,120 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     broadcastGame(io, game, gameId);
   });
+
+  // Cycling - discard a card from hand, pay cost, and draw a card
+  socket.on("activateCycling", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    const zones = (game.state as any)?.zones?.[pid];
+    if (!zones || !zones.hand) {
+      socket.emit("error", {
+        code: "NO_HAND",
+        message: "You have no hand to cycle from",
+      });
+      return;
+    }
+
+    // Find the card in hand
+    const handIndex = zones.hand.findIndex((c: any) => c.id === cardId);
+    if (handIndex === -1) {
+      socket.emit("error", {
+        code: "CARD_NOT_IN_HAND",
+        message: "Card not found in hand",
+      });
+      return;
+    }
+
+    const card = zones.hand[handIndex];
+    const cardName = card.name || "Unknown";
+    const oracleText = (card.oracle_text || "").toLowerCase();
+
+    // Parse cycling cost
+    const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
+    if (!cyclingMatch) {
+      socket.emit("error", {
+        code: "NO_CYCLING",
+        message: `${cardName} does not have cycling`,
+      });
+      return;
+    }
+
+    const cyclingCostStr = cyclingMatch[1];
+    const parsedCost = parseManaCost(cyclingCostStr);
+    const manaPool = getOrInitManaPool(game.state, pid);
+
+    // Check if player can pay the cycling cost
+    const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+    const validationError = validateManaPayment(
+      totalAvailable,
+      parsedCost.colors,
+      parsedCost.generic
+    );
+
+    if (validationError) {
+      socket.emit("error", {
+        code: "INSUFFICIENT_MANA",
+        message: validationError,
+      });
+      return;
+    }
+
+    // Consume the mana from the pool
+    consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} paid ${cyclingCostStr} to cycle ${cardName}.`,
+      ts: Date.now(),
+    });
+
+    // Discard the card (move from hand to graveyard)
+    zones.hand.splice(handIndex, 1);
+    zones.graveyard = zones.graveyard || [];
+    zones.graveyard.push({ ...card, zone: "graveyard" });
+    zones.handCount = zones.hand.length;
+    zones.graveyardCount = zones.graveyard.length;
+
+    // Draw a card
+    const lib = zones.library || [];
+    if (lib.length > 0) {
+      const drawnCard = lib.shift();
+      zones.hand.push({ ...drawnCard, zone: "hand" });
+      zones.handCount = zones.hand.length;
+      zones.libraryCount = lib.length;
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} cycled ${cardName} and drew a card.`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} cycled ${cardName} but had no cards to draw.`,
+        ts: Date.now(),
+      });
+    }
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game as any).seq ?? 0, "activateCycling", {
+      playerId: pid,
+      cardId,
+      cardName,
+      cyclingCost: cyclingCostStr,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
 }
