@@ -2426,9 +2426,9 @@ function executeTriggerEffect(
               sourceName: triggerInfo.sourceName,
               controller: triggerInfo.controller,
               damageAmount: triggerInfo.damageAmount,
-              triggerType: 'dealt_damage',
+              triggerType: 'dealt_damage' as const,
               targetType: triggerInfo.targetType,
-              targetRestriction: triggerInfo.targetRestriction,
+              ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
             };
             
             debug(2, `[executeTriggerEffect] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${damage} damage`);
@@ -5652,9 +5652,9 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
             sourceName: triggerInfo.sourceName,
             controller: triggerInfo.controller,
             damageAmount: triggerInfo.damageAmount,
-            triggerType: 'dealt_damage',
+            triggerType: 'dealt_damage' as const,
             targetType: triggerInfo.targetType,
-            targetRestriction: triggerInfo.targetRestriction,
+            ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
           };
           
           debug(2, `[resolveSpell] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${effect.amount} damage`);
