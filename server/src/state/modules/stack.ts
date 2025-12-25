@@ -25,6 +25,7 @@ import { runSBA, applyCounterModifications } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -6326,6 +6327,16 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     }
   } catch (err) {
     debugWarn(1, '[playLand] Failed to process landfall triggers:', err);
+  }
+  
+  // ========================================================================
+  // UPDATE LAND PLAY PERMISSIONS: Check if this permanent grants graveyard land playing
+  // This handles Crucible of Worlds, Conduit of Worlds, and ~19 other cards
+  // ========================================================================
+  try {
+    updateLandPlayPermissions(ctx as any, playerId);
+  } catch (err) {
+    debugWarn(1, '[playLand] Failed to update land play permissions:', err);
   }
   
   // Recalculate player effects when lands ETB (some lands might have effects)
