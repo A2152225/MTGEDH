@@ -753,6 +753,18 @@ export function calculateCostReduction(
         reduction.messages.push(`Emerald Medallion: -{1} (green)`);
       }
       
+      // The Wind Crystal: White spells cost {1} less
+      if (permName.includes("wind crystal") && cardColors.includes("W")) {
+        reduction.generic += 1;
+        reduction.messages.push(`The Wind Crystal: -{1} (white)`);
+      }
+      
+      // Daru Warchief: Soldier spells cost {1} less
+      if (permName.includes("daru warchief") && cardTypeLine.includes("soldier")) {
+        reduction.generic += 1;
+        reduction.messages.push(`Daru Warchief: -{1} (soldier)`);
+      }
+      
       // ============================================
       // BOARD STATE / COUNTER BASED REDUCTIONS
       // ============================================

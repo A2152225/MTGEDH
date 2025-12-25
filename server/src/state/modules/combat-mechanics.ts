@@ -168,6 +168,91 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       }
     }
     
+    // Check for lord effects granting keywords
+    // "Other [type] creatures you control have [keyword]" or "Creatures you control have [keyword]"
+    if (permanent && gameState) {
+      const battlefield = gameState.battlefield || [];
+      const permanentController = permanent.controller || permanent.owner;
+      const creatureTypeLine = (card?.type_line || '').toLowerCase();
+      
+      for (const lord of battlefield) {
+        if (!lord || !lord.card) continue;
+        // Can't grant keywords to itself
+        if (lord.id === permanent.id) continue;
+        // Must be controlled by same player
+        if (lord.controller !== permanentController) continue;
+        
+        const lordOracle = (lord.card.oracle_text || '').toLowerCase();
+        const lordName = (lord.card.name || '').toLowerCase();
+        
+        // Pattern: "Other [type] creatures you control have [keyword]"
+        // Example: "Other Soldier creatures get +1/+1 and have first strike"
+        const lordTypePattern = /other\s+(\w+)\s+creatures\s+(?:you control\s+)?(?:get\s+[+\-]\d+\/[+\-]\d+\s+and\s+)?have\s+([a-z\s,]+)/gi;
+        let match;
+        while ((match = lordTypePattern.exec(lordOracle)) !== null) {
+          const targetType = match[1].toLowerCase();
+          const keywordsText = match[2];
+          
+          // Check if this creature has the target type
+          if (creatureTypeLine.includes(targetType)) {
+            // Parse keywords from the text (could be comma-separated)
+            const keywordList = keywordsText.split(/\s*(?:and|,)\s*/).map(k => k.trim());
+            for (const kw of keywordList) {
+              if (kw && kw.length > 0) {
+                grantedKeywords.push(kw);
+                debug(2, `[KEYWORDS] ${cardName} granted ${kw} by ${lord.card.name} (lord effect)`);
+              }
+            }
+          }
+        }
+        
+        // Pattern: "Creatures you control have [keyword]" (no type restriction)
+        // Example: "Creatures you control have flying and indestructible"
+        const lordGenericPattern = /creatures\s+you\s+control\s+(?:get\s+[+\-]\d+\/[+\-]\d+\s+and\s+)?have\s+([a-z\s,]+)/gi;
+        while ((match = lordGenericPattern.exec(lordOracle)) !== null) {
+          const keywordsText = match[1];
+          
+          // Don't double-count if this is actually an "other [type]" pattern
+          if (lordOracle.includes('other ') && lordOracle.indexOf('other ') < match.index) {
+            continue;
+          }
+          
+          // Parse keywords from the text
+          const keywordList = keywordsText.split(/\s*(?:and|,)\s*/).map(k => k.trim());
+          for (const kw of keywordList) {
+            if (kw && kw.length > 0) {
+              grantedKeywords.push(kw);
+              debug(2, `[KEYWORDS] ${cardName} granted ${kw} by ${lord.card.name} (anthem effect)`);
+            }
+          }
+        }
+        
+        // Special case: "Creature tokens you control have [keyword]" during your turn
+        // Example: Mite Overseer
+        const lordTokenPattern = /(?:during your turn,?\s+)?creature\s+tokens\s+you\s+control\s+(?:get\s+[+\-]\d+\/[+\-]\d+\s+and\s+)?have\s+([a-z\s,]+)/gi;
+        while ((match = lordTokenPattern.exec(lordOracle)) !== null) {
+          const keywordsText = match[1];
+          const isToken = (permanent as any).isToken === true;
+          
+          if (isToken) {
+            // Check if "during your turn" restriction applies
+            const hasTurnRestriction = lordOracle.includes('during your turn');
+            const isLordTurn = gameState.turnPlayer === lord.controller;
+            
+            if (!hasTurnRestriction || isLordTurn) {
+              const keywordList = keywordsText.split(/\s*(?:and|,)\s*/).map(k => k.trim());
+              for (const kw of keywordList) {
+                if (kw && kw.length > 0) {
+                  grantedKeywords.push(kw);
+                  debug(2, `[KEYWORDS] Token ${cardName} granted ${kw} by ${lord.card.name}`);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
     const hasKeywordOrGranted = (kw: string) => {
       return hasKeyword(kw) || grantedKeywords.includes(kw.toLowerCase());
     };
