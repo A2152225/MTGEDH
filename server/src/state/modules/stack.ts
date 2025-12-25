@@ -21,7 +21,7 @@ import {
 } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
-import { runSBA, applyCounterModifications } from "./counters_tokens.js";
+import { runSBA, applyCounterModifications, movePermanentToGraveyard } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -4246,6 +4246,66 @@ export function resolveTopOfStack(ctx: GameContext) {
         createTokenFromSpec(ctx, controller, tokenCreationResult);
       }
       debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
+    }
+    
+    // Handle conditional board wipes based on X value
+    // Pattern: "If X is N or more, destroy all other creatures" (Martial Coup, etc.)
+    const conditionalWipeMatch = oracleTextLower.match(/if x is (\d+) or more,\s*(destroy all (?:other )?creatures)/i);
+    if (conditionalWipeMatch && typeof spellXValue === 'number') {
+      const threshold = parseInt(conditionalWipeMatch[1], 10);
+      const destroyPattern = conditionalWipeMatch[2];
+      
+      if (spellXValue >= threshold) {
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: X=${spellXValue} >= ${threshold}, triggering: ${destroyPattern}`);
+        
+        // Destroy all other creatures (not tokens just created by this spell)
+        const battlefield = state.battlefield || [];
+        const creaturesBeforeSpell = battlefield.filter((perm: any) => {
+          if (!perm) return false;
+          const typeLine = (perm.card?.type_line || '').toLowerCase();
+          return typeLine.includes('creature');
+        });
+        
+        // "all other creatures" means not including the caster's tokens
+        const destroyOther = destroyPattern.includes('other');
+        for (const creature of creaturesBeforeSpell) {
+          // If "other", skip tokens just created (they were created THIS resolution)
+          // Check by comparing creation time or token flag with recent timestamp
+          if (destroyOther && (creature as any).isToken) {
+            // Skip newly created tokens - they don't have counters or damage yet
+            const hasCounters = creature.counters && Object.keys(creature.counters).length > 0;
+            const hasDamage = (creature as any).damage > 0;
+            if (!hasCounters && !hasDamage) {
+              continue; // Skip newly created tokens
+            }
+          }
+          
+          // Destroy the creature
+          movePermanentToGraveyard(ctx, creature.id);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Destroyed ${creature.card?.name || creature.id}`);
+        }
+      } else {
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: X=${spellXValue} < ${threshold}, no board wipe`);
+      }
+    }
+    
+    // Handle life gain from spells
+    // Pattern: "You gain X life" or "You gain N life"
+    const lifeGainMatch = oracleTextLower.match(/you gain (\d+|x) life/i);
+    if (lifeGainMatch) {
+      let lifeAmount = 0;
+      if (lifeGainMatch[1] === 'x' && typeof spellXValue === 'number') {
+        lifeAmount = spellXValue;
+      } else if (/^\d+$/.test(lifeGainMatch[1])) {
+        lifeAmount = parseInt(lifeGainMatch[1], 10);
+      }
+      
+      if (lifeAmount > 0) {
+        const currentLife = state.life?.[controller] ?? 40;
+        state.life = state.life || {};
+        state.life[controller] = currentLife + lifeAmount;
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} gained ${lifeAmount} life (${currentLife} -> ${state.life[controller]})`);
+      }
     }
     
     // Handle mass bounce spells (Evacuation, Cyclonic Rift overloaded, Aetherize, etc.)
