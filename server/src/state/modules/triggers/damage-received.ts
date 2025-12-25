@@ -62,31 +62,6 @@ export function getDamageReceivedTrigger(
     };
   }
 
-  // Check attachments (auras and equipment) that grant damage-received triggers
-  if (permanent.attachedTo) {
-    const attachedTo = state.battlefield?.find((p: any) => p.id === permanent.attachedTo);
-    if (attachedTo) {
-      // This is an attachment, check if it grants a damage trigger to the attached creature
-      const attachmentName = creatureName;
-      
-      if (KNOWN_DAMAGE_RECEIVED_AURAS[attachmentName]) {
-        const triggerInfo = KNOWN_DAMAGE_RECEIVED_AURAS[attachmentName];
-        return {
-          targetType: triggerInfo.targetType,
-          effect: triggerInfo.effect,
-        };
-      }
-      
-      if (KNOWN_DAMAGE_RECEIVED_EQUIPMENT[attachmentName]) {
-        const triggerInfo = KNOWN_DAMAGE_RECEIVED_EQUIPMENT[attachmentName];
-        return {
-          targetType: triggerInfo.targetType,
-          effect: triggerInfo.effect,
-        };
-      }
-    }
-  }
-
   // Check if this permanent has attachments that grant damage-received triggers
   if (permanent.attachments && permanent.attachments.length > 0) {
     for (const attachmentId of permanent.attachments) {

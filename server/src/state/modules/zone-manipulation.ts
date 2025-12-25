@@ -84,7 +84,7 @@ export function shuffleZoneIntoLibrary(
   }
   
   // Update zone count
-  const zoneCountField = `${sourceZone}Count` as 'graveyardCount' | 'exileCount';
+  const zoneCountField = `${sourceZone}Count` as 'graveyardCount' | 'exileCount' | 'handCount';
   if (zones[zoneCountField] !== undefined) {
     zones[zoneCountField] = zones[sourceZone].length;
   }
