@@ -2789,12 +2789,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Pattern: "{cost}, {T}, Sacrifice ~: Draw a card"
     // Examples: "{1}, {T}, Sacrifice ~" (Sunbaked Canyon), "{G}{W}, {T}, Sacrifice ~" (Horizon Canopy)
     // The client generates abilityId like "{cardId}-ability-{index}" for general activated abilities
-    const isSacrificeDrawAbility = (abilityId.includes("sacrifice-draw") || abilityId.includes("-ability-")) && 
-      oracleText.includes("sacrifice") && oracleText.includes("draw a card");
+    // Only process if oracle text actually has the sacrifice-to-draw pattern
+    const hasSacrificeDrawPattern = oracleText.includes("sacrifice") && oracleText.includes("draw a card");
+    const isSacrificeDrawAbility = (abilityId.includes("sacrifice-draw") || abilityId.includes("-ability-")) && hasSacrificeDrawPattern;
     if (isSacrificeDrawAbility) {
       // Parse the mana cost from oracle text
-      // Pattern: "{cost}, {T}, Sacrifice: Draw a card"
-      const sacrificeCostMatch = oracleText.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*\{t\}\s*,\s*sacrifice[^:]*:\s*draw a card/i);
+      // Pattern: "{cost}, {T}, Sacrifice: Draw a card" (case-insensitive for {T})
+      const sacrificeCostMatch = oracleText.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*\{T\}\s*,\s*sacrifice[^:]*:\s*draw a card/i);
       
       if (sacrificeCostMatch) {
         const manaCostStr = sacrificeCostMatch[1];
@@ -2851,30 +2852,32 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           zones.graveyardCount = zones.graveyard.length;
         }
         
-        // Draw a card (effect)
-        const lib = zones?.library || [];
-        if (lib.length > 0) {
-          const drawnCard = lib.shift();
-          zones.hand = zones.hand || [];
-          zones.hand.push({ ...drawnCard, zone: "hand" });
-          zones.handCount = zones.hand.length;
-          zones.libraryCount = lib.length;
-          
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${getPlayerName(game, pid)} sacrificed ${cardName} and drew a card.`,
-            ts: Date.now(),
-          });
-        } else {
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${getPlayerName(game, pid)} sacrificed ${cardName} but had no cards to draw.`,
-            ts: Date.now(),
-          });
+        // Draw a card (effect) - only if zones exists
+        if (zones) {
+          const lib = zones.library || [];
+          if (lib.length > 0) {
+            const drawnCard = lib.shift();
+            zones.hand = zones.hand || [];
+            zones.hand.push({ ...drawnCard, zone: "hand" });
+            zones.handCount = zones.hand.length;
+            zones.libraryCount = lib.length;
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} sacrificed ${cardName} and drew a card.`,
+              ts: Date.now(),
+            });
+          } else {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} sacrificed ${cardName} but had no cards to draw.`,
+              ts: Date.now(),
+            });
+          }
         }
         
         if (typeof game.bumpSeq === "function") {
