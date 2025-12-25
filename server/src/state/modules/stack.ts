@@ -6059,7 +6059,7 @@ interface TokenSpec {
 
 /**
  * Calculate token doubling multiplier from battlefield effects
- * Checks for effects like Anointed Procession, Doubling Season, Parallel Lives, etc.
+ * Checks for effects like Anointed Procession, Doubling Season, Parallel Lives, Ojer Taq, Elspeth, etc.
  */
 function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
   let multiplier = 1;
@@ -6070,9 +6070,20 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
     const permName = (perm.card?.name || '').toLowerCase();
     const permOracle = (perm.card?.oracle_text || '').toLowerCase();
     
+    // Ojer Taq, Deepest Foundation: "If one or more creature tokens would be created under your control, three times that many of those tokens are created instead."
+    // This is a 3x multiplier, not additive with 2x multipliers
+    if (permName.includes('ojer taq') ||
+        (permOracle.includes('three times that many') && permOracle.includes('token'))) {
+      // Ojer Taq triples, which supersedes doubling effects
+      // Per MTG rules, you apply the highest multiplier
+      multiplier = Math.max(multiplier, 3);
+      continue; // Don't stack with doublers
+    }
+    
     // Anointed Procession: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
     // Parallel Lives: "If an effect would create one or more creature tokens under your control, it creates twice that many of those tokens instead."
     // Doubling Season: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+    // Elspeth, Sun's Champion / Elspeth, Storm Slayer: "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
     // Mondrak, Glory Dominus: Same effect
     // Primal Vigor: Affects all players but still doubles tokens
     if (permName.includes('anointed procession') ||
@@ -6080,6 +6091,7 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
         permName.includes('doubling season') ||
         permName.includes('mondrak, glory dominus') ||
         permName.includes('primal vigor') ||
+        (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
         (permOracle.includes('twice that many') && permOracle.includes('token'))) {
       multiplier *= 2;
     }
