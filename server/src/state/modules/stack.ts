@@ -3088,6 +3088,58 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
     
+    // Handle cycling ability resolution
+    // Rule 702.29: Cycling is an activated ability that functions only while the card is in hand
+    // Effect: Draw a card
+    if (abilityType === 'cycling') {
+      debug(2, `[resolveTopOfStack] Resolving cycling ability from ${sourceName} for ${controller}`);
+      
+      const zones = (state as any).zones?.[controller];
+      if (!zones) {
+        debug(2, `[resolveTopOfStack] Cycling: player ${controller} has no zones`);
+        bumpSeq();
+        return;
+      }
+      
+      // Get player name for messages
+      const players = state.players || [];
+      const player = players.find((p: any) => p.id === controller);
+      const playerName = player?.name || controller;
+      
+      // Draw a card from library
+      const lib = zones.library || [];
+      if (lib.length > 0) {
+        const drawnCard = lib.shift();
+        zones.hand = zones.hand || [];
+        zones.hand.push({ ...drawnCard, zone: "hand" });
+        zones.handCount = zones.hand.length;
+        zones.libraryCount = lib.length;
+        
+        (ctx as any).io?.to((ctx as any).gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId: (ctx as any).gameId,
+          from: "system",
+          message: `${playerName} drew a card from cycling ${sourceName}.`,
+          ts: Date.now(),
+        });
+        
+        debug(2, `[resolveTopOfStack] Cycling ${sourceName}: ${controller} drew a card`);
+      } else {
+        (ctx as any).io?.to((ctx as any).gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId: (ctx as any).gameId,
+          from: "system",
+          message: `${playerName} cycled ${sourceName} but had no cards to draw.`,
+          ts: Date.now(),
+        });
+        
+        debug(2, `[resolveTopOfStack] Cycling ${sourceName}: ${controller} had no cards to draw`);
+      }
+      
+      bumpSeq();
+      return;
+    }
+    
     // Handle creature upgrade ability resolution (Figure of Destiny, Warden of the First Tree, etc.)
     // IMPORTANT: These are PERMANENT characteristic-changing effects, NOT temporary "until end of turn" effects!
     // The creature permanently becomes the new type/stats until it leaves the battlefield.

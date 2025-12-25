@@ -27,6 +27,7 @@ export interface ZoneCardContextMenuProps {
   onPlayLand?: (cardId: string) => void;
   onDiscard?: (cardId: string) => void;
   onActivateAbility?: (cardId: string, abilityId: string) => void;
+  onCycle?: (cardId: string) => void;
   // Ignore for playability checks
   onIgnoreForPlayability?: (cardId: string, cardName: string, zone: ZoneType, imageUrl?: string) => void;
   onUnignoreForPlayability?: (cardId: string) => void;
@@ -35,8 +36,10 @@ export interface ZoneCardContextMenuProps {
   canCast?: boolean;
   canPlayLand?: boolean;
   canDiscard?: boolean;
+  canCycle?: boolean;
   reasonCannotCast?: string | null;
   reasonCannotPlayLand?: string | null;
+  reasonCannotCycle?: string | null;
   costAdjustment?: {
     originalCost: string;
     adjustedCost: string;
@@ -182,6 +185,16 @@ function parseZoneAbilities(card: KnownCardRef, zone: ZoneType): Array<{ id: str
   }
 
   if (zone === 'hand') {
+    // Cycling
+    const cyclingMatch = card.oracle_text?.match(/cycling\s*(\{[^}]+\})/i);
+    if (cyclingMatch) {
+      abilities.push({
+        id: 'cycling',
+        label: 'Cycle',
+        description: `Discard and draw a card`,
+        cost: cyclingMatch[1],
+      });
+    }
     // Foretell (pay {2} to exile face-down)
     if (oracleText.includes('foretell')) {
       abilities.push({
