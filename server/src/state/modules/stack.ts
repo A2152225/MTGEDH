@@ -21,7 +21,7 @@ import {
 } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
-import { runSBA, applyCounterModifications } from "./counters_tokens.js";
+import { runSBA, applyCounterModifications, movePermanentToGraveyard } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -4248,6 +4248,66 @@ export function resolveTopOfStack(ctx: GameContext) {
       debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
     
+    // Handle conditional board wipes based on X value
+    // Pattern: "If X is N or more, destroy all other creatures" (Martial Coup, etc.)
+    const conditionalWipeMatch = oracleTextLower.match(/if x is (\d+) or more,\s*(destroy all (?:other )?creatures)/i);
+    if (conditionalWipeMatch && typeof spellXValue === 'number') {
+      const threshold = parseInt(conditionalWipeMatch[1], 10);
+      const destroyPattern = conditionalWipeMatch[2];
+      
+      if (spellXValue >= threshold) {
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: X=${spellXValue} >= ${threshold}, triggering: ${destroyPattern}`);
+        
+        // Destroy all other creatures (not tokens just created by this spell)
+        const battlefield = state.battlefield || [];
+        const creaturesBeforeSpell = battlefield.filter((perm: any) => {
+          if (!perm) return false;
+          const typeLine = (perm.card?.type_line || '').toLowerCase();
+          return typeLine.includes('creature');
+        });
+        
+        // "all other creatures" means not including the caster's tokens
+        const destroyOther = destroyPattern.includes('other');
+        for (const creature of creaturesBeforeSpell) {
+          // If "other", skip tokens just created (they were created THIS resolution)
+          // Check by comparing creation time or token flag with recent timestamp
+          if (destroyOther && (creature as any).isToken) {
+            // Skip newly created tokens - they don't have counters or damage yet
+            const hasCounters = creature.counters && Object.keys(creature.counters).length > 0;
+            const hasDamage = (creature as any).damage > 0;
+            if (!hasCounters && !hasDamage) {
+              continue; // Skip newly created tokens
+            }
+          }
+          
+          // Destroy the creature
+          movePermanentToGraveyard(ctx, creature.id);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Destroyed ${creature.card?.name || creature.id}`);
+        }
+      } else {
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: X=${spellXValue} < ${threshold}, no board wipe`);
+      }
+    }
+    
+    // Handle life gain from spells
+    // Pattern: "You gain X life" or "You gain N life"
+    const lifeGainMatch = oracleTextLower.match(/you gain (\d+|x) life/i);
+    if (lifeGainMatch) {
+      let lifeAmount = 0;
+      if (lifeGainMatch[1] === 'x' && typeof spellXValue === 'number') {
+        lifeAmount = spellXValue;
+      } else if (/^\d+$/.test(lifeGainMatch[1])) {
+        lifeAmount = parseInt(lifeGainMatch[1], 10);
+      }
+      
+      if (lifeAmount > 0) {
+        const currentLife = state.life?.[controller] ?? 40;
+        state.life = state.life || {};
+        state.life[controller] = currentLife + lifeAmount;
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} gained ${lifeAmount} life (${currentLife} -> ${state.life[controller]})`);
+      }
+    }
+    
     // Handle mass bounce spells (Evacuation, Cyclonic Rift overloaded, Aetherize, etc.)
     // Multiple patterns to handle different mass bounce effects:
     // - "Return all creatures to their owners' hands" (Evacuation)
@@ -5999,7 +6059,7 @@ interface TokenSpec {
 
 /**
  * Calculate token doubling multiplier from battlefield effects
- * Checks for effects like Anointed Procession, Doubling Season, Parallel Lives, etc.
+ * Checks for effects like Anointed Procession, Doubling Season, Parallel Lives, Ojer Taq, Elspeth, etc.
  */
 function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
   let multiplier = 1;
@@ -6010,9 +6070,20 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
     const permName = (perm.card?.name || '').toLowerCase();
     const permOracle = (perm.card?.oracle_text || '').toLowerCase();
     
+    // Ojer Taq, Deepest Foundation: "If one or more creature tokens would be created under your control, three times that many of those tokens are created instead."
+    // This is a 3x multiplier, not additive with 2x multipliers
+    if (permName.includes('ojer taq') ||
+        (permOracle.includes('three times that many') && permOracle.includes('token'))) {
+      // Ojer Taq triples, which supersedes doubling effects
+      // Per MTG rules, you apply the highest multiplier
+      multiplier = Math.max(multiplier, 3);
+      continue; // Don't stack with doublers
+    }
+    
     // Anointed Procession: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
     // Parallel Lives: "If an effect would create one or more creature tokens under your control, it creates twice that many of those tokens instead."
     // Doubling Season: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+    // Elspeth, Sun's Champion / Elspeth, Storm Slayer: "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
     // Mondrak, Glory Dominus: Same effect
     // Primal Vigor: Affects all players but still doubles tokens
     if (permName.includes('anointed procession') ||
@@ -6020,6 +6091,7 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
         permName.includes('doubling season') ||
         permName.includes('mondrak, glory dominus') ||
         permName.includes('primal vigor') ||
+        (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
         (permOracle.includes('twice that many') && permOracle.includes('token'))) {
       multiplier *= 2;
     }

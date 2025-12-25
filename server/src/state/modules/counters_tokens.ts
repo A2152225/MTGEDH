@@ -430,6 +430,42 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     });
     debug(2, `[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - DEFERRING zone change for player choice`);
     
+    // Add to resolution queue for modal display
+    try {
+      // Dynamically import ResolutionQueueManager to avoid circular dependencies
+      import('../../state/resolution/index.js').then(({ ResolutionQueueManager }) => {
+        import('../../state/resolution/types.js').then(({ ResolutionStepType }) => {
+          const gameId = (ctx as any).gameId || (state as any).gameId;
+          if (gameId) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+              playerId: owner,
+              description: `Choose where to put ${card.name}`,
+              mandatory: true,
+              commanderId: card.id,
+              commanderName: card.name,
+              fromZone: 'graveyard',
+              card: {
+                id: card.id,
+                name: card.name,
+                type_line: card.type_line,
+                oracle_text: card.oracle_text,
+                image_uris: card.image_uris,
+                mana_cost: card.mana_cost,
+                power: card.power,
+                toughness: card.toughness,
+              },
+            });
+            debug(2, `[movePermanentToGraveyard] Added commander zone choice to resolution queue for ${card.name}`);
+          }
+        });
+      }).catch(err => {
+        debugWarn(1, '[movePermanentToGraveyard] Failed to add commander choice to resolution queue:', err);
+      });
+    } catch (err) {
+      debugWarn(1, '[movePermanentToGraveyard] Failed to import ResolutionQueueManager:', err);
+    }
+    
     // Remove from battlefield but DON'T add to graveyard yet - wait for player choice
     bumpSeq();
     
@@ -531,6 +567,43 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
       },
     });
     debug(2, `[movePermanentToExile] Commander ${card.name} would go to exile - DEFERRING zone change for player choice`);
+    
+    // Add to resolution queue for modal display
+    try {
+      // Dynamically import ResolutionQueueManager to avoid circular dependencies
+      import('../../state/resolution/index.js').then(({ ResolutionQueueManager }) => {
+        import('../../state/resolution/types.js').then(({ ResolutionStepType }) => {
+          const gameId = (ctx as any).gameId || (state as any).gameId;
+          if (gameId) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+              playerId: owner,
+              description: `Choose where to put ${card.name}`,
+              mandatory: true,
+              commanderId: card.id,
+              commanderName: card.name,
+              fromZone: 'exile',
+              card: {
+                id: card.id,
+                name: card.name,
+                type_line: card.type_line,
+                oracle_text: card.oracle_text,
+                image_uris: card.image_uris,
+                mana_cost: card.mana_cost,
+                power: card.power,
+                toughness: card.toughness,
+              },
+            });
+            debug(2, `[movePermanentToExile] Added commander zone choice to resolution queue for ${card.name}`);
+          }
+        });
+      }).catch(err => {
+        debugWarn(1, '[movePermanentToExile] Failed to add commander choice to resolution queue:', err);
+      });
+    } catch (err) {
+      debugWarn(1, '[movePermanentToExile] Failed to import ResolutionQueueManager:', err);
+    }
+    
     bumpSeq();
     return; // Zone change deferred for commander - don't add to exile yet
   }
@@ -697,6 +770,62 @@ export function runSBA(ctx: GameContext) {
           }
         }
         changed = true; 
+      }
+    }
+  }
+  
+  // Rule 111.7: Clean up tokens in non-battlefield zones
+  // A token that's in a zone other than the battlefield ceases to exist as a state-based action
+  const zones = state.zones || {};
+  for (const playerId of Object.keys(zones)) {
+    const playerZones = zones[playerId];
+    if (!playerZones) continue;
+    
+    // Clean tokens from graveyard
+    if (Array.isArray(playerZones.graveyard)) {
+      const beforeCount = playerZones.graveyard.length;
+      playerZones.graveyard = playerZones.graveyard.filter((card: any) => !card.isToken) as any;
+      if (playerZones.graveyard.length !== beforeCount) {
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        debug(2, `[runSBA] Removed ${beforeCount - playerZones.graveyard.length} token(s) from ${playerId}'s graveyard`);
+        changed = true;
+      }
+    }
+    
+    // Clean tokens from exile
+    if (Array.isArray(playerZones.exile)) {
+      const beforeCount = playerZones.exile.length;
+      playerZones.exile = playerZones.exile.filter((card: any) => !card.isToken) as any;
+      if (playerZones.exile.length !== beforeCount) {
+        playerZones.exileCount = playerZones.exile.length;
+        debug(2, `[runSBA] Removed ${beforeCount - playerZones.exile.length} token(s) from ${playerId}'s exile`);
+        changed = true;
+      }
+    }
+    
+    // Clean tokens from hand (unlikely but possible)
+    if (Array.isArray(playerZones.hand)) {
+      const beforeCount = playerZones.hand.length;
+      playerZones.hand = playerZones.hand.filter((card: any) => !card.isToken) as any;
+      if (playerZones.hand.length !== beforeCount) {
+        playerZones.handCount = playerZones.hand.length;
+        debug(2, `[runSBA] Removed ${beforeCount - playerZones.hand.length} token(s) from ${playerId}'s hand`);
+        changed = true;
+      }
+    }
+    
+    // Clean tokens from library (shouldn't happen but be thorough)
+    const library = (ctx as any).libraries?.get(playerId);
+    if (Array.isArray(library)) {
+      const beforeCount = library.length;
+      const cleanedLibrary = library.filter((card: any) => !card.isToken);
+      if (cleanedLibrary.length !== beforeCount) {
+        (ctx as any).libraries.set(playerId, cleanedLibrary);
+        if (playerZones.libraryCount !== undefined) {
+          playerZones.libraryCount = cleanedLibrary.length;
+        }
+        debug(2, `[runSBA] Removed ${beforeCount - cleanedLibrary.length} token(s) from ${playerId}'s library`);
+        changed = true;
       }
     }
   }

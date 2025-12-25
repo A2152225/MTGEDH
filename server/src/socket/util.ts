@@ -2196,7 +2196,16 @@ function doAutoPass(
     // Check if this player has creatures attacking them
     const battlefield = game.state?.battlefield || [];
     const isBeingAttacked = battlefield.some((perm: any) => perm?.attacking === playerId);
-    const isDefendingPlayer = isBeingAttacked;
+    
+    // Check if player has potential blockers (untapped creatures)
+    const hasPotentialBlockers = battlefield.some((perm: any) => {
+      if (!perm || perm.controller !== playerId) return false;
+      if (perm.tapped) return false;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      return typeLine.includes('creature');
+    });
+    
+    const isDefendingPlayer = isBeingAttacked && hasPotentialBlockers;
     
     // For human players, only auto-pass if they have NO valid responses
     if (!priorityPlayer.isAI) {
@@ -2220,9 +2229,10 @@ function doAutoPass(
     // IMPORTANT: Don't auto-pass during DECLARE_BLOCKERS step for defending players
     // Per Rule 509, the defending player must be given the opportunity to declare blockers
     // This is a turn-based action that doesn't use the stack
+    // Only prevent auto-pass if player is being attacked AND has untapped creatures to block with
     
     if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
-      debug(2, `[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - must allow blocker declaration`);
+      debug(2, `[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - player has potential blockers`);
       return;
     }
 

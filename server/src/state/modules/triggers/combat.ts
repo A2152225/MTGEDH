@@ -243,8 +243,11 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Generic "whenever ~ attacks"
-  const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+attacks,?\s*([^.]+)/i);
+  // Generic "whenever ~ attacks" - also match actual card name (e.g., "Whenever Myrel attacks")
+  // Create a pattern that matches: ~, this creature, or the actual card name
+  const cardNamePattern = cardName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '\\s+');
+  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePattern})\\s+attacks,?\\s*([^.]+)`, 'i');
+  const attacksMatch = oracleText.match(attacksPattern);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
     

@@ -123,9 +123,8 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "scute swarm": { effect: "Landfall: Create 1/1 Insect or copy", mandatory: true },
   "dockside extortionist": { effect: "Create Treasure tokens (ETB only)", mandatory: true },
   "pest infestation": { effect: "Create 1/1 Pest tokens (sorcery)", mandatory: true },
-  "anointed procession": { effect: "Double tokens (passive)", mandatory: true },
-  "parallel lives": { effect: "Double creature tokens (passive)", mandatory: true },
-  "doubling season": { effect: "Double tokens and counters (passive)", mandatory: true },
+  // NOTE: Token doublers (Anointed Procession, Parallel Lives, Doubling Season) are REPLACEMENT EFFECTS, not triggers
+  // They are handled in getTokenDoublerMultiplier() in stack.ts and should NOT appear in upkeep triggers
   
   // Sheoldred variants
   "sheoldred, whispering one": { effect: "Return creature from your graveyard to the battlefield; each opponent sacrifices a creature", mandatory: true, requiresSacrifice: true },
