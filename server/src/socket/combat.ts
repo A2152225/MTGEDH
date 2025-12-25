@@ -1716,6 +1716,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         ts: Date.now(),
       });
 
+      // Mark that blockers have been declared for this player
+      // This allows step advancement to proceed past DECLARE_BLOCKERS
+      const state = game.state as any;
+      state.blockersDeclaredBy = state.blockersDeclaredBy || [];
+      if (!state.blockersDeclaredBy.includes(playerId)) {
+        state.blockersDeclaredBy.push(playerId);
+      }
+
       // Bump sequence and broadcast
       if (typeof (game as any).bumpSeq === "function") {
         (game as any).bumpSeq();
@@ -1804,6 +1812,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       
       if (!game || !playerId) {
         return;
+      }
+
+      // Mark that blockers have been declared (skipped) for this player
+      // This allows step advancement to proceed past DECLARE_BLOCKERS
+      const state = game.state as any;
+      state.blockersDeclaredBy = state.blockersDeclaredBy || [];
+      if (!state.blockersDeclaredBy.includes(playerId)) {
+        state.blockersDeclaredBy.push(playerId);
       }
 
       // Advance to damage step

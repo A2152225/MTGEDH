@@ -272,6 +272,50 @@ function checkPendingInteractions(ctx: GameContext): {
       result.details.stackCount = state.stack.length;
     }
     
+    // Check for pending blocker declarations during DECLARE_BLOCKERS step
+    // Per Rule 509, defending players must be given the opportunity to declare blockers
+    // Don't auto-advance if there are attackers and potential blockers, unless they've already declared
+    const currentStep = (state.step || '').toString().toUpperCase();
+    if (currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) {
+      const battlefield = state.battlefield || [];
+      const hasAttackers = battlefield.some((perm: any) => perm && perm.attacking);
+      
+      if (hasAttackers) {
+        // Check if any defending player has potential blockers and hasn't declared yet
+        const defendingPlayers = new Set<string>();
+        for (const perm of battlefield) {
+          if (perm && perm.attacking) {
+            defendingPlayers.add(perm.attacking);
+          }
+        }
+        
+        const blockersDeclaredBy = state.blockersDeclaredBy || [];
+        
+        for (const defenderId of defendingPlayers) {
+          // Skip if this player already declared blockers
+          if (blockersDeclaredBy.includes(defenderId)) {
+            continue;
+          }
+          
+          const hasPotentialBlockers = battlefield.some((perm: any) => {
+            if (!perm || perm.controller !== defenderId) return false;
+            if (perm.tapped) return false;
+            const typeLine = (perm.card?.type_line || '').toLowerCase();
+            return typeLine.includes('creature');
+          });
+          
+          if (hasPotentialBlockers) {
+            result.hasPending = true;
+            result.pendingTypes.push('blocker_declaration');
+            result.details.blockersNeeded = true;
+            result.details.defendingPlayer = defenderId;
+            debug(2, `${ts()} [checkPendingInteractions] Blocking step advancement - ${defenderId} has potential blockers and hasn't declared yet`);
+            break; // Found at least one defender with blockers who hasn't declared
+          }
+        }
+      }
+    }
+    
     // Log pending interactions for debugging
     if (result.hasPending) {
       debug(1, `${ts()} [checkPendingInteractions] Pending: ${result.pendingTypes.join(', ')}`);
@@ -2472,6 +2516,11 @@ export function nextStep(ctx: GameContext) {
       } else if (currentStep === "declareAttackers" || currentStep === "DECLARE_ATTACKERS") {
         nextStep = "DECLARE_BLOCKERS";
       } else if (currentStep === "declareBlockers" || currentStep === "DECLARE_BLOCKERS") {
+        // Clear the blockersDeclaredBy tracking as we're leaving the step
+        if ((ctx as any).state.blockersDeclaredBy) {
+          delete (ctx as any).state.blockersDeclaredBy;
+        }
+        
         // Check if any creature has first strike or double strike
         // If so, go to FIRST_STRIKE_DAMAGE, otherwise go straight to DAMAGE
         const battlefield = (ctx as any).state?.battlefield || [];
