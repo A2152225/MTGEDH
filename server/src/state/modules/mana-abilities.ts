@@ -82,11 +82,20 @@ function getEffectivePowerForMana(permanent: any): number {
 
 export interface ManaAbility {
   id: string;
-  cost: string; // Usually "{T}" for tap
+  cost: string; // Usually "{T}" for tap, can include additional costs like "{T}, Pay 1 life"
   produces: string[]; // Colors that can be produced: ['W','U','B','R','G'] or ['any']
   producesAllAtOnce?: boolean; // True for lands like Rakdos Carnarium that produce {B}{R} (both, not choice)
   isGranted?: boolean; // True if granted by another permanent
   grantedBy?: string; // ID of permanent granting this ability
+  additionalCosts?: Array<{ // Additional costs beyond tapping
+    type: 'pay_life' | 'pay_mana' | 'sacrifice';
+    amount?: number; // For pay_life or pay_mana
+    manaCost?: string; // For pay_mana (e.g., "{1}")
+  }>;
+  damageEffect?: { // For pain lands like Adarkar Wastes
+    type: 'damage_self';
+    amount: number;
+  };
 }
 
 export interface ManaModifier {
@@ -431,8 +440,22 @@ export function getManaAbilitiesForPermanent(
   const card = permanent?.card;
   if (!card) return abilities;
   
-  const typeLine = (card.type_line || "").toLowerCase();
-  const oracleText = (card.oracle_text || "").toLowerCase();
+  // For MDFCs (Modal Double-Faced Cards), use the selected face if specified
+  // The selectedMDFCFace property is set when the card is played (see game-actions.ts playLand)
+  let typeLine = (card.type_line || "").toLowerCase();
+  let oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Check if this is an MDFC and which face was selected
+  const selectedFace = card.selectedMDFCFace;
+  const cardFaces = card.card_faces;
+  if (selectedFace !== undefined && Array.isArray(cardFaces) && cardFaces[selectedFace]) {
+    const face = cardFaces[selectedFace];
+    // Use the selected face's oracle text and type line for ability detection
+    typeLine = (face.type_line || "").toLowerCase();
+    oracleText = (face.oracle_text || "").toLowerCase();
+    debug(2, `[getManaAbilitiesForPermanent] Using MDFC face ${selectedFace} for ${card.name}: ${face.name}`);
+  }
+  
   const isLand = typeLine.includes("land");
   const isCreature = typeLine.includes("creature");
   const isBasic = typeLine.includes("basic");
@@ -607,6 +630,73 @@ export function getManaAbilitiesForPermanent(
   // Colorless mana producers (lands with explicit colorless production)
   if (isLand && oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
     abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
+  }
+  
+  // ========================================================================
+  // Pain lands with damage (Adarkar Wastes, Yavimaya Coast, etc.)
+  // Pattern: "{T}: Add {X} or {Y}. ~ deals 1 damage to you."
+  // These lands have TWO abilities:
+  // 1. {T}: Add {C} (already detected above)
+  // 2. {T}: Add {X} or {Y} + deal 1 damage
+  // ========================================================================
+  if (isLand) {
+    // Look for pain land pattern: "{t}: add {X} or {Y}. ~ deals N damage to you"
+    // OR: "{t}: add {X} or {Y}. this land deals N damage to you"
+    const painLandMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}\.\s*(?:~|this land)\s+deals\s+(\d+)\s+damage\s+to\s+you/i);
+    if (painLandMatch) {
+      const colors = [
+        painLandMatch[1].toUpperCase(),
+        painLandMatch[2].toUpperCase()
+      ];
+      const damageAmount = parseInt(painLandMatch[3], 10);
+      
+      // Only add if we haven't already added this via the "or" pattern detection
+      const colorKey = colors.slice().sort().join(',');
+      const alreadyHasPainAbility = abilities.some(a => 
+        a.produces.slice().sort().join(',') === colorKey && a.damageEffect
+      );
+      
+      if (!alreadyHasPainAbility) {
+        abilities.push({
+          id: 'native_pain',
+          cost: '{T}',
+          produces: colors,
+          producesAllAtOnce: false,
+          damageEffect: {
+            type: 'damage_self',
+            amount: damageAmount
+          }
+        });
+        // Mark that we found a pain land pattern to skip the generic "or" detection
+        hasExplicitChoicePattern = true;
+      }
+    }
+  }
+  
+  // ========================================================================
+  // Lands with "Pay life" costs (Sunbaked Canyon, Horizon Canopy, etc.)
+  // Pattern: "{T}, Pay N life: Add {X} or {Y}"
+  // ========================================================================
+  if (isLand) {
+    const payLifeMatch = oracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
+    if (payLifeMatch) {
+      const lifeAmount = parseInt(payLifeMatch[1], 10);
+      const colors = [
+        payLifeMatch[2].toUpperCase(),
+        payLifeMatch[3].toUpperCase()
+      ];
+      
+      abilities.push({
+        id: 'native_pay_life',
+        cost: `{T}, Pay ${lifeAmount} life`,
+        produces: colors,
+        producesAllAtOnce: false,
+        additionalCosts: [{
+          type: 'pay_life',
+          amount: lifeAmount
+        }]
+      });
+    }
   }
   
   // Check for creatures/artifacts with explicit tap-for-mana abilities in oracle text
