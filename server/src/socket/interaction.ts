@@ -50,6 +50,162 @@ const WORD_TO_NUMBER: Record<string, number> = {
 };
 
 // ============================================================================
+// Special Land Activated Abilities Configuration
+// ============================================================================
+
+/**
+ * Configuration for lands with special activated abilities beyond standard mana production.
+ * These include:
+ * - Hybrid mana cost lands that produce multiple mana (Graven Cairns, Cascade Bluffs, etc.)
+ * - Storage counter lands (Calciform Pools, Dreadship Reef, etc.)
+ * - Creature-lands (Mutavault, Inkmoth Nexus, etc.)
+ * - Hideaway lands (Windbrisk Heights, Mosswort Bridge, etc.)
+ */
+interface LandAbilityConfig {
+  /** Type of special ability */
+  type: 'hybrid_mana_production' | 'storage_counter' | 'animate' | 'hideaway';
+  
+  /** For hybrid_mana_production: cost to activate (e.g., "{B/R}, {T}") */
+  cost?: string;
+  
+  /** For hybrid_mana_production: colors that can be produced (e.g., ['B', 'R']) */
+  colors?: string[];
+  
+  /** For hybrid_mana_production: total mana produced (e.g., 2 for Graven Cairns) */
+  totalMana?: number;
+  
+  /** For storage_counter: counter type (e.g., "storage") */
+  counterType?: string;
+  
+  /** For animate: power/toughness when animated */
+  power?: number;
+  toughness?: number;
+  
+  /** For animate: types to add when animated */
+  creatureTypes?: string[];
+  
+  /** For hideaway: number of cards to exile */
+  hideawayCount?: number;
+}
+
+const SPECIAL_LAND_ABILITIES: Record<string, LandAbilityConfig> = {
+  // Hybrid mana production lands - pay hybrid cost, tap, choose how to distribute 2 mana
+  'graven cairns': {
+    type: 'hybrid_mana_production',
+    cost: '{B/R}',
+    colors: ['B', 'R'],
+    totalMana: 2,
+  },
+  'cascade bluffs': {
+    type: 'hybrid_mana_production',
+    cost: '{U/R}',
+    colors: ['U', 'R'],
+    totalMana: 2,
+  },
+  'twilight mire': {
+    type: 'hybrid_mana_production',
+    cost: '{B/G}',
+    colors: ['B', 'G'],
+    totalMana: 2,
+  },
+  'mystic gate': {
+    type: 'hybrid_mana_production',
+    cost: '{W/U}',
+    colors: ['W', 'U'],
+    totalMana: 2,
+  },
+  'fire-lit thicket': {
+    type: 'hybrid_mana_production',
+    cost: '{R/G}',
+    colors: ['R', 'G'],
+    totalMana: 2,
+  },
+  'wooded bastion': {
+    type: 'hybrid_mana_production',
+    cost: '{G/W}',
+    colors: ['G', 'W'],
+    totalMana: 2,
+  },
+  'fetid heath': {
+    type: 'hybrid_mana_production',
+    cost: '{W/B}',
+    colors: ['W', 'B'],
+    totalMana: 2,
+  },
+  'flooded grove': {
+    type: 'hybrid_mana_production',
+    cost: '{G/U}',
+    colors: ['G', 'U'],
+    totalMana: 2,
+  },
+  'sunken ruins': {
+    type: 'hybrid_mana_production',
+    cost: '{U/B}',
+    colors: ['U', 'B'],
+    totalMana: 2,
+  },
+  'rugged prairie': {
+    type: 'hybrid_mana_production',
+    cost: '{R/W}',
+    colors: ['R', 'W'],
+    totalMana: 2,
+  },
+  
+  // Storage counter lands
+  'calciform pools': {
+    type: 'storage_counter',
+    counterType: 'storage',
+    colors: ['W', 'U'],
+  },
+  'dreadship reef': {
+    type: 'storage_counter',
+    counterType: 'storage',
+    colors: ['U', 'B'],
+  },
+  'molten slagheap': {
+    type: 'storage_counter',
+    counterType: 'storage',
+    colors: ['B', 'R'],
+  },
+  'fungal reaches': {
+    type: 'storage_counter',
+    counterType: 'storage',
+    colors: ['R', 'G'],
+  },
+  'saltcrusted steppe': {
+    type: 'storage_counter',
+    counterType: 'storage',
+    colors: ['G', 'W'],
+  },
+  
+  // Creature-lands
+  'mutavault': {
+    type: 'animate',
+    power: 2,
+    toughness: 2,
+    creatureTypes: ['all'], // Special: has all creature types
+  },
+  
+  // Hideaway lands
+  'windbrisk heights': {
+    type: 'hideaway',
+    hideawayCount: 4,
+  },
+  'mosswort bridge': {
+    type: 'hideaway',
+    hideawayCount: 4,
+  },
+  'shelldock isle': {
+    type: 'hideaway',
+    hideawayCount: 4,
+  },
+  'spinerock knoll': {
+    type: 'hideaway',
+    hideawayCount: 4,
+  },
+};
+
+// ============================================================================
 // Tap/Untap Ability Text Parsing
 // ============================================================================
 
@@ -2581,6 +2737,349 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const cardName = card?.name || "Unknown";
     const oracleText = (card?.oracle_text || "").toLowerCase();
     const typeLine = (card?.type_line || "").toLowerCase();
+    
+    // ========================================================================
+    // Handle Special Land Activated Abilities
+    // ========================================================================
+    const specialLandConfig = SPECIAL_LAND_ABILITIES[cardName.toLowerCase()];
+    
+    // 1. GRAVEN CAIRNS - Hybrid Mana Production Lands
+    if (specialLandConfig?.type === 'hybrid_mana_production' && abilityId.includes('hybrid-mana')) {
+      // Validate: permanent must not be tapped
+      if ((permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      // Parse and pay hybrid mana cost
+      const hybridCost = specialLandConfig.cost!;
+      const parsedCost = parseManaCost(hybridCost);
+      const manaPool = getOrInitManaPool(game.state, pid);
+      
+      // Check if player can pay the hybrid cost
+      const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+      
+      // For hybrid costs, we need special validation
+      let canPay = true;
+      if (parsedCost.hybrids && parsedCost.hybrids.length > 0) {
+        // For each hybrid requirement, check if we can pay with one of the options
+        for (const hybridOptions of parsedCost.hybrids) {
+          let paidThisHybrid = false;
+          for (const option of hybridOptions) {
+            const colorMap: Record<string, string> = {
+              'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
+            };
+            const colorName = colorMap[option];
+            if (colorName && totalAvailable[colorName] >= 1) {
+              paidThisHybrid = true;
+              break;
+            }
+          }
+          if (!paidThisHybrid) {
+            canPay = false;
+            break;
+          }
+        }
+      }
+      
+      if (!canPay) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_MANA",
+          message: "Not enough mana to activate this ability",
+        });
+        return;
+      }
+      
+      // Consume the mana from the pool (hybrid mana)
+      if (parsedCost.hybrids && parsedCost.hybrids.length > 0) {
+        for (const hybridOptions of parsedCost.hybrids) {
+          // Pay with the first available option
+          const colorMap: Record<string, string> = {
+            'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
+          };
+          for (const option of hybridOptions) {
+            const colorName = colorMap[option];
+            if (colorName && (manaPool as any)[colorName] >= 1) {
+              (manaPool as any)[colorName] -= 1;
+              break;
+            }
+          }
+        }
+      }
+      
+      // Tap the permanent (part of cost)
+      (permanent as any).tapped = true;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} activated ${cardName}, paying ${hybridCost} and tapping it.`,
+        ts: Date.now(),
+      });
+      
+      // Now prompt player to choose how to distribute the mana
+      const activationId = crypto.randomUUID();
+      game.state.pendingManaActivations = game.state.pendingManaActivations || {};
+      (game.state.pendingManaActivations as any)[activationId] = {
+        playerId: pid,
+        permanentId,
+        cardName,
+        totalAmount: specialLandConfig.totalMana!,
+        availableColors: specialLandConfig.colors!,
+        timestamp: Date.now(),
+      };
+      
+      // Emit modal request to client
+      emitToPlayer(io, pid, "manaColorChoice", {
+        gameId,
+        permanentId,
+        cardName,
+        availableColors: specialLandConfig.colors!,
+        totalAmount: specialLandConfig.totalMana!,
+        message: `Choose how to distribute ${specialLandConfig.totalMana} mana from ${cardName}.`,
+      });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
+    // 2. CALCIFORM POOLS - Storage Counter Lands
+    if (specialLandConfig?.type === 'storage_counter') {
+      // Handle storage counter abilities
+      if (abilityId.includes('add-counter')) {
+        // {1}, {T}: Put a storage counter on ~
+        // Validate: permanent must not be tapped
+        if ((permanent as any).tapped) {
+          socket.emit("error", {
+            code: "ALREADY_TAPPED",
+            message: `${cardName} is already tapped`,
+          });
+          return;
+        }
+        
+        // Pay {1} cost
+        const manaPool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+        const totalMana = Object.values(totalAvailable).reduce((sum, val) => sum + val, 0);
+        if (totalMana < 1) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: "Not enough mana to activate this ability",
+          });
+          return;
+        }
+        
+        // Consume 1 generic mana
+        consumeManaFromPool(manaPool, {}, 1);
+        
+        // Tap the permanent
+        (permanent as any).tapped = true;
+        
+        // Add storage counter
+        (permanent as any).counters = (permanent as any).counters || {};
+        (permanent as any).counters[specialLandConfig.counterType!] = 
+          ((permanent as any).counters[specialLandConfig.counterType!] || 0) + 1;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} put a ${specialLandConfig.counterType} counter on ${cardName}.`,
+          ts: Date.now(),
+        });
+        
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+        broadcastGame(io, game, gameId);
+        return;
+      } else if (abilityId.includes('remove-counters')) {
+        // {T}, Remove X storage counters from ~: Add X mana in any combination of colors
+        // This requires X selection UI - for now, we'll implement basic version
+        // Future: Add X-cost selection modal
+        
+        // Validate: permanent must not be tapped
+        if ((permanent as any).tapped) {
+          socket.emit("error", {
+            code: "ALREADY_TAPPED",
+            message: `${cardName} is already tapped`,
+          });
+          return;
+        }
+        
+        const storageCounters = (permanent as any).counters?.[specialLandConfig.counterType!] || 0;
+        if (storageCounters === 0) {
+          socket.emit("error", {
+            code: "NO_COUNTERS",
+            message: `${cardName} has no ${specialLandConfig.counterType} counters`,
+          });
+          return;
+        }
+        
+        // For now, prompt with mana distribution modal for all available counters
+        // Future: Add X selection first
+        const activationId = crypto.randomUUID();
+        game.state.pendingManaActivations = game.state.pendingManaActivations || {};
+        (game.state.pendingManaActivations as any)[activationId] = {
+          playerId: pid,
+          permanentId,
+          cardName,
+          totalAmount: storageCounters,
+          availableColors: specialLandConfig.colors!,
+          timestamp: Date.now(),
+          isStorageCounter: true,
+        };
+        
+        // Tap the permanent first
+        (permanent as any).tapped = true;
+        
+        // Emit modal request to client
+        emitToPlayer(io, pid, "manaColorChoice", {
+          gameId,
+          permanentId,
+          cardName,
+          availableColors: specialLandConfig.colors!,
+          totalAmount: storageCounters,
+          message: `Remove ${storageCounters} ${specialLandConfig.counterType} counter${storageCounters !== 1 ? 's' : ''} to add ${storageCounters} mana.`,
+        });
+        
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    }
+    
+    // 3. MUTAVAULT - Land Animation
+    if (specialLandConfig?.type === 'animate' && abilityId.includes('animate')) {
+      // {1}: ~ becomes a 2/2 creature with all creature types until end of turn
+      // Validate: permanent must not be tapped for activation
+      
+      // Pay {1} cost
+      const manaPool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+      const totalMana = Object.values(totalAvailable).reduce((sum, val) => sum + val, 0);
+      if (totalMana < 1) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_MANA",
+          message: "Not enough mana to activate this ability",
+        });
+        return;
+      }
+      
+      // Consume 1 generic mana
+      consumeManaFromPool(manaPool, {}, 1);
+      
+      // Apply animation until end of turn
+      (permanent as any).animatedUntilEOT = true;
+      (permanent as any).basePower = specialLandConfig.power;
+      (permanent as any).baseToughness = specialLandConfig.toughness;
+      (permanent as any).effectivePower = specialLandConfig.power;
+      (permanent as any).effectiveToughness = specialLandConfig.toughness;
+      
+      // Add creature type
+      const currentTypes = (permanent as any).card?.type_line || "";
+      if (!currentTypes.includes("Creature")) {
+        (permanent as any).typeAdditions = (permanent as any).typeAdditions || [];
+        (permanent as any).typeAdditions.push("Creature");
+      }
+      
+      // Track "all creature types" - special handling needed in creature type checks
+      if (specialLandConfig.creatureTypes?.includes('all')) {
+        (permanent as any).hasAllCreatureTypes = true;
+      } else if (specialLandConfig.creatureTypes) {
+        (permanent as any).typeAdditions = (permanent as any).typeAdditions || [];
+        specialLandConfig.creatureTypes.forEach(type => {
+          if (!(permanent as any).typeAdditions.includes(type)) {
+            (permanent as any).typeAdditions.push(type);
+          }
+        });
+      }
+      
+      // Mark for end-of-turn cleanup
+      (permanent as any).untilEndOfTurn = {
+        removeAnimation: true,
+        turn: (game.state as any).turnNumber || game.state.turn,
+      };
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} animated ${cardName} into a ${specialLandConfig.power}/${specialLandConfig.toughness} creature until end of turn.`,
+        ts: Date.now(),
+      });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
+    // 4. HIDEAWAY - Face-down Exile Implementation
+    // Hideaway is handled during ETB (Enter the Battlefield), not as activated ability
+    // The activated ability is just playing the exiled card
+    if (specialLandConfig?.type === 'hideaway' && abilityId.includes('play-hideaway')) {
+      // Check if there's a face-down exiled card for this permanent
+      const hideawayData = (permanent as any).hideawayCard;
+      if (!hideawayData) {
+        socket.emit("error", {
+          code: "NO_HIDEAWAY_CARD",
+          message: `${cardName} has no exiled card to play`,
+        });
+        return;
+      }
+      
+      // Check hideaway condition (this varies by card)
+      // For Windbrisk Heights: "you attacked with three or more creatures this turn"
+      // For now, we'll implement a basic version
+      // Future: Add condition checking based on card
+      
+      const canPlayHideaway = true; // TODO: Implement condition checks
+      
+      if (!canPlayHideaway) {
+        socket.emit("error", {
+          code: "HIDEAWAY_CONDITION_NOT_MET",
+          message: `You haven't met the condition to play ${cardName}'s exiled card`,
+        });
+        return;
+      }
+      
+      // Move the hideaway card to hand or cast it
+      // For now, move to hand
+      const zones = (game.state as any).zones?.[pid];
+      if (zones) {
+        zones.hand = zones.hand || [];
+        zones.hand.push({ ...hideawayData.card, zone: 'hand' });
+        zones.handCount = zones.hand.length;
+      }
+      
+      // Clear hideaway data
+      delete (permanent as any).hideawayCard;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} played ${hideawayData.card.name} from ${cardName}.`,
+        ts: Date.now(),
+      });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
     
     // Handle fetch land ability
     // Support both legacy "fetch-land" format and new parser format like "${cardId}-fetch-${index}"
@@ -8110,6 +8609,129 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       cantAttackOwner: pending.cantAttackOwner || false,
     });
 
+    broadcastGame(io, game, gameId);
+  });
+
+  // Mana Distribution Confirmation (Graven Cairns, Storage Counters, etc.)
+  socket.on("confirmManaDistribution", ({ gameId, permanentId, distribution }: {
+    gameId: string;
+    permanentId: string;
+    distribution: Record<string, number>;
+  }) => {
+    const game = ensureGame(gameId);
+    if (!game || !game.state) return;
+
+    const pid = socket.data.playerId as PlayerID;
+    if (!pid) {
+      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
+      return;
+    }
+
+    // Find the pending activation
+    const pendingActivations = game.state.pendingManaActivations || {};
+    let activationId: string | undefined;
+    let pending: any;
+
+    for (const [id, activation] of Object.entries(pendingActivations)) {
+      if ((activation as any).permanentId === permanentId && (activation as any).playerId === pid) {
+        activationId = id;
+        pending = activation;
+        break;
+      }
+    }
+
+    if (!activationId || !pending) {
+      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired mana activation" });
+      return;
+    }
+
+    // Validate distribution adds up to totalAmount
+    const totalDistributed = Object.values(distribution).reduce((sum, val) => sum + val, 0);
+    if (totalDistributed !== pending.totalAmount) {
+      socket.emit("error", {
+        code: "INVALID_DISTRIBUTION",
+        message: `Total mana distributed (${totalDistributed}) doesn't match required amount (${pending.totalAmount})`,
+      });
+      return;
+    }
+
+    // Validate all colors are allowed
+    const colorMap: Record<string, string> = {
+      W: 'white',
+      U: 'blue',
+      B: 'black',
+      R: 'red',
+      G: 'green',
+    };
+    
+    for (const [color, amount] of Object.entries(distribution)) {
+      if (amount > 0 && !pending.availableColors.includes(color)) {
+        socket.emit("error", {
+          code: "INVALID_COLOR",
+          message: `${color} is not an available color for this ability`,
+        });
+        return;
+      }
+    }
+
+    // If this is a storage counter activation, remove the counters
+    if (pending.isStorageCounter) {
+      const battlefield = game.state?.battlefield || [];
+      const permanent = battlefield.find((p: any) => p?.id === permanentId);
+      if (permanent) {
+        const counterType = SPECIAL_LAND_ABILITIES[pending.cardName.toLowerCase()]?.counterType;
+        if (counterType && (permanent as any).counters?.[counterType]) {
+          (permanent as any).counters[counterType] = Math.max(0, (permanent as any).counters[counterType] - pending.totalAmount);
+          if ((permanent as any).counters[counterType] === 0) {
+            delete (permanent as any).counters[counterType];
+          }
+        }
+      }
+    }
+
+    // Add mana to pool according to distribution
+    game.state.manaPool = game.state.manaPool || {};
+    game.state.manaPool[pid] = game.state.manaPool[pid] || {
+      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+    };
+
+    for (const [color, amount] of Object.entries(distribution)) {
+      if (amount > 0) {
+        const colorName = colorMap[color];
+        if (colorName) {
+          (game.state.manaPool[pid] as any)[colorName] = 
+            ((game.state.manaPool[pid] as any)[colorName] || 0) + amount;
+        }
+      }
+    }
+
+    // Build chat message
+    const manaStrings: string[] = [];
+    for (const [color, amount] of Object.entries(distribution)) {
+      if (amount > 0) {
+        manaStrings.push(`{${color.repeat(amount)}}`);
+      }
+    }
+    const manaText = manaStrings.join(', ');
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} added ${manaText} to their mana pool from ${pending.cardName}.`,
+      ts: Date.now(),
+    });
+
+    // Clean up pending activation
+    delete (pendingActivations as any)[activationId];
+
+    // Bump game sequence
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    // Broadcast mana pool update
+    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana from ability', game);
     broadcastGame(io, game, gameId);
   });
 

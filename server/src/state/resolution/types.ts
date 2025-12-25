@@ -70,6 +70,7 @@ export enum ResolutionStepType {
   MANA_COLOR_SELECTION = 'mana_color_selection',
   LIBRARY_SEARCH = 'library_search',
   BOUNCE_LAND_CHOICE = 'bounce_land_choice',
+  HIDEAWAY_CHOICE = 'hideaway_choice',
   FLICKER_RETURNS = 'flicker_returns',
   LINKED_EXILE_RETURNS = 'linked_exile_returns',
   JOIN_FORCES = 'join_forces',

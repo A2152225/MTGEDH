@@ -25,6 +25,7 @@ import { runSBA, applyCounterModifications } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -3365,6 +3366,70 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
 
+    // ========================================================================
+    // HIDEAWAY ETB TRIGGER: Look at top N cards, exile one face-down, put rest on bottom
+    // Uses the resolution queue for player to select which card to hideaway
+    // ========================================================================
+    if (triggerType === 'hideaway_etb') {
+      const permanentId = (item as any).permanentId;
+      const hideawayCount = (item as any).hideawayCount || 4;
+      const hideawayCondition = (item as any).hideawayCondition || 'unknown';
+      const battlefield = state.battlefield || [];
+      const hideawayPerm = battlefield.find((p: any) => p.id === permanentId);
+      
+      if (hideawayPerm) {
+        // Skip adding resolution steps during replay
+        const isReplaying = !!(ctx as any).isReplaying;
+        if (isReplaying) {
+          debug(2, `[resolveTopOfStack] Hideaway trigger: skipping resolution step during replay`);
+          return;
+        }
+        
+        // Get top N cards from library
+        const lib = (ctx as any).libraries?.get(triggerController);
+        if (!lib || lib.length === 0) {
+          debugWarn(2, `[resolveTopOfStack] Hideaway: ${triggerController} has no library`);
+          return;
+        }
+        
+        const cardsToLookAt = Math.min(hideawayCount, lib.length);
+        const topCards = lib.slice(0, cardsToLookAt);
+        
+        if (topCards.length === 0) {
+          debugWarn(2, `[resolveTopOfStack] Hideaway: no cards to look at`);
+          return;
+        }
+        
+        // Add resolution step to the queue for player to choose which card to exile
+        const gameId = (ctx as any).gameId || 'unknown';
+        
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.HIDEAWAY_CHOICE,
+          playerId: triggerController as PlayerID,
+          description: `${sourceName}: Choose a card to exile face down (Hideaway)`,
+          mandatory: true,
+          sourceId: hideawayPerm.id,
+          sourceName: sourceName,
+          sourceImage: hideawayPerm.card?.image_uris?.small || hideawayPerm.card?.image_uris?.normal,
+          hideawayCards: topCards.map((c: any) => ({
+            cardId: c.id,
+            cardName: c.name || 'Card',
+            imageUrl: c.image_uris?.small || c.image_uris?.normal,
+          })),
+          hideawayCondition: hideawayCondition,
+          permanentId: permanentId,
+          stackItemId: item.id,
+        } as any);
+        
+        debug(2, `[resolveTopOfStack] Hideaway trigger: added resolution step for ${triggerController} to choose from ${topCards.length} cards`);
+        
+        // DON'T execute the trigger effect yet - wait for player choice
+        return;
+      } else {
+        debugWarn(2, `[resolveTopOfStack] Hideaway trigger: permanent ${permanentId} not found on battlefield`);
+      }
+    }
+
     // Aura Shards style: "destroy target artifact or enchantment"
     if (sourceName.toLowerCase().includes('aura shards') ||
         description.toLowerCase().includes('destroy target artifact or enchantment')) {
@@ -6378,6 +6443,16 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     }
   } catch (err) {
     debugWarn(1, '[playLand] Failed to process landfall triggers:', err);
+  }
+  
+  // ========================================================================
+  // UPDATE LAND PLAY PERMISSIONS: Check if this permanent grants graveyard land playing
+  // This handles Crucible of Worlds, Conduit of Worlds, and ~19 other cards
+  // ========================================================================
+  try {
+    updateLandPlayPermissions(ctx as any, playerId);
+  } catch (err) {
+    debugWarn(1, '[playLand] Failed to update land play permissions:', err);
   }
   
   // Recalculate player effects when lands ETB (some lands might have effects)
