@@ -13,12 +13,13 @@ import {
   type ResolutionStep,
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
-import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
 import { parsePT } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB } from "./ai.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { isShockLand } from "./land-helpers.js";
 
 /**
  * Handle AI player resolution steps automatically
@@ -2790,7 +2791,7 @@ async function handleLibrarySearchResponse(
       if (!card) continue;
       
       if (destination === 'battlefield') {
-        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game);
+        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield`);
       } else if (destination === 'hand') {
         z.hand = z.hand || [];
@@ -2940,7 +2941,9 @@ async function putCardOntoBattlefield(
   detectEntersWithCounters: any,
   creatureWillHaveHaste: any,
   checkCreatureEntersTapped: any,
-  game: any
+  game: any,
+  io?: Server,
+  gameId?: string
 ): Promise<void> {
   const tl = (card.type_line || '').toLowerCase();
   const isCreature = tl.includes('creature');
@@ -2986,6 +2989,33 @@ async function putCardOntoBattlefield(
   } as any;
   
   battlefield.push(newPermanent);
+  
+  // ====================================================================================
+  // Shock Land Handling: Emit prompt for "pay 2 life or enter tapped" lands
+  // This handles shock lands when they enter from library (fetchlands), graveyard, etc.
+  // Pattern: "As ~ enters the battlefield, you may pay 2 life. If you don't, it enters tapped."
+  // ====================================================================================
+  const isLand = tl.includes('land');
+  const cardName = card.name || "Unknown";
+  if (isLand && isShockLand(cardName) && io && gameId) {
+    // Shock land detected - emit prompt to player
+    const currentLife = (game.state as any)?.life?.[controller] || 
+                       (game as any)?.life?.[controller] || 40;
+    
+    // Get card image URL
+    const imageUrl = card.image_uris?.small || card.image_uris?.normal;
+    
+    // Emit shock land prompt (land enters untapped by default, prompt lets player tap it or pay life)
+    emitToPlayer(io, controller, "shockLandPrompt", {
+      gameId,
+      permanentId: newPermanent.id,
+      cardName,
+      imageUrl,
+      currentLife,
+    });
+    
+    debug(2, `[putCardOntoBattlefield] Shock land ${cardName} entering - prompt sent to ${controller}`);
+  }
   
   // Self ETB triggers
   const selfETBTriggerTypes = new Set([
