@@ -2894,6 +2894,69 @@ function executeTriggerEffect(
     return;
   }
   
+  // ===== HORN OF GONDOR ACTIVATED ABILITY =====
+  // Pattern: "Create X 1/1 white Human Soldier creature tokens, where X is the number of Humans you control"
+  // Horn of Gondor: "{3}, {T}: Create X 1/1 white Human Soldier creature tokens, where X is the number of Humans you control."
+  if ((desc.includes('create') && desc.includes('human') && desc.includes('soldier') &&
+       (desc.includes('number of humans') || desc.includes('humans you control'))) ||
+      (sourceName.toLowerCase().includes('horn of gondor'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count Humans controller controls
+    let humanCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('human')) {
+        humanCount++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${humanCount} Human Soldier tokens for ${controller} (humans controlled: ${humanCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = humanCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 white Human Soldier tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Human Soldier';
+      const imageUrls = getTokenImageUrls('Human Soldier', 1, 1, ['W']);
+      
+      const soldierToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Human Soldier',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['W'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(soldierToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, soldierToken, controller);
+      
+      debug(2, `[executeTriggerEffect] Created Human Soldier token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
   // ===== KRENKO, MOB BOSS ACTIVATED ABILITY =====
   // Pattern: "Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control"
   // Krenko, Mob Boss: "{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control."
