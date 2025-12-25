@@ -22,6 +22,7 @@ export interface AnyColorManaModalProps {
   permanentId: string;
   cardName: string;
   amount: number;
+  allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
   cardImageUrl?: string;
   onConfirm: (chosenColor: 'white' | 'blue' | 'black' | 'red' | 'green') => void;
   onCancel: () => void;
@@ -82,6 +83,7 @@ export function AnyColorManaModal({
   permanentId,
   cardName,
   amount,
+  allowedColors,
   cardImageUrl,
   onConfirm,
   onCancel,
@@ -97,6 +99,21 @@ export function AnyColorManaModal({
   if (!open) return null;
 
   const manaText = amount > 1 ? `${amount} mana` : 'mana';
+  
+  // Map color codes to color names for filtering
+  const colorCodeToName: Record<string, 'white' | 'blue' | 'black' | 'red' | 'green'> = {
+    'W': 'white',
+    'U': 'blue',
+    'B': 'black',
+    'R': 'red',
+    'G': 'green',
+  };
+  
+  // Determine which colors to show
+  const colorsToShow = allowedColors && allowedColors.length > 0
+    ? allowedColors.map(code => colorCodeToName[code]).filter(Boolean)
+    : (['white', 'blue', 'black', 'red', 'green'] as const);
+
 
   return (
     <div
@@ -159,12 +176,12 @@ export function AnyColorManaModal({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
+            gridTemplateColumns: `repeat(${colorsToShow.length}, 1fr)`,
             gap: '12px',
             marginBottom: '20px',
           }}
         >
-          {(Object.keys(COLOR_DATA) as Array<keyof typeof COLOR_DATA>).map((color) => {
+          {colorsToShow.map((color) => {
             const data = COLOR_DATA[color];
             
             return (

@@ -492,6 +492,7 @@ export interface GameState {
     permanentId: string;
     cardName: string;
     amount: number;
+    allowedColors?: string[]; // Optional array of allowed color codes (e.g., ['W', 'U'])
   }>;
   /**
    * Pending fight activations awaiting target selection.

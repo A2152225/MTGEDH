@@ -2004,6 +2004,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             permanentId,
             cardName,
             amount: totalAmount,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color combination
           };
           
           // Request color choice from player
@@ -2013,6 +2014,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             permanentId,
             cardName,
             amount: totalAmount,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color
             cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
           });
           
@@ -2105,6 +2107,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               permanentId,
               cardName,
               amount: finalTotal,
+              allowedColors: produces, // Restrict to actual colors the land can produce
             };
             
             // Request color choice from player
@@ -2114,6 +2117,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               permanentId,
               cardName,
               amount: finalTotal,
+              allowedColors: produces, // Restrict to actual colors the land can produce
               cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
             });
             
@@ -6850,6 +6854,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (pending.playerId !== pid) {
       socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your mana activation" });
       return;
+    }
+    
+    // Validate chosen color is in allowed colors (if specified)
+    if (pending.allowedColors && pending.allowedColors.length > 0) {
+      const colorMap: Record<string, string> = {
+        white: 'W',
+        blue: 'U',
+        black: 'B',
+        red: 'R',
+        green: 'G',
+      };
+      const chosenColorCode = colorMap[chosenColor];
+      if (!pending.allowedColors.includes(chosenColorCode)) {
+        socket.emit("error", { 
+          code: "INVALID_COLOR_CHOICE", 
+          message: `${pending.cardName} cannot produce ${chosenColor} mana. Valid colors: ${pending.allowedColors.join(', ')}` 
+        });
+        return;
+      }
     }
 
     // Add mana to pool

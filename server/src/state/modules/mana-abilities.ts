@@ -482,44 +482,20 @@ export function getManaAbilitiesForPermanent(
   }
   
   // Parse native mana abilities from oracle text
-  // Basic lands
-  if (isBasic || typeLine.includes("plains") || typeLine.includes("island") || 
-      typeLine.includes("swamp") || typeLine.includes("mountain") || typeLine.includes("forest")) {
-    if (typeLine.includes("plains") || oracleText.includes("add {w}")) {
-      abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
-    }
-    if (typeLine.includes("island") || oracleText.includes("add {u}")) {
-      abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
-    }
-    if (typeLine.includes("swamp") || oracleText.includes("add {b}")) {
-      abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
-    }
-    if (typeLine.includes("mountain") || oracleText.includes("add {r}")) {
-      abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
-    }
-    if (typeLine.includes("forest") || oracleText.includes("add {g}")) {
-      abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
-    }
-  }
-  
-  // "Add one mana of any color" (like City of Brass, Mana Confluence, Command Tower)
-  // Only match if this is a tap ability for lands or it's explicitly a mana ability
-  if (isLand && oracleText.includes("{t}:") && oracleText.includes("add one mana of any color")) {
-    abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
-  }
-  
-  // Colorless mana producers (lands with explicit colorless production)
-  if (isLand && oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
-    abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
-  }
-  
   // ========================================================================
-  // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
-  // Pattern: "{T}: Add {X}{Y}" where X and Y are different colored mana symbols
-  // These lands produce BOTH colors at once (not a choice)
+  // CRITICAL: Check for explicit mana choice patterns FIRST
+  // This prevents dual lands with basic types (e.g., Underground Sea = Island Swamp)
+  // from being parsed as two separate single-color abilities
   // ========================================================================
+  
+  let hasExplicitChoicePattern = false;
+  
   if (isLand) {
-    // Pattern to match "{t}: add {X}{Y}" with two different colored mana symbols
+    // ========================================================================
+    // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
+    // Pattern: "{T}: Add {X}{Y}" where X and Y are different colored mana symbols
+    // These lands produce BOTH colors at once (not a choice)
+    // ========================================================================
     const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+(\{[wubrgc]\}\{[wubrgc]\})/i);
     if (multiManaMatch) {
       const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
@@ -540,6 +516,7 @@ export function getManaAbilitiesForPermanent(
           produces: colors,
           producesAllAtOnce: true // Both colors are added, not a choice
         });
+        hasExplicitChoicePattern = true;
       } else if (colors.length === 1 && manaSymbols.length === 2) {
         // Same color twice (like Sol Ring {C}{C}) - handled elsewhere
         // This case is handled by the fixed multi-mana pattern
@@ -568,9 +545,11 @@ export function getManaAbilitiesForPermanent(
         produces: colors,
         producesAllAtOnce: false // Choice, not all at once
       });
+      hasExplicitChoicePattern = true;
     }
     
     // Dual land "or" pattern: "{t}: add {X} or {Y}" (filter/pain lands)
+    // This handles: Underground Sea, Boros Guildgate, pain lands, etc.
     const dualOrMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
     if (dualOrMatch) {
       const colors = [
@@ -590,8 +569,44 @@ export function getManaAbilitiesForPermanent(
           produces: colors,
           producesAllAtOnce: false // Choice, not all at once
         });
+        hasExplicitChoicePattern = true;
       }
     }
+  }
+  
+  // ========================================================================
+  // Basic lands and lands with basic types
+  // ONLY parse individual abilities if no explicit choice pattern was found
+  // This prevents Underground Sea from getting U + B + (U or B choice)
+  // ========================================================================
+  if (!hasExplicitChoicePattern && (isBasic || typeLine.includes("plains") || typeLine.includes("island") || 
+      typeLine.includes("swamp") || typeLine.includes("mountain") || typeLine.includes("forest"))) {
+    if (typeLine.includes("plains") || oracleText.includes("add {w}")) {
+      abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
+    }
+    if (typeLine.includes("island") || oracleText.includes("add {u}")) {
+      abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
+    }
+    if (typeLine.includes("swamp") || oracleText.includes("add {b}")) {
+      abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
+    }
+    if (typeLine.includes("mountain") || oracleText.includes("add {r}")) {
+      abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
+    }
+    if (typeLine.includes("forest") || oracleText.includes("add {g}")) {
+      abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
+    }
+  }
+  
+  // "Add one mana of any color" (like City of Brass, Mana Confluence, Command Tower)
+  // Only match if this is a tap ability for lands or it's explicitly a mana ability
+  if (isLand && oracleText.includes("{t}:") && oracleText.includes("add one mana of any color")) {
+    abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+  }
+  
+  // Colorless mana producers (lands with explicit colorless production)
+  if (isLand && oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
+    abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
   }
   
   // Check for creatures/artifacts with explicit tap-for-mana abilities in oracle text
