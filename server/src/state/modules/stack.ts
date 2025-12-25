@@ -19,6 +19,7 @@ import {
   cantAttackOwner,
   checkGraveyardTrigger,
 } from "./triggered-abilities.js";
+import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA, applyCounterModifications, movePermanentToGraveyard } from "./counters_tokens.js";
@@ -2453,6 +2454,27 @@ function executeTriggerEffect(
         if (targetPerm) {
           targetPerm.damageMarked = (targetPerm.damageMarked || 0) + damage;
           debug(2, `[executeTriggerEffect] Dealt ${damage} damage to ${targetPerm.card?.name || targetId}`);
+          
+          // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+          processDamageReceivedTriggers(ctx, targetPerm, damage, (triggerInfo) => {
+            // Initialize pendingDamageTriggers if needed
+            if (!state.pendingDamageTriggers) {
+              state.pendingDamageTriggers = {};
+            }
+            
+            // Add the trigger to the pending list for socket layer to process
+            state.pendingDamageTriggers[triggerInfo.triggerId] = {
+              sourceId: triggerInfo.sourceId,
+              sourceName: triggerInfo.sourceName,
+              controller: triggerInfo.controller,
+              damageAmount: triggerInfo.damageAmount,
+              triggerType: 'dealt_damage',
+              targetType: triggerInfo.targetType,
+              targetRestriction: triggerInfo.targetRestriction,
+            };
+            
+            debug(2, `[executeTriggerEffect] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${damage} damage`);
+          });
         }
       }
     }
@@ -5658,6 +5680,27 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       if (perm) {
         (perm as any).damage = ((perm as any).damage || 0) + effect.amount;
         debug(2, `[resolveSpell] ${spellName} dealt ${effect.amount} damage to ${(perm as any).card?.name || effect.id}`);
+        
+        // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+        processDamageReceivedTriggers(ctx, perm, effect.amount, (triggerInfo) => {
+          // Initialize pendingDamageTriggers if needed
+          if (!state.pendingDamageTriggers) {
+            state.pendingDamageTriggers = {};
+          }
+          
+          // Add the trigger to the pending list for socket layer to process
+          state.pendingDamageTriggers[triggerInfo.triggerId] = {
+            sourceId: triggerInfo.sourceId,
+            sourceName: triggerInfo.sourceName,
+            controller: triggerInfo.controller,
+            damageAmount: triggerInfo.damageAmount,
+            triggerType: 'dealt_damage',
+            targetType: triggerInfo.targetType,
+            targetRestriction: triggerInfo.targetRestriction,
+          };
+          
+          debug(2, `[resolveSpell] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${effect.amount} damage`);
+        });
       }
       break;
     }

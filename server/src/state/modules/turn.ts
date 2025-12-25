@@ -30,6 +30,7 @@ import {
   getTriggersForTiming,
   checkDamageReceivedTrigger
 } from "./triggered-abilities.js";
+import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
@@ -60,26 +61,26 @@ function ts() {
 function queueDamageReceivedTrigger(ctx: GameContext, permanent: any, damageAmount: number): void {
   if (!permanent || damageAmount <= 0) return;
   
-  const triggerInfo = checkDamageReceivedTrigger(permanent, damageAmount);
-  if (!triggerInfo) return;
-  
-  // Initialize pendingDamageTriggers if needed
-  if (!(ctx as any).state.pendingDamageTriggers) {
-    (ctx as any).state.pendingDamageTriggers = {};
-  }
-  
-  // Add the trigger to the pending list
-  (ctx as any).state.pendingDamageTriggers[triggerInfo.triggerId] = {
-    sourceId: triggerInfo.sourceId,
-    sourceName: triggerInfo.sourceName,
-    controller: triggerInfo.controller,
-    damageAmount: triggerInfo.damageAmount,
-    triggerType: 'dealt_damage',
-    targetType: triggerInfo.targetType,
-    targetRestriction: triggerInfo.targetRestriction,
-  };
-  
-  debug(2, `${ts()} [queueDamageReceivedTrigger] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${damageAmount} damage`);
+  // Use the centralized damage trigger system
+  processDamageReceivedTriggers(ctx, permanent, damageAmount, (triggerInfo) => {
+    // Initialize pendingDamageTriggers if needed
+    if (!(ctx as any).state.pendingDamageTriggers) {
+      (ctx as any).state.pendingDamageTriggers = {};
+    }
+    
+    // Add the trigger to the pending list
+    (ctx as any).state.pendingDamageTriggers[triggerInfo.triggerId] = {
+      sourceId: triggerInfo.sourceId,
+      sourceName: triggerInfo.sourceName,
+      controller: triggerInfo.controller,
+      damageAmount: triggerInfo.damageAmount,
+      triggerType: 'dealt_damage',
+      targetType: triggerInfo.targetType,
+      targetRestriction: triggerInfo.targetRestriction,
+    };
+    
+    debug(2, `${ts()} [queueDamageReceivedTrigger] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${damageAmount} damage`);
+  });
 }
 
 /**
