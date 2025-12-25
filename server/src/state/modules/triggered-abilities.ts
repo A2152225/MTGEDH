@@ -34,6 +34,7 @@
 
 import type { GameContext } from "../context.js";
 import { calculateVariablePT, getActualPowerToughness } from "../utils.js";
+import { handleEldraziShuffle } from "./zone-manipulation.js";
 
 // Import card data tables from modularized submodule
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -4757,35 +4758,10 @@ export function checkGraveyardTrigger(ctx: any, card: any, ownerId: string): boo
     
     // "When put into graveyard from anywhere, shuffle graveyard into library"
     if (specialLower.includes('graveyard') && specialLower.includes('shuffle')) {
-      // Get owner's zones
-      const zones = ctx.state?.zones?.[ownerId];
-      if (!zones) return false;
+      // Use the centralized utility for graveyard shuffling
+      const shuffledCount = handleEldraziShuffle(ctx, ownerId, card);
       
-      const graveyard = zones.graveyard || [];
-      const library = ctx.libraries?.get(ownerId) || [];
-      
-      // Shuffle entire graveyard (including the card that just entered) into library
-      const cardsToShuffle = [...graveyard];
-      
-      if (cardsToShuffle.length > 0) {
-        // Clear graveyard
-        zones.graveyard = [];
-        zones.graveyardCount = 0;
-        
-        // Add all cards to library and shuffle
-        const newLibrary = [...library, ...cardsToShuffle.map((c: any) => ({ ...c, zone: 'library' }))];
-        
-        // Fisher-Yates shuffle algorithm
-        const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
-        for (let i = newLibrary.length - 1; i > 0; i--) {
-          const j = Math.floor(rng() * (i + 1));
-          [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
-        }
-        
-        // Update library
-        ctx.libraries?.set(ownerId, newLibrary);
-        zones.libraryCount = newLibrary.length;
-        
+      if (shuffledCount > 0) {
         if (ctx.bumpSeq && typeof ctx.bumpSeq === 'function') {
           ctx.bumpSeq();
         }
