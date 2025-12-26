@@ -4556,6 +4556,94 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Outlast abilities (Rule 702.107)
+    // "Outlast [cost]" means "[Cost], {T}: Put a +1/+1 counter on this creature. Activate only as a sorcery."
+    const outlastMatch = oracleText.match(/outlast\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+    const isOutlastAbility = abilityId.includes("outlast") || 
+      (outlastMatch && abilityId.includes("outlast"));
+    
+    if (isOutlastAbility && outlastMatch) {
+      const outlastCost = outlastMatch[1];
+      
+      // Outlast is sorcery speed only (Rule 702.107a)
+      const phase = (game.state as any).phase || '';
+      const isMainPhase = phase.toLowerCase().includes('main');
+      const stack = game.state?.stack || [];
+      const activePlayer = (game.state as any).turnPlayer || (game.state as any).activePlayer;
+      
+      if (activePlayer !== pid) {
+        socket.emit("error", {
+          code: "NOT_YOUR_TURN",
+          message: "Outlast can only be activated on your turn (sorcery speed)",
+        });
+        return;
+      }
+      
+      if (!isMainPhase || stack.length > 0) {
+        socket.emit("error", {
+          code: "SORCERY_SPEED_ONLY",
+          message: "Outlast can only be activated at sorcery speed (main phase, empty stack)",
+        });
+        return;
+      }
+      
+      // Outlast requires tapping the creature (Rule 702.107a)
+      if (permanent.tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped and cannot use outlast`,
+        });
+        return;
+      }
+      
+      // Parse and pay the mana cost
+      const parsedCost = parseManaCost(outlastCost);
+      const pool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return;
+      }
+      
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:outlast]');
+      
+      // Tap the creature as part of the cost
+      permanent.tapped = true;
+      
+      // Add a +1/+1 counter to the creature
+      (permanent as any).counters = (permanent as any).counters || {};
+      const currentCounters = (permanent as any).counters['+1/+1'] || 0;
+      (permanent as any).counters['+1/+1'] = currentCounters + 1;
+      const newCount = (permanent as any).counters['+1/+1'];
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `💪 ${getPlayerName(game, pid)} paid ${outlastCost} and tapped ${cardName} to outlast! (${newCount} +1/+1 counter${newCount !== 1 ? 's' : ''})`,
+        ts: Date.now(),
+      });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      // Append event to game log
+      appendGameEvent(game, gameId, 'outlast', {
+        playerId: pid,
+        permanentId,
+        cardName,
+        cost: outlastCost,
+        newCounterCount: newCount,
+        ts: Date.now(),
+      });
+      
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle creature upgrade abilities (Figure of Destiny, Warden of the First Tree, etc.)
     // These are activated abilities that transform or upgrade a creature
     if (abilityId.startsWith("upgrade-") || abilityId.includes("-becomes-")) {

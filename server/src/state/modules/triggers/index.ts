@@ -150,3 +150,6 @@ export * from "./reanimate.js";
 
 // Aura graveyard triggers (Rancor, Spirit Loop, etc.)
 export * from "./aura-graveyard.js";
+
+// Damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+export * from "./damage-received.js";

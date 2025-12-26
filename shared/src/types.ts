@@ -512,6 +512,8 @@ export interface GameState {
     controller: PlayerID;
     damageAmount: number;
     triggerType: string;
+    targetType?: 'opponent' | 'any' | 'each_opponent' | 'any_non_dragon' | 'controller';
+    targetRestriction?: string;
   }>;
   /**
    * Pending attack triggers awaiting player's mana payment decision.

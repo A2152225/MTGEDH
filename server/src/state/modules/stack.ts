@@ -19,6 +19,8 @@ import {
   cantAttackOwner,
   checkGraveyardTrigger,
 } from "./triggered-abilities.js";
+import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA, applyCounterModifications, movePermanentToGraveyard } from "./counters_tokens.js";
@@ -1165,54 +1167,11 @@ function executeTriggerEffect(
     // Trigger life gain effects
     triggerLifeGainEffects(ctx, controller, 5);
     
-    // Shuffle graveyard and the artifact into library
-    const zones = state.zones?.[controller];
+    // Shuffle graveyard and the artifact into library using the utility
     const sourceId = (triggerItem as any).source; // The permanent ID of the elixir
+    const shuffledCount = handleElixirShuffle(ctx, controller, sourceId);
     
-    if (zones && ctx.libraries) {
-      const graveyard = zones.graveyard || [];
-      const library = ctx.libraries.get(controller) || [];
-      const battlefield = state.battlefield || [];
-      
-      // Find the Elixir on the battlefield
-      const elixirPerm = battlefield.find((p: any) => p.id === sourceId);
-      
-      // Collect all cards to shuffle into library
-      const cardsToShuffle: any[] = [...graveyard.map((c: any) => ({ ...c, zone: 'library' }))];
-      
-      // Add the Elixir itself if found on battlefield
-      if (elixirPerm && elixirPerm.card) {
-        cardsToShuffle.push({ ...elixirPerm.card, zone: 'library' });
-        
-        // Remove from battlefield
-        const elixirIndex = battlefield.findIndex((p: any) => p.id === sourceId);
-        if (elixirIndex >= 0) {
-          battlefield.splice(elixirIndex, 1);
-        }
-      }
-      
-      if (cardsToShuffle.length > 0) {
-        // Clear graveyard
-        zones.graveyard = [];
-        zones.graveyardCount = 0;
-        
-        // Add all cards to library
-        const newLibrary = [...library, ...cardsToShuffle];
-        
-        // Shuffle using RNG
-        const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
-        for (let i = newLibrary.length - 1; i > 0; i--) {
-          const j = Math.floor(rng() * (i + 1));
-          [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
-        }
-        
-        // Update library
-        ctx.libraries.set(controller, newLibrary);
-        zones.libraryCount = newLibrary.length;
-        
-        debug(1, `[executeTriggerEffect] Elixir of Immortality: shuffled ${cardsToShuffle.length} cards into ${controller}'s library`);
-      }
-    }
+    debug(1, `[executeTriggerEffect] Elixir of Immortality: shuffled ${shuffledCount} cards into ${controller}'s library`);
     
     return; // Early return, effect is fully handled
   }
@@ -2453,6 +2412,27 @@ function executeTriggerEffect(
         if (targetPerm) {
           targetPerm.damageMarked = (targetPerm.damageMarked || 0) + damage;
           debug(2, `[executeTriggerEffect] Dealt ${damage} damage to ${targetPerm.card?.name || targetId}`);
+          
+          // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+          processDamageReceivedTriggers(ctx, targetPerm, damage, (triggerInfo) => {
+            // Initialize pendingDamageTriggers if needed
+            if (!state.pendingDamageTriggers) {
+              state.pendingDamageTriggers = {};
+            }
+            
+            // Add the trigger to the pending list for socket layer to process
+            state.pendingDamageTriggers[triggerInfo.triggerId] = {
+              sourceId: triggerInfo.sourceId,
+              sourceName: triggerInfo.sourceName,
+              controller: triggerInfo.controller,
+              damageAmount: triggerInfo.damageAmount,
+              triggerType: 'dealt_damage' as const,
+              targetType: triggerInfo.targetType,
+              ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
+            };
+            
+            debug(2, `[executeTriggerEffect] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${damage} damage`);
+          });
         }
       }
     }
@@ -2914,6 +2894,69 @@ function executeTriggerEffect(
     return;
   }
   
+  // ===== HORN OF GONDOR ACTIVATED ABILITY =====
+  // Pattern: "Create X 1/1 white Human Soldier creature tokens, where X is the number of Humans you control"
+  // Horn of Gondor: "{3}, {T}: Create X 1/1 white Human Soldier creature tokens, where X is the number of Humans you control."
+  if ((desc.includes('create') && desc.includes('human') && desc.includes('soldier') &&
+       (desc.includes('number of humans') || desc.includes('humans you control'))) ||
+      (sourceName.toLowerCase().includes('horn of gondor'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count Humans controller controls
+    let humanCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('human')) {
+        humanCount++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${humanCount} Human Soldier tokens for ${controller} (humans controlled: ${humanCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = humanCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 white Human Soldier tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Human Soldier';
+      const imageUrls = getTokenImageUrls('Human Soldier', 1, 1, ['W']);
+      
+      const soldierToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Human Soldier',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['W'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(soldierToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, soldierToken, controller);
+      
+      debug(2, `[executeTriggerEffect] Created Human Soldier token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
   // ===== KRENKO, MOB BOSS ACTIVATED ABILITY =====
   // Pattern: "Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control"
   // Krenko, Mob Boss: "{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control."
@@ -2972,6 +3015,148 @@ function executeTriggerEffect(
       triggerETBEffectsForToken(ctx, goblinToken, controller);
       
       debug(2, `[executeTriggerEffect] Created Goblin token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
+  // ===== DEPLOY TO THE FRONT =====
+  // Pattern: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield"
+  // Deploy to the Front: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield."
+  if ((desc.includes('create') && desc.includes('soldier') && 
+       desc.includes('number of creatures on the battlefield')) ||
+      (sourceName.toLowerCase().includes('deploy to the front'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count ALL creatures on the battlefield (not just controller's)
+    let creatureCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        creatureCount++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${creatureCount} Soldier tokens for ${controller} (creatures on battlefield: ${creatureCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = creatureCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 white Soldier tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Soldier';
+      const imageUrls = getTokenImageUrls('Soldier', 1, 1, ['W']);
+      
+      const soldierToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Soldier',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['W'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(soldierToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, soldierToken, controller);
+      
+      debug(2, `[executeTriggerEffect] Created Soldier token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
+  // ===== CALL THE COPPERCOATS =====
+  // Pattern: "Create X 1/1 white Human Soldier creature tokens, where X is the number of creatures those opponents control"
+  // Call the Coppercoats: "Strive — This spell costs {1}{W} more to cast for each target beyond the first.
+  //                        Choose any number of target opponents. Create X 1/1 white Human Soldier creature tokens,
+  //                        where X is the number of creatures those opponents control."
+  if ((desc.includes('create') && desc.includes('human') && desc.includes('soldier') &&
+       desc.includes('opponents control')) ||
+      (sourceName.toLowerCase().includes('call the coppercoats'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count creatures controlled by targeted opponents
+    // If no specific targets, assume all opponents were targeted
+    let targetedOpponents: string[] = [];
+    if (triggerItem.targets && triggerItem.targets.length > 0) {
+      // Filter to just player IDs (not permanent IDs)
+      targetedOpponents = triggerItem.targets.filter((t: string) => !t.startsWith('perm_'));
+    }
+    
+    // If no targets specified, count all opponents' creatures
+    if (targetedOpponents.length === 0) {
+      const players = state.players || [];
+      targetedOpponents = players
+        .map((p: any) => p.id)
+        .filter((pid: string) => pid !== controller);
+    }
+    
+    let opponentCreatureCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (!targetedOpponents.includes(perm.controller)) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        opponentCreatureCount++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${opponentCreatureCount} Human Soldier tokens for ${controller} (opponent creatures: ${opponentCreatureCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = opponentCreatureCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 white Human Soldier tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Human Soldier';
+      const imageUrls = getTokenImageUrls('Human Soldier', 1, 1, ['W']);
+      
+      const soldierToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Human Soldier',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['W'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(soldierToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, soldierToken, controller);
+      
+      debug(2, `[executeTriggerEffect] Created Human Soldier token ${i + 1}/${tokensToCreate}`);
     }
     
     return;
@@ -5658,6 +5843,27 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       if (perm) {
         (perm as any).damage = ((perm as any).damage || 0) + effect.amount;
         debug(2, `[resolveSpell] ${spellName} dealt ${effect.amount} damage to ${(perm as any).card?.name || effect.id}`);
+        
+        // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+        processDamageReceivedTriggers(ctx, perm, effect.amount, (triggerInfo) => {
+          // Initialize pendingDamageTriggers if needed
+          if (!state.pendingDamageTriggers) {
+            state.pendingDamageTriggers = {};
+          }
+          
+          // Add the trigger to the pending list for socket layer to process
+          state.pendingDamageTriggers[triggerInfo.triggerId] = {
+            sourceId: triggerInfo.sourceId,
+            sourceName: triggerInfo.sourceName,
+            controller: triggerInfo.controller,
+            damageAmount: triggerInfo.damageAmount,
+            triggerType: 'dealt_damage' as const,
+            targetType: triggerInfo.targetType,
+            ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
+          };
+          
+          debug(2, `[resolveSpell] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${effect.amount} damage`);
+        });
       }
       break;
     }

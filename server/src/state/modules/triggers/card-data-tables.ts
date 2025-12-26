@@ -945,7 +945,7 @@ export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, {
  * Common interface for attachment damage-received triggers.
  * Used by both auras and equipment that grant "whenever [attached] creature is dealt damage" triggers.
  */
-interface AttachmentDamageReceivedTrigger {
+export interface AttachmentDamageReceivedTrigger {
   effect: string;
   targetType: 'opponent' | 'any' | 'each_opponent' | 'controller';
 }
