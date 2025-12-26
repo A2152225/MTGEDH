@@ -3020,6 +3020,148 @@ function executeTriggerEffect(
     return;
   }
   
+  // ===== DEPLOY TO THE FRONT =====
+  // Pattern: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield"
+  // Deploy to the Front: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield."
+  if ((desc.includes('create') && desc.includes('soldier') && 
+       desc.includes('number of creatures on the battlefield')) ||
+      (sourceName.toLowerCase().includes('deploy to the front'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count ALL creatures on the battlefield (not just controller's)
+    let creatureCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        creatureCount++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${creatureCount} Soldier tokens for ${controller} (creatures on battlefield: ${creatureCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = creatureCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 white Soldier tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Soldier';
+      const imageUrls = getTokenImageUrls('Soldier', 1, 1, ['W']);
+      
+      const soldierToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Soldier',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['W'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(soldierToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, soldierToken, controller);
+      
+      debug(2, `[executeTriggerEffect] Created Soldier token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
+  // ===== CALL THE COPPERCOATS =====
+  // Pattern: "Create X 1/1 white Human Soldier creature tokens, where X is the number of creatures those opponents control"
+  // Call the Coppercoats: "Strive — This spell costs {1}{W} more to cast for each target beyond the first.
+  //                        Choose any number of target opponents. Create X 1/1 white Human Soldier creature tokens,
+  //                        where X is the number of creatures those opponents control."
+  if ((desc.includes('create') && desc.includes('human') && desc.includes('soldier') &&
+       desc.includes('opponents control')) ||
+      (sourceName.toLowerCase().includes('call the coppercoats'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count creatures controlled by targeted opponents
+    // If no specific targets, assume all opponents were targeted
+    let targetedOpponents: string[] = [];
+    if (triggerItem.targets && triggerItem.targets.length > 0) {
+      // Filter to just player IDs (not permanent IDs)
+      targetedOpponents = triggerItem.targets.filter((t: string) => !t.startsWith('perm_'));
+    }
+    
+    // If no targets specified, count all opponents' creatures
+    if (targetedOpponents.length === 0) {
+      const players = state.players || [];
+      targetedOpponents = players
+        .map((p: any) => p.id)
+        .filter((pid: string) => pid !== controller);
+    }
+    
+    let opponentCreatureCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (!targetedOpponents.includes(perm.controller)) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        opponentCreatureCount++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${opponentCreatureCount} Human Soldier tokens for ${controller} (opponent creatures: ${opponentCreatureCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = opponentCreatureCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 white Human Soldier tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Human Soldier';
+      const imageUrls = getTokenImageUrls('Human Soldier', 1, 1, ['W']);
+      
+      const soldierToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Human Soldier',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['W'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(soldierToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, soldierToken, controller);
+      
+      debug(2, `[executeTriggerEffect] Created Human Soldier token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
   // Log unhandled triggers for future implementation
   debug(2, `[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
