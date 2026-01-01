@@ -2043,7 +2043,6 @@ function executeTriggerEffect(
           // Store additional data for the resolution handler
           putFromHandData: {
             tappedAndAttacking: isTappedAndAttacking,
-            creatureTypes: allowedTypes,
             validCardIds: validCreatures.map((c: any) => c.id),
           },
         });

@@ -4635,7 +4635,8 @@ async function handleModalChoiceResponse(
   const pid = response.playerId;
   const selections = response.selections;
   
-  // Import utilities
+  // Import utilities dynamically to avoid circular dependencies
+  // (resolution.ts <-> stack.ts circular import would cause issues)
   const { uid } = await import("../state/utils.js");
   const { triggerETBEffectsForPermanent } = await import("../state/modules/stack.js");
   
