@@ -284,7 +284,12 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     filter = 'ANY';
   }
 
-  if (/destroy all\b/.test(t)) return { op: 'DESTROY_ALL', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
+  // IMPORTANT: Skip "destroy all" patterns that have conditional "if X is N or more" clauses
+  // Cards like Martial Coup: "Create X tokens. If X is 5 or more, destroy all other creatures."
+  // These conditional effects must be handled separately by the X-value-aware code in stack.ts
+  const hasConditionalXWipe = /if x is \d+ or more[,.]?\s*destroy all/i.test(t);
+  
+  if (/destroy all\b/.test(t) && !hasConditionalXWipe) return { op: 'DESTROY_ALL', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
   // Only match "exile all" if it's targeting permanents (creatures, planeswalkers, etc.), not spells
   if (/exile all\b/.test(t) && !/exile all\s+(?:other\s+)?spells\b/.test(t)) return { op: 'EXILE_ALL', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
   if (/destroy each\b/.test(t)) return { op: 'DESTROY_EACH', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
