@@ -1964,6 +1964,96 @@ function executeTriggerEffect(
     return;
   }
   
+  // ===== GENERIC: Put [type] creature from hand onto battlefield [tapped and attacking] =====
+  // This handles patterns like:
+  // - "you may put a Soldier creature card from your hand onto the battlefield tapped and attacking"
+  // - "put an Angel, Demon, or Dragon creature card from your hand onto the battlefield tapped and attacking"
+  // - "put a creature card from your hand onto the battlefield tapped and attacking"
+  // Cards: Preeminent Captain (Soldier), Kaalia of the Vast (Angel/Demon/Dragon), Ilharg (creature), etc.
+  const putFromHandPattern = desc.match(
+    /(?:you may )?put (?:a|an) ([\w,\s]+?) creature card from your hand onto the battlefield(?: tapped and attacking)?/i
+  );
+  if (putFromHandPattern && !desc.includes('search your library')) {
+    const creatureTypeRestriction = putFromHandPattern[1].toLowerCase().trim();
+    const isTappedAndAttacking = desc.includes('tapped and attacking');
+    const isOptionalPut = desc.toLowerCase().startsWith('you may');
+    
+    // Parse the creature type restriction - could be "soldier", "angel, demon, or dragon", etc.
+    const allowedTypes: string[] = [];
+    if (creatureTypeRestriction.includes(',') || creatureTypeRestriction.includes(' or ')) {
+      // Multiple types: "angel, demon, or dragon" -> ["angel", "demon", "dragon"]
+      const typeList = creatureTypeRestriction
+        .replace(/,?\s*or\s+/g, ',')
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+      allowedTypes.push(...typeList);
+    } else if (creatureTypeRestriction && creatureTypeRestriction !== 'creature') {
+      // Single type: "soldier" -> ["soldier"]
+      allowedTypes.push(creatureTypeRestriction);
+    }
+    // If allowedTypes is empty or just "creature", any creature is allowed
+    
+    const gameId = (ctx as any).gameId || (state as any).gameId;
+    const zones = state.zones || {};
+    const hand = (zones[controller] as any)?.hand || [];
+    
+    // Filter hand to find valid creatures
+    const validCreatures = hand.filter((card: any) => {
+      const typeLine = (card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) return false;
+      
+      // If no type restriction, any creature is valid
+      if (allowedTypes.length === 0) return true;
+      
+      // Check if creature has any of the allowed types
+      return allowedTypes.some(allowedType => typeLine.includes(allowedType));
+    });
+    
+    if (validCreatures.length === 0) {
+      debug(2, `[executeTriggerEffect] ${sourceName}: No valid ${allowedTypes.length > 0 ? allowedTypes.join('/') : 'creature'} cards in hand`);
+      return;
+    }
+    
+    // Queue a resolution step for the player to select a creature from hand
+    const typeDesc = allowedTypes.length > 0 ? allowedTypes.join('/') : 'creature';
+    
+    if (gameId) {
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!isReplaying) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MODAL_CHOICE,
+          playerId: controller,
+          description: `${sourceName}: ${isOptionalPut ? 'You may put' : 'Put'} a ${typeDesc} creature from your hand onto the battlefield${isTappedAndAttacking ? ' tapped and attacking' : ''}`,
+          mandatory: !isOptionalPut,
+          sourceName: sourceName,
+          sourceImage: triggerItem.value?.imageUrl,
+          promptTitle: `Put ${typeDesc} onto Battlefield`,
+          promptDescription: `Select a ${typeDesc} creature card from your hand to put onto the battlefield${isTappedAndAttacking ? ' tapped and attacking' : ''}.`,
+          options: [
+            ...(isOptionalPut ? [{ id: 'decline', label: 'Decline' }] : []),
+            ...validCreatures.map((card: any) => ({
+              id: card.id,
+              label: card.name || 'Unknown Card',
+              imageUrl: card.image_uris?.small || card.image_uris?.normal,
+            })),
+          ],
+          minSelections: isOptionalPut ? 0 : 1,
+          maxSelections: 1,
+          // Store additional data for the resolution handler
+          putFromHandData: {
+            tappedAndAttacking: isTappedAndAttacking,
+            validCardIds: validCreatures.map((c: any) => c.id),
+          },
+        });
+        
+        debug(2, `[executeTriggerEffect] ${sourceName}: Queued hand selection for ${typeDesc} creature (${validCreatures.length} valid cards)`);
+      }
+    }
+    
+    return;
+  }
+  
   // Pattern: "Create a Food/Treasure/Clue/Map token" (predefined artifact tokens)
   // Food: "{2}, {T}, Sacrifice this artifact: You gain 3 life."
   // Treasure: "{T}, Sacrifice this artifact: Add one mana of any color."
@@ -2894,12 +2984,100 @@ function executeTriggerEffect(
     return;
   }
   
-  // ===== HORN OF GONDOR ACTIVATED ABILITY =====
+  // ===== GENERIC: Create X tokens where X is the number of [type] you control =====
+  // This handles patterns like:
+  // - "Create X 1/1 [color] [type] creature tokens, where X is the number of [countType] you control"
+  // - "Create X 1/1 colorless [type] artifact creature tokens, where X is the number of [countType] you control"
+  // Cards: Krenko Mob Boss (Goblins), Horn of Gondor (Humans), Myrel (Soldiers), etc.
+  const createXTokensPattern = desc.match(
+    /create\s+x\s+(\d+)\/(\d+)\s+(colorless\s+)?(\w+(?:\s+\w+)*?)\s+(artifact\s+)?creature\s+tokens?,?\s*where\s+x\s+is\s+(?:the\s+)?number\s+of\s+(\w+)s?\s+you\s+control/i
+  );
+  if (createXTokensPattern) {
+    const power = parseInt(createXTokensPattern[1], 10);
+    const toughness = parseInt(createXTokensPattern[2], 10);
+    const isColorless = !!createXTokensPattern[3];
+    const tokenType = createXTokensPattern[4].trim();
+    const isArtifact = !!createXTokensPattern[5];
+    const countType = createXTokensPattern[6].toLowerCase();
+    
+    const battlefield = state.battlefield || [];
+    
+    // Count permanents of the specified type that controller controls
+    let count = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes(countType)) {
+        count++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${count} ${tokenType} tokens for ${controller} (${countType}s controlled: ${count})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = count * getTokenDoublerMultiplier(controller, state);
+    
+    // Determine color based on token type and colorless flag
+    let colors: string[] = [];
+    if (!isColorless) {
+      // Try to infer color from the token type description in oracle text
+      const fullDesc = desc.toLowerCase();
+      if (fullDesc.includes('white')) colors = ['W'];
+      else if (fullDesc.includes('blue')) colors = ['U'];
+      else if (fullDesc.includes('black')) colors = ['B'];
+      else if (fullDesc.includes('red')) colors = ['R'];
+      else if (fullDesc.includes('green')) colors = ['G'];
+    }
+    
+    // Build type line
+    let typeLineParts = ['Token'];
+    if (isArtifact) typeLineParts.push('Artifact');
+    typeLineParts.push('Creature');
+    typeLineParts.push('—');
+    typeLineParts.push(tokenType);
+    const typeLine = typeLineParts.join(' ');
+    
+    // Create tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const imageUrls = getTokenImageUrls(tokenType, power, toughness, colors.length > 0 ? colors : undefined);
+      
+      const token = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: power,
+        baseToughness: toughness,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: tokenType,
+          type_line: typeLine,
+          power: String(power),
+          toughness: String(toughness),
+          zone: 'battlefield',
+          colors: colors,
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(token as any);
+      triggerETBEffectsForToken(ctx, token, controller);
+      debug(2, `[executeTriggerEffect] Created ${tokenType} token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
+  // ===== LEGACY: Horn of Gondor / Krenko specific patterns (fallback for edge cases) =====
   // Pattern: "Create X 1/1 white Human Soldier creature tokens, where X is the number of Humans you control"
   // Horn of Gondor: "{3}, {T}: Create X 1/1 white Human Soldier creature tokens, where X is the number of Humans you control."
   if ((desc.includes('create') && desc.includes('human') && desc.includes('soldier') &&
-       (desc.includes('number of humans') || desc.includes('humans you control'))) ||
-      (sourceName.toLowerCase().includes('horn of gondor'))) {
+       (desc.includes('number of humans') || desc.includes('humans you control')))) {
     const battlefield = state.battlefield || [];
     
     // Count Humans controller controls

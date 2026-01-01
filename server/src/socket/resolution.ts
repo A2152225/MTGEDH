@@ -803,6 +803,10 @@ async function handleStepResponse(
       await handleOptionChoiceResponse(io, game, gameId, step, response);
       break;
     
+    case ResolutionStepType.MODAL_CHOICE:
+      await handleModalChoiceResponse(io, game, gameId, step, response);
+      break;
+    
     case ResolutionStepType.CREATURE_TYPE_CHOICE:
       await handleCreatureTypeChoiceResponse(io, game, gameId, step, response);
       break;
@@ -4614,6 +4618,140 @@ async function handleOptionChoiceResponse(
     
     broadcastGame(io, game, gameId);
     return;
+  }
+}
+
+/**
+ * Handle Modal Choice response
+ * This handles generic modal choices including the "put creature from hand onto battlefield" pattern
+ */
+async function handleModalChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const selections = response.selections;
+  
+  // Import utilities dynamically to avoid circular dependencies
+  // (resolution.ts <-> stack.ts circular import would cause issues)
+  const { uid } = await import("../state/utils.js");
+  const { triggerETBEffectsForPermanent } = await import("../state/modules/stack.js");
+  
+  // Get selection - could be string, array of strings, or 'decline'
+  let selectedId: string | null = null;
+  if (typeof selections === 'string') {
+    selectedId = selections === 'decline' ? null : selections;
+  } else if (Array.isArray(selections) && selections.length > 0) {
+    selectedId = selections[0] === 'decline' ? null : selections[0];
+  }
+  
+  // Check if this is a "put from hand" modal choice
+  const modalStep = step as any;
+  const putFromHandData = modalStep.putFromHandData;
+  
+  if (putFromHandData) {
+    // Handle putting creature from hand onto battlefield
+    if (!selectedId || selectedId === 'decline') {
+      // Player declined
+      debug(2, `[Resolution] ${step.sourceName || 'Effect'}: Player ${pid} declined to put creature from hand`);
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} chose not to put a creature onto the battlefield.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+    
+    // Verify the selected card is valid
+    const validCardIds = new Set(putFromHandData.validCardIds || []);
+    if (!validCardIds.has(selectedId)) {
+      debugWarn(1, `[Resolution] Invalid card selection: ${selectedId} not in valid cards`);
+      return;
+    }
+    
+    // Get player zones
+    const zones = game.state?.zones?.[pid];
+    if (!zones || !zones.hand) {
+      debugWarn(2, `[Resolution] No hand found for player ${pid}`);
+      return;
+    }
+    
+    // Find and remove the card from hand
+    const cardIndex = zones.hand.findIndex((c: any) => c.id === selectedId);
+    if (cardIndex === -1) {
+      debugWarn(2, `[Resolution] Selected card ${selectedId} not found in hand`);
+      return;
+    }
+    
+    const [card] = zones.hand.splice(cardIndex, 1);
+    zones.handCount = zones.hand.length;
+    
+    // Put onto battlefield
+    const battlefield = game.state.battlefield = game.state.battlefield || [];
+    const tl = (card.type_line || '').toLowerCase();
+    const isCreature = tl.includes('creature');
+    const tappedAndAttacking = putFromHandData.tappedAndAttacking === true;
+    
+    const newPermanent = {
+      id: uid("perm"),
+      controller: pid,
+      owner: pid,
+      tapped: tappedAndAttacking,
+      counters: {},
+      basePower: isCreature ? parsePT(card.power) : undefined,
+      baseToughness: isCreature ? parsePT(card.toughness) : undefined,
+      // Creatures that enter "tapped and attacking" bypass summoning sickness for this attack
+      summoningSickness: isCreature && !tappedAndAttacking,
+      isAttacking: tappedAndAttacking,
+      card: { ...card, zone: "battlefield" },
+    } as any;
+    
+    battlefield.push(newPermanent);
+    
+    debug(2, `[Resolution] ${step.sourceName || 'Effect'}: Put ${card.name} onto battlefield${tappedAndAttacking ? ' tapped and attacking' : ''} for ${pid}`);
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} puts ${card.name} onto the battlefield${tappedAndAttacking ? ' tapped and attacking' : ''}.`,
+      ts: Date.now(),
+    });
+    
+    // Trigger ETB effects
+    try {
+      triggerETBEffectsForPermanent(
+        {
+          state: game.state,
+          bumpSeq: () => game.bumpSeq?.(),
+          libraries: (game as any).libraries,
+          commandZone: (game as any).commandZone || {},
+        } as any,
+        newPermanent,
+        pid
+      );
+    } catch (err) {
+      debugWarn(1, `[Resolution] Error triggering ETB effects:`, err);
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    return;
+  }
+  
+  // Generic modal choice handling (fallback for other modal choices)
+  debug(2, `[Resolution] Generic modal choice: ${step.description}, selected: ${selectedId}`);
+  
+  // For generic modal choices without specific data, just log and continue
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
   }
 }
 

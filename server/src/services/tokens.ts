@@ -549,6 +549,54 @@ export function getTokenImageUrls(
   loadTokens();
   
   const nameLower = tokenName.toLowerCase();
+  
+  // Fallback URLs for common tokens that may not be in Tokens.json
+  // These are direct Scryfall URLs for specific token printings
+  const FALLBACK_TOKEN_URLS: Record<string, { small?: string; normal?: string; large?: string; art_crop?: string }> = {
+    // White 1/1 Soldier (Martial Coup, etc.) - https://scryfall.com/card/tfic/2/soldier
+    'soldier_white_1_1': {
+      small: 'https://cards.scryfall.io/small/front/7/8/78e9b5f6-5d21-4a18-80c0-7ac9a2b6ed69.jpg',
+      normal: 'https://cards.scryfall.io/normal/front/7/8/78e9b5f6-5d21-4a18-80c0-7ac9a2b6ed69.jpg',
+      large: 'https://cards.scryfall.io/large/front/7/8/78e9b5f6-5d21-4a18-80c0-7ac9a2b6ed69.jpg',
+    },
+    // Colorless 1/1 Soldier artifact creature (Myrel) - https://scryfall.com/card/totc/26/soldier
+    'soldier_colorless_artifact_1_1': {
+      small: 'https://cards.scryfall.io/small/front/c/5/c5d5c6b1-0d37-4e9b-9af3-5f7c7cddcbd5.jpg',
+      normal: 'https://cards.scryfall.io/normal/front/c/5/c5d5c6b1-0d37-4e9b-9af3-5f7c7cddcbd5.jpg',
+      large: 'https://cards.scryfall.io/large/front/c/5/c5d5c6b1-0d37-4e9b-9af3-5f7c7cddcbd5.jpg',
+    },
+    // White 1/1 Human Soldier (Horn of Gondor, Assemble the Legion, etc.)
+    'human soldier_white_1_1': {
+      small: 'https://cards.scryfall.io/small/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
+      normal: 'https://cards.scryfall.io/normal/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
+      large: 'https://cards.scryfall.io/large/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
+    },
+  };
+  
+  // Check for fallback soldier tokens based on characteristics
+  if (nameLower === 'soldier' || nameLower.includes('soldier')) {
+    const colorArr = colors || [];
+    const isWhite = colorArr.some(c => c.toUpperCase() === 'W' || c.toLowerCase() === 'white');
+    const isColorless = colorArr.length === 0;
+    const p = power !== undefined ? String(power) : '1';
+    const t = toughness !== undefined ? String(toughness) : '1';
+    
+    if (p === '1' && t === '1') {
+      if (isColorless) {
+        const fallback = FALLBACK_TOKEN_URLS['soldier_colorless_artifact_1_1'];
+        if (fallback) return fallback;
+      } else if (isWhite) {
+        // Check if it's a Human Soldier
+        if (nameLower.includes('human')) {
+          const fallback = FALLBACK_TOKEN_URLS['human soldier_white_1_1'];
+          if (fallback) return fallback;
+        }
+        const fallback = FALLBACK_TOKEN_URLS['soldier_white_1_1'];
+        if (fallback) return fallback;
+      }
+    }
+  }
+  
   const tokens = tokensByName.get(nameLower) || [];
   
   if (tokens.length === 0) {
