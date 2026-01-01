@@ -1853,8 +1853,20 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Validate that the card is actually a land (check type_line)
       // For double-faced cards (transform), check the current front face, not the entire type_line
       const typeLine = (cardInZone as any)?.type_line || "";
+      const oracleText = (cardInZone as any)?.oracle_text || "";
       layout = (cardInZone as any)?.layout;
       cardFaces = (cardInZone as any)?.card_faces;
+      
+      // Check if this is a transform back face (should not be playable from hand)
+      // Transform back faces have "(Transforms from [Name])" in oracle text
+      if (/\(transforms from [^)]+\)/i.test(oracleText)) {
+        debugWarn(2, `[playLand] Card ${cardName} is a transform back face and cannot be played from hand`);
+        socket.emit("error", {
+          code: "TRANSFORM_BACK_FACE",
+          message: `${cardName || "This card"} is a transform back face and cannot be played from your hand. Only the front face of a transform card can be played.`,
+        });
+        return;
+      }
       
       let isLand = false;
       
