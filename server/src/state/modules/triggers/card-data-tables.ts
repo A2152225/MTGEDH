@@ -89,6 +89,16 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
   putFromHand?: boolean; 
   tappedAndAttacking?: boolean;
   conditionalTappedAttacking?: 'enchantment'; // For Summoner's Grimoire - only enchantment creatures
+  putCreatureType?: string; // For Preeminent Captain - specifies creature type to put from hand
+  createTokensBasedOnCount?: {  // For Myrel, creates tokens based on count of permanents
+    countType: string;  // e.g., "soldier" - counts permanents with this type
+    power: number;
+    toughness: number;
+    type: string;
+    color: string;
+    isArtifact?: boolean;
+    abilities?: string[];
+  };
   createTokens?: { 
     count: number; 
     power: number; 
@@ -140,6 +150,25 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
     effect: "You may pay {1}{G}. If you do, transform her.", 
     value: 0, // No token creation
     // Special handling needed for optional payment and transform
+  },
+  // Preeminent Captain - put Soldier from hand onto battlefield tapped and attacking
+  "preeminent captain": {
+    effect: "You may put a Soldier creature card from your hand onto the battlefield tapped and attacking",
+    putFromHand: true,
+    tappedAndAttacking: true,
+    putCreatureType: "soldier",
+  },
+  // Myrel, Shield of Argive - create X 1/1 colorless Soldier artifact creature tokens where X = soldiers controlled
+  "myrel, shield of argive": {
+    effect: "Create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control",
+    createTokensBasedOnCount: {
+      countType: "soldier",
+      power: 1,
+      toughness: 1,
+      type: "Soldier",
+      color: "colorless",
+      isArtifact: true,
+    },
   },
 };
 
