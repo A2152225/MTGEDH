@@ -1177,6 +1177,130 @@ function executeTriggerEffect(
     return; // Early return, effect is fully handled
   }
   
+  // ========================================================================
+  // ATTACK TRIGGER TOKEN CREATION
+  // Handle "whenever ~ attacks, create X Y/Z tokens that are attacking" 
+  // Examples: Brimaz, King of Oreskos; Hero of Bladehold; Hanweir Garrison
+  // ========================================================================
+  const triggerType = (triggerItem as any).triggerType;
+  if (triggerType === 'attacks' || triggerType === 'creature_attacks') {
+    // Check if this is a token creation effect
+    // Pattern: "create a X/Y [type] creature token" or "create X X/Y [type] creature tokens"
+    const createTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+    
+    if (createTokenMatch) {
+      // Parse count from word or number
+      const countWord = desc.match(/create (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+      const wordToCount: Record<string, number> = {
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+      };
+      const tokenCount = wordToCount[countWord] || (createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1);
+      const power = parseInt(createTokenMatch[2], 10);
+      const toughness = parseInt(createTokenMatch[3], 10);
+      const tokenDescription = createTokenMatch[4].trim();
+      
+      // Determine if tokens enter attacking
+      // Patterns: "tapped and attacking", "that's attacking", "that is attacking", "attacking"
+      const entersAttacking = desc.includes('attacking') || desc.includes('that\'s attacking') || desc.includes('that is attacking');
+      
+      // Determine if tokens should be tapped
+      // Brimaz tokens have vigilance and enter attacking but NOT tapped
+      // Hero of Bladehold tokens enter "tapped and attacking"
+      const shouldBeTapped = desc.includes('tapped and attacking') && !desc.includes('vigilance');
+      
+      // Extract color and creature type
+      const parts = tokenDescription.split(/\s+/);
+      const colors: string[] = [];
+      const creatureTypes: string[] = [];
+      
+      const colorMap: Record<string, string> = {
+        'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G', 'colorless': ''
+      };
+      
+      for (const part of parts) {
+        const lowerPart = part.toLowerCase();
+        if (colorMap[lowerPart] !== undefined) {
+          if (colorMap[lowerPart]) colors.push(colorMap[lowerPart]);
+        } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and' && lowerPart !== 'with' && 
+                   lowerPart !== 'that' && lowerPart !== 'are' && lowerPart !== 'tapped' && lowerPart !== 'attacking' &&
+                   lowerPart !== 'that\'s' && lowerPart !== 'is') {
+          creatureTypes.push(part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
+        }
+      }
+      
+      // Check for abilities
+      const abilities: string[] = [];
+      if (desc.includes('vigilance')) abilities.push('Vigilance');
+      if (desc.includes('haste')) abilities.push('Haste');
+      if (desc.includes('lifelink')) abilities.push('Lifelink');
+      if (desc.includes('deathtouch')) abilities.push('Deathtouch');
+      if (desc.includes('flying')) abilities.push('Flying');
+      if (desc.includes('first strike')) abilities.push('First strike');
+      if (desc.includes('trample')) abilities.push('Trample');
+      if (desc.includes('menace')) abilities.push('Menace');
+      if (desc.includes('reach')) abilities.push('Reach');
+      
+      // Get the attacking creature to find out who it's attacking
+      const sourceId = triggerItem.source || triggerItem.permanentId;
+      const battlefield = state.battlefield || [];
+      const attackingCreature = battlefield.find((p: any) => p?.id === sourceId);
+      
+      // Determine who the token should be attacking (same target as the source creature)
+      let attackTarget: string | undefined;
+      if (entersAttacking && attackingCreature?.attacking) {
+        attackTarget = attackingCreature.attacking;
+        debug(2, `[executeTriggerEffect] Attack trigger tokens will attack ${attackTarget}`);
+      }
+      
+      // Create the tokens
+      for (let i = 0; i < tokenCount; i++) {
+        const tokenId = uid("token");
+        const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
+        const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
+        
+        // Get token image from Scryfall data
+        const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+        
+        const token = {
+          id: tokenId,
+          controller,
+          owner: controller,
+          // Tokens with vigilance that enter attacking should NOT be tapped
+          // Tokens that enter "tapped and attacking" without vigilance SHOULD be tapped
+          tapped: shouldBeTapped,
+          counters: {},
+          basePower: power,
+          baseToughness: toughness,
+          // Tokens entering attacking don't have summoning sickness
+          summoningSickness: !entersAttacking && !abilities.includes('Haste'),
+          isToken: true,
+          // Set attacking property if entering attacking
+          ...(attackTarget ? { attacking: attackTarget } : {}),
+          card: {
+            id: tokenId,
+            name: tokenName,
+            type_line: typeLine,
+            power: String(power),
+            toughness: String(toughness),
+            colors,
+            oracle_text: abilities.join(', '),
+            keywords: abilities,
+            zone: 'battlefield',
+            image_uris: tokenImageUrls,
+          },
+        } as any;
+        
+        battlefield.push(token);
+        debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${entersAttacking ? ' (attacking' + (shouldBeTapped ? ', tapped' : '') + ')' : ''}`);
+        
+        // Trigger ETB effects from other permanents
+        triggerETBEffectsForToken(ctx, token, controller);
+      }
+      
+      return; // Attack trigger token creation handled
+    }
+  }
+  
   // Handle Agent of the Shadow Thieves commander attack trigger
   // "Whenever this creature attacks a player, if no opponent has more life than that player, 
   //  put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."
