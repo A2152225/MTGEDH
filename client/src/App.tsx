@@ -503,6 +503,8 @@ export function App() {
   const hasAutoSkippedAttackers = React.useRef<string | null>(null);
   // Track if we've already shown the attackers modal for this combat step (prevents re-opening after selection)
   const hasShownAttackersModal = React.useRef<string | null>(null);
+  // Track if we've already shown the blockers modal for this defend step (prevents re-opening after selection)
+  const hasShownBlockersModal = React.useRef<string | null>(null);
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
   
@@ -1144,9 +1146,14 @@ export function App() {
       const attackersTargetingYou = (safeView.battlefield || []).filter((p: any) => 
         p.attacking === you
       );
-      if (attackersTargetingYou.length > 0) {
+      
+      // Only show modal if there are attackers AND we haven't already shown it for this turn
+      // This prevents the modal from re-opening after the player has made their blocking decision
+      const turnId = `${safeView.turn}_${safeView.turnPlayer}`;
+      if (attackersTargetingYou.length > 0 && hasShownBlockersModal.current !== turnId) {
         setCombatMode('blockers');
         setCombatModalOpen(true);
+        hasShownBlockersModal.current = turnId; // Mark that we've shown the modal
       }
     }
     else {
@@ -1158,6 +1165,10 @@ export function App() {
       // Reset shown attackers modal tracker when we leave combat steps
       if (hasShownAttackersModal.current) {
         hasShownAttackersModal.current = null;
+      }
+      // Reset shown blockers modal tracker when we leave combat steps
+      if (hasShownBlockersModal.current) {
+        hasShownBlockersModal.current = null;
       }
     }
   }, [safeView, you]);
