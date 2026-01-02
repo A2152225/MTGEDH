@@ -78,7 +78,14 @@ type PendingConfirm = {
     Pick<
       KnownCardRef,
       "id" | "name" | "type_line" | "oracle_text" | "image_uris"
-    >
+    > & {
+      mana_cost?: string;
+      power?: string;
+      toughness?: string;
+      loyalty?: string;
+      card_faces?: any[];
+      layout?: string;
+    }
   >;
   parsedCount: number;
   deckName?: string;
