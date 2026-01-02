@@ -164,6 +164,8 @@ export function hasPactAlternateCost(card: any): boolean {
  * Pattern matcher for Convoke
  * "Convoke (Your creatures can help cast this spell. Each creature you tap while casting 
  * this spell pays for {1} or one mana of that creature's color.)"
+ * 
+ * This now checks if convoke can ACTUALLY help pay for the spell, not just if creatures exist.
  */
 export function hasConvokeAlternateCost(
   ctx: GameContext,
@@ -180,15 +182,68 @@ export function hasConvokeAlternateCost(
     return false;
   }
   
-  // Check if player has any untapped creatures
+  // Get all untapped creatures controlled by the player
   const battlefield = state.battlefield || [];
-  const hasUntappedCreature = battlefield.some((p: any) => 
+  const untappedCreatures = battlefield.filter((p: any) => 
     p && p.controller === playerId && 
     !p.tapped &&
     (p.card?.type_line || "").toLowerCase().includes("creature")
   );
   
-  return hasUntappedCreature;
+  // If no untapped creatures, convoke can't help
+  if (untappedCreatures.length === 0) {
+    return false;
+  }
+  
+  // Import parseManaCost from mana-check to analyze the spell's cost
+  const { parseManaCost, getAvailableMana, canPayManaCost } = require('./mana-check');
+  
+  // Get the card's mana cost
+  const manaCost = card.mana_cost || "";
+  if (!manaCost) {
+    // Free spells don't benefit from convoke
+    return false;
+  }
+  
+  const parsedCost = parseManaCost(manaCost);
+  const availableMana = getAvailableMana(state, playerId);
+  
+  // If the player can already pay the full cost without convoke, we still return true
+  // because convoke is an option they CAN use (even if not required)
+  // But we need to check if convoke would actually help them cast something they couldn't otherwise
+  
+  // Calculate how much mana the player needs after using available mana
+  const totalCost = parsedCost.generic + 
+    (parsedCost.colors.W || 0) +
+    (parsedCost.colors.U || 0) +
+    (parsedCost.colors.B || 0) +
+    (parsedCost.colors.R || 0) +
+    (parsedCost.colors.G || 0) +
+    (parsedCost.colors.C || 0);
+  
+  const totalAvailable = (availableMana.white || 0) +
+    (availableMana.blue || 0) +
+    (availableMana.black || 0) +
+    (availableMana.red || 0) +
+    (availableMana.green || 0) +
+    (availableMana.colorless || 0);
+  
+  // If player already has enough mana without convoke, they can cast it
+  // so return true (convoke is available as an option)
+  if (canPayManaCost(availableMana, parsedCost)) {
+    return true;
+  }
+  
+  // Calculate how much mana convoke can provide
+  // Each creature can pay for {1} or one mana of its color
+  // For simplicity, we'll assume each creature can contribute 1 generic mana
+  // This is conservative but correct for canAct purposes
+  const convokeContribution = untappedCreatures.length;
+  
+  // Check if available mana + convoke contribution is enough to cast the spell
+  const totalAfterConvoke = totalAvailable + convokeContribution;
+  
+  return totalAfterConvoke >= totalCost;
 }
 
 /**
@@ -221,6 +276,8 @@ export function hasDelveAlternateCost(
  * Pattern matcher for Improvise
  * "Improvise (Your artifacts can help cast this spell. Each artifact you tap while casting 
  * this spell pays for {1}.)"
+ * 
+ * This now checks if improvise can ACTUALLY help pay for the spell, not just if artifacts exist.
  */
 export function hasImproviseAlternateCost(
   ctx: GameContext,
@@ -237,15 +294,62 @@ export function hasImproviseAlternateCost(
     return false;
   }
   
-  // Check if player has any untapped artifacts
+  // Get all untapped artifacts controlled by the player
   const battlefield = state.battlefield || [];
-  const hasUntappedArtifact = battlefield.some((p: any) => 
+  const untappedArtifacts = battlefield.filter((p: any) => 
     p && p.controller === playerId && 
     !p.tapped &&
     (p.card?.type_line || "").toLowerCase().includes("artifact")
   );
   
-  return hasUntappedArtifact;
+  // If no untapped artifacts, improvise can't help
+  if (untappedArtifacts.length === 0) {
+    return false;
+  }
+  
+  // Import parseManaCost from mana-check to analyze the spell's cost
+  const { parseManaCost, getAvailableMana, canPayManaCost } = require('./mana-check');
+  
+  // Get the card's mana cost
+  const manaCost = card.mana_cost || "";
+  if (!manaCost) {
+    // Free spells don't benefit from improvise
+    return false;
+  }
+  
+  const parsedCost = parseManaCost(manaCost);
+  const availableMana = getAvailableMana(state, playerId);
+  
+  // If the player can already pay the full cost without improvise, we still return true
+  // because improvise is an option they CAN use (even if not required)
+  if (canPayManaCost(availableMana, parsedCost)) {
+    return true;
+  }
+  
+  // Calculate how much mana the player needs after using available mana
+  const totalCost = parsedCost.generic + 
+    (parsedCost.colors.W || 0) +
+    (parsedCost.colors.U || 0) +
+    (parsedCost.colors.B || 0) +
+    (parsedCost.colors.R || 0) +
+    (parsedCost.colors.G || 0) +
+    (parsedCost.colors.C || 0);
+  
+  const totalAvailable = (availableMana.white || 0) +
+    (availableMana.blue || 0) +
+    (availableMana.black || 0) +
+    (availableMana.red || 0) +
+    (availableMana.green || 0) +
+    (availableMana.colorless || 0);
+  
+  // Calculate how much mana improvise can provide
+  // Each artifact can pay for {1} generic mana
+  const improviseContribution = untappedArtifacts.length;
+  
+  // Check if available mana + improvise contribution is enough to cast the spell
+  const totalAfterImprovise = totalAvailable + improviseContribution;
+  
+  return totalAfterImprovise >= totalCost;
 }
 
 /**

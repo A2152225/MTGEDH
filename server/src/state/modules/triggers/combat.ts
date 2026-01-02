@@ -265,14 +265,64 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
         mandatory: false,
       });
     } else {
-      triggers.push({
-        permanentId,
-        cardName,
-        triggerType: 'attacks',
-        description: effectText,
-        effect: effectText,
-        mandatory: true,
-      });
+      // Check for count-based token creation (Myrel, etc.)
+      // Pattern: "create X [P/T] [type] tokens, where X is the number of [countType] you control"
+      const countTokenMatch = effectText.match(/create\s+X\s+(\d+)\/(\d+)\s+([^,]+?)\s+(?:creature\s+)?tokens?,?\s+where\s+X\s+is\s+the\s+number\s+of\s+(\w+)(?:s)?\s+you\s+control/i);
+      
+      if (countTokenMatch) {
+        const power = parseInt(countTokenMatch[1], 10);
+        const toughness = parseInt(countTokenMatch[2], 10);
+        const tokenDesc = countTokenMatch[3].trim();
+        const countType = countTokenMatch[4].trim();
+        
+        // Parse token description for color and type
+        const parts = tokenDesc.split(/\s+/);
+        let color = 'colorless';
+        let type = 'Token';
+        let isArtifact = false;
+        
+        const colorMap: Record<string, string> = {
+          'white': 'white', 'blue': 'blue', 'black': 'black', 'red': 'red', 'green': 'green', 'colorless': 'colorless'
+        };
+        
+        for (const part of parts) {
+          const lowerPart = part.toLowerCase();
+          if (colorMap[lowerPart]) {
+            color = lowerPart;
+          } else if (lowerPart === 'artifact') {
+            isArtifact = true;
+          } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'tokens') {
+            type = part.charAt(0).toUpperCase() + part.slice(1);
+          }
+        }
+        
+        triggers.push({
+          permanentId,
+          cardName,
+          triggerType: 'attacks',
+          description: effectText,
+          effect: effectText,
+          mandatory: true,
+          value: {
+            countType: countType.toLowerCase(),
+            power,
+            toughness,
+            type,
+            color,
+            isArtifact,
+          },
+        });
+      } else {
+        // Regular attack trigger without special parsing
+        triggers.push({
+          permanentId,
+          cardName,
+          triggerType: 'attacks',
+          description: effectText,
+          effect: effectText,
+          mandatory: true,
+        });
+      }
     }
   }
   
