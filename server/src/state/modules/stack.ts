@@ -5148,7 +5148,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         
         // For effects that affect target's controller after exile/destroy
-        // Path to Exile, Swords to Plowshares, Fateful Absence, Get Lost
+        // Path to Exile, Swords to Plowshares, Fateful Absence, Get Lost, Nature's Claim
         const isPathToExile = effectiveCard.name?.toLowerCase().includes('path to exile') || 
             (oracleTextLower.includes('exile target creature') && 
              oracleTextLower.includes('search') && 
@@ -5162,8 +5162,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         const isGetLost = effectiveCard.name?.toLowerCase().includes('get lost') ||
             (oracleTextLower.includes('destroy target creature') && 
              oracleTextLower.includes('map token'));
+        const isNaturesClaimEffect = effectiveCard.name?.toLowerCase().includes("nature's claim") ||
+            effectiveCard.name?.toLowerCase().includes("natures claim") ||
+            ((oracleTextLower.includes('destroy target artifact') || oracleTextLower.includes('destroy target enchantment')) && 
+             oracleTextLower.includes('its controller gains'));
              
-        if (isPathToExile || isSwordsToPlowshares || isFatefulAbsence || isGetLost) {
+        if (isPathToExile || isSwordsToPlowshares || isFatefulAbsence || isGetLost || isNaturesClaimEffect) {
           targetControllerForRemovalEffects = targetPerm.controller as PlayerID;
           
           // Capture power for Swords to Plowshares
