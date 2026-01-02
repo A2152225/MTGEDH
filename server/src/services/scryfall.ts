@@ -269,6 +269,7 @@ function toCachedCard(data: any): ScryfallCard {
     legalities: data.legalities,
     power: data.power,
     toughness: data.toughness,
+    loyalty: data.loyalty, // Planeswalker starting loyalty
     layout: data.layout,
     card_faces: Array.isArray(data.card_faces)
       ? data.card_faces.map((f: any) => ({
@@ -281,6 +282,7 @@ function toCachedCard(data: any): ScryfallCard {
             : undefined,
           power: f.power,
           toughness: f.toughness,
+          loyalty: f.loyalty, // For MDFC planeswalkers
         }))
       : undefined,
   };
