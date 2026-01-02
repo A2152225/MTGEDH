@@ -27,6 +27,7 @@ import { runSBA, applyCounterModifications, movePermanentToGraveyard } from "./c
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 
 /**
@@ -3790,6 +3791,117 @@ export function resolveTopOfStack(ctx: GameContext) {
         return;
       } else {
         debugWarn(2, `[resolveTopOfStack] Hideaway trigger: permanent ${permanentId} not found on battlefield`);
+      }
+    }
+
+    // ========================================================================
+    // MODAL TRIGGER: "Choose one" or "Choose X" triggers
+    // These need to present the player with modal choices before executing
+    // ========================================================================
+    const requiresChoice = (item as any).requiresChoice;
+    
+    if (requiresChoice && triggerType === 'begin_combat') {
+      // Handle "SOLDIER Military Program" and similar "choose one" beginning of combat triggers
+      const oracleText = (item as any).effect || description || '';
+      const lowerText = oracleText.toLowerCase();
+      
+      // Check if this is SOLDIER Military Program specifically
+      const isSoldierProgram = sourceName.toLowerCase().includes('soldier military program');
+      
+      if (isSoldierProgram || lowerText.includes('choose one')) {
+        // Skip adding resolution steps during replay
+        const isReplaying = (ctx as any).isReplaying;
+        if (isReplaying) {
+          debug(2, `[resolveTopOfStack] Modal trigger: skipping resolution step during replay`);
+          return;
+        }
+        
+        const gameId = (ctx as any).gameId || 'unknown';
+        const battlefield = state.battlefield || [];
+        
+        // For SOLDIER Military Program, check if player controls a commander
+        let canChooseBoth = false;
+        if (isSoldierProgram) {
+          // Check if player controls a commander
+          const commandZone = (state as any).commandZone?.[triggerController];
+          const commanderIds = commandZone?.commanderIds || [];
+          
+          // Check if any commander is on the battlefield
+          canChooseBoth = battlefield.some((p: any) => 
+            p.controller === triggerController && commanderIds.includes(p.card?.id)
+          );
+          
+          debug(2, `[resolveTopOfStack] SOLDIER Military Program: player ${canChooseBoth ? 'controls' : 'does not control'} a commander`);
+        }
+        
+        // Create modal choice options
+        const options: ChoiceOption[] = [];
+        
+        if (isSoldierProgram) {
+          // SOLDIER Military Program specific options
+          options.push({
+            id: 'create_token',
+            label: 'Create a 1/1 white Soldier creature token',
+            description: 'Create a 1/1 white Soldier creature token.',
+          });
+          
+          options.push({
+            id: 'add_counters',
+            label: 'Put a +1/+1 counter on each of up to two Soldiers',
+            description: 'Put a +1/+1 counter on each of up to two Soldiers you control.',
+          });
+          
+          if (canChooseBoth) {
+            options.push({
+              id: 'both',
+              label: 'Choose both (you control a commander)',
+              description: 'Create a 1/1 white Soldier creature token AND put a +1/+1 counter on each of up to two Soldiers you control.',
+            });
+          }
+        } else {
+          // Generic modal trigger - parse options from oracle text
+          // This is a simplified parser - may need enhancement for complex cases
+          const optionMatches = oracleText.match(/•\s*([^•]+)/g);
+          if (optionMatches) {
+            optionMatches.forEach((match, index) => {
+              const optionText = match.replace(/^•\s*/, '').trim();
+              options.push({
+                id: `option_${index + 1}`,
+                label: optionText,
+                description: optionText,
+              });
+            });
+          }
+        }
+        
+        if (options.length > 0) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MODAL_CHOICE,
+            playerId: triggerController as PlayerID,
+            description: `${sourceName}: ${canChooseBoth ? 'Choose one or both' : 'Choose one'}`,
+            mandatory: true,
+            sourceName: sourceName,
+            sourceImage: (item as any).imageUrl,
+            promptTitle: sourceName,
+            promptDescription: oracleText,
+            options: options,
+            minSelections: 1,
+            maxSelections: canChooseBoth ? 2 : 1,
+            // Store trigger data for resolution handler
+            triggerData: {
+              triggerType,
+              sourceName,
+              sourceId,
+              isSoldierProgram,
+              canChooseBoth,
+            },
+          } as any);
+          
+          debug(2, `[resolveTopOfStack] Modal trigger ${sourceName}: added resolution step for ${triggerController} to choose from ${options.length} options`);
+          
+          // DON'T execute the trigger effect yet - wait for player choice
+          return;
+        }
       }
     }
 

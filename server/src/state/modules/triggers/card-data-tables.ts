@@ -747,6 +747,12 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   // Equipment triggers
   "helm of the host": { effect: "Create a token that's a copy of equipped creature, except it's not legendary and has haste", tokenCopy: true, createsToken: true },
   "blade of selves": { effect: "Myriad - create token copies attacking each opponent", tokenCopy: true, createsToken: true },
+  // Modal triggers (choose one)
+  "soldier military program": { 
+    effect: "Choose one. If you control a commander, you may choose both instead: Create a 1/1 white Soldier creature token; or Put a +1/+1 counter on each of up to two Soldiers you control.", 
+    requiresChoice: true, 
+    createsToken: true 
+  },
   // Combat phase triggers
   "reconnaissance": { effect: "Remove attacking creature from combat and untap it" },
   "aggravated assault": { effect: "Pay to untap creatures and get additional combat phase" },

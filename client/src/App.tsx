@@ -4088,7 +4088,7 @@ export function App() {
     if (!safeView) return;
     socket.emit("orderTriggers", {
       gameId: safeView.id,
-      triggerOrder: orderedTriggerIds,
+      orderedTriggerIds: orderedTriggerIds,  // FIX: Use correct parameter name expected by server
     });
     // Clear all the ordered triggers from pending
     setPendingTriggers(prev => prev.filter(t => !orderedTriggerIds.includes(t.id)));

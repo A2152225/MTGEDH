@@ -4747,11 +4747,110 @@ async function handleModalChoiceResponse(
   }
   
   // Generic modal choice handling (fallback for other modal choices)
-  debug(2, `[Resolution] Generic modal choice: ${step.description}, selected: ${selectedId}`);
+  debug(2, `[Resolution] Generic modal choice: ${step.description}, selected: ${selectedId || 'none'}`);
+  
+  // Check if this is a trigger modal choice (e.g., SOLDIER Military Program)
+  const triggerData = (modalStep as any).triggerData;
+  if (triggerData && triggerData.isSoldierProgram) {
+    // Normalize selections to array of strings
+    let choiceIds: string[] = [];
+    if (typeof selections === 'string') {
+      choiceIds = [selections];
+    } else if (Array.isArray(selections)) {
+      choiceIds = selections as string[];
+    }
+    
+    await handleSoldierProgramChoice(io, game, gameId, pid, choiceIds, triggerData);
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    return;
+  }
   
   // For generic modal choices without specific data, just log and continue
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
+  }
+}
+
+/**
+ * Handle SOLDIER Military Program modal choice resolution
+ */
+async function handleSoldierProgramChoice(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  choiceIds: string[],
+  triggerData: any
+): Promise<void> {
+  if (choiceIds.length === 0) {
+    debugWarn(1, '[Resolution] SOLDIER Military Program: No choice selected');
+    return;
+  }
+  
+  const { createToken } = await import("../state/modules/counters_tokens.js");
+  
+  const battlefield = game.state.battlefield || [];
+  const actionMessages: string[] = [];
+  
+  // Card text specifies "up to two Soldiers"
+  const MAX_SOLDIERS_FOR_COUNTERS = 2;
+  
+  // Check what the player chose
+  for (const choiceId of choiceIds) {
+    if (choiceId === 'create_token' || choiceId === 'both') {
+      // Create a 1/1 white Soldier creature token
+      createToken(
+        {
+          state: game.state,
+          bumpSeq: () => game.bumpSeq?.(),
+          libraries: (game as any).libraries,
+          commandZone: (game as any).commandZone || {},
+        } as any,
+        playerId,
+        'Soldier', // token name
+        1, // quantity
+        1, // basePower
+        1  // baseToughness
+      );
+      
+      actionMessages.push('created a 1/1 white Soldier creature token');
+      debug(2, `[Resolution] SOLDIER Military Program: Created Soldier token for ${playerId}`);
+    }
+    
+    if (choiceId === 'add_counters' || choiceId === 'both') {
+      // Put a +1/+1 counter on each of up to two Soldiers you control
+      const soldiers = battlefield.filter((p: any) => {
+        if (p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        return typeLine.includes('soldier');
+      });
+      
+      // Add counters to up to MAX_SOLDIERS_FOR_COUNTERS soldiers
+      const soldiersToBoost = soldiers.slice(0, MAX_SOLDIERS_FOR_COUNTERS);
+      if (soldiersToBoost.length > 0) {
+        for (const soldier of soldiersToBoost) {
+          soldier.counters = soldier.counters || {};
+          soldier.counters['+1/+1'] = (soldier.counters['+1/+1'] || 0) + 1;
+          debug(2, `[Resolution] SOLDIER Military Program: Added +1/+1 counter to ${soldier.card?.name || soldier.id}`);
+        }
+        actionMessages.push(`put a +1/+1 counter on ${soldiersToBoost.length} Soldier${soldiersToBoost.length > 1 ? 's' : ''}`);
+      } else {
+        debug(2, `[Resolution] SOLDIER Military Program: No Soldiers to add counters to`);
+      }
+    }
+  }
+  
+  if (actionMessages.length > 0) {
+    const message = `${getPlayerName(game, playerId)} ${actionMessages.join(' and ')}.`;
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: message,
+      ts: Date.now(),
+    });
   }
 }
 
