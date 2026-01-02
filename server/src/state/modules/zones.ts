@@ -69,6 +69,7 @@ export function importDeckResolved(
     mana_cost: (c as any).mana_cost,
     power: (c as any).power,
     toughness: (c as any).toughness,
+    loyalty: (c as any).loyalty, // Planeswalker starting loyalty - CRITICAL for planeswalkers
     card_faces: (c as any).card_faces,
     layout: (c as any).layout,
     color_identity: (c as any).color_identity,
