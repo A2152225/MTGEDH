@@ -290,9 +290,9 @@ async function main() {
     await initDb();
     debug(2, "[Server] Database initialized successfully.");
     
-    // Clear planeswalker cache to force re-fetch with loyalty field
-    // This fixes planeswalker loyalty display after the loyalty field was added to ScryfallCard type
-    debug(2, "[Server] Clearing planeswalker cache entries...");
+    // Optionally clear planeswalker cache to force re-fetch with loyalty field
+    // Set environment variable CLEAR_PLANESWALKER_CACHE=true to enable on startup
+    // This is useful after adding new fields like loyalty to the ScryfallCard type
     clearPlaneswalkerCache();
   } catch (err) {
     debugError(1, "[Server] Failed to initialize database:", err);
