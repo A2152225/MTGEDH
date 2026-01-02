@@ -2707,6 +2707,19 @@ export function App() {
         });
         setLibrarySearchModalOpen(true);
       }
+      // Handle color choice via resolution queue (Throne of Eldraine, Caged Sun, etc.)
+      else if (step.type === 'color_choice') {
+        setColorChoiceModalData({
+          confirmId: step.id,
+          permanentId: (step as any).permanentId || step.sourceId,
+          spellId: (step as any).spellId,
+          cardName: (step as any).cardName || step.sourceName || 'Permanent',
+          reason: (step as any).reason || step.description || 'Choose a color',
+          imageUrl: step.sourceImage,
+          colors: (step as any).colors || ['white', 'blue', 'black', 'red', 'green'],
+        });
+        setColorChoiceModalOpen(true);
+      }
       // Handle creature type choice via resolution queue
       else if (step.type === 'creature_type_choice') {
         setCreatureTypeModalData({
