@@ -618,6 +618,7 @@ async function applyConfirmedImport(
             mana_cost: (c as any).mana_cost,
             power: (c as any).power,
             toughness: (c as any).toughness,
+            loyalty: (c as any).loyalty,
             card_faces: (c as any).card_faces,
             layout: (c as any).layout,
           }))
@@ -1204,6 +1205,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             mana_cost: (c as any).mana_cost,
             power: (c as any).power,
             toughness: (c as any).toughness,
+            loyalty: (c as any).loyalty,
             card_faces: (c as any).card_faces,
             layout: (c as any).layout,
           }))
@@ -1864,6 +1866,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               mana_cost: (c as any).mana_cost,
               power: (c as any).power,
               toughness: (c as any).toughness,
+              loyalty: (c as any).loyalty,
               card_faces: (c as any).card_faces,
               layout: (c as any).layout,
             }))
@@ -2706,6 +2709,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 mana_cost: (card as any).mana_cost,
                 power: (card as any).power,
                 toughness: (card as any).toughness,
+                loyalty: (card as any).loyalty,
                 card_faces: (card as any).card_faces,
                 layout: (card as any).layout,
               });
@@ -3140,6 +3144,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               mana_cost: (c as any).mana_cost,
               power: (c as any).power,
               toughness: (c as any).toughness,
+              loyalty: (c as any).loyalty,
               card_faces: (c as any).card_faces,
               layout: (c as any).layout,
             }))
