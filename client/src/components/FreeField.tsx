@@ -1111,18 +1111,19 @@ export function FreeField(props: {
                 {console.log('[PLANESWALKER DEBUG] Rendering loyalty buttons for', name, { showActivatedAbilityButtons, isController: raw.controller === playerId, isPlaneswalker })}
                 <ActivatedAbilityButtons
                   perm={raw}
-                tileWidth={tileWidth}
-                hasPriority={hasPriority}
-                isOwnTurn={isOwnTurn}
-                isMainPhase={isMainPhase}
-                stackEmpty={stackEmpty}
-                hasThousandYearElixirEffect={hasThousandYearElixirEffect}
-                onActivateAbility={onActivateAbility}
-                showOnHover={false}
-                maxVisible={6}
-                position="loyalty-inline"
-                loyaltyAbilitiesOnly={true}
-              />
+                  tileWidth={tileWidth}
+                  hasPriority={hasPriority}
+                  isOwnTurn={isOwnTurn}
+                  isMainPhase={isMainPhase}
+                  stackEmpty={stackEmpty}
+                  hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                  onActivateAbility={onActivateAbility}
+                  showOnHover={false}
+                  maxVisible={6}
+                  position="loyalty-inline"
+                  loyaltyAbilitiesOnly={true}
+                />
+              </>
             )}
           </div>
         );
