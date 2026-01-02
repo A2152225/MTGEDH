@@ -223,22 +223,42 @@ const cache = new Map<string, ScryfallCard>();
  * - Debugging cache issues
  * 
  * @param force - If true, clears the cache regardless of environment variables.
- *                If false/undefined, only clears if CLEAR_PLANESWALKER_CACHE=true env var is set.
+ *                If false/undefined, only clears if CLEAR_PLANESWALKER_CACHE=true env var is set
+ *                OR if auto-detection finds planeswalkers missing the loyalty field.
  * @returns The number of planeswalker entries cleared
  */
 export function clearPlaneswalkerCache(force: boolean = false): number {
-  // Only clear if explicitly forced or if environment variable is set
-  if (!force && process.env.CLEAR_PLANESWALKER_CACHE !== 'true') {
-    console.log(`[SCRYFALL] Skipping planeswalker cache clear (set CLEAR_PLANESWALKER_CACHE=true to enable)`);
-    return 0;
-  }
-
   const toDelete: string[] = [];
+  let hasInvalidPlaneswalkers = false;
+  
+  // Check for planeswalkers missing loyalty field (indicates outdated cache)
   for (const [key, card] of cache.entries()) {
     if (card.type_line?.toLowerCase().includes('planeswalker')) {
+      // If any planeswalker is missing the loyalty field, we need to clear all of them
+      if (card.loyalty === undefined) {
+        hasInvalidPlaneswalkers = true;
+      }
       toDelete.push(key);
     }
   }
+  
+  // Only clear if:
+  // 1. Explicitly forced, OR
+  // 2. Environment variable is set, OR  
+  // 3. Auto-detection found planeswalkers without loyalty field
+  const shouldClear = force || 
+                     process.env.CLEAR_PLANESWALKER_CACHE === 'true' || 
+                     hasInvalidPlaneswalkers;
+  
+  if (!shouldClear) {
+    console.log(`[SCRYFALL] No planeswalker cache clearing needed (${toDelete.length} planeswalkers in cache, all have loyalty field)`);
+    return 0;
+  }
+  
+  if (hasInvalidPlaneswalkers && !force && process.env.CLEAR_PLANESWALKER_CACHE !== 'true') {
+    console.log(`[SCRYFALL] Auto-detected ${toDelete.length} planeswalkers in cache missing loyalty field - clearing automatically`);
+  }
+  
   for (const key of toDelete) {
     cache.delete(key);
   }
