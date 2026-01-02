@@ -229,7 +229,7 @@ function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boo
  * Currently handles common red cost reducers (Fire Crystal, Hazoret's Monument,
  * Ruby Medallion) and Aura of Silence style taxes.
  */
-function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): number {
+export function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): number {
   if (!state?.battlefield || !card) return 0;
   
   const typeLine = (card.type_line || "").toLowerCase();

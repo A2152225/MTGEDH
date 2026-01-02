@@ -1734,7 +1734,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           };
           
           // Import block trigger function dynamically to avoid circular dependencies
-          const { getBlockTriggersForCreatures } = await import("../state/modules/triggered-abilities.js");
+          const { getBlockTriggersForCreatures } = await import("../state/modules/triggers/index.js");
           
           const triggers = getBlockTriggersForCreatures(
             ctx as any,
