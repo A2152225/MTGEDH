@@ -24,7 +24,7 @@ import {
   buildFolderTree,
 } from "../db/decks";
 import type { KnownCardRef, PlayerID, GameState } from "../../../shared/src";
-import { GamePhase } from "../../../shared/src";
+import { GamePhase, createCardFromScryfall } from "../../../shared/src";
 import { COMMANDER_PRECONS } from "../../../shared/src/precons";
 
 // NEW: helpers to push candidate/suggest events to player's sockets
@@ -1122,19 +1122,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           for (let i = 0; i < (count || 1); i++) {
             validationCards.push(c);
             // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-            resolvedCards.push({
-              id: generateUniqueCardInstanceId(c.id),
-              name: c.name,
-              type_line: c.type_line,
-              oracle_text: c.oracle_text,
-              image_uris: c.image_uris,
-              mana_cost: (c as any).mana_cost,
-              power: (c as any).power,
-              toughness: (c as any).toughness,
-              card_faces: (c as any).card_faces,
-              layout: (c as any).layout,
-              loyalty: (c as any).loyalty,
-            });
+            resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
           }
         }
       } else {
@@ -1144,19 +1132,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             for (let i = 0; i < (count || 1); i++) {
               validationCards.push(c);
               // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-              resolvedCards.push({
-                id: generateUniqueCardInstanceId(c.id),
-                name: c.name,
-                type_line: c.type_line,
-                oracle_text: c.oracle_text,
-                image_uris: c.image_uris,
-                mana_cost: (c as any).mana_cost,
-                power: (c as any).power,
-                toughness: (c as any).toughness,
-                card_faces: (c as any).card_faces,
-                layout: (c as any).layout,
-                loyalty: (c as any).loyalty,
-              });
+              resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
             }
           } catch {
             missing.push(name);
@@ -1689,19 +1665,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           // Use cached cards - no need to query Scryfall API
           // IMPORTANT: Generate unique instance IDs even for cached cards to avoid
           // duplicate ID issues with multiple copies of the same card (e.g., basic lands)
-          resolvedCards = saved.cached_cards!.map((c: any) => ({
-            id: generateUniqueCardInstanceId(c.id),
-            name: c.name,
-            type_line: c.type_line,
-            oracle_text: c.oracle_text,
-            image_uris: c.image_uris,
-            mana_cost: c.mana_cost,
-            power: c.power,
-            toughness: c.toughness,
-            card_faces: c.card_faces,
-            layout: c.layout,
-            loyalty: c.loyalty,
-          }));
+          resolvedCards = saved.cached_cards!.map((c: any) => 
+            createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) })
+          );
           usedCache = true;
           debug(1, "[deck] useSavedDeck using cached cards", {
             gameId,
@@ -1745,19 +1711,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 continue;
               }
               for (let i = 0; i < (count || 1); i++) {
-                resolvedCards.push({
-                  id: generateUniqueCardInstanceId(c.id),
-                  name: c.name,
-                  type_line: c.type_line,
-                  oracle_text: c.oracle_text,
-                  image_uris: c.image_uris,
-                  mana_cost: (c as any).mana_cost,
-                  power: (c as any).power,
-                  toughness: (c as any).toughness,
-                  card_faces: (c as any).card_faces,
-                  layout: (c as any).layout,
-                  loyalty: (c as any).loyalty,
-                });
+                resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
               }
             }
           } else {
@@ -1765,19 +1719,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               try {
                 const c = await fetchCardByExactNameStrict(name);
                 for (let i = 0; i < (count || 1); i++) {
-                  resolvedCards.push({
-                    id: generateUniqueCardInstanceId(c.id),
-                    name: c.name,
-                    type_line: c.type_line,
-                    oracle_text: c.oracle_text,
-                    image_uris: c.image_uris,
-                    mana_cost: (c as any).mana_cost,
-                    power: (c as any).power,
-                    toughness: (c as any).toughness,
-                    card_faces: (c as any).card_faces,
-                    layout: (c as any).layout,
-                    loyalty: (c as any).loyalty,
-                  });
+                  resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
                 }
               } catch {
                 missing.push(name);
@@ -2160,19 +2102,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                   const c = byName.get(key);
                   if (c) {
                     for (let i = 0; i < (count || 1); i++) {
-                      resolvedCards.push({
-                        id: c.id,
-                        name: c.name,
-                        type_line: c.type_line,
-                        oracle_text: c.oracle_text,
-                        image_uris: c.image_uris,
-                        mana_cost: c.mana_cost,
-                        power: c.power,
-                        toughness: c.toughness,
-                        card_faces: c.card_faces,
-                        layout: c.layout,
-                        loyalty: (c as any).loyalty,
-                      });
+                      resolvedCards.push(createCardFromScryfall(c));
                     }
                   }
                 }
@@ -2493,19 +2423,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           const c = byName.get(key);
           if (c) {
             for (let i = 0; i < (count || 1); i++) {
-              resolvedCards.push({
-                id: c.id,
-                name: c.name,
-                type_line: c.type_line,
-                oracle_text: c.oracle_text,
-                image_uris: c.image_uris,
-                mana_cost: c.mana_cost,
-                power: c.power,
-                toughness: c.toughness,
-                card_faces: c.card_faces,
-                layout: c.layout,
-                loyalty: (c as any).loyalty,
-              });
+              resolvedCards.push(createCardFromScryfall(c));
             }
           }
         }
@@ -2700,19 +2618,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             const card = await fetchCardByExactNameStrict(commanderName);
             if (card) {
               // Generate unique instance ID even for commanders
-              resolvedCommanders.push({
-                id: generateUniqueCardInstanceId(card.id),
-                name: card.name,
-                type_line: card.type_line,
-                oracle_text: card.oracle_text,
-                image_uris: card.image_uris,
-                mana_cost: (card as any).mana_cost,
-                power: (card as any).power,
-                toughness: (card as any).toughness,
-                loyalty: (card as any).loyalty,
-                card_faces: (card as any).card_faces,
-                layout: (card as any).layout,
-              });
+              resolvedCommanders.push(createCardFromScryfall(card, { instanceId: generateUniqueCardInstanceId(card.id) }));
             }
           } catch (e) {
             debugWarn(1, `Failed to fetch commander "${commanderName}":`, e);
@@ -2760,19 +2666,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                   if (card) {
                     // Add multiple copies if count > 1
                     for (let i = 0; i < parsedCard.count; i++) {
-                      resolvedCards.push({
-                        id: generateUniqueCardInstanceId(card.id),
-                        name: card.name,
-                        type_line: card.type_line,
-                        oracle_text: card.oracle_text,
-                        image_uris: card.image_uris,
-                        mana_cost: (card as any).mana_cost,
-                        power: (card as any).power,
-                        toughness: (card as any).toughness,
-                        card_faces: (card as any).card_faces,
-                        layout: (card as any).layout,
-                        loyalty: (card as any).loyalty,
-                      });
+                      resolvedCards.push(createCardFromScryfall(card, { instanceId: generateUniqueCardInstanceId(card.id) }));
                     }
                   }
                 } catch (e) {
@@ -3081,19 +2975,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             for (let i = 0; i < (count || 1); i++) {
               validationCards.push(c);
               // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-              resolvedCards.push({
-                id: generateUniqueCardInstanceId(c.id),
-                name: c.name,
-                type_line: c.type_line,
-                oracle_text: c.oracle_text,
-                image_uris: c.image_uris,
-                mana_cost: (c as any).mana_cost,
-                power: (c as any).power,
-                toughness: (c as any).toughness,
-                card_faces: (c as any).card_faces,
-                layout: (c as any).layout,
-                loyalty: (c as any).loyalty,
-              });
+              resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
             }
           }
         } else {
@@ -3103,19 +2985,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               for (let i = 0; i < (count || 1); i++) {
                 validationCards.push(c);
                 // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-                resolvedCards.push({
-                  id: generateUniqueCardInstanceId(c.id),
-                  name: c.name,
-                  type_line: c.type_line,
-                  oracle_text: c.oracle_text,
-                  image_uris: c.image_uris,
-                  mana_cost: (c as any).mana_cost,
-                  power: (c as any).power,
-                  toughness: (c as any).toughness,
-                  card_faces: (c as any).card_faces,
-                  layout: (c as any).layout,
-                  loyalty: (c as any).loyalty,
-                });
+                resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
               }
             } catch {
               missing.push(name);

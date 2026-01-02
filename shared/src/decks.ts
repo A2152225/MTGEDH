@@ -25,6 +25,7 @@ export interface CachedCard {
   mana_cost?: string;
   power?: string;
   toughness?: string;
+  loyalty?: string; // Planeswalker starting loyalty
   card_faces?: Array<{
     name?: string;
     mana_cost?: string;
@@ -37,6 +38,7 @@ export interface CachedCard {
     };
     power?: string;
     toughness?: string;
+    loyalty?: string; // For MDFC planeswalkers
   }>;
   layout?: string;
 }
