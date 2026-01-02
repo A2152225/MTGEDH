@@ -1676,7 +1676,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         let resolvedCards: Array<
           Pick<
             KnownCardRef,
-            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
+            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout" | "loyalty"
           >
         > = [];
         let missing: string[] = [];
@@ -1698,6 +1698,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             toughness: c.toughness,
             card_faces: c.card_faces,
             layout: c.layout,
+            loyalty: c.loyalty,
           }));
           usedCache = true;
           debug(1, "[deck] useSavedDeck using cached cards", {
@@ -1753,6 +1754,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                   toughness: (c as any).toughness,
                   card_faces: (c as any).card_faces,
                   layout: (c as any).layout,
+                  loyalty: (c as any).loyalty,
                 });
               }
             }
@@ -1772,6 +1774,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                     toughness: (c as any).toughness,
                     card_faces: (c as any).card_faces,
                     layout: (c as any).layout,
+                    loyalty: (c as any).loyalty,
                   });
                 }
               } catch {
@@ -2165,6 +2168,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                         toughness: c.toughness,
                         card_faces: c.card_faces,
                         layout: c.layout,
+                        loyalty: (c as any).loyalty,
                       });
                     }
                   }
@@ -2497,6 +2501,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 toughness: c.toughness,
                 card_faces: c.card_faces,
                 layout: c.layout,
+                loyalty: (c as any).loyalty,
               });
             }
           }
@@ -2762,6 +2767,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                         toughness: (card as any).toughness,
                         card_faces: (card as any).card_faces,
                         layout: (card as any).layout,
+                        loyalty: (card as any).loyalty,
                       });
                     }
                   }
@@ -3054,7 +3060,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         const resolvedCards: Array<
           Pick<
             KnownCardRef,
-            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
+            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout" | "loyalty"
           >
         > = [];
         const validationCards: any[] = [];
@@ -3082,6 +3088,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 toughness: (c as any).toughness,
                 card_faces: (c as any).card_faces,
                 layout: (c as any).layout,
+                loyalty: (c as any).loyalty,
               });
             }
           }
@@ -3103,6 +3110,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                   toughness: (c as any).toughness,
                   card_faces: (c as any).card_faces,
                   layout: (c as any).layout,
+                  loyalty: (c as any).loyalty,
                 });
               }
             } catch {
