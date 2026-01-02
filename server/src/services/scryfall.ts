@@ -255,6 +255,16 @@ function toCachedCard(data: any): ScryfallCard {
   const frontFaceImages = data.card_faces?.[0]?.image_uris ?? null;
   const resolvedImageUris = data.image_uris ?? frontFaceImages;
 
+  // Debug logging for planeswalkers
+  if (data.type_line?.toLowerCase().includes('planeswalker')) {
+    console.log('[SCRYFALL DEBUG] Caching planeswalker:', {
+      name: data.name,
+      type_line: data.type_line,
+      'data.loyalty': data.loyalty,
+      'data keys': Object.keys(data).filter(k => k.includes('loyal') || k === 'power' || k === 'toughness')
+    });
+  }
+
   const card: ScryfallCard = {
     id: data.id,
     name: data.name,
@@ -291,6 +301,15 @@ function toCachedCard(data: any): ScryfallCard {
     cache.set(card.id, card);
     if (card.card_faces) {
       for (const f of card.card_faces) if (f.name) cache.set(lcKey(f.name), card);
+    }
+    
+    // Debug logging for planeswalkers after caching
+    if (card.type_line?.toLowerCase().includes('planeswalker')) {
+      console.log('[SCRYFALL DEBUG] Cached planeswalker result:', {
+        name: card.name,
+        'card.loyalty': card.loyalty,
+        'cached value': cache.get(lcKey(card.name))?.loyalty
+      });
     }
   } catch (e) {
     /* ignore caching errors */
