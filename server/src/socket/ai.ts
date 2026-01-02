@@ -2649,21 +2649,20 @@ export async function handleAIPriority(
       }
       
       if (step.includes('blockers') || step === 'declare_blockers') {
-        // Check if blockers have already been declared this step
-        // by looking for any creatures marked as blocking
-        const battlefield = game.state?.battlefield || [];
-        const alreadyDeclaredBlockers = battlefield.some((perm: any) => 
-          perm.controller === playerId && Array.isArray(perm.blocking) && perm.blocking.length > 0
-        );
+        // Check if blockers have already been declared this step using blockersDeclaredBy array
+        const state = game.state as any;
+        const blockersDeclaredBy = state.blockersDeclaredBy || [];
+        const alreadyDeclared = blockersDeclaredBy.includes(playerId);
         
-        if (alreadyDeclaredBlockers) {
+        if (alreadyDeclared) {
           // Blockers already declared, just pass priority to allow responses
-          debug(1, '[AI] Blockers already declared, passing priority for responses');
+          debug(1, '[AI] Blockers already declared (in blockersDeclaredBy), passing priority for responses');
           await executePassPriority(io, gameId, playerId);
           return;
         }
         
         // Get the attacking creatures from the battlefield
+        const battlefield = game.state?.battlefield || [];
         const attackingCreatures = battlefield.filter((perm: any) => 
           perm.attacking === true
         );
