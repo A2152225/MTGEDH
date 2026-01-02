@@ -31,6 +31,7 @@ export type ScryfallCard = {
   legalities?: Record<string, string>;
   power?: string;
   toughness?: string;
+  loyalty?: string; // Planeswalker starting loyalty
   layout?: string;
   card_faces?: Array<{
     name?: string;
@@ -40,6 +41,7 @@ export type ScryfallCard = {
     image_uris?: { small?: string; normal?: string; art_crop?: string };
     power?: string;
     toughness?: string;
+    loyalty?: string; // For planeswalker card faces (MDFCs)
   }>;
 };
 
