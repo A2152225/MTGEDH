@@ -903,8 +903,8 @@ function hasActivatableAbility(
         if (lifeMatch) {
           const lifeCost = parseInt(lifeMatch[1], 10);
           const currentLife = state.life?.[playerId] ?? 40;
-          if (currentLife <= lifeCost) {
-            return false; // Can't pay life cost (would die or go to 0)
+          if (currentLife < lifeCost) {
+            return false; // Can't pay life cost
           }
         }
       }
