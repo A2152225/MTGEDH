@@ -1199,6 +1199,10 @@ function executeTriggerEffect(
       const toughness = parseInt(createTokenMatch[3], 10);
       const tokenDescription = createTokenMatch[4].trim();
       
+      // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+      const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+      debug(2, `[executeTriggerEffect] Creating ${tokensToCreate} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+      
       // Determine if tokens enter attacking
       // Patterns: "tapped and attacking", "that's attacking", "that is attacking", "attacking"
       const entersAttacking = desc.includes('attacking') || desc.includes('that\'s attacking') || desc.includes('that is attacking');
@@ -1253,7 +1257,7 @@ function executeTriggerEffect(
       }
       
       // Create the tokens
-      for (let i = 0; i < tokenCount; i++) {
+      for (let i = 0; i < tokensToCreate; i++) {
         const tokenId = uid("token");
         const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
         const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
@@ -1471,6 +1475,10 @@ function executeTriggerEffect(
       const toughness = parseInt(createTokenMatch[3], 10);
       const tokenDescription = createTokenMatch[4].trim();
       
+      // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+      const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+      debug(2, `[executeTriggerEffect] Block trigger creating ${tokensToCreate} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+      
       // Check for "blocking that creature" pattern
       const entersBlocking = desc.includes('blocking that creature') || desc.includes('that\'s blocking');
       
@@ -1510,7 +1518,7 @@ function executeTriggerEffect(
       }
       
       // Create tokens
-      for (let i = 0; i < tokenCount; i++) {
+      for (let i = 0; i < tokensToCreate; i++) {
         const tokenId = uid("token");
         const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
         const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
@@ -2487,8 +2495,12 @@ function executeTriggerEffect(
     const tokenInfo = predefinedTokenTypes[tokenType];
     
     if (tokenInfo) {
+      // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+      const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+      debug(2, `[executeTriggerEffect] Creating ${tokensToCreate} ${tokenType} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+      
       state.battlefield = state.battlefield || [];
-      for (let i = 0; i < tokenCount; i++) {
+      for (let i = 0; i < tokensToCreate; i++) {
         const tokenId = uid("token");
         const tokenName = tokenType.charAt(0).toUpperCase() + tokenType.slice(1);
         
@@ -2531,6 +2543,10 @@ function executeTriggerEffect(
     const toughness = parseInt(createTokenMatch[3], 10);
     const tokenDescription = createTokenMatch[4].trim();
     
+    // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+    const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+    debug(2, `[executeTriggerEffect] Generic trigger creating ${tokensToCreate} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+    
     // Check for "tapped and attacking" pattern
     const isTappedAndAttacking = desc.includes('tapped and attacking');
     
@@ -2568,7 +2584,7 @@ function executeTriggerEffect(
     
     // Create the tokens
     state.battlefield = state.battlefield || [];
-    for (let i = 0; i < tokenCount; i++) {
+    for (let i = 0; i < tokensToCreate; i++) {
       const tokenId = uid("token");
       const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
       const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
@@ -4588,8 +4604,161 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     debug(2, `[resolveTopOfStack] Permanent ${effectiveCard.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
     
-    // Check for Devour X mechanic
+    // ========================================================================
+    // ETB CHOICES: Color, Creature Type, and other "as it enters" effects
+    // These happen during resolution (Rule 608.2f) and must complete before
+    // the spell finishes resolving. They don't give priority, just pause
+    // resolution until the player makes their choice.
+    // ========================================================================
     const oracleText = (effectiveCard.oracle_text || '').toLowerCase();
+    const gameId = (ctx as any).gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    
+    // Check for Color Choice ETB ("As ~ enters, choose a color")
+    // Examples: Throne of Eldraine, Caged Sun, Gauntlet of Power
+    const colorChoicePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r/i;
+    if (colorChoicePattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenColor) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.COLOR_CHOICE,
+          playerId: controller as PlayerID,
+          description: `Choose a color for ${effectiveCard.name}`,
+          mandatory: !oracleText.includes('you may'),
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          colors: ['White', 'Blue', 'Black', 'Red', 'Green'],
+          permanentId: newPermId,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, added resolution step`);
+      }
+    }
+    
+    // Check for Creature Type Choice ETB ("As ~ enters, choose a creature type")
+    // Examples: Cavern of Souls, Door of Destinies, Coat of Arms variants
+    const creatureTypePattern = /as .+? enters(?: the battlefield)?,?\s+choose a creature type/i;
+    if (creatureTypePattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenCreatureType) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+          playerId: controller as PlayerID,
+          description: `Choose a creature type for ${effectiveCard.name}`,
+          mandatory: true,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires creature type choice, added resolution step`);
+      }
+    }
+    
+    // Check for Card Name Choice ETB ("As ~ enters, choose a card name")
+    // Examples: Pithing Needle, Runed Halo, Nevermore, Meddling Mage
+    const cardNamePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?(?:name|choose) a (?:card|nonland card)(?: name)?/i;
+    if (cardNamePattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenCardName) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.CARD_NAME_CHOICE,
+          playerId: controller as PlayerID,
+          description: `Choose a card name for ${effectiveCard.name}`,
+          mandatory: !oracleText.includes('you may'),
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires card name choice, added resolution step`);
+      }
+    }
+    
+    // Check for Opponent/Player Choice ETB ("As ~ enters, choose an opponent" or "choose a player")
+    // Examples: Xantcha, Sleeper Agent, Curses, Vow cycle
+    const opponentPattern = /as .+? enters(?: the battlefield)?,?\s+choose (?:an opponent|a player)/i;
+    if (opponentPattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenPlayer) {
+        // Determine if it should be opponent only or any player
+        const opponentOnly = oracleText.includes('choose an opponent');
+        const allPlayers = state.players || [];
+        const validPlayers = opponentOnly 
+          ? allPlayers.filter((p: any) => p.id !== controller)
+          : allPlayers;
+        
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.PLAYER_CHOICE,
+          playerId: controller as PlayerID,
+          description: opponentOnly 
+            ? `Choose an opponent for ${effectiveCard.name}`
+            : `Choose a player for ${effectiveCard.name}`,
+          mandatory: true,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+          players: validPlayers.map((p: any) => ({
+            id: p.id,
+            name: p.name || `Player ${p.seat}`,
+          })),
+          opponentOnly: opponentOnly,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires ${opponentOnly ? 'opponent' : 'player'} choice, added resolution step`);
+      }
+    }
+    
+    // Check for Generic Option Choice ETB (2-way or multi-way choices)
+    // Examples: "choose flying or first strike", "choose odd or even", "choose Khan or Dragon"
+    // Pattern: "As ~ enters, choose X or Y" or "choose X, Y, or Z"
+    const optionPattern = /as .+? enters(?: the battlefield)?,?\s+choose (.+?)(?:\.|$)/i;
+    const optionMatch = oracleText.match(optionPattern);
+    if (optionMatch && !isReplaying) {
+      const choiceText = optionMatch[1];
+      // Check if this is a simple "A or B" or "A, B, or C" pattern
+      // Skip if it's already handled by specific patterns (color, creature type, card name, player)
+      const isSpecificPattern = 
+        /a colou?r/.test(choiceText) ||
+        /a creature type/.test(choiceText) ||
+        /a (?:card|nonland card)(?: name)?/.test(choiceText) ||
+        /(?:an opponent|a player)/.test(choiceText);
+      
+      if (!isSpecificPattern && !newPermanent.chosenOption) {
+        // Extract options from text
+        // Handle "A or B", "A, B, or C", etc.
+        let options: string[] = [];
+        
+        // Try to parse "X or Y" pattern
+        if (choiceText.includes(' or ')) {
+          const parts = choiceText.split(/,?\s+or\s+/);
+          options = parts.map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
+        } else if (choiceText.includes(',')) {
+          // Try "X, Y, Z" pattern
+          options = choiceText.split(',').map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
+        }
+        
+        // Only add step if we successfully parsed options
+        if (options.length >= 2) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: controller as PlayerID,
+            description: `Choose an option for ${effectiveCard.name}: ${options.join(' or ')}`,
+            mandatory: true,
+            sourceId: newPermId,
+            sourceName: effectiveCard.name || 'Permanent',
+            sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+            permanentId: newPermId,
+            options: options.map((opt, idx) => ({
+              id: `option_${idx}`,
+              label: opt.charAt(0).toUpperCase() + opt.slice(1),
+              value: opt,
+            })),
+            minSelections: 1,
+            maxSelections: 1,
+          });
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires option choice (${options.join('/')}), added resolution step`);
+        }
+      }
+    }
+    
+    // Check for Devour X mechanic
     const devourMatch = oracleText.match(/devour\s+(\d+)/);
     if (devourMatch && isCreature) {
       const devourValue = parseInt(devourMatch[1], 10);
@@ -7284,6 +7453,9 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         shouldEnterTapped = basicLandCount < 2;
         debug(2, `[playLand] ${card.name || 'Land'} battle land check: ${basicLandCount} basic lands - enters ${shouldEnterTapped ? 'tapped' : 'untapped'}`);
       } else {
+        // Get controlled permanents (for legendary creature check, etc.)
+        const controlledPermanents = battlefield.filter((p: any) => p.controller === playerId);
+        
         // Use general conditional evaluation for check lands, fast lands, slow lands, etc.
         const evaluation = evaluateConditionalLandETB(
           oracleText,
@@ -7291,7 +7463,8 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           controlledLandTypes,
           undefined,  // cardsInHand - not needed for these land types
           basicLandCount,  // Pass basic land count for battle lands if they reach this code path
-          opponentCount    // Pass opponent count for Luxury Suite and similar lands
+          opponentCount,    // Pass opponent count for Luxury Suite and similar lands
+          controlledPermanents  // Pass controlled permanents for legendary creature check
         );
         shouldEnterTapped = evaluation.shouldEnterTapped;
         debug(2, `[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);

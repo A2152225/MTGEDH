@@ -283,12 +283,15 @@ export interface ConditionalLandETBResult {
  * - Fast lands: "unless you control two or fewer other lands"
  * - Check lands: "unless you control a [type]" (Castle Locthwain, Dragonskull Summit)
  * - Reveal lands: "you may reveal a [type] card from your hand" (Furycalm Snarl)
+ * - Legendary creature lands: "unless you control a legendary creature" (Minas Tirith)
  * 
  * @param oracleText - The oracle text of the land
  * @param controlledLandCount - Number of OTHER lands the player controls (not counting this one)
  * @param controlledLandTypes - Array of land subtypes the player controls
  * @param cardsInHand - Player's hand (for reveal land checks)
  * @param basicLandCount - Number of BASIC lands the player controls (for battle lands)
+ * @param opponentCount - Number of opponents (for multiplayer lands)
+ * @param controlledPermanents - Array of all permanents the player controls (for legendary creature checks)
  * @returns Object with shouldEnterTapped, reason, and optional prompt for reveal lands
  */
 export function evaluateConditionalLandETB(
@@ -297,7 +300,8 @@ export function evaluateConditionalLandETB(
   controlledLandTypes: string[],
   cardsInHand?: any[],
   basicLandCount?: number,
-  opponentCount?: number
+  opponentCount?: number,
+  controlledPermanents?: any[]
 ): ConditionalLandETBResult {
   const text = (oracleText || '').toLowerCase();
   
@@ -393,6 +397,7 @@ export function evaluateConditionalLandETB(
   
   // Check lands with single type (Castle Locthwain - Swamp, Castle Garenbrig - Forest, etc.)
   // Also handles "basic land" requirement (Fire Nation Palace, etc.)
+  // Also handles "legendary creature" requirement (Minas Tirith, etc.)
   // "enters the battlefield tapped unless you control a [Type]" or "this land enters tapped unless you control a [Type]"
   const singleCheckMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+(?:\s+[\w]+)?)/i);
   if (singleCheckMatch && !text.includes(' or ')) {
@@ -406,6 +411,23 @@ export function evaluateConditionalLandETB(
         reason: hasBasicLand 
           ? `Enters untapped (you control ${basicLandCount} basic land${basicLandCount !== 1 ? 's' : ''})` 
           : `Enters tapped (no basic land controlled)`,
+      };
+    }
+    
+    // Special handling for "legendary creature" requirement (Minas Tirith)
+    if (requiredType === 'legendary creature') {
+      let hasLegendaryCreature = false;
+      if (controlledPermanents && controlledPermanents.length > 0) {
+        hasLegendaryCreature = controlledPermanents.some(perm => {
+          const typeLine = ((perm as any).card?.type_line || '').toLowerCase();
+          return typeLine.includes('legendary') && typeLine.includes('creature');
+        });
+      }
+      return {
+        shouldEnterTapped: !hasLegendaryCreature,
+        reason: hasLegendaryCreature 
+          ? `Enters untapped (you control a legendary creature)` 
+          : `Enters tapped (no legendary creature controlled)`,
       };
     }
     

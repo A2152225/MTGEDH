@@ -588,6 +588,12 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           continue;
         }
         
+        // Skip transform back faces - they can't be cast from hand
+        if (isTransformBackFace(card)) {
+          debug(2, `[canCastAnySpell] Skipping transform back face: ${card.name || 'unknown'}`);
+          continue;
+        }
+        
         // Skip non-instant/flash cards
         if (!hasFlashOrInstant(card)) continue;
         
@@ -829,7 +835,11 @@ function hasActivatableAbility(
     // Pattern 2: "<costs>, {T}: <effect>" - costs before tap (e.g., {2}{R}, {T})
     // Pattern 3: "{T}: <effect>" - simple tap only
     const abilityMatch = oracleText.match(/(?:(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*)?\{T\}(?:\s*,\s*([^:]+))?:\s*(.+)/i);
-    if (!abilityMatch) return true; // Couldn't parse, assume can activate
+    if (!abilityMatch) {
+      // Couldn't parse the tap ability pattern - be conservative and return false
+      // This prevents false positives in auto-pass system
+      return false;
+    }
     
     const costsBeforeTap = abilityMatch[1] || ""; // Mana costs before {T}
     const additionalCostAfterTap = abilityMatch[2] || ""; // Other costs after {T}
@@ -864,11 +874,27 @@ function hasActivatableAbility(
         }
       }
       
-      // Check for sacrifice costs
+      // Check for sacrifice costs - only return true if we can verify player has something to sacrifice
       if (additionalCostAfterTap.toLowerCase().includes("sacrifice")) {
-        // Would need to check if player has permanents to sacrifice
-        // For now, assume they might have one
-        return true;
+        // Parse what needs to be sacrificed
+        const sacrificeMatch = additionalCostAfterTap.match(/sacrifice\s+(?:a|an|this)\s*(\w+)?/i);
+        if (sacrificeMatch) {
+          const sacrificeType = sacrificeMatch[1] ? sacrificeMatch[1].toLowerCase() : "";
+          // Check if player has appropriate permanents to sacrifice
+          const battlefield = state.battlefield || [];
+          const hasSacrificeable = battlefield.some((perm: any) => {
+            if (perm.controller !== playerId) return false;
+            if (perm.id === permanent.id && additionalCostAfterTap.toLowerCase().includes("sacrifice this")) {
+              return true; // Can sacrifice itself
+            }
+            if (!sacrificeType) return true; // Generic sacrifice
+            const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+            return permTypeLine.includes(sacrificeType);
+          });
+          if (!hasSacrificeable) {
+            return false; // Can't pay sacrifice cost
+          }
+        }
       }
       
       // Check for life payment costs
@@ -878,7 +904,7 @@ function hasActivatableAbility(
           const lifeCost = parseInt(lifeMatch[1], 10);
           const currentLife = state.life?.[playerId] ?? 40;
           if (currentLife < lifeCost) {
-            return false;
+            return false; // Can't pay life cost
           }
         }
       }
@@ -1176,7 +1202,7 @@ function isInMainPhase(ctx: GameContext): boolean {
  * - "Barracks of the Thousand" has "(Transforms from Thousand Moons Smithy.)" 
  * - Back faces of werewolves, etc.
  */
-function isTransformBackFace(card: any): boolean {
+export function isTransformBackFace(card: any): boolean {
   if (!card) return false;
   const oracleText = (card.oracle_text || "").toLowerCase();
   
@@ -1943,6 +1969,12 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         // Skip ignored cards - they shouldn't trigger auto-pass prompts
         if (ignoredCards[card.id]) {
           debug(2, `[canCastAnySorcerySpeed] Skipping ignored card in hand: ${card.name || card.id}`);
+          continue;
+        }
+        
+        // Skip transform back faces - they can't be cast from hand
+        if (isTransformBackFace(card)) {
+          debug(2, `[canCastAnySorcerySpeed] Skipping transform back face: ${card.name || 'unknown'}`);
           continue;
         }
         

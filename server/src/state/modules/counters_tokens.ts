@@ -211,10 +211,49 @@ export function createToken(
 ) {
   const { state, bumpSeq } = ctx;
   
+  // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+  // Import the function from stack.ts dynamically to avoid circular dependency
+  let tokensToCreate = count;
+  try {
+    const battlefield = state.battlefield || [];
+    let multiplier = 1;
+    
+    for (const perm of battlefield) {
+      if (perm.controller !== controller) continue;
+      const permName = (perm.card?.name || '').toLowerCase();
+      const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+      
+      // Ojer Taq: triples tokens (3x multiplier)
+      if (permName.includes('ojer taq') ||
+          (permOracle.includes('three times that many') && permOracle.includes('token'))) {
+        multiplier = Math.max(multiplier, 3);
+        continue;
+      }
+      
+      // Token doublers (Anointed Procession, Doubling Season, Elspeth, etc.)
+      if (permName.includes('anointed procession') ||
+          permName.includes('parallel lives') ||
+          permName.includes('doubling season') ||
+          permName.includes('mondrak, glory dominus') ||
+          permName.includes('primal vigor') ||
+          (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
+          (permOracle.includes('twice that many') && permOracle.includes('token'))) {
+        multiplier *= 2;
+      }
+    }
+    
+    tokensToCreate = count * multiplier;
+    if (multiplier > 1) {
+      debug(2, `[createToken] Token doubling: creating ${tokensToCreate} tokens (base: ${count}, multiplier: ${multiplier})`);
+    }
+  } catch (err) {
+    debugWarn(1, "[createToken] Error calculating token doubling, using base count:", err);
+  }
+  
   // Get token image URLs from the token service
   const imageUrls = getTokenImageUrls(name, basePower, baseToughness);
   
-  for (let i = 0; i < Math.max(1, count | 0); i++) {
+  for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     state.battlefield.push({
       id: uid("tok"),
       controller,

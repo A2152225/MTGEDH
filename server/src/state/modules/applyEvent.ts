@@ -1856,6 +1856,90 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         }
         break;
       }
+      
+      case "colorChoice": {
+        // Player chose a color for a permanent (e.g., Throne of Eldraine, Caged Sun)
+        try {
+          const { playerId, permanentId, color } = e as any;
+          const battlefield = ctx.state.battlefield || [];
+          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          
+          if (permanent) {
+            (permanent as any).chosenColor = color;
+            debug(2, `[applyEvent] Applied color choice: ${permanent.card?.name} -> ${color}`);
+          } else {
+            debugWarn(2, `[applyEvent] colorChoice: permanent ${permanentId} not found`);
+          }
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(colorChoice): failed", err);
+        }
+        break;
+      }
+      
+      case "cardNameChoice": {
+        // Player chose a card name for a permanent (e.g., Pithing Needle, Runed Halo)
+        try {
+          const { playerId, permanentId, chosenName } = e as any;
+          const battlefield = ctx.state.battlefield || [];
+          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          
+          if (permanent) {
+            (permanent as any).chosenCardName = chosenName;
+            debug(2, `[applyEvent] Applied card name choice: ${permanent.card?.name} -> ${chosenName}`);
+          } else {
+            debugWarn(2, `[applyEvent] cardNameChoice: permanent ${permanentId} not found`);
+          }
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(cardNameChoice): failed", err);
+        }
+        break;
+      }
+      
+      case "playerChoice": {
+        // Player chose a player for a permanent (e.g., Xantcha, Curses)
+        try {
+          const { playerId, permanentId, chosenPlayer } = e as any;
+          const battlefield = ctx.state.battlefield || [];
+          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          
+          if (permanent) {
+            (permanent as any).chosenPlayer = chosenPlayer;
+            debug(2, `[applyEvent] Applied player choice: ${permanent.card?.name} -> ${chosenPlayer}`);
+          } else {
+            debugWarn(2, `[applyEvent] playerChoice: permanent ${permanentId} not found`);
+          }
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(playerChoice): failed", err);
+        }
+        break;
+      }
+      
+      case "optionChoice": {
+        // Player chose an option for a permanent (e.g., "flying or first strike")
+        try {
+          const { playerId, permanentId, chosenOption } = e as any;
+          const battlefield = ctx.state.battlefield || [];
+          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          
+          if (permanent) {
+            (permanent as any).chosenOption = chosenOption;
+            debug(2, `[applyEvent] Applied option choice: ${permanent.card?.name} -> ${chosenOption}`);
+          } else {
+            debugWarn(2, `[applyEvent] optionChoice: permanent ${permanentId} not found`);
+          }
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(optionChoice): failed", err);
+        }
+        break;
+      }
 
       default: {
         // Log unknown events but don't fail - they may be newer events not yet supported

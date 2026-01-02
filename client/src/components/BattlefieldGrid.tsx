@@ -350,6 +350,152 @@ export function BattlefieldGrid(props: {
               </div>
             )}
 
+            {/* ETB Choice Badges - Show selected color, creature type, card name, player, or option */}
+            {(() => {
+              const badges = [];
+              const pAny = p as any;
+              
+              // Color choice badge
+              if (pAny.chosenColor) {
+                const colorMap: Record<string, { bg: string; name: string }> = {
+                  white: { bg: '#f9fafb', name: 'White' },
+                  blue: { bg: '#3b82f6', name: 'Blue' },
+                  black: { bg: '#1f2937', name: 'Black' },
+                  red: { bg: '#ef4444', name: 'Red' },
+                  green: { bg: '#22c55e', name: 'Green' },
+                };
+                const colorInfo = colorMap[pAny.chosenColor.toLowerCase()] || { bg: '#6b7280', name: pAny.chosenColor };
+                badges.push(
+                  <div
+                    key="color"
+                    style={{
+                      background: colorInfo.bg,
+                      color: pAny.chosenColor === 'white' ? '#000' : '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen color: ${colorInfo.name}`}
+                  >
+                    ◆ {colorInfo.name}
+                  </div>
+                );
+              }
+              
+              // Creature type choice badge
+              if (pAny.chosenCreatureType) {
+                badges.push(
+                  <div
+                    key="creatureType"
+                    style={{
+                      background: 'rgba(139, 92, 246, 0.8)', // Purple
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen creature type: ${pAny.chosenCreatureType}`}
+                  >
+                    ⚔ {pAny.chosenCreatureType}
+                  </div>
+                );
+              }
+              
+              // Card name choice badge
+              if (pAny.chosenCardName) {
+                badges.push(
+                  <div
+                    key="cardName"
+                    style={{
+                      background: 'rgba(234, 88, 12, 0.8)', // Orange
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      maxWidth: '80px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Named card: ${pAny.chosenCardName}`}
+                  >
+                    ✦ {pAny.chosenCardName}
+                  </div>
+                );
+              }
+              
+              // Player choice badge
+              if (pAny.chosenPlayer) {
+                // Try to find player name
+                let playerDisplay = pAny.chosenPlayer;
+                // Could enhance this by looking up player name from game state if available
+                badges.push(
+                  <div
+                    key="player"
+                    style={{
+                      background: 'rgba(236, 72, 153, 0.8)', // Pink
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen player: ${playerDisplay}`}
+                  >
+                    👤 {playerDisplay}
+                  </div>
+                );
+              }
+              
+              // Option choice badge
+              if (pAny.chosenOption) {
+                badges.push(
+                  <div
+                    key="option"
+                    style={{
+                      background: 'rgba(14, 165, 233, 0.8)', // Cyan
+                      color: '#fff',
+                      fontSize: 9,
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Chosen option: ${pAny.chosenOption}`}
+                  >
+                    ✓ {pAny.chosenOption}
+                  </div>
+                );
+              }
+              
+              return badges.length > 0 ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 50,
+                    left: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                    maxWidth: '90%',
+                  }}
+                >
+                  {badges}
+                </div>
+              ) : null;
+            })()}
+
             {/* Controls (only on hover) */}
             {isHovered && (onCounter || onRemove) && (
               <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>

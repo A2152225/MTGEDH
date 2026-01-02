@@ -19,7 +19,7 @@ import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionTy
 import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCostAdjustmentInfo } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCostAdjustmentInfo, isTransformBackFace } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
@@ -270,25 +270,34 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
         
-        // Skip DFC back faces - these are not directly castable
-        // Transform, modal_dfc, and double_faced_token cards have card_faces array
-        // The back face (index 1) cannot be cast directly from hand
+        // For transform cards, check if this represents the back face
+        // Transform cards from Scryfall have layout="transform" and card_faces array
+        // The back face has "(Transforms from [Name])" in its oracle text
         const layout = (card as any).layout;
         const cardFaces = (card as any).card_faces;
-        if (layout === 'transform' || layout === 'modal_dfc' || layout === 'double_faced_token') {
-          // Check if this card IS the back face by comparing to card_faces[1]
-          // For cards in hand, we should only allow casting the front face
-          // If the card has no mana_cost, it's likely the back face
-          const manaCost = card.mana_cost;
-          if (!manaCost && cardFaces && cardFaces.length >= 2) {
-            // No mana cost means this might be a back face or a transformed state
-            // Check if the front face has a mana cost
-            const frontFace = cardFaces[0];
-            if (frontFace?.mana_cost) {
-              debug(2, `[getPlayableCardIds] Skipping back face of DFC: ${card.name}`);
-              continue; // This is the back face, skip it
-            }
+        
+        if (layout === 'transform' && cardFaces && cardFaces.length >= 2) {
+          // Check if the card's oracle_text matches the back face
+          // or if the card's name contains " // " indicating it's the combined card
+          const cardOracleText = (card.oracle_text || "").toLowerCase();
+          const backFaceOracle = (cardFaces[1]?.oracle_text || "").toLowerCase();
+          
+          // If the card's oracle text is from the back face, skip it
+          if (cardOracleText && backFaceOracle && cardOracleText.includes("(transforms from")) {
+            debug(2, `[getPlayableCardIds] Skipping transform back face: ${card.name}`);
+            continue;
           }
+          
+          // For transform cards in hand, Scryfall returns the combined name
+          // but NO top-level oracle_text or mana_cost - these are in card_faces
+          // We should NOT skip these - they are castable front faces
+          // Continue to use card_faces[0] data below for cost checking
+        }
+        
+        // For modal DFCs and other DFC types, check similarly
+        if ((layout === 'modal_dfc' || layout === 'double_faced_token') && cardFaces && cardFaces.length >= 2) {
+          // Modal DFCs can be cast as either face - don't skip them here
+          // The player will be prompted to choose which face to cast
         }
         
         const typeLine = (card.type_line || "").toLowerCase();
@@ -343,8 +352,12 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           // Calculate cost reduction for this spell
           const reduction = calculateCostReduction(game as any, playerId, card, false);
           
-          // Check if player can pay the cost with available mana (floating + untapped sources)
-          const manaCost = card.mana_cost || "";
+          // For transform/modal DFC cards, get mana cost from the front face
+          let manaCost = card.mana_cost || "";
+          if (!manaCost && cardFaces && cardFaces.length > 0) {
+            manaCost = cardFaces[0].mana_cost || "";
+          }
+          
           const parsedCost = parseManaFromString(manaCost);
           
           // Apply cost reduction to get the actual cost
