@@ -270,22 +270,72 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
     const permOracle = (perm.card.oracle_text || "").toLowerCase();
     const sameController = perm.controller === playerId;
     
-    // Cost reducers for red spells
-    if (sameController && isRedSpell) {
-      for (const reducer of redCostReducers) {
-        if ((reducer.applies(isCreatureSpell)) &&
-            (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
-          adjustment -= 1;
+    // DYNAMIC COST REDUCTION PARSING
+    // Pattern: "[TYPE] spells you cast cost {N} less" or "spells you cast cost {N} less"
+    if (sameController && permOracle.includes("spells you cast cost") && permOracle.includes("less")) {
+      const costReductionMatch = permOracle.match(/(?:(white|blue|black|red|green|colorless|artifact|enchantment|noncreature|creature|instant|sorcery)\s+)?(?:(creature|artifact|enchantment)\s+)?spells you cast cost \{(\d+)\} less/i);
+      
+      if (costReductionMatch) {
+        const colorOrType1 = costReductionMatch[1]?.toLowerCase();
+        const type2 = costReductionMatch[2]?.toLowerCase();
+        const reductionAmount = parseInt(costReductionMatch[3], 10) || 1;
+        
+        // Determine if this reduction applies to the current spell
+        let applies = true;
+        
+        // Check color restrictions
+        if (colorOrType1 === 'white' && !isWhiteSpell) applies = false;
+        if (colorOrType1 === 'blue' && !isBlueSpell) applies = false;
+        if (colorOrType1 === 'black' && !isBlackSpell) applies = false;
+        if (colorOrType1 === 'red' && !isRedSpell) applies = false;
+        if (colorOrType1 === 'green' && !isGreenSpell) applies = false;
+        
+        // Check type restrictions
+        if (colorOrType1 === 'creature' || type2 === 'creature') {
+          if (!isCreatureSpell) applies = false;
+        }
+        if (colorOrType1 === 'noncreature') {
+          if (isCreatureSpell) applies = false;
+        }
+        if (colorOrType1 === 'artifact' || type2 === 'artifact') {
+          if (!typeLine.includes('artifact')) applies = false;
+        }
+        if (colorOrType1 === 'enchantment' || type2 === 'enchantment') {
+          if (!typeLine.includes('enchantment')) applies = false;
+        }
+        if (colorOrType1 === 'instant' || colorOrType1 === 'sorcery') {
+          if (!typeLine.includes('instant') && !typeLine.includes('sorcery')) applies = false;
+        }
+        
+        if (applies) {
+          adjustment -= reductionAmount;
         }
       }
     }
     
-    // Monument cost reducers for creature spells
+    // LEGACY TABLE-BASED CHECKING (for backwards compatibility, will be removed in future refactor)
+    // Cost reducers for red spells
+    if (sameController && isRedSpell) {
+      for (const reducer of redCostReducers) {
+        if ((reducer.applies(isCreatureSpell)) &&
+            permName.includes(reducer.nameMatch)) {
+          // Skip if already handled by dynamic parsing
+          if (!permOracle.includes("spells you cast cost") || !permOracle.includes("less")) {
+            adjustment -= 1;
+          }
+        }
+      }
+    }
+    
+    // Monument cost reducers - DEPRECATED, now handled by dynamic parsing above
+    // Kept for backwards compatibility
     if (sameController && isCreatureSpell) {
       for (const monument of monumentCostReducers) {
-        if (monument.colorCheck &&
-            (permName.includes(monument.nameMatch) || permOracle.includes(monument.textMatch))) {
-          adjustment -= 1;
+        if (monument.colorCheck && permName.includes(monument.nameMatch)) {
+          // Skip if already handled by dynamic parsing
+          if (!permOracle.includes("spells you cast cost") || !permOracle.includes("less")) {
+            adjustment -= 1;
+          }
         }
       }
     }
@@ -393,9 +443,7 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
     { nameMatch: "rhonas's monument", displayName: "Rhonas's Monument", textMatch: "green creature spells you cast cost {1} less", applies: () => isCreatureSpell && isGreenSpell, amount: -1 },
   ];
   
-  // Tax effects table
-  // Note: Trinisphere is intentionally not included as it requires special handling
-  // (minimum mana cost of 3, not an additive increase)
+  // Tax effects table - DEPRECATED, will be replaced by dynamic parsing
   const taxEffects = [
     { nameMatch: "aura of silence", displayName: "Aura of Silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: () => isArtifactOrEnchantment, amount: 2 },
     { nameMatch: "sphere of resistance", displayName: "Sphere of Resistance", textMatch: "spells cost {1} more to cast", applies: () => true, amount: 1 },
@@ -411,35 +459,66 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
     const permOracle = (perm.card.oracle_text || "").toLowerCase();
     const sameController = perm.controller === playerId;
     
-    // Check cost reducers (only for cards you control)
-    if (sameController && isRedSpell) {
-      for (const reducer of redCostReducers) {
-        if (reducer.applies() &&
-            (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
-          sources.push({ name: reducer.displayName, amount: reducer.amount });
-          totalAdjustment += reducer.amount;
+    // DYNAMIC COST REDUCTION PARSING (for your permanents)
+    if (sameController && permOracle.includes("spells you cast cost") && permOracle.includes("less")) {
+      const costReductionMatch = permOracle.match(/(?:(white|blue|black|red|green|colorless|artifact|enchantment|noncreature|creature|instant|sorcery)\s+)?(?:(creature|artifact|enchantment)\s+)?spells you cast cost \{(\d+)\} less/i);
+      
+      if (costReductionMatch) {
+        const colorOrType1 = costReductionMatch[1]?.toLowerCase();
+        const type2 = costReductionMatch[2]?.toLowerCase();
+        const reductionAmount = parseInt(costReductionMatch[3], 10) || 1;
+        
+        // Determine if this reduction applies
+        let applies = true;
+        
+        if (colorOrType1 === 'white' && !isWhiteSpell) applies = false;
+        if (colorOrType1 === 'blue' && !isBlueSpell) applies = false;
+        if (colorOrType1 === 'black' && !isBlackSpell) applies = false;
+        if (colorOrType1 === 'red' && !isRedSpell) applies = false;
+        if (colorOrType1 === 'green' && !isGreenSpell) applies = false;
+        if (colorOrType1 === 'creature' || type2 === 'creature') {
+          if (!isCreatureSpell) applies = false;
+        }
+        if (colorOrType1 === 'noncreature') {
+          if (isCreatureSpell) applies = false;
+        }
+        if (colorOrType1 === 'artifact' || type2 === 'artifact') {
+          if (!typeLine.includes('artifact')) applies = false;
+        }
+        if (colorOrType1 === 'enchantment' || type2 === 'enchantment') {
+          if (!typeLine.includes('enchantment')) applies = false;
+        }
+        
+        if (applies) {
+          const cardDisplayName = perm.card.name || 'Unknown';
+          sources.push({ name: cardDisplayName, amount: -reductionAmount });
+          totalAdjustment -= reductionAmount;
         }
       }
     }
     
-    // Check monument cost reducers (only for cards you control)
-    if (sameController && isCreatureSpell) {
-      for (const monument of monumentCostReducers) {
-        if (monument.applies() &&
-            (permName.includes(monument.nameMatch) || permOracle.includes(monument.textMatch))) {
-          sources.push({ name: monument.displayName, amount: monument.amount });
-          totalAdjustment += monument.amount;
-        }
-      }
-    }
-    
-    // Check tax effects (from opponents)
-    if (!sameController) {
-      for (const tax of taxEffects) {
-        if (tax.applies() &&
-            (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
-          sources.push({ name: tax.displayName, amount: tax.amount });
-          totalAdjustment += tax.amount;
+    // DYNAMIC TAX PARSING (for opponent permanents)
+    if (!sameController && permOracle.includes("spells") && permOracle.includes("cost") && permOracle.includes("more")) {
+      // Pattern: "spells cost {N} more" or "[TYPE] spells...cost {N} more"
+      const taxMatch = permOracle.match(/(?:(artifact|enchantment|noncreature|nonartifact)\s+(?:and\s+\w+\s+)?)?spells(?: your opponents cast| opponents cast)? cost \{(\d+)\} more/i);
+      
+      if (taxMatch) {
+        const typeRestriction = taxMatch[1]?.toLowerCase();
+        const taxAmount = parseInt(taxMatch[2], 10) || 1;
+        
+        let applies = true;
+        
+        if (typeRestriction === 'artifact' && !typeLine.includes('artifact')) applies = false;
+        if (typeRestriction === 'enchantment' && !typeLine.includes('enchantment')) applies = false;
+        if (typeRestriction === 'noncreature' && isCreatureSpell) applies = false;
+        if (typeRestriction === 'nonartifact' && typeLine.includes('artifact')) applies = false;
+        // "artifact and enchantment" case
+        if (permOracle.includes('artifact and enchantment') && !isArtifactOrEnchantment) applies = false;
+        
+        if (applies) {
+          const cardDisplayName = perm.card.name || 'Unknown';
+          sources.push({ name: cardDisplayName, amount: taxAmount });
+          totalAdjustment += taxAmount;
         }
       }
     }
