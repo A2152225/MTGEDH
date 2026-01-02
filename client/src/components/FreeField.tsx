@@ -1042,16 +1042,16 @@ export function FreeField(props: {
                 gap: Math.round(3 * scale),
                 zIndex: 20,
               }}>
-                {/* Loyalty shield badge */}
+                {/* Loyalty shield badge - reduced 20% from original 32x36 */}
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: Math.round(32 * scale),
-                  height: Math.round(36 * scale),
+                  width: Math.round(26 * scale),
+                  height: Math.round(29 * scale),
                   background: 'linear-gradient(180deg, rgba(80,60,120,0.95) 0%, rgba(50,30,80,0.98) 100%)',
                   border: '2px solid #a78bfa',
-                  borderRadius: `${Math.round(4 * scale)}px ${Math.round(4 * scale)}px ${Math.round(16 * scale)}px ${Math.round(16 * scale)}px`,
+                  borderRadius: `${Math.round(3 * scale)}px ${Math.round(3 * scale)}px ${Math.round(13 * scale)}px ${Math.round(13 * scale)}px`,
                   boxShadow: '0 3px 10px rgba(139,92,246,0.5), inset 0 1px 0 rgba(255,255,255,0.2)',
                   position: 'relative',
                 }}>
@@ -1064,7 +1064,7 @@ export function FreeField(props: {
                     pointerEvents: 'none',
                   }} />
                   <span style={{
-                    fontSize: Math.round(14 * scale),
+                    fontSize: Math.round(11 * scale),
                     fontWeight: 700,
                     color: getLoyaltyColor(baseLoyalty, loyalty),
                     textShadow: '0 1px 3px rgba(0,0,0,0.6), 0 0 8px rgba(168,139,250,0.4)',

@@ -5093,11 +5093,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const abilityIndex = parseInt(abilityId.replace("pw-ability-", ""), 10);
       
       // Parse the planeswalker ability from oracle text
-      const pwAbilityPattern = /\[([+−\-]?\d+)\]:\s*([^[\]]+?)(?=\n|\[|$)/gi;
+      // Scryfall oracle text uses plain format without brackets (e.g., "+1: Effect text")
+      // The pattern matches various dash characters: regular minus (-), en dash (–), em dash (—), and Unicode minus (−)
+      const pwAbilityPattern = /^([+−–—\-]?\d+):\s*(.+)/gm;
       const abilities: { loyaltyCost: number; text: string }[] = [];
       let pwMatch;
       while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
-        const costStr = pwMatch[1].replace('−', '-');
+        const costStr = pwMatch[1].replace(/[−–—]/g, '-');
         const cost = parseInt(costStr, 10);
         abilities.push({ loyaltyCost: cost, text: pwMatch[2].trim() });
       }
