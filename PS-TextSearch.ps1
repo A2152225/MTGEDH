@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "skiptophase",
+    [string]$Pattern = "isPlaneswalker",
     [switch]$CaseSensitive = $false,
     [switch]$ListFilesOnly,
     [int]$Context = 0,
