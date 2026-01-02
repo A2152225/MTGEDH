@@ -170,7 +170,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
         triggerType: 'attacks',
         description: info.effect,
         effect: info.effect,
-        value: info.value,
+        value: info.value || info.createTokensBasedOnCount || info.createTokens,
         mandatory: true,
       });
     }

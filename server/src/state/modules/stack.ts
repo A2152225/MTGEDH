@@ -1299,6 +1299,75 @@ function executeTriggerEffect(
       
       return; // Attack trigger token creation handled
     }
+    
+    // ========================================================================
+    // COUNT-BASED TOKEN CREATION (Myrel, Shield of Argive)
+    // Create X tokens where X is based on counting permanents
+    // ========================================================================
+    const triggerValue = (triggerItem as any).value;
+    if (triggerValue && typeof triggerValue === 'object' && triggerValue.countType) {
+      const { countType, power, toughness, type, color, isArtifact } = triggerValue;
+      
+      // Count permanents of the specified type controlled by the player
+      const battlefield = state.battlefield || [];
+      const count = battlefield.filter((p: any) => {
+        if (p.controller !== controller) return false;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        return typeLine.includes(countType.toLowerCase());
+      }).length;
+      
+      if (count > 0) {
+        const colors: string[] = color === 'colorless' ? [] : 
+                                color === 'white' ? ['W'] : color === 'red' ? ['R'] : 
+                                color === 'blue' ? ['U'] : color === 'black' ? ['B'] : 
+                                color === 'green' ? ['G'] : [];
+        
+        // Create the tokens
+        for (let i = 0; i < count; i++) {
+          const tokenId = uid("token");
+          const tokenName = type;
+          let typeLine = `Token ${isArtifact ? 'Artifact ' : ''}Creature — ${type}`;
+          
+          // Get token image
+          const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+          
+          const token = {
+            id: tokenId,
+            controller,
+            owner: controller,
+            tapped: false,
+            counters: {},
+            basePower: power,
+            baseToughness: toughness,
+            summoningSickness: true,
+            isToken: true,
+            card: {
+              id: tokenId,
+              name: tokenName,
+              type_line: typeLine,
+              power: String(power),
+              toughness: String(toughness),
+              colors,
+              oracle_text: '',
+              keywords: [],
+              zone: 'battlefield',
+              image_uris: tokenImageUrls,
+            },
+          } as any;
+          
+          battlefield.push(token);
+          debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token (${i+1}/${count}) for ${controller}`);
+          
+          triggerETBEffectsForToken(ctx, token, controller);
+        }
+        
+        debug(1, `[executeTriggerEffect] ${sourceName}: Created ${count} ${type} tokens based on ${countType} count`);
+        return; // Count-based token creation handled
+      } else {
+        debug(2, `[executeTriggerEffect] ${sourceName}: No ${countType}s to count, no tokens created`);
+        return;
+      }
+    }
   }
   
   // ========================================================================
