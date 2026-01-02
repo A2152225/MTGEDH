@@ -213,6 +213,22 @@ export function parsedDecklistToExpandedString(cards: ParsedLine[]): string {
 // Cache + helpers
 //
 const cache = new Map<string, ScryfallCard>();
+
+// Export a function to clear planeswalker cache entries
+// This is needed when the loyalty field mapping was added to fix planeswalker display
+export function clearPlaneswalkerCache() {
+  const toDelete: string[] = [];
+  for (const [key, card] of cache.entries()) {
+    if (card.type_line?.toLowerCase().includes('planeswalker')) {
+      toDelete.push(key);
+    }
+  }
+  for (const key of toDelete) {
+    cache.delete(key);
+  }
+  console.log(`[SCRYFALL] Cleared ${toDelete.length} planeswalker entries from cache`);
+}
+
 function lcKey(name: string) {
   return normalizeName(name).toLowerCase();
 }
