@@ -2443,8 +2443,12 @@ export async function handleAIPriority(
           if (decision.action?.blockers?.length > 0) {
             await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
             return;
+          } else {
+            // AI chooses not to block - explicitly declare empty blockers to mark as "declared"
+            debug(1, '[AI] AI chooses not to block - declaring empty blockers');
+            await executeDeclareBlockers(io, gameId, playerId, []);
+            return;
           }
-          // No blockers to declare - fall through to pass priority
         }
       }
       
@@ -2677,9 +2681,9 @@ export async function handleAIPriority(
         if (decision.action?.blockers?.length > 0) {
           await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
         } else {
-          // No blockers, pass priority (step will advance when all players pass)
-          debug(1, '[AI] No blockers to declare, passing priority');
-          await executePassPriority(io, gameId, playerId);
+          // AI chooses not to block - explicitly declare empty blockers to mark as "declared"
+          debug(1, '[AI] No blockers to declare, declaring empty blockers');
+          await executeDeclareBlockers(io, gameId, playerId, []);
         }
         return;
       }
@@ -4246,7 +4250,8 @@ async function executeAIDecision(
       if (decision.action?.blockers?.length > 0) {
         await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
       } else {
-        await executePassPriority(io, gameId, playerId);
+        // AI chooses not to block - explicitly declare empty blockers to mark as "declared"
+        await executeDeclareBlockers(io, gameId, playerId, []);
       }
       break;
       

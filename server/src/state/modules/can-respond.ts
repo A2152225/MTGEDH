@@ -1044,9 +1044,28 @@ function isInMainPhase(ctx: GameContext): boolean {
 }
 
 /**
+ * Check if a card is a transform back face (not playable from hand)
+ * 
+ * Transform back faces have "(Transforms from [Name])" in their oracle text
+ * and should only be accessible after the front face transforms.
+ * 
+ * Examples:
+ * - "Barracks of the Thousand" has "(Transforms from Thousand Moons Smithy.)" 
+ * - Back faces of werewolves, etc.
+ */
+function isTransformBackFace(card: any): boolean {
+  if (!card) return false;
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Check for the standard transform pattern: "(Transforms from [Name])"
+  // This is the indicator that this is a back face that cannot be played from hand
+  return /\(transforms from [^)]+\)/i.test(oracleText);
+}
+
+/**
  * Check if player can play a land
  * This includes:
- * - Having a land in hand
+ * - Having a land in hand (excluding transform back faces)
  * - Having a land in graveyard AND an effect that allows playing from graveyard
  * - Having a land in exile AND an effect that allows playing from exile
  * - Having pending play effects (impulse draw, etc.)
@@ -1095,6 +1114,12 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
         
         const typeLine = (card.type_line || "").toLowerCase();
         if (typeLine.includes("land")) {
+          // Skip transform back faces - they can't be played from hand
+          if (isTransformBackFace(card)) {
+            debug(2, `[canPlayLand] ${playerId}: Skipping transform back face: ${card.name || 'unknown'}`);
+            continue;
+          }
+          
           debug(2, `[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'}) - returning TRUE`);
           return true; // Found a land in hand that can be played
         }
