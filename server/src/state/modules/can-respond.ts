@@ -236,16 +236,28 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
   const oracleText = (card.oracle_text || "").toLowerCase();
   const manaCostRaw = card.mana_cost || "";
   const colors = (card.colors || card.color_identity || []).map((c: string) => c.toUpperCase());
+  const isWhiteSpell = /{W}/i.test(manaCostRaw) || colors.includes("W");
+  const isBlueSpell = /{U}/i.test(manaCostRaw) || colors.includes("U");
+  const isBlackSpell = /{B}/i.test(manaCostRaw) || colors.includes("B");
   const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
+  const isGreenSpell = /{G}/i.test(manaCostRaw) || colors.includes("G");
   const isCreatureSpell = typeLine.includes("creature");
   const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
-  // NOTE: These tables intentionally cover only the red modifiers called out in the current requirements.
-  // Add additional entries if wider color support is needed.
+  
   const redCostReducers = [
     { nameMatch: "fire crystal", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
     { nameMatch: "ruby medallion", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
     { nameMatch: "hazoret's monument", textMatch: "red creature spells you cast cost {1} less", applies: (creature: boolean) => creature },
   ];
+  
+  const monumentCostReducers = [
+    { nameMatch: "oketra's monument", textMatch: "white creature spells you cast cost {1} less", colorCheck: isWhiteSpell },
+    { nameMatch: "bontu's monument", textMatch: "black creature spells you cast cost {1} less", colorCheck: isBlackSpell },
+    { nameMatch: "hazoret's monument", textMatch: "red creature spells you cast cost {1} less", colorCheck: isRedSpell },
+    { nameMatch: "kefnet's monument", textMatch: "blue creature spells you cast cost {1} less", colorCheck: isBlueSpell },
+    { nameMatch: "rhonas's monument", textMatch: "green creature spells you cast cost {1} less", colorCheck: isGreenSpell },
+  ];
+  
   const taxEffects = [
     { nameMatch: "aura of silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: (isAE: boolean) => isAE, amount: 2 },
   ];
@@ -258,12 +270,21 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
     const permOracle = (perm.card.oracle_text || "").toLowerCase();
     const sameController = perm.controller === playerId;
     
-    // Cost reducers for red spells (scoped to requested effects)
+    // Cost reducers for red spells
     if (sameController && isRedSpell) {
       for (const reducer of redCostReducers) {
         if ((reducer.applies(isCreatureSpell)) &&
             (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
-          // Each matching permanent contributes an additional {1} reduction
+          adjustment -= 1;
+        }
+      }
+    }
+    
+    // Monument cost reducers for creature spells
+    if (sameController && isCreatureSpell) {
+      for (const monument of monumentCostReducers) {
+        if (monument.colorCheck &&
+            (permName.includes(monument.nameMatch) || permOracle.includes(monument.textMatch))) {
           adjustment -= 1;
         }
       }
@@ -274,7 +295,6 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
       for (const tax of taxEffects) {
         if (tax.applies(isArtifactOrEnchantment) &&
             (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
-          // Legendary copies should rarely stack, but keep additive behavior for simplicity
           adjustment += tax.amount;
         }
       }
@@ -343,7 +363,11 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
   const typeLine = (card.type_line || "").toLowerCase();
   const manaCostRaw = card.mana_cost || "";
   const colors = (card.colors || card.color_identity || []).map((c: string) => c.toUpperCase());
+  const isWhiteSpell = /{W}/i.test(manaCostRaw) || colors.includes("W");
+  const isBlueSpell = /{U}/i.test(manaCostRaw) || colors.includes("U");
+  const isBlackSpell = /{B}/i.test(manaCostRaw) || colors.includes("B");
   const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
+  const isGreenSpell = /{G}/i.test(manaCostRaw) || colors.includes("G");
   const isCreatureSpell = typeLine.includes("creature");
   const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
   
@@ -358,6 +382,15 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
     { nameMatch: "fire crystal", displayName: "Fire Crystal", textMatch: "red spells you cast cost {1} less", applies: () => true, amount: -1 },
     { nameMatch: "ruby medallion", displayName: "Ruby Medallion", textMatch: "red spells you cast cost {1} less", applies: () => true, amount: -1 },
     { nameMatch: "hazoret's monument", displayName: "Hazoret's Monument", textMatch: "red creature spells you cast cost {1} less", applies: () => isCreatureSpell, amount: -1 },
+  ];
+  
+  // Monument cost reducers (one for each color)
+  const monumentCostReducers = [
+    { nameMatch: "oketra's monument", displayName: "Oketra's Monument", textMatch: "white creature spells you cast cost {1} less", applies: () => isCreatureSpell && isWhiteSpell, amount: -1 },
+    { nameMatch: "bontu's monument", displayName: "Bontu's Monument", textMatch: "black creature spells you cast cost {1} less", applies: () => isCreatureSpell && isBlackSpell, amount: -1 },
+    { nameMatch: "hazoret's monument", displayName: "Hazoret's Monument", textMatch: "red creature spells you cast cost {1} less", applies: () => isCreatureSpell && isRedSpell, amount: -1 },
+    { nameMatch: "kefnet's monument", displayName: "Kefnet's Monument", textMatch: "blue creature spells you cast cost {1} less", applies: () => isCreatureSpell && isBlueSpell, amount: -1 },
+    { nameMatch: "rhonas's monument", displayName: "Rhonas's Monument", textMatch: "green creature spells you cast cost {1} less", applies: () => isCreatureSpell && isGreenSpell, amount: -1 },
   ];
   
   // Tax effects table
@@ -385,6 +418,17 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
             (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
           sources.push({ name: reducer.displayName, amount: reducer.amount });
           totalAdjustment += reducer.amount;
+        }
+      }
+    }
+    
+    // Check monument cost reducers (only for cards you control)
+    if (sameController && isCreatureSpell) {
+      for (const monument of monumentCostReducers) {
+        if (monument.applies() &&
+            (permName.includes(monument.nameMatch) || permOracle.includes(monument.textMatch))) {
+          sources.push({ name: monument.displayName, amount: monument.amount });
+          totalAdjustment += monument.amount;
         }
       }
     }
