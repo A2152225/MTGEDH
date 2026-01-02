@@ -52,7 +52,7 @@ export interface ScryfallCardInput {
     toughness?: string;
     loyalty?: string; // For MDFC planeswalkers
   }>;
-  colors?: string[];
+  colors?: readonly string[];
 }
 
 /**
@@ -123,6 +123,7 @@ export function createCardFromScryfall(
           : undefined,
         power: face.power,
         toughness: face.toughness,
+        loyalty: face.loyalty, // For MDFC planeswalkers
       }))
     : undefined;
   
