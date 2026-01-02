@@ -730,15 +730,12 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   "combat celebrant": { effect: "You may exert for additional combat phase" },
   "grand warlord radha": { effect: "Add mana equal to attacking creatures at beginning of combat" },
   "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
-  "najeela, the blade-blossom": { effect: "Create 1/1 Warrior token when attacking", createsToken: true },
+  // NOTE: Najeela moved to KNOWN_ATTACK_TRIGGERS because she triggers when a Warrior attacks, not at beginning of combat
   "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
-  // Token creation triggers
+  // Token creation triggers (beginning of combat only, not attack triggers)
   "legion warboss": { effect: "Create a 1/1 red Goblin creature token with haste. That token attacks this combat if able.", createsToken: true },
-  "hanweir garrison": { effect: "Create two 1/1 red Human creature tokens tapped and attacking", createsToken: true },
-  "hero of bladehold": { effect: "Create two 1/1 white Soldier creature tokens tapped and attacking", createsToken: true },
-  "brimaz, king of oreskos": { effect: "Create a 1/1 white Cat Soldier creature token with vigilance", createsToken: true },
-  "rabble rousing": { effect: "Create X 1/1 green and white Citizen creature tokens, where X is the number of creatures attacking", createsToken: true },
-  "adeline, resplendent cathar": { effect: "Create a 1/1 white Human creature token tapped and attacking", createsToken: true },
+  // NOTE: Hero of Bladehold, Hanweir Garrison, Brimaz, Adeline, and Rabble Rousing moved to KNOWN_ATTACK_TRIGGERS
+  // because they trigger when attacking, not at beginning of combat
   "goblin rabblemaster": { effect: "Create a 1/1 red Goblin creature token with haste", createsToken: true },
   "krenko, tin street kingpin": { effect: "Put a +1/+1 counter on Krenko. Create X 1/1 red Goblin tokens where X is Krenko's power", createsToken: true },
   "tilonalli's summoner": { effect: "Create X 1/1 red Elemental tokens tapped and attacking, exile at end of combat", createsToken: true },

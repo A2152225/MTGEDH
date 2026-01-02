@@ -170,7 +170,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
         triggerType: 'attacks',
         description: info.effect,
         effect: info.effect,
-        value: info.value,
+        value: info.value || info.createTokensBasedOnCount || info.createTokens,
         mandatory: true,
       });
     }
@@ -766,4 +766,122 @@ export function checkDamageReceivedTrigger(
     targetRestriction,
   };
 }
+
+// ============================================================================
+// Block Triggers
+// ============================================================================
+
+/**
+ * Block trigger interface for "whenever ~ blocks" abilities
+ */
+export interface BlockTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect?: string;
+  mandatory: boolean;
+  blockedCreatureId?: string;
+  createTokens?: {
+    count: number;
+    power: number;
+    toughness: number;
+    type: string;
+    color: string;
+    abilities?: string[];
+  };
+}
+
+/**
+ * Detect block triggers from a permanent's abilities
+ * Patterns:
+ * - "Whenever ~ blocks a creature, create a 1/1 white Cat Soldier creature token..."
+ * - "Whenever ~ blocks, ..."
+ */
+export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
+  const triggers: BlockTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // Brimaz, King of Oreskos: "Whenever Brimaz blocks a creature, create a 1/1 white Cat Soldier creature token with vigilance that's blocking that creature."
+  if (lowerName.includes("brimaz")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Create a 1/1 white Cat Soldier creature token with vigilance that's blocking that creature",
+      effect: "Create a 1/1 white Cat Soldier creature token with vigilance that's blocking that creature",
+      mandatory: true,
+      createTokens: {
+        count: 1,
+        power: 1,
+        toughness: 1,
+        type: "Cat Soldier",
+        color: "white",
+        abilities: ["vigilance"],
+      },
+    });
+  }
+  
+  // Generic "whenever ~ blocks" detection
+  const cardNamePattern = cardName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '\\s+');
+  const blocksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePattern})\\s+blocks(?:\\s+a\\s+creature)?,?\\s*([^.]+)`, 'i');
+  const blocksMatch = oracleText.match(blocksPattern);
+  
+  if (blocksMatch && !triggers.some(t => t.permanentId === permanentId)) {
+    const effectText = blocksMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get block triggers for creatures that are blocking
+ * @param ctx - Game context
+ * @param blockingCreatures - Array of creatures that are blocking
+ * @param blockingPlayer - Player who is declaring blockers
+ * @returns Array of triggered abilities
+ */
+export function getBlockTriggersForCreatures(
+  ctx: GameContext,
+  blockingCreatures: any[],
+  blockingPlayer: string
+): CombatTriggeredAbility[] {
+  const triggers: CombatTriggeredAbility[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  // Check each blocking creature for block triggers
+  for (const blocker of blockingCreatures) {
+    const blockerTriggers = detectBlockTriggers(blocker.card, blocker);
+    
+    for (const trigger of blockerTriggers) {
+      triggers.push({
+        permanentId: trigger.permanentId,
+        cardName: trigger.cardName,
+        triggerType: 'blocks',
+        description: trigger.description,
+        effect: trigger.effect,
+        mandatory: trigger.mandatory,
+        value: {
+          blockedCreatureId: blocker.blocking?.[0], // The attacker being blocked
+          createTokens: trigger.createTokens,
+        },
+      });
+    }
+  }
+  
+  return triggers;
+}
+
 
