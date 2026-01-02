@@ -4604,8 +4604,56 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     debug(2, `[resolveTopOfStack] Permanent ${effectiveCard.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
     
-    // Check for Devour X mechanic
+    // ========================================================================
+    // ETB CHOICES: Color, Creature Type, and other "as it enters" effects
+    // These happen during resolution (Rule 608.2f) and must complete before
+    // the spell finishes resolving. They don't give priority, just pause
+    // resolution until the player makes their choice.
+    // ========================================================================
     const oracleText = (effectiveCard.oracle_text || '').toLowerCase();
+    const gameId = (ctx as any).gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    
+    // Check for Color Choice ETB ("As ~ enters, choose a color")
+    // Examples: Throne of Eldraine, Caged Sun, Gauntlet of Power
+    const colorChoicePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r/i;
+    if (colorChoicePattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenColor) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.COLOR_CHOICE,
+          playerId: controller as PlayerID,
+          description: `Choose a color for ${effectiveCard.name}`,
+          mandatory: !oracleText.includes('you may'),
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          colors: ['White', 'Blue', 'Black', 'Red', 'Green'],
+          permanentId: newPermId,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, added resolution step`);
+      }
+    }
+    
+    // Check for Creature Type Choice ETB ("As ~ enters, choose a creature type")
+    // Examples: Cavern of Souls, Door of Destinies, Coat of Arms variants
+    const creatureTypePattern = /as .+? enters(?: the battlefield)?,?\s+choose a creature type/i;
+    if (creatureTypePattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenCreatureType) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+          playerId: controller as PlayerID,
+          description: `Choose a creature type for ${effectiveCard.name}`,
+          mandatory: true,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires creature type choice, added resolution step`);
+      }
+    }
+    
+    // Check for Devour X mechanic
     const devourMatch = oracleText.match(/devour\s+(\d+)/);
     if (devourMatch && isCreature) {
       const devourValue = parseInt(devourMatch[1], 10);

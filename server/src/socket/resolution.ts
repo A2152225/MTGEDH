@@ -564,6 +564,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('lifeLoss' in step) fields.lifeLoss = (step as any).lifeLoss;
       break;
     
+    case ResolutionStepType.COLOR_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('colors' in step) fields.colors = (step as any).colors;
+      break;
+    
     case ResolutionStepType.CREATURE_TYPE_CHOICE:
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
       if ('cardName' in step) fields.cardName = (step as any).cardName;
@@ -805,6 +810,10 @@ async function handleStepResponse(
     
     case ResolutionStepType.MODAL_CHOICE:
       await handleModalChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.COLOR_CHOICE:
+      await handleColorChoiceResponse(io, game, gameId, step, response);
       break;
     
     case ResolutionStepType.CREATURE_TYPE_CHOICE:
@@ -3152,6 +3161,79 @@ function handleDevourSelectionResponse(
 /**
  * Handle creature type choice response via resolution queue
  */
+/**
+ * Handle Color Choice response
+ * Player chooses a color for a permanent that entered the battlefield
+ */
+async function handleColorChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const rawSelection = response.selections as any;
+  const selection = Array.isArray(rawSelection) ? rawSelection[0] : rawSelection;
+  
+  if (!selection || typeof selection !== 'string') {
+    debugWarn(2, `[Resolution] Color choice missing selection`);
+    return;
+  }
+  
+  // Validate color choice
+  const validColors = ['white', 'blue', 'black', 'red', 'green'];
+  const colorLower = selection.toLowerCase();
+  if (!validColors.includes(colorLower)) {
+    debugWarn(2, `[Resolution] Invalid color choice: ${selection}`);
+    return;
+  }
+  
+  const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
+  
+  // Find the permanent on the battlefield
+  const state = game.state || {};
+  const battlefield = state.battlefield || [];
+  const permanent = battlefield.find((p: any) => p.id === permanentId);
+  
+  if (!permanent) {
+    debugWarn(2, `[Resolution] Color choice: permanent ${permanentId} not found`);
+    return;
+  }
+  
+  // Store the chosen color on the permanent
+  permanent.chosenColor = colorLower;
+  
+  // Append event for replay
+  try {
+    await appendEvent(gameId, (game as any).seq || 0, "colorChoice", {
+      playerId: pid,
+      permanentId: permanentId,
+      cardName: cardName,
+      color: colorLower,
+    });
+  } catch (e) {
+    debugWarn(1, "[Resolution] Failed to persist color choice event:", e);
+  }
+  
+  // Bump sequence
+  if (typeof (game as any).bumpSeq === "function") {
+    (game as any).bumpSeq();
+  }
+  
+  // Send chat message
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, pid)} chose ${selection} for ${cardName}.`,
+    ts: Date.now(),
+  });
+  
+  debug(2, `[Resolution] Color choice completed: ${cardName} -> ${selection}`);
+}
+
 async function handleCreatureTypeChoiceResponse(
   io: Server,
   game: any,

@@ -1856,6 +1856,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         }
         break;
       }
+      
+      case "colorChoice": {
+        // Player chose a color for a permanent (e.g., Throne of Eldraine, Caged Sun)
+        try {
+          const { playerId, permanentId, color } = e as any;
+          const battlefield = ctx.state.battlefield || [];
+          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          
+          if (permanent) {
+            (permanent as any).chosenColor = color;
+            debug(2, `[applyEvent] Applied color choice: ${permanent.card?.name} -> ${color}`);
+          } else {
+            debugWarn(2, `[applyEvent] colorChoice: permanent ${permanentId} not found`);
+          }
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(colorChoice): failed", err);
+        }
+        break;
+      }
 
       default: {
         // Log unknown events but don't fail - they may be newer events not yet supported
