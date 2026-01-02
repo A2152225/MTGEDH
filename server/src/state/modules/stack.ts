@@ -1199,6 +1199,10 @@ function executeTriggerEffect(
       const toughness = parseInt(createTokenMatch[3], 10);
       const tokenDescription = createTokenMatch[4].trim();
       
+      // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+      const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+      debug(2, `[executeTriggerEffect] Creating ${tokensToCreate} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+      
       // Determine if tokens enter attacking
       // Patterns: "tapped and attacking", "that's attacking", "that is attacking", "attacking"
       const entersAttacking = desc.includes('attacking') || desc.includes('that\'s attacking') || desc.includes('that is attacking');
@@ -1253,7 +1257,7 @@ function executeTriggerEffect(
       }
       
       // Create the tokens
-      for (let i = 0; i < tokenCount; i++) {
+      for (let i = 0; i < tokensToCreate; i++) {
         const tokenId = uid("token");
         const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
         const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
@@ -1471,6 +1475,10 @@ function executeTriggerEffect(
       const toughness = parseInt(createTokenMatch[3], 10);
       const tokenDescription = createTokenMatch[4].trim();
       
+      // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+      const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+      debug(2, `[executeTriggerEffect] Block trigger creating ${tokensToCreate} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+      
       // Check for "blocking that creature" pattern
       const entersBlocking = desc.includes('blocking that creature') || desc.includes('that\'s blocking');
       
@@ -1510,7 +1518,7 @@ function executeTriggerEffect(
       }
       
       // Create tokens
-      for (let i = 0; i < tokenCount; i++) {
+      for (let i = 0; i < tokensToCreate; i++) {
         const tokenId = uid("token");
         const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
         const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
@@ -2487,8 +2495,12 @@ function executeTriggerEffect(
     const tokenInfo = predefinedTokenTypes[tokenType];
     
     if (tokenInfo) {
+      // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+      const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+      debug(2, `[executeTriggerEffect] Creating ${tokensToCreate} ${tokenType} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+      
       state.battlefield = state.battlefield || [];
-      for (let i = 0; i < tokenCount; i++) {
+      for (let i = 0; i < tokensToCreate; i++) {
         const tokenId = uid("token");
         const tokenName = tokenType.charAt(0).toUpperCase() + tokenType.slice(1);
         
@@ -2531,6 +2543,10 @@ function executeTriggerEffect(
     const toughness = parseInt(createTokenMatch[3], 10);
     const tokenDescription = createTokenMatch[4].trim();
     
+    // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+    const tokensToCreate = tokenCount * getTokenDoublerMultiplier(controller, state);
+    debug(2, `[executeTriggerEffect] Generic trigger creating ${tokensToCreate} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(controller, state)})`);
+    
     // Check for "tapped and attacking" pattern
     const isTappedAndAttacking = desc.includes('tapped and attacking');
     
@@ -2568,7 +2584,7 @@ function executeTriggerEffect(
     
     // Create the tokens
     state.battlefield = state.battlefield || [];
-    for (let i = 0; i < tokenCount; i++) {
+    for (let i = 0; i < tokensToCreate; i++) {
       const tokenId = uid("token");
       const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
       const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
