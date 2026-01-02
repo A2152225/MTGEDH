@@ -4618,15 +4618,23 @@ async function handleOptionChoiceResponse(
     const permanentId = stepData.permanentId;
     const cardName = stepData.sourceName || 'Permanent';
     
-    // Extract the selected option value
-    let chosenOption: string;
-    if (Array.isArray(selectedOption) && selectedOption.length > 0) {
-      chosenOption = selectedOption[0];
+    // Extract the selected option value(s)
+    let chosenOptions: string[];
+    if (Array.isArray(selectedOption)) {
+      // Multiple selections (e.g., Greymond choosing 2 abilities)
+      chosenOptions = selectedOption.map((opt: any) => {
+        if (typeof opt === 'string') return opt;
+        if (typeof opt === 'object' && opt !== null) {
+          return opt.value || opt.id || String(opt);
+        }
+        return String(opt);
+      });
     } else if (typeof selectedOption === 'string') {
-      chosenOption = selectedOption;
+      chosenOptions = [selectedOption];
     } else if (typeof selectedOption === 'object' && selectedOption !== null) {
       // Handle if it's an option object with value field
-      chosenOption = (selectedOption as any).value || (selectedOption as any).id || String(selectedOption);
+      const value = (selectedOption as any).value || (selectedOption as any).id || String(selectedOption);
+      chosenOptions = [value];
     } else {
       debugWarn(2, `[Resolution] Invalid option choice: ${JSON.stringify(selectedOption)}`);
       return;
@@ -4638,8 +4646,12 @@ async function handleOptionChoiceResponse(
     const permanent = battlefield.find((p: any) => p.id === permanentId);
     
     if (permanent) {
-      // Store the chosen option on the permanent
-      (permanent as any).chosenOption = chosenOption;
+      // Store the chosen option(s) on the permanent
+      if (chosenOptions.length === 1) {
+        (permanent as any).chosenOption = chosenOptions[0];
+      } else {
+        (permanent as any).chosenOptions = chosenOptions;
+      }
       
       // Append event for replay
       try {
@@ -4647,7 +4659,7 @@ async function handleOptionChoiceResponse(
           playerId: playerId,
           permanentId: permanentId,
           cardName: cardName,
-          chosenOption: chosenOption,
+          chosenOptions: chosenOptions,
         });
       } catch (e) {
         debugWarn(1, "[Resolution] Failed to persist option choice event:", e);
@@ -4659,15 +4671,18 @@ async function handleOptionChoiceResponse(
       }
       
       // Send chat message
+      const optionsText = chosenOptions.length === 1 
+        ? `"${chosenOptions[0]}"` 
+        : chosenOptions.map(o => `"${o}"`).join(' and ');
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${getPlayerName(game, playerId)} chose "${chosenOption}" for ${cardName}.`,
+        message: `${getPlayerName(game, playerId)} chose ${optionsText} for ${cardName}.`,
         ts: Date.now(),
       });
       
-      debug(2, `[Resolution] Option choice completed: ${cardName} -> ${chosenOption}`);
+      debug(2, `[Resolution] Option choice completed: ${cardName} -> ${chosenOptions.join(', ')}`);
     }
     return;
   }

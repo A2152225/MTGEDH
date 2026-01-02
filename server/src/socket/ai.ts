@@ -2415,15 +2415,15 @@ export async function handleAIPriority(
       if (phase === 'combat' && (step.includes('blockers') || step === 'declare_blockers')) {
         debug(1, '[AI] Not AI turn, but it\'s DECLARE_BLOCKERS step - AI needs to decide on blockers');
         
-        // Check if blockers have already been declared this step
-        const battlefield = game.state?.battlefield || [];
-        const alreadyDeclaredBlockers = battlefield.some((perm: any) => 
-          perm.controller === playerId && Array.isArray(perm.blocking) && perm.blocking.length > 0
-        );
+        // Check if blockers have already been declared using the blockersDeclaredBy array
+        const state = game.state as any;
+        const blockersDeclaredBy = state.blockersDeclaredBy || [];
+        const alreadyDeclared = blockersDeclaredBy.includes(playerId);
         
-        if (!alreadyDeclaredBlockers) {
+        if (!alreadyDeclared) {
           // AI needs to declare blockers
           // Get the attacking creatures from the battlefield
+          const battlefield = game.state?.battlefield || [];
           const attackingCreatures = battlefield.filter((perm: any) => 
             perm.attacking === true
           );
@@ -2449,6 +2449,8 @@ export async function handleAIPriority(
             await executeDeclareBlockers(io, gameId, playerId, []);
             return;
           }
+        } else {
+          debug(1, `[AI] Blockers already declared for ${playerId}, skipping`);
         }
       }
       
@@ -4730,11 +4732,55 @@ async function executeDeclareBlockers(
   debug(1, '[AI] Declaring blockers:', { gameId, playerId, blockers });
   
   try {
+    const battlefield = game.state?.battlefield || [];
+    const state = game.state as any;
+    
+    // Apply blocker assignments to permanents
+    for (const blocker of blockers) {
+      const blockerCreature = battlefield.find((perm: any) => perm.id === blocker.blockerId);
+      const attackerCreature = battlefield.find((perm: any) => perm.id === blocker.attackerId);
+      
+      if (blockerCreature && attackerCreature) {
+        // Mark the blocker as blocking
+        (blockerCreature as any).blocking = (blockerCreature as any).blocking || [];
+        (blockerCreature as any).blocking.push(blocker.attackerId);
+
+        // Mark the attacker as being blocked
+        (attackerCreature as any).blockedBy = (attackerCreature as any).blockedBy || [];
+        (attackerCreature as any).blockedBy.push(blocker.blockerId);
+      }
+    }
+    
+    // Mark that blockers have been declared for this player
+    // This is CRITICAL to prevent infinite loop in checkPendingInteractions
+    state.blockersDeclaredBy = state.blockersDeclaredBy || [];
+    if (!state.blockersDeclaredBy.includes(playerId)) {
+      state.blockersDeclaredBy.push(playerId);
+      debug(1, `[AI] Marked blockers as declared for ${playerId}`);
+    }
+    
+    // Call game method if it exists (for compatibility)
     if (typeof (game as any).declareBlockers === 'function') {
       (game as any).declareBlockers(playerId, blockers);
     }
     
+    // Bump sequence number
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
     await appendEvent(gameId, (game as any).seq || 0, 'declareBlockers', { playerId, blockers });
+    
+    // Broadcast the blocker count
+    const blockerCount = blockers.length;
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `AI declares ${blockerCount} blocker${blockerCount !== 1 ? "s" : ""}.`,
+      ts: Date.now(),
+    });
+    
     broadcastGame(io, game, gameId);
     
     // After declaring blockers, pass priority to allow responses
@@ -4744,6 +4790,12 @@ async function executeDeclareBlockers(
     
   } catch (error) {
     debugError(1, '[AI] Error declaring blockers:', error);
+    // Even on error, mark blockers as declared to prevent infinite loop
+    const state = game.state as any;
+    state.blockersDeclaredBy = state.blockersDeclaredBy || [];
+    if (!state.blockersDeclaredBy.includes(playerId)) {
+      state.blockersDeclaredBy.push(playerId);
+    }
     await executePassPriority(io, gameId, playerId);
   }
 }
