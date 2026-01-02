@@ -4558,6 +4558,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Keep both for client display: loyalty = current counters, baseLoyalty = printed
       newPermanent.loyalty = modifiedCounters.loyalty ?? initialCounters.loyalty;
       newPermanent.baseLoyalty = initialCounters.loyalty ?? 0;
+      debug(1, `[PLANESWALKER DEBUG] ${effectiveCard.name} entering battlefield:`, {
+        loyalty: newPermanent.loyalty,
+        baseLoyalty: newPermanent.baseLoyalty,
+        counters: newPermanent.counters,
+        hasOracleText: !!effectiveCard.oracle_text,
+        oracleTextLength: effectiveCard.oracle_text?.length || 0,
+      });
     }
     
     state.battlefield.push(newPermanent);
