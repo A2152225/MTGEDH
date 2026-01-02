@@ -1522,9 +1522,13 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
       
       // Add commander tax to generic cost
       const tax = (commandZone as any).taxById?.[commanderId] || 0;
+      
+      // Apply cost adjustments (monuments, cost reducers, taxes from opponents)
+      const costAdjustment = getCostAdjustmentForCard(state, playerId, commander);
+      
       const totalCost = {
         ...parsedCost,
-        generic: parsedCost.generic + tax,
+        generic: parsedCost.generic + tax + costAdjustment, // Tax increases cost, adjustment can reduce or increase
       };
       
       // Check if player can pay the cost

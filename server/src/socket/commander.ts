@@ -17,6 +17,7 @@
 
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName } from "./util";
+import { getCostAdjustmentForCard } from "../state/modules/can-respond.js";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../../shared/src";
@@ -580,7 +581,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // IMPORTANT: Only use taxById[commanderId], NOT commanderInfo.tax (which is the TOTAL tax for ALL commanders)
       const commanderTax = (commanderInfo as any).taxById?.[commanderId] ?? 0;
       debug(2, `[castCommander] Commander tax for ${commanderId}: ${commanderTax} (taxById: ${(commanderInfo as any).taxById?.[commanderId]}, total tax: ${commanderInfo.tax})`);
-      const totalGeneric = parsedCost.generic + commanderTax;
+      
+      // Apply cost adjustments (monuments, cost reducers, taxes from opponents)
+      const costAdjustment = getCostAdjustmentForCard(game.state, pid, commanderCard);
+      debug(2, `[castCommander] Cost adjustment for ${commanderCard.name}: ${costAdjustment} (negative = reduction, positive = tax)`);
+      
+      const totalGeneric = parsedCost.generic + commanderTax + costAdjustment;
       const totalColored = parsedCost.colors;
       
       // Get existing mana pool (floating mana from previous spells)
