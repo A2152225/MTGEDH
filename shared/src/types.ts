@@ -24,6 +24,7 @@ export interface CardFace {
   image_uris?: ImageUris;
   power?: string;
   toughness?: string;
+  loyalty?: string; // For MDFC planeswalkers
 }
 
 /* Known card shape (non-secret) */
