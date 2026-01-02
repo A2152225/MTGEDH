@@ -574,12 +574,23 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('cardName' in step) fields.cardName = (step as any).cardName;
       if ('reason' in step) fields.reason = (step as any).reason;
       break;
+    
+    case ResolutionStepType.CARD_NAME_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      break;
+    
+    case ResolutionStepType.PLAYER_CHOICE:
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('players' in step) fields.players = (step as any).players;
+      if ('opponentOnly' in step) fields.opponentOnly = (step as any).opponentOnly;
+      break;
       
     case ResolutionStepType.OPTION_CHOICE:
     case ResolutionStepType.MODAL_CHOICE:
       if ('options' in step) fields.options = step.options;
       if ('minSelections' in step) fields.minSelections = step.minSelections;
       if ('maxSelections' in step) fields.maxSelections = step.maxSelections;
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
       break;
       
     case ResolutionStepType.PONDER_EFFECT:
@@ -818,6 +829,10 @@ async function handleStepResponse(
     
     case ResolutionStepType.CREATURE_TYPE_CHOICE:
       await handleCreatureTypeChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.CARD_NAME_CHOICE:
+      await handleCardNameChoiceResponse(io, game, gameId, step, response);
       break;
     
     // Add more handlers as needed
@@ -3257,6 +3272,71 @@ async function handleCreatureTypeChoiceResponse(
 }
 
 /**
+ * Handle Card Name Choice response
+ * Player chooses a card name for a permanent (e.g., Pithing Needle, Runed Halo)
+ */
+async function handleCardNameChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const rawSelection = response.selections as any;
+  const selection = Array.isArray(rawSelection) ? rawSelection[0] : rawSelection;
+  
+  if (!selection || typeof selection !== 'string') {
+    debugWarn(2, `[Resolution] Card name choice missing selection`);
+    return;
+  }
+  
+  const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
+  
+  // Find the permanent on the battlefield
+  const state = game.state || {};
+  const battlefield = state.battlefield || [];
+  const permanent = battlefield.find((p: any) => p.id === permanentId);
+  
+  if (!permanent) {
+    debugWarn(2, `[Resolution] Card name choice: permanent ${permanentId} not found`);
+    return;
+  }
+  
+  // Store the chosen card name on the permanent
+  (permanent as any).chosenCardName = selection;
+  
+  // Append event for replay
+  try {
+    await appendEvent(gameId, (game as any).seq || 0, "cardNameChoice", {
+      playerId: pid,
+      permanentId: permanentId,
+      cardName: cardName,
+      chosenName: selection,
+    });
+  } catch (e) {
+    debugWarn(1, "[Resolution] Failed to persist card name choice event:", e);
+  }
+  
+  // Bump sequence
+  if (typeof (game as any).bumpSeq === "function") {
+    (game as any).bumpSeq();
+  }
+  
+  // Send chat message
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, pid)} chose "${selection}" for ${cardName}.`,
+    ts: Date.now(),
+  });
+  
+  debug(2, `[Resolution] Card name choice completed: ${cardName} -> ${selection}`);
+}
+
+/**
  * Handle Suspend Cast response
  * Player casts a spell with suspend (exile with time counters)
  */
@@ -4379,6 +4459,51 @@ async function handlePlayerChoiceResponse(
   
   debug(2, `[Resolution] Player choice response: selected player ${selectedPlayerId}`);
   
+  // Check if this is an ETB permanent choice (Xantcha, Curses, etc.)
+  if (stepData.permanentId) {
+    const permanentId = stepData.permanentId;
+    const cardName = stepData.sourceName || 'Permanent';
+    
+    // Find the permanent on the battlefield
+    const state = game.state || {};
+    const battlefield = state.battlefield || [];
+    const permanent = battlefield.find((p: any) => p.id === permanentId);
+    
+    if (permanent) {
+      // Store the chosen player on the permanent
+      (permanent as any).chosenPlayer = selectedPlayerId;
+      
+      // Append event for replay
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "playerChoice", {
+          playerId: response.playerId,
+          permanentId: permanentId,
+          cardName: cardName,
+          chosenPlayer: selectedPlayerId,
+        });
+      } catch (e) {
+        debugWarn(1, "[Resolution] Failed to persist player choice event:", e);
+      }
+      
+      // Bump sequence
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+      
+      // Send chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, response.playerId)} chose ${getPlayerName(game, selectedPlayerId)} for ${cardName}.`,
+        ts: Date.now(),
+      });
+      
+      debug(2, `[Resolution] Player choice completed: ${cardName} -> ${selectedPlayerId}`);
+    }
+    return;
+  }
+  
   // Check if this is an ETB trigger with target
   if (stepData.etbTargetTrigger && stepData.triggerItem) {
     const triggerItem = stepData.triggerItem;
@@ -4487,6 +4612,65 @@ async function handleOptionChoiceResponse(
   const playerId = response.playerId;
   
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
+  
+  // Check if this is an ETB permanent option choice (e.g., "choose flying or first strike")
+  if (stepData.permanentId) {
+    const permanentId = stepData.permanentId;
+    const cardName = stepData.sourceName || 'Permanent';
+    
+    // Extract the selected option value
+    let chosenOption: string;
+    if (Array.isArray(selectedOption) && selectedOption.length > 0) {
+      chosenOption = selectedOption[0];
+    } else if (typeof selectedOption === 'string') {
+      chosenOption = selectedOption;
+    } else if (typeof selectedOption === 'object' && selectedOption !== null) {
+      // Handle if it's an option object with value field
+      chosenOption = (selectedOption as any).value || (selectedOption as any).id || String(selectedOption);
+    } else {
+      debugWarn(2, `[Resolution] Invalid option choice: ${JSON.stringify(selectedOption)}`);
+      return;
+    }
+    
+    // Find the permanent on the battlefield
+    const state = game.state || {};
+    const battlefield = state.battlefield || [];
+    const permanent = battlefield.find((p: any) => p.id === permanentId);
+    
+    if (permanent) {
+      // Store the chosen option on the permanent
+      (permanent as any).chosenOption = chosenOption;
+      
+      // Append event for replay
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "optionChoice", {
+          playerId: playerId,
+          permanentId: permanentId,
+          cardName: cardName,
+          chosenOption: chosenOption,
+        });
+      } catch (e) {
+        debugWarn(1, "[Resolution] Failed to persist option choice event:", e);
+      }
+      
+      // Bump sequence
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+      
+      // Send chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} chose "${chosenOption}" for ${cardName}.`,
+        ts: Date.now(),
+      });
+      
+      debug(2, `[Resolution] Option choice completed: ${cardName} -> ${chosenOption}`);
+    }
+    return;
+  }
   
   // Handle counter placement triggers (Agitator Ant, Orzhov Advokist, etc.)
   // SCALABLE: Supports "each player may X. If a player does, Y" pattern

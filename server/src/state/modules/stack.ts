@@ -4653,6 +4653,111 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Check for Card Name Choice ETB ("As ~ enters, choose a card name")
+    // Examples: Pithing Needle, Runed Halo, Nevermore, Meddling Mage
+    const cardNamePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?(?:name|choose) a (?:card|nonland card)(?: name)?/i;
+    if (cardNamePattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenCardName) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.CARD_NAME_CHOICE,
+          playerId: controller as PlayerID,
+          description: `Choose a card name for ${effectiveCard.name}`,
+          mandatory: !oracleText.includes('you may'),
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires card name choice, added resolution step`);
+      }
+    }
+    
+    // Check for Opponent/Player Choice ETB ("As ~ enters, choose an opponent" or "choose a player")
+    // Examples: Xantcha, Sleeper Agent, Curses, Vow cycle
+    const opponentPattern = /as .+? enters(?: the battlefield)?,?\s+choose (?:an opponent|a player)/i;
+    if (opponentPattern.test(oracleText) && !isReplaying) {
+      if (!newPermanent.chosenPlayer) {
+        // Determine if it should be opponent only or any player
+        const opponentOnly = oracleText.includes('choose an opponent');
+        const allPlayers = state.players || [];
+        const validPlayers = opponentOnly 
+          ? allPlayers.filter((p: any) => p.id !== controller)
+          : allPlayers;
+        
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.PLAYER_CHOICE,
+          playerId: controller as PlayerID,
+          description: opponentOnly 
+            ? `Choose an opponent for ${effectiveCard.name}`
+            : `Choose a player for ${effectiveCard.name}`,
+          mandatory: true,
+          sourceId: newPermId,
+          sourceName: effectiveCard.name || 'Permanent',
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          permanentId: newPermId,
+          players: validPlayers.map((p: any) => ({
+            id: p.id,
+            name: p.name || `Player ${p.seat}`,
+          })),
+          opponentOnly: opponentOnly,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires ${opponentOnly ? 'opponent' : 'player'} choice, added resolution step`);
+      }
+    }
+    
+    // Check for Generic Option Choice ETB (2-way or multi-way choices)
+    // Examples: "choose flying or first strike", "choose odd or even", "choose Khan or Dragon"
+    // Pattern: "As ~ enters, choose X or Y" or "choose X, Y, or Z"
+    const optionPattern = /as .+? enters(?: the battlefield)?,?\s+choose (.+?)(?:\.|$)/i;
+    const optionMatch = oracleText.match(optionPattern);
+    if (optionMatch && !isReplaying) {
+      const choiceText = optionMatch[1];
+      // Check if this is a simple "A or B" or "A, B, or C" pattern
+      // Skip if it's already handled by specific patterns (color, creature type, card name, player)
+      const isSpecificPattern = 
+        /a colou?r/.test(choiceText) ||
+        /a creature type/.test(choiceText) ||
+        /a (?:card|nonland card)(?: name)?/.test(choiceText) ||
+        /(?:an opponent|a player)/.test(choiceText);
+      
+      if (!isSpecificPattern && !newPermanent.chosenOption) {
+        // Extract options from text
+        // Handle "A or B", "A, B, or C", etc.
+        let options: string[] = [];
+        
+        // Try to parse "X or Y" pattern
+        if (choiceText.includes(' or ')) {
+          const parts = choiceText.split(/,?\s+or\s+/);
+          options = parts.map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
+        } else if (choiceText.includes(',')) {
+          // Try "X, Y, Z" pattern
+          options = choiceText.split(',').map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
+        }
+        
+        // Only add step if we successfully parsed options
+        if (options.length >= 2) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: controller as PlayerID,
+            description: `Choose an option for ${effectiveCard.name}: ${options.join(' or ')}`,
+            mandatory: true,
+            sourceId: newPermId,
+            sourceName: effectiveCard.name || 'Permanent',
+            sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+            permanentId: newPermId,
+            options: options.map((opt, idx) => ({
+              id: `option_${idx}`,
+              label: opt.charAt(0).toUpperCase() + opt.slice(1),
+              value: opt,
+            })),
+            minSelections: 1,
+            maxSelections: 1,
+          });
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires option choice (${options.join('/')}), added resolution step`);
+        }
+      }
+    }
+    
     // Check for Devour X mechanic
     const devourMatch = oracleText.match(/devour\s+(\d+)/);
     if (devourMatch && isCreature) {
