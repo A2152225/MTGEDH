@@ -6227,6 +6227,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             
             // Put onto battlefield
             const isCreature = topTypeLine.includes('creature');
+            const isPlaneswalker = topTypeLine.includes('planeswalker');
             const newPermanent = {
               id: uid("perm"),
               controller: owner,
@@ -6238,6 +6239,14 @@ export function resolveTopOfStack(ctx: GameContext) {
               summoningSickness: isCreature,
               card: { ...topCard, zone: "battlefield" },
             } as any;
+            
+            // Add loyalty for planeswalkers
+            if (isPlaneswalker && (topCard as any).loyalty) {
+              const loyaltyValue = parseInt((topCard as any).loyalty, 10);
+              newPermanent.counters = { loyalty: loyaltyValue };
+              newPermanent.loyalty = loyaltyValue;
+              newPermanent.baseLoyalty = loyaltyValue;
+            }
             
             battlefield.push(newPermanent);
             debug(2, `[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (permanent) - put onto battlefield`);
@@ -6693,6 +6702,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           // Create a new permanent (new object, no connection to old one)
           // Detect enters-with-counters
           const entersWithCounters = detectEntersWithCounters(flickeredCard);
+          const isPlaneswalker = flickeredCard?.type_line?.toLowerCase()?.includes('planeswalker');
           
           const newPermanent = {
             id: uid('perm'),
@@ -6704,6 +6714,14 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
             counters: entersWithCounters && Object.keys(entersWithCounters).length > 0 ? entersWithCounters : {},
             attachedTo: undefined, // Equipment/Auras are removed
           };
+          
+          // Add loyalty for planeswalkers
+          if (isPlaneswalker && (flickeredCard as any).loyalty) {
+            const loyaltyValue = parseInt((flickeredCard as any).loyalty, 10);
+            newPermanent.counters = { ...newPermanent.counters, loyalty: loyaltyValue };
+            (newPermanent as any).loyalty = loyaltyValue;
+            (newPermanent as any).baseLoyalty = loyaltyValue;
+          }
           
           battlefield.push(newPermanent);
           debug(2, `[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${newPermanent.id}`);
