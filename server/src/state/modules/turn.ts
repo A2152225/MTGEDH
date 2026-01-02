@@ -2650,11 +2650,13 @@ export function nextStep(ctx: GameContext) {
         nextStep = "CLEANUP";
         // When entering cleanup step, check if we should auto-advance to next turn
         // This happens when no discard is needed, stack is empty, no triggers, and no Sundial effect
-        shouldAdvanceTurn = !isReplaying; // Only auto-advance during live play, not during replay
+        // Allow advancement during replay as well - turn advancement is a deterministic rule, not an event
+        shouldAdvanceTurn = true;
       } else if (currentStep === "cleanup" || currentStep === "CLEANUP") {
         // Cleanup step: player has already had opportunity to use Sundial
         // Now advance to next turn (after discard check)
-        shouldAdvanceTurn = !isReplaying; // Only auto-advance during live play, not during replay
+        // Allow advancement during replay as well - turn advancement is a deterministic rule, not an event
+        shouldAdvanceTurn = true;
         // Mark that we're proceeding from cleanup (not entering it)
         // So we skip the Sundial check since player already passed
         (ctx as any)._cleanupProceed = true;
