@@ -5290,6 +5290,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 mana_cost: card.mana_cost,
                 power: card.power,
                 toughness: card.toughness,
+                loyalty: (card as any).loyalty,
                 color_identity: card.color_identity, // Include color_identity from Scryfall
                 zone: 'library',
               });
@@ -5569,6 +5570,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                   mana_cost: card.mana_cost,
                   power: card.power,
                   toughness: card.toughness,
+                  loyalty: (card as any).loyalty,
                   color_identity: card.color_identity,
                   zone: 'library',
                 });
