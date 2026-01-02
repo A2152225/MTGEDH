@@ -500,7 +500,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
     // Match planeswalker ability patterns: +N:, -N:, or 0: at start of line
     // Scryfall oracle text uses plain format without brackets (e.g., "+1: Effect text")
     // The pattern matches various dash characters: regular minus (-), en dash (–), em dash (—), and Unicode minus (−)
-    const pwAbilityPattern = /^([+−–—\-]?\d+):\s*(.+)/gm;
+    const pwAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
     let pwMatch;
     while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
       const loyaltyCostStr = pwMatch[1].replace(/[−–—]/g, '-');
