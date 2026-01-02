@@ -4792,7 +4792,10 @@ async function handleSoldierProgramChoice(
   const { createToken } = await import("../state/modules/counters_tokens.js");
   
   const battlefield = game.state.battlefield || [];
-  let actionMessages: string[] = [];
+  const actionMessages: string[] = [];
+  
+  // Card text specifies "up to two Soldiers"
+  const MAX_SOLDIERS_FOR_COUNTERS = 2;
   
   // Check what the player chose
   for (const choiceId of choiceIds) {
@@ -4824,8 +4827,8 @@ async function handleSoldierProgramChoice(
         return typeLine.includes('soldier');
       });
       
-      // Add counters to up to 2 soldiers
-      const soldiersToBoost = soldiers.slice(0, 2);
+      // Add counters to up to MAX_SOLDIERS_FOR_COUNTERS soldiers
+      const soldiersToBoost = soldiers.slice(0, MAX_SOLDIERS_FOR_COUNTERS);
       if (soldiersToBoost.length > 0) {
         for (const soldier of soldiersToBoost) {
           soldier.counters = soldier.counters || {};

@@ -3799,8 +3799,6 @@ export function resolveTopOfStack(ctx: GameContext) {
     // These need to present the player with modal choices before executing
     // ========================================================================
     const requiresChoice = (item as any).requiresChoice;
-    const isModal = (item as any).isModal;
-    const modalOptions = (item as any).modalOptions;
     
     if (requiresChoice && triggerType === 'begin_combat') {
       // Handle "SOLDIER Military Program" and similar "choose one" beginning of combat triggers
@@ -3812,7 +3810,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       if (isSoldierProgram || lowerText.includes('choose one')) {
         // Skip adding resolution steps during replay
-        const isReplaying = !!(ctx as any).isReplaying;
+        const isReplaying = (ctx as any).isReplaying;
         if (isReplaying) {
           debug(2, `[resolveTopOfStack] Modal trigger: skipping resolution step during replay`);
           return;
@@ -3891,11 +3889,11 @@ export function resolveTopOfStack(ctx: GameContext) {
             maxSelections: canChooseBoth ? 2 : 1,
             // Store trigger data for resolution handler
             triggerData: {
-              triggerType: triggerType,
-              sourceName: sourceName,
-              sourceId: sourceId,
-              isSoldierProgram: isSoldierProgram,
-              canChooseBoth: canChooseBoth,
+              triggerType,
+              sourceName,
+              sourceId,
+              isSoldierProgram,
+              canChooseBoth,
             },
           } as any);
           
