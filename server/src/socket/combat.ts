@@ -1716,6 +1716,80 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         ts: Date.now(),
       });
 
+      // Process block triggers
+      try {
+        const blockingCreatures = blockers.map(b => 
+          battlefield.find((perm: any) => perm.id === b.blockerId)
+        ).filter(Boolean);
+        
+        if (blockingCreatures.length > 0) {
+          // Create a minimal context for trigger detection
+          const ctx = {
+            state: game.state,
+            bumpSeq: () => {
+              if (typeof (game as any).bumpSeq === "function") {
+                (game as any).bumpSeq();
+              }
+            }
+          };
+          
+          // Import block trigger function dynamically to avoid circular dependencies
+          const { getBlockTriggersForCreatures } = await import("../state/modules/triggered-abilities.js");
+          
+          const triggers = getBlockTriggersForCreatures(
+            ctx as any,
+            blockingCreatures,
+            playerId
+          );
+          
+          // Push triggers to stack and notify clients
+          if (triggers.length > 0) {
+            debug(2, `[combat] Found ${triggers.length} block trigger(s) for game ${gameId}`);
+            
+            for (const trigger of triggers) {
+              // Push onto stack
+              game.state.stack = game.state.stack || [];
+              const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              const stackItem: any = {
+                id: triggerId,
+                type: 'triggered_ability',
+                controller: playerId,
+                source: trigger.permanentId,
+                sourceName: trigger.cardName,
+                description: trigger.description,
+                triggerType: 'blocks',
+                mandatory: trigger.mandatory,
+                value: trigger.value,
+              };
+              
+              game.state.stack.push(stackItem);
+              
+              // Notify players about the trigger
+              io.to(gameId).emit("triggeredAbility", {
+                gameId,
+                triggerId,
+                playerId,
+                sourcePermanentId: trigger.permanentId,
+                sourceName: trigger.cardName,
+                triggerType: 'blocks',
+                description: trigger.description,
+                mandatory: trigger.mandatory,
+              });
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+                ts: Date.now(),
+              });
+            }
+          }
+        }
+      } catch (triggerErr) {
+        debugWarn(1, "[combat] Error processing block triggers:", triggerErr);
+      }
+
       // Mark that blockers have been declared for this player
       // This allows step advancement to proceed past DECLARE_BLOCKERS
       const state = game.state as any;

@@ -1301,6 +1301,196 @@ function executeTriggerEffect(
     }
   }
   
+  // ========================================================================
+  // BLOCK TRIGGER TOKEN CREATION
+  // Handle "whenever ~ blocks, create X Y/Z tokens that are blocking"
+  // Examples: Brimaz, King of Oreskos
+  // ========================================================================
+  if (triggerType === 'blocks') {
+    // Check if this trigger has token creation data in its value
+    const triggerValue = (triggerItem as any).value || {};
+    const createTokens = triggerValue.createTokens;
+    const blockedCreatureId = triggerValue.blockedCreatureId;
+    
+    if (createTokens) {
+      const { count, power, toughness, type, color, abilities } = createTokens;
+      
+      // Find the blocking creature to get who it's blocking
+      const sourceId = triggerItem.source || triggerItem.permanentId;
+      const battlefield = state.battlefield || [];
+      const blockingCreature = battlefield.find((p: any) => p?.id === sourceId);
+      
+      // Determine which attacker the token should block (same as source creature)
+      let blockingTarget: string | undefined;
+      if (blockingCreature?.blocking && Array.isArray(blockingCreature.blocking)) {
+        blockingTarget = blockingCreature.blocking[0]; // Block the same attacker
+      } else if (blockedCreatureId) {
+        blockingTarget = blockedCreatureId;
+      }
+      
+      const colors: string[] = color === 'white' ? ['W'] : color === 'red' ? ['R'] : 
+                              color === 'blue' ? ['U'] : color === 'black' ? ['B'] : 
+                              color === 'green' ? ['G'] : [];
+      
+      // Create the tokens
+      for (let i = 0; i < count; i++) {
+        const tokenId = uid("token");
+        const tokenName = type;
+        const typeLine = `Token Creature — ${type}`;
+        
+        // Get token image from Scryfall data
+        const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+        
+        const token = {
+          id: tokenId,
+          controller,
+          owner: controller,
+          // Block tokens don't need to be tapped
+          tapped: false,
+          counters: {},
+          basePower: power,
+          baseToughness: toughness,
+          // Tokens entering blocking don't have summoning sickness
+          summoningSickness: false,
+          isToken: true,
+          // Set blocking property if there's a target
+          ...(blockingTarget ? { blocking: [blockingTarget] } : {}),
+          card: {
+            id: tokenId,
+            name: tokenName,
+            type_line: typeLine,
+            power: String(power),
+            toughness: String(toughness),
+            colors,
+            oracle_text: (abilities || []).join(', '),
+            keywords: abilities || [],
+            zone: 'battlefield',
+            image_uris: tokenImageUrls,
+          },
+        } as any;
+        
+        // Also need to update the attacker's blockedBy array
+        if (blockingTarget) {
+          const attackingCreature = battlefield.find((p: any) => p?.id === blockingTarget);
+          if (attackingCreature) {
+            attackingCreature.blockedBy = attackingCreature.blockedBy || [];
+            attackingCreature.blockedBy.push(tokenId);
+          }
+        }
+        
+        battlefield.push(token);
+        debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller} (blocking${blockingTarget ? ` ${blockingTarget}` : ''})`);
+        
+        // Trigger ETB effects from other permanents
+        triggerETBEffectsForToken(ctx, token, controller);
+      }
+      
+      return; // Block trigger token creation handled
+    }
+    
+    // Fall through to generic pattern matching if no createTokens data
+    // This handles block triggers detected from oracle text parsing
+    const createTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+    if (createTokenMatch) {
+      // Similar token creation logic as attack triggers
+      const countWord = desc.match(/create (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+      const wordToCount: Record<string, number> = {
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+      };
+      const tokenCount = wordToCount[countWord] || (createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1);
+      const power = parseInt(createTokenMatch[2], 10);
+      const toughness = parseInt(createTokenMatch[3], 10);
+      const tokenDescription = createTokenMatch[4].trim();
+      
+      // Check for "blocking that creature" pattern
+      const entersBlocking = desc.includes('blocking that creature') || desc.includes('that\'s blocking');
+      
+      // Extract abilities
+      const abilities: string[] = [];
+      if (desc.includes('vigilance')) abilities.push('Vigilance');
+      if (desc.includes('haste')) abilities.push('Haste');
+      if (desc.includes('lifelink')) abilities.push('Lifelink');
+      
+      // Parse colors from token description
+      const parts = tokenDescription.split(/\s+/);
+      const colors: string[] = [];
+      const creatureTypes: string[] = [];
+      
+      const colorMap: Record<string, string> = {
+        'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G', 'colorless': ''
+      };
+      
+      for (const part of parts) {
+        const lowerPart = part.toLowerCase();
+        if (colorMap[lowerPart] !== undefined) {
+          if (colorMap[lowerPart]) colors.push(colorMap[lowerPart]);
+        } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'that' && 
+                   lowerPart !== 'that\'s' && lowerPart !== 'blocking') {
+          creatureTypes.push(part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
+        }
+      }
+      
+      // Get the blocking creature and attacker
+      const sourceId = triggerItem.source || triggerItem.permanentId;
+      const battlefield = state.battlefield || [];
+      const blockingCreature = battlefield.find((p: any) => p?.id === sourceId);
+      
+      let blockingTarget: string | undefined;
+      if (entersBlocking && blockingCreature?.blocking && Array.isArray(blockingCreature.blocking)) {
+        blockingTarget = blockingCreature.blocking[0];
+      }
+      
+      // Create tokens
+      for (let i = 0; i < tokenCount; i++) {
+        const tokenId = uid("token");
+        const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
+        const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
+        
+        const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+        
+        const token = {
+          id: tokenId,
+          controller,
+          owner: controller,
+          tapped: false,
+          counters: {},
+          basePower: power,
+          baseToughness: toughness,
+          summoningSickness: false,
+          isToken: true,
+          ...(blockingTarget ? { blocking: [blockingTarget] } : {}),
+          card: {
+            id: tokenId,
+            name: tokenName,
+            type_line: typeLine,
+            power: String(power),
+            toughness: String(toughness),
+            colors,
+            oracle_text: abilities.join(', '),
+            keywords: abilities,
+            zone: 'battlefield',
+            image_uris: tokenImageUrls,
+          },
+        } as any;
+        
+        if (blockingTarget) {
+          const attackingCreature = battlefield.find((p: any) => p?.id === blockingTarget);
+          if (attackingCreature) {
+            attackingCreature.blockedBy = attackingCreature.blockedBy || [];
+            attackingCreature.blockedBy.push(tokenId);
+          }
+        }
+        
+        battlefield.push(token);
+        debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} block token for ${controller}`);
+        
+        triggerETBEffectsForToken(ctx, token, controller);
+      }
+      
+      return; // Block trigger token creation handled
+    }
+  }
+  
   // Handle Agent of the Shadow Thieves commander attack trigger
   // "Whenever this creature attacks a player, if no opponent has more life than that player, 
   //  put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."

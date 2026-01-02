@@ -58,6 +58,10 @@ export {
   // End of combat
   detectEndOfCombatTriggers,
   getEndOfCombatTriggers,
+  // Block triggers
+  detectBlockTriggers,
+  getBlockTriggersForCreatures,
+  type BlockTrigger,
   // Damage received triggers
   checkDamageReceivedTrigger,
   type DamageReceivedTriggerInfo,
