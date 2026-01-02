@@ -384,6 +384,22 @@ export function FreeField(props: {
       const baseLoyalty = p.baseLoyalty ?? parsePT((kc as any)?.loyalty);
       const loyalty = p.loyalty ?? p.counters?.['loyalty'];
 
+      // Debug logging for planeswalkers
+      if (isPlaneswalker) {
+        console.log('[PLANESWALKER DEBUG]', {
+          name: kc?.name,
+          isPlaneswalker,
+          loyalty,
+          baseLoyalty,
+          'p.loyalty': p.loyalty,
+          'p.baseLoyalty': p.baseLoyalty,
+          'p.counters.loyalty': p.counters?.['loyalty'],
+          'kc.loyalty': (kc as any)?.loyalty,
+          hasOracleText: !!kc?.oracle_text,
+          oracleTextPreview: kc?.oracle_text?.substring(0, 100),
+        });
+      }
+
       // Targeting
       const targetedBy = p.targetedBy;
 
@@ -1070,6 +1086,7 @@ export function FreeField(props: {
                 )}
               </div>
             )}
+            {isPlaneswalker && loyalty === undefined && console.log('[PLANESWALKER DEBUG] Loyalty badge NOT rendered - loyalty is undefined', { name, isPlaneswalker, loyalty })}
 
             {/* Activated Ability Buttons - for non-planeswalkers or non-loyalty abilities */}
             {showActivatedAbilityButtons && raw.controller === playerId && !isPlaneswalker && (
@@ -1090,20 +1107,23 @@ export function FreeField(props: {
 
             {/* Planeswalker Loyalty Ability Buttons - inline on left side */}
             {showActivatedAbilityButtons && raw.controller === playerId && isPlaneswalker && (
-              <ActivatedAbilityButtons
-                perm={raw}
-                tileWidth={tileWidth}
-                hasPriority={hasPriority}
-                isOwnTurn={isOwnTurn}
-                isMainPhase={isMainPhase}
-                stackEmpty={stackEmpty}
-                hasThousandYearElixirEffect={hasThousandYearElixirEffect}
-                onActivateAbility={onActivateAbility}
-                showOnHover={false}
-                maxVisible={6}
-                position="loyalty-inline"
-                loyaltyAbilitiesOnly={true}
-              />
+              <>
+                {console.log('[PLANESWALKER DEBUG] Rendering loyalty buttons for', name, { showActivatedAbilityButtons, isController: raw.controller === playerId, isPlaneswalker })}
+                <ActivatedAbilityButtons
+                  perm={raw}
+                  tileWidth={tileWidth}
+                  hasPriority={hasPriority}
+                  isOwnTurn={isOwnTurn}
+                  isMainPhase={isMainPhase}
+                  stackEmpty={stackEmpty}
+                  hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                  onActivateAbility={onActivateAbility}
+                  showOnHover={false}
+                  maxVisible={6}
+                  position="loyalty-inline"
+                  loyaltyAbilitiesOnly={true}
+                />
+              </>
             )}
           </div>
         );

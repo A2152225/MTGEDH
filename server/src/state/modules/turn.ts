@@ -275,43 +275,59 @@ function checkPendingInteractions(ctx: GameContext): {
     
     // Check for pending blocker declarations during DECLARE_BLOCKERS step
     // Per Rule 509, defending players must be given the opportunity to declare blockers
-    // Don't auto-advance if there are attackers and potential blockers, unless they've already declared
+    // Blockers are declared in APNAP (Active Player, Non-Active Player) order
+    // Don't auto-advance if there are attackers and potential blockers, unless all defenders have declared
     const currentStep = (state.step || '').toString().toUpperCase();
     if (currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) {
       const battlefield = state.battlefield || [];
       const hasAttackers = battlefield.some((perm: any) => perm && perm.attacking);
       
       if (hasAttackers) {
-        // Check if any defending player has potential blockers and hasn't declared yet
-        const defendingPlayers = new Set<string>();
+        // Get all defending players (players being attacked)
+        const defendingPlayersSet = new Set<string>();
         for (const perm of battlefield) {
           if (perm && perm.attacking) {
-            defendingPlayers.add(perm.attacking);
+            defendingPlayersSet.add(perm.attacking);
           }
         }
         
         const blockersDeclaredBy = state.blockersDeclaredBy || [];
         
-        for (const defenderId of defendingPlayers) {
-          // Skip if this player already declared blockers
-          if (blockersDeclaredBy.includes(defenderId)) {
-            continue;
-          }
-          
-          const hasPotentialBlockers = battlefield.some((perm: any) => {
-            if (!perm || perm.controller !== defenderId) return false;
-            if (perm.tapped) return false;
-            const typeLine = (perm.card?.type_line || '').toLowerCase();
-            return typeLine.includes('creature');
-          });
-          
-          if (hasPotentialBlockers) {
+        // Check if ALL defending players have declared blockers
+        const allDefendersHaveDeclared = Array.from(defendingPlayersSet).every(defenderId => 
+          blockersDeclaredBy.includes(defenderId)
+        );
+        
+        if (!allDefendersHaveDeclared) {
+          // At least one defender hasn't declared yet
+          // Check if any of them have potential blockers
+          for (const defenderId of defendingPlayersSet) {
+            // Skip if this player already declared blockers
+            if (blockersDeclaredBy.includes(defenderId)) {
+              continue;
+            }
+            
+            const hasPotentialBlockers = battlefield.some((perm: any) => {
+              if (!perm || perm.controller !== defenderId) return false;
+              if (perm.tapped) return false;
+              const typeLine = (perm.card?.type_line || '').toLowerCase();
+              return typeLine.includes('creature');
+            });
+            
+            // If this defender has NO potential blockers, auto-declare empty blockers for them
+            if (!hasPotentialBlockers) {
+              debug(2, `${ts()} [checkPendingInteractions] Auto-declaring empty blockers for ${defenderId} (no valid blockers)`);
+              blockersDeclaredBy.push(defenderId);
+              continue;
+            }
+            
+            // This defender has potential blockers and hasn't declared yet
             result.hasPending = true;
             result.pendingTypes.push('blocker_declaration');
             result.details.blockersNeeded = true;
             result.details.defendingPlayer = defenderId;
-            debug(2, `${ts()} [checkPendingInteractions] Blocking step advancement - ${defenderId} has potential blockers and hasn't declared yet`);
-            break; // Found at least one defender with blockers who hasn't declared
+            debug(2, `${ts()} [checkPendingInteractions] Waiting for ${defenderId} to declare blockers`);
+            break; // Wait for this defender
           }
         }
       }
@@ -1780,6 +1796,11 @@ export function nextTurn(ctx: GameContext) {
     // Reset to beginning of turn
     (ctx as any).state.phase = "beginning";
     (ctx as any).state.step = "UNTAP";
+    
+    // Clear combat-related state from previous turn
+    if ((ctx as any).state.blockersDeclaredBy) {
+      delete (ctx as any).state.blockersDeclaredBy;
+    }
 
     // Rule 302.6: Clear summoning sickness at the BEGINNING of the turn
     // This is independent of untapping - a creature that doesn't untap due to
@@ -2511,6 +2532,10 @@ export function nextStep(ctx: GameContext) {
         nextStep = "DECLARE_ATTACKERS";
       } else if (currentStep === "declareAttackers" || currentStep === "DECLARE_ATTACKERS") {
         nextStep = "DECLARE_BLOCKERS";
+        // Initialize blockersDeclaredBy array when entering DECLARE_BLOCKERS step
+        // This ensures a fresh start for each blocker declaration phase
+        (ctx as any).state.blockersDeclaredBy = [];
+        debug(2, `${ts()} [nextStep] Entering DECLARE_BLOCKERS, initialized blockersDeclaredBy array`);
       } else if (currentStep === "declareBlockers" || currentStep === "DECLARE_BLOCKERS") {
         // Clear the blockersDeclaredBy tracking as we're leaving the step
         if ((ctx as any).state.blockersDeclaredBy) {
@@ -2625,11 +2650,13 @@ export function nextStep(ctx: GameContext) {
         nextStep = "CLEANUP";
         // When entering cleanup step, check if we should auto-advance to next turn
         // This happens when no discard is needed, stack is empty, no triggers, and no Sundial effect
-        shouldAdvanceTurn = !isReplaying; // Only auto-advance during live play, not during replay
+        // Allow advancement during replay as well - turn advancement is a deterministic rule, not an event
+        shouldAdvanceTurn = true;
       } else if (currentStep === "cleanup" || currentStep === "CLEANUP") {
         // Cleanup step: player has already had opportunity to use Sundial
         // Now advance to next turn (after discard check)
-        shouldAdvanceTurn = !isReplaying; // Only auto-advance during live play, not during replay
+        // Allow advancement during replay as well - turn advancement is a deterministic rule, not an event
+        shouldAdvanceTurn = true;
         // Mark that we're proceeding from cleanup (not entering it)
         // So we skip the Sundial check since player already passed
         (ctx as any)._cleanupProceed = true;

@@ -31,6 +31,7 @@ export type ScryfallCard = {
   legalities?: Record<string, string>;
   power?: string;
   toughness?: string;
+  loyalty?: string; // Planeswalker starting loyalty
   layout?: string;
   card_faces?: Array<{
     name?: string;
@@ -40,6 +41,7 @@ export type ScryfallCard = {
     image_uris?: { small?: string; normal?: string; art_crop?: string };
     power?: string;
     toughness?: string;
+    loyalty?: string; // For planeswalker card faces (MDFCs)
   }>;
 };
 
@@ -211,6 +213,59 @@ export function parsedDecklistToExpandedString(cards: ParsedLine[]): string {
 // Cache + helpers
 //
 const cache = new Map<string, ScryfallCard>();
+
+/**
+ * Clear planeswalker cache entries to force re-fetch from Scryfall API.
+ * 
+ * This is useful when:
+ * - Card data structure changes (e.g., adding loyalty field)
+ * - Testing planeswalker functionality
+ * - Debugging cache issues
+ * 
+ * @param force - If true, clears the cache regardless of environment variables.
+ *                If false/undefined, only clears if CLEAR_PLANESWALKER_CACHE=true env var is set
+ *                OR if auto-detection finds planeswalkers missing the loyalty field.
+ * @returns The number of planeswalker entries cleared
+ */
+export function clearPlaneswalkerCache(force: boolean = false): number {
+  const toDelete: string[] = [];
+  let hasInvalidPlaneswalkers = false;
+  
+  // Check for planeswalkers missing loyalty field (indicates outdated cache)
+  for (const [key, card] of cache.entries()) {
+    if (card.type_line?.toLowerCase().includes('planeswalker')) {
+      // If any planeswalker is missing the loyalty field, we need to clear all of them
+      if (card.loyalty === undefined) {
+        hasInvalidPlaneswalkers = true;
+      }
+      toDelete.push(key);
+    }
+  }
+  
+  // Only clear if:
+  // 1. Explicitly forced, OR
+  // 2. Environment variable is set, OR  
+  // 3. Auto-detection found planeswalkers without loyalty field
+  const shouldClear = force || 
+                     process.env.CLEAR_PLANESWALKER_CACHE === 'true' || 
+                     hasInvalidPlaneswalkers;
+  
+  if (!shouldClear) {
+    console.log(`[SCRYFALL] No planeswalker cache clearing needed (${toDelete.length} planeswalkers in cache, all have loyalty field)`);
+    return 0;
+  }
+  
+  if (hasInvalidPlaneswalkers && !force && process.env.CLEAR_PLANESWALKER_CACHE !== 'true') {
+    console.log(`[SCRYFALL] Auto-detected ${toDelete.length} planeswalkers in cache missing loyalty field - clearing automatically`);
+  }
+  
+  for (const key of toDelete) {
+    cache.delete(key);
+  }
+  console.log(`[SCRYFALL] Cleared ${toDelete.length} planeswalker entries from cache`);
+  return toDelete.length;
+}
+
 function lcKey(name: string) {
   return normalizeName(name).toLowerCase();
 }
@@ -253,6 +308,16 @@ function toCachedCard(data: any): ScryfallCard {
   const frontFaceImages = data.card_faces?.[0]?.image_uris ?? null;
   const resolvedImageUris = data.image_uris ?? frontFaceImages;
 
+  // Debug logging for planeswalkers
+  if (data.type_line?.toLowerCase().includes('planeswalker')) {
+    console.log('[SCRYFALL DEBUG] Caching planeswalker:', {
+      name: data.name,
+      type_line: data.type_line,
+      'data.loyalty': data.loyalty,
+      'data keys': Object.keys(data).filter(k => k.includes('loyal') || k === 'power' || k === 'toughness')
+    });
+  }
+
   const card: ScryfallCard = {
     id: data.id,
     name: data.name,
@@ -267,6 +332,7 @@ function toCachedCard(data: any): ScryfallCard {
     legalities: data.legalities,
     power: data.power,
     toughness: data.toughness,
+    loyalty: data.loyalty, // Planeswalker starting loyalty
     layout: data.layout,
     card_faces: Array.isArray(data.card_faces)
       ? data.card_faces.map((f: any) => ({
@@ -279,6 +345,7 @@ function toCachedCard(data: any): ScryfallCard {
             : undefined,
           power: f.power,
           toughness: f.toughness,
+          loyalty: f.loyalty, // For MDFC planeswalkers
         }))
       : undefined,
   };
@@ -287,6 +354,15 @@ function toCachedCard(data: any): ScryfallCard {
     cache.set(card.id, card);
     if (card.card_faces) {
       for (const f of card.card_faces) if (f.name) cache.set(lcKey(f.name), card);
+    }
+    
+    // Debug logging for planeswalkers after caching
+    if (card.type_line?.toLowerCase().includes('planeswalker')) {
+      console.log('[SCRYFALL DEBUG] Cached planeswalker result:', {
+        name: card.name,
+        'card.loyalty': card.loyalty,
+        'cached value': cache.get(lcKey(card.name))?.loyalty
+      });
     }
   } catch (e) {
     /* ignore caching errors */

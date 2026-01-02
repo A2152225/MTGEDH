@@ -4558,6 +4558,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Keep both for client display: loyalty = current counters, baseLoyalty = printed
       newPermanent.loyalty = modifiedCounters.loyalty ?? initialCounters.loyalty;
       newPermanent.baseLoyalty = initialCounters.loyalty ?? 0;
+      debug(1, `[PLANESWALKER DEBUG] ${effectiveCard.name} entering battlefield:`, {
+        loyalty: newPermanent.loyalty,
+        baseLoyalty: newPermanent.baseLoyalty,
+        counters: newPermanent.counters,
+        hasOracleText: !!effectiveCard.oracle_text,
+        oracleTextLength: effectiveCard.oracle_text?.length || 0,
+      });
     }
     
     state.battlefield.push(newPermanent);
@@ -4706,8 +4713,12 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     // Check for Generic Option Choice ETB (2-way or multi-way choices)
-    // Examples: "choose flying or first strike", "choose odd or even", "choose Khan or Dragon"
-    // Pattern: "As ~ enters, choose X or Y" or "choose X, Y, or Z"
+    // Examples: 
+    // - "choose flying or first strike"
+    // - "choose odd or even"
+    // - "choose Khan or Dragon"
+    // - "choose two abilities from among first strike, vigilance, and lifelink" (Greymond)
+    // Pattern: "As ~ enters, choose X or Y" or "choose X, Y, or Z" or "choose N from among X, Y, and Z"
     const optionPattern = /as .+? enters(?: the battlefield)?,?\s+choose (.+?)(?:\.|$)/i;
     const optionMatch = oracleText.match(optionPattern);
     if (optionMatch && !isReplaying) {
@@ -4720,18 +4731,54 @@ export function resolveTopOfStack(ctx: GameContext) {
         /a (?:card|nonland card)(?: name)?/.test(choiceText) ||
         /(?:an opponent|a player)/.test(choiceText);
       
-      if (!isSpecificPattern && !newPermanent.chosenOption) {
+      if (!isSpecificPattern && !newPermanent.chosenOption && !newPermanent.chosenOptions) {
         // Extract options from text
-        // Handle "A or B", "A, B, or C", etc.
         let options: string[] = [];
+        let minSelections = 1;
+        let maxSelections = 1;
         
-        // Try to parse "X or Y" pattern
-        if (choiceText.includes(' or ')) {
-          const parts = choiceText.split(/,?\s+or\s+/);
-          options = parts.map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
-        } else if (choiceText.includes(',')) {
-          // Try "X, Y, Z" pattern
-          options = choiceText.split(',').map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
+        // Check for "choose N from among X, Y, and Z" pattern (e.g., Greymond)
+        const fromAmongMatch = choiceText.match(/^(?:(\w+)\s+)?(?:abilities?|options?|cards?)\s+from\s+among\s+(.+)$/i);
+        if (fromAmongMatch) {
+          // Parse the number (e.g., "two" -> 2)
+          const numWord = fromAmongMatch[1]?.toLowerCase();
+          const numMap: Record<string, number> = {
+            'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+            'a': 1, 'an': 1,
+          };
+          const choiceCount = numWord ? (numMap[numWord] || parseInt(numWord, 10) || 1) : 1;
+          minSelections = choiceCount;
+          maxSelections = choiceCount;
+          
+          // Extract the list after "from among"
+          const itemList = fromAmongMatch[2];
+          // Split on commas and "and"
+          const parts = itemList.split(/,\s+(?:and\s+)?|(?:,\s+)?and\s+/);
+          options = parts.map(p => p.trim().replace(/^(a|an|the)\s+/i, '')).filter(p => p.length > 0);
+          
+          debug(2, `[resolveTopOfStack] Parsed "from among" pattern: choose ${choiceCount} from ${options.join(', ')}`);
+        } else {
+          // Try to parse "X or Y" pattern
+          if (choiceText.includes(' or ')) {
+            const parts = choiceText.split(/,?\s+or\s+/);
+            options = parts.map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
+          } else if (choiceText.includes(',')) {
+            // Try "X, Y, Z" pattern
+            options = choiceText.split(',').map(p => p.trim().replace(/^(a|an|the)\s+/i, ''));
+          }
+          
+          // Check for "choose N" at the start
+          const chooseNMatch = choiceText.match(/^(\w+)\s+/);
+          if (chooseNMatch) {
+            const numWord = chooseNMatch[1].toLowerCase();
+            const numMap: Record<string, number> = {
+              'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+            };
+            if (numMap[numWord]) {
+              minSelections = numMap[numWord];
+              maxSelections = numMap[numWord];
+            }
+          }
         }
         
         // Only add step if we successfully parsed options
@@ -4739,7 +4786,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: controller as PlayerID,
-            description: `Choose an option for ${effectiveCard.name}: ${options.join(' or ')}`,
+            description: `Choose ${minSelections === maxSelections ? minSelections : `${minSelections}-${maxSelections}`} for ${effectiveCard.name}: ${options.join(', ')}`,
             mandatory: true,
             sourceId: newPermId,
             sourceName: effectiveCard.name || 'Permanent',
@@ -4750,10 +4797,10 @@ export function resolveTopOfStack(ctx: GameContext) {
               label: opt.charAt(0).toUpperCase() + opt.slice(1),
               value: opt,
             })),
-            minSelections: 1,
-            maxSelections: 1,
+            minSelections: minSelections,
+            maxSelections: maxSelections,
           });
-          debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires option choice (${options.join('/')}), added resolution step`);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires option choice (${options.join('/')}, choose ${minSelections}), added resolution step`);
         }
       }
     }
@@ -6180,6 +6227,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             
             // Put onto battlefield
             const isCreature = topTypeLine.includes('creature');
+            const isPlaneswalker = topTypeLine.includes('planeswalker');
             const newPermanent = {
               id: uid("perm"),
               controller: owner,
@@ -6191,6 +6239,14 @@ export function resolveTopOfStack(ctx: GameContext) {
               summoningSickness: isCreature,
               card: { ...topCard, zone: "battlefield" },
             } as any;
+            
+            // Add loyalty for planeswalkers
+            if (isPlaneswalker && (topCard as any).loyalty) {
+              const loyaltyValue = parseInt((topCard as any).loyalty, 10);
+              newPermanent.counters = { loyalty: loyaltyValue };
+              newPermanent.loyalty = loyaltyValue;
+              newPermanent.baseLoyalty = loyaltyValue;
+            }
             
             battlefield.push(newPermanent);
             debug(2, `[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (permanent) - put onto battlefield`);
@@ -6646,6 +6702,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           // Create a new permanent (new object, no connection to old one)
           // Detect enters-with-counters
           const entersWithCounters = detectEntersWithCounters(flickeredCard);
+          const isPlaneswalker = flickeredCard?.type_line?.toLowerCase()?.includes('planeswalker');
           
           const newPermanent = {
             id: uid('perm'),
@@ -6657,6 +6714,14 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
             counters: entersWithCounters && Object.keys(entersWithCounters).length > 0 ? entersWithCounters : {},
             attachedTo: undefined, // Equipment/Auras are removed
           };
+          
+          // Add loyalty for planeswalkers
+          if (isPlaneswalker && (flickeredCard as any).loyalty) {
+            const loyaltyValue = parseInt((flickeredCard as any).loyalty, 10);
+            newPermanent.counters = { ...newPermanent.counters, loyalty: loyaltyValue };
+            (newPermanent as any).loyalty = loyaltyValue;
+            (newPermanent as any).baseLoyalty = loyaltyValue;
+          }
           
           battlefield.push(newPermanent);
           debug(2, `[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${newPermanent.id}`);

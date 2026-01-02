@@ -23,7 +23,7 @@ export function importDeckResolved(
   cards: Array<
     Pick<
       KnownCardRef,
-      "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
+      "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout" | "loyalty"
     > & { color_identity?: string[] }
   >
 ) {

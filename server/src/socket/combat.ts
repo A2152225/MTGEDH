@@ -1894,11 +1894,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       state.blockersDeclaredBy = state.blockersDeclaredBy || [];
       if (!state.blockersDeclaredBy.includes(playerId)) {
         state.blockersDeclaredBy.push(playerId);
-      }
-
-      // Advance to damage step
-      if (typeof (game as any).nextStep === "function") {
-        await (game as any).nextStep();
+        debug(1, `[combat] ${playerId} skipped declaring blockers`);
+      } else {
+        debug(1, `[combat] ${playerId} already declared/skipped blockers, ignoring duplicate skip`);
+        return; // Already declared, don't do anything
       }
 
       io.to(gameId).emit("chat", {
@@ -1914,6 +1913,9 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       broadcastGame(io, game, gameId);
+      
+      // Note: Don't call nextStep() here - let the normal priority passing advance the step
+      // when all players pass priority in succession
       
     } catch (err: any) {
       debugError(1, `[combat] skipDeclareBlockers error:`, err);

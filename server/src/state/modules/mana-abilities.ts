@@ -28,6 +28,44 @@
 
 
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+
+/**
+ * Get commander color identity for a player
+ * Returns set of color keys (white, blue, black, red, green) in commander's color identity
+ */
+function getCommanderColorIdentity(gameState: any, playerId: string): Set<string> {
+  const commanderColors = new Set<string>();
+  const commandZone = gameState?.commandZone?.[playerId];
+  
+  if (!commandZone) return commanderColors;
+  
+  const commanderCards = commandZone.commanderCards || commandZone.commanders || [];
+  
+  for (const commander of commanderCards) {
+    if (!commander) continue;
+    
+    // color_identity is an array like ['W', 'U', 'B', 'R', 'G']
+    const colorIdentity = commander.color_identity || [];
+    
+    for (const color of colorIdentity) {
+      const colorUpper = color.toUpperCase();
+      const colorKey = {
+        'W': 'white',
+        'U': 'blue',
+        'B': 'black',
+        'R': 'red',
+        'G': 'green',
+      }[colorUpper];
+      
+      if (colorKey) {
+        commanderColors.add(colorKey);
+      }
+    }
+  }
+  
+  return commanderColors;
+}
+
 /**
  * Calculate effective power for a permanent (including counters, modifiers, etc.)
  * This is a simplified version for use in mana ability calculations
@@ -624,7 +662,36 @@ export function getManaAbilitiesForPermanent(
   // "Add one mana of any color" (like City of Brass, Mana Confluence, Command Tower)
   // Only match if this is a tap ability for lands or it's explicitly a mana ability
   if (isLand && oracleText.includes("{t}:") && oracleText.includes("add one mana of any color")) {
-    abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+    // Check if this is restricted to commander's color identity
+    // Pattern: "add one mana of any color in your commander's color identity"
+    const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText);
+    
+    if (isCommanderRestricted) {
+      // Get commander color identity for this player
+      const commanderColors = getCommanderColorIdentity(gameState, playerId);
+      
+      if (commanderColors.size > 0) {
+        // Only add colors in commander's color identity
+        const produces: string[] = [];
+        for (const colorKey of commanderColors) {
+          const colorSymbol = {
+            'white': 'W',
+            'blue': 'U',
+            'black': 'B',
+            'red': 'R',
+            'green': 'G',
+          }[colorKey];
+          if (colorSymbol) {
+            produces.push(colorSymbol);
+          }
+        }
+        abilities.push({ id: 'native_commander_any', cost: '{T}', produces });
+      }
+      // If no commander, this source produces nothing
+    } else {
+      // Unrestricted "any color" source (City of Brass, Mana Confluence, etc.)
+      abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+    }
   }
   
   // Colorless mana producers (lands with explicit colorless production)
@@ -814,9 +881,38 @@ export function getManaAbilitiesForPermanent(
       if (oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
         abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
       }
-      // Check for "any color" mana (Birds of Paradise, etc.) - but not variable amounts
+      // Check for "any color" mana (Birds of Paradise, Arcane Signet, etc.) - but not variable amounts
       if (oracleText.match(/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
-        abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+        // Check if this is restricted to commander's color identity
+        // Pattern: "add one mana of any color in your commander's color identity"
+        const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText);
+        
+        if (isCommanderRestricted) {
+          // Get commander color identity for this player
+          const commanderColors = getCommanderColorIdentity(gameState, playerId);
+          
+          if (commanderColors.size > 0) {
+            // Only add colors in commander's color identity
+            const produces: string[] = [];
+            for (const colorKey of commanderColors) {
+              const colorSymbol = {
+                'white': 'W',
+                'blue': 'U',
+                'black': 'B',
+                'red': 'R',
+                'green': 'G',
+              }[colorKey];
+              if (colorSymbol) {
+                produces.push(colorSymbol);
+              }
+            }
+            abilities.push({ id: 'native_commander_any', cost: '{T}', produces });
+          }
+          // If no commander, this source produces nothing
+        } else {
+          // Unrestricted "any color" source (Birds of Paradise, Chromatic Lantern, etc.)
+          abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+        }
       }
     }
   }

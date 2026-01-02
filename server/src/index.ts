@@ -14,7 +14,7 @@ import {
 } from "./db";
 import { listDecks, saveDeck } from "./db/decks";
 import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions";
-import { parseDecklist } from "./services/scryfall";
+import { parseDecklist, clearPlaneswalkerCache } from "./services/scryfall";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -289,6 +289,11 @@ async function main() {
     debug(2, "[Server] Initializing database...");
     await initDb();
     debug(2, "[Server] Database initialized successfully.");
+    
+    // Optionally clear planeswalker cache to force re-fetch with loyalty field
+    // Set environment variable CLEAR_PLANESWALKER_CACHE=true to enable on startup
+    // This is useful after adding new fields like loyalty to the ScryfallCard type
+    clearPlaneswalkerCache();
   } catch (err) {
     debugError(1, "[Server] Failed to initialize database:", err);
     process.exit(1); // Stop the server if the database cannot be initialized

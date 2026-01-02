@@ -72,7 +72,7 @@ export function setCommander(
   info.tax = Object.values(info.taxById || {}).reduce((a: number, b: number) => a + b, 0);
 
   // Build commanderCards snapshot (prefer prior cached, then library entries, then battlefield)
-  const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any; mana_cost?: string; power?: string; toughness?: string }> = [];
+  const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any; mana_cost?: string; power?: string; toughness?: string; loyalty?: string }> = [];
   const prevCards = (info as any).commanderCards as any[] | undefined;
 
   // Snapshot before removing from library.
@@ -92,6 +92,7 @@ export function setCommander(
         mana_cost: (src as any).mana_cost,
         power: (src as any).power,
         toughness: (src as any).toughness,
+        loyalty: (src as any).loyalty,
       });
     } else {
       // placeholder minimal snapshot if we have only id

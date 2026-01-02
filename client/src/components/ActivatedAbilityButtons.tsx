@@ -468,7 +468,27 @@ export function ActivatedAbilityButtons({
   // Parse abilities from the card
   const abilities = useMemo(() => {
     if (!kc) return [];
-    return parseActivatedAbilities(kc);
+    const parsed = parseActivatedAbilities(kc);
+    
+    // Debug logging for planeswalkers
+    const typeLine = (kc?.type_line || '').toLowerCase();
+    if (typeLine.includes('planeswalker')) {
+      console.log('[PLANESWALKER DEBUG] Parsed abilities for', kc.name, {
+        totalAbilities: parsed.length,
+        loyaltyAbilities: parsed.filter(a => a.isLoyaltyAbility).length,
+        abilities: parsed.map(a => ({ 
+          id: a.id, 
+          label: a.label, 
+          isLoyalty: a.isLoyaltyAbility,
+          cost: a.cost,
+          loyaltyCost: a.loyaltyCost 
+        })),
+        hasOracleText: !!kc.oracle_text,
+        oracleTextPreview: kc.oracle_text?.substring(0, 150),
+      });
+    }
+    
+    return parsed;
   }, [kc]);
   
   // Build activation context
@@ -540,6 +560,13 @@ export function ActivatedAbilityButtons({
   
   // Don't show anything if no abilities
   if (annotatedAbilities.length === 0) {
+    const typeLine = (kc?.type_line || '').toLowerCase();
+    if (typeLine.includes('planeswalker')) {
+      console.log('[PLANESWALKER DEBUG] No abilities to show for', kc?.name, {
+        annotatedAbilitiesLength: annotatedAbilities.length,
+        abilitiesLength: abilities.length,
+      });
+    }
     return null;
   }
   
@@ -547,6 +574,19 @@ export function ActivatedAbilityButtons({
   const filteredAbilities = loyaltyAbilitiesOnly 
     ? annotatedAbilities.filter(a => a.ability.isLoyaltyAbility)
     : annotatedAbilities;
+  
+  // More debug logging
+  if (loyaltyAbilitiesOnly) {
+    const typeLine = (kc?.type_line || '').toLowerCase();
+    if (typeLine.includes('planeswalker')) {
+      console.log('[PLANESWALKER DEBUG] Filtered loyalty abilities for', kc?.name, {
+        loyaltyAbilitiesOnly,
+        filteredCount: filteredAbilities.length,
+        annotatedCount: annotatedAbilities.length,
+        context,
+      });
+    }
+  }
   
   // Return null if filtering leaves no abilities
   if (filteredAbilities.length === 0) {
