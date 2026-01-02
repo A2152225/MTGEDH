@@ -509,7 +509,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       const costLabel = loyaltyCost > 0 ? `+${loyaltyCost}` : `${loyaltyCost}`;
       
       abilities.push({
-        id: `${card.id}-pw-${abilityIndex++}`,
+        id: `pw-ability-${abilityIndex++}`,
         label: `[${costLabel}]`,
         description: shortText,
         cost: `[${costLabel}]`,
