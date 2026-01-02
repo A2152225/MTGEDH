@@ -7284,6 +7284,9 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         shouldEnterTapped = basicLandCount < 2;
         debug(2, `[playLand] ${card.name || 'Land'} battle land check: ${basicLandCount} basic lands - enters ${shouldEnterTapped ? 'tapped' : 'untapped'}`);
       } else {
+        // Get controlled permanents (for legendary creature check, etc.)
+        const controlledPermanents = battlefield.filter((p: any) => p.controller === playerId);
+        
         // Use general conditional evaluation for check lands, fast lands, slow lands, etc.
         const evaluation = evaluateConditionalLandETB(
           oracleText,
@@ -7291,7 +7294,8 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           controlledLandTypes,
           undefined,  // cardsInHand - not needed for these land types
           basicLandCount,  // Pass basic land count for battle lands if they reach this code path
-          opponentCount    // Pass opponent count for Luxury Suite and similar lands
+          opponentCount,    // Pass opponent count for Luxury Suite and similar lands
+          controlledPermanents  // Pass controlled permanents for legendary creature check
         );
         shouldEnterTapped = evaluation.shouldEnterTapped;
         debug(2, `[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);

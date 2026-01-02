@@ -270,6 +270,14 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
         
+        // Skip transform back faces - they can't be cast from hand
+        // Check oracle text for "(Transforms from [Name])" pattern which definitively marks back faces
+        const oracleTextRaw = (card as any).oracle_text || "";
+        if (/\(transforms from [^)]+\)/i.test(oracleTextRaw)) {
+          debug(2, `[getPlayableCardIds] Skipping transform back face: ${card.name}`);
+          continue;
+        }
+        
         // Skip DFC back faces - these are not directly castable
         // Transform, modal_dfc, and double_faced_token cards have card_faces array
         // The back face (index 1) cannot be cast directly from hand

@@ -588,6 +588,12 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           continue;
         }
         
+        // Skip transform back faces - they can't be cast from hand
+        if (isTransformBackFace(card)) {
+          debug(2, `[canCastAnySpell] Skipping transform back face: ${card.name || 'unknown'}`);
+          continue;
+        }
+        
         // Skip non-instant/flash cards
         if (!hasFlashOrInstant(card)) continue;
         
@@ -1943,6 +1949,12 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         // Skip ignored cards - they shouldn't trigger auto-pass prompts
         if (ignoredCards[card.id]) {
           debug(2, `[canCastAnySorcerySpeed] Skipping ignored card in hand: ${card.name || card.id}`);
+          continue;
+        }
+        
+        // Skip transform back faces - they can't be cast from hand
+        if (isTransformBackFace(card)) {
+          debug(2, `[canCastAnySorcerySpeed] Skipping transform back face: ${card.name || 'unknown'}`);
           continue;
         }
         

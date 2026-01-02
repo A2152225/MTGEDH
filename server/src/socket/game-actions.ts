@@ -2056,13 +2056,19 @@ export function registerGameActions(io: Server, socket: Socket) {
                 : `Enters untapped (you control ${basicLandCount} basic lands)`,
             };
           } else {
+            // Get controlled permanents (for legendary creature check, etc.)
+            const controlledPermanents = battlefield.filter((p: any) => 
+              p.id !== permanent.id && p.controller === playerId
+            );
+            
             evaluation = evaluateConditionalLandETB(
               oracleText,
               otherLandCount,
               controlledLandTypes,
               playerHand,
               basicLandCount,
-              opponentCount
+              opponentCount,
+              controlledPermanents
             );
           }
           
