@@ -1688,6 +1688,37 @@ export function calculateAllPTBonuses(
     }
   }
   
+  // 3b. Lord/tribal bonuses that include self (e.g., Daru Warchief: "Soldier creatures you control get +1/+2")
+  // These are different from "Other X" patterns - they apply to ALL creatures of that type including the source
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== controllerId) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    const oracleText = perm.card.oracle_text || '';
+    
+    // Pattern: "[TYPE] creatures you control get +X/+Y" (without "other" - includes self)
+    // Examples: "Soldier creatures you control get +1/+2" (Daru Warchief)
+    const selfIncludingLordMatch = oracleText.match(/(?:^|[.;]\s*)(\w+) creatures you control get ([+-]?\d+)\/([+-]?\d+)/i);
+    if (selfIncludingLordMatch) {
+      const matchedText = selfIncludingLordMatch[0];
+      // Make sure this isn't an "other" pattern (double-check)
+      if (!matchedText.toLowerCase().includes('other')) {
+        const targetType = selfIncludingLordMatch[1].toLowerCase();
+        if (creatureTypeLine.includes(targetType)) {
+          const p = parseInt(selfIncludingLordMatch[2], 10);
+          const t = parseInt(selfIncludingLordMatch[3], 10);
+          if (p !== 0 || t !== 0) {
+            powerBonus += p;
+            toughnessBonus += t;
+          }
+        }
+      }
+    }
+  }
+  
   // 4. Artifact bonuses (non-equipment)
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
@@ -1706,14 +1737,15 @@ export function calculateAllPTBonuses(
     }
   }
   
-  // 5. Temporary pump effects (from modifiers) - includes Giant Growth, etc.
+  // 5. Temporary pump effects (from modifiers) - includes Giant Growth, battle cry, etc.
   // These are spells/abilities that give +X/+Y until end of turn
   if (creaturePerm.modifiers && Array.isArray(creaturePerm.modifiers)) {
     for (const mod of creaturePerm.modifiers) {
       if (mod.type === 'pump' || mod.type === 'PUMP' || 
           mod.type === 'ptBoost' || mod.type === 'PT_BOOST' ||
           mod.type === 'temporary_pump' || mod.type === 'TEMPORARY_PUMP' ||
-          mod.type === 'giantGrowth' || mod.type === 'GIANT_GROWTH') {
+          mod.type === 'giantGrowth' || mod.type === 'GIANT_GROWTH' ||
+          mod.type === 'battle_cry' || mod.type === 'BATTLE_CRY') {
         powerBonus += mod.power || mod.powerBonus || 0;
         toughnessBonus += mod.toughness || mod.toughnessBonus || 0;
       }
@@ -2005,6 +2037,7 @@ export function calculateAllPTBonusesWithSources(
     // Parse generic lord patterns
     const oracleText = perm.card.oracle_text || '';
     if (!lordBonus) {
+      // Pattern 1: "Other [TYPE] creatures you control get +X/+Y" (excludes self)
       const lordMatch = oracleText.match(/other (\w+) creatures you control get \+(\d+)\/\+(\d+)/i);
       if (lordMatch) {
         const targetType = lordMatch[1].toLowerCase();
@@ -2020,6 +2053,7 @@ export function calculateAllPTBonusesWithSources(
         }
       }
       
+      // Pattern 2: "Other creatures you control get +X/+Y" (no type restriction, excludes self)
       const genericLordMatch = oracleText.match(/other creatures you control get \+(\d+)\/\+(\d+)/i);
       if (genericLordMatch) {
         const p = parseInt(genericLordMatch[1], 10);
@@ -2030,6 +2064,44 @@ export function calculateAllPTBonusesWithSources(
           toughness: t,
           type: 'creature',
         });
+      }
+    }
+  }
+  
+  // 3b. Lord/tribal bonuses that include self (e.g., Daru Warchief: "Soldier creatures you control get +1/+2")
+  // These are different from "Other X" patterns - they apply to ALL creatures of that type including the source
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== controllerId) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    const oracleText = perm.card.oracle_text || '';
+    
+    // Pattern: "[TYPE] creatures you control get +X/+Y" (without "other" - includes self)
+    // This pattern uses negative lookbehind to exclude "other X creatures" patterns
+    // Examples: "Soldier creatures you control get +1/+2" (Daru Warchief)
+    //           "Zombie creatures you control get +1/+1" (various zombie lords)
+    // Must NOT start with "other" to distinguish from the patterns above
+    const selfIncludingLordMatch = oracleText.match(/(?:^|[.;]\s*)(\w+) creatures you control get ([+-]?\d+)\/([+-]?\d+)/i);
+    if (selfIncludingLordMatch) {
+      const matchedText = selfIncludingLordMatch[0];
+      // Make sure this isn't an "other" pattern (double-check)
+      if (!matchedText.toLowerCase().includes('other')) {
+        const targetType = selfIncludingLordMatch[1].toLowerCase();
+        if (creatureTypeLine.includes(targetType)) {
+          const p = parseInt(selfIncludingLordMatch[2], 10);
+          const t = parseInt(selfIncludingLordMatch[3], 10);
+          if (p !== 0 || t !== 0) {
+            sources.push({
+              name: perm.card.name || 'Lord',
+              power: p,
+              toughness: t,
+              type: 'creature',
+            });
+          }
+        }
       }
     }
   }
@@ -2093,18 +2165,19 @@ export function calculateAllPTBonusesWithSources(
     }
   }
   
-  // 5. Temporary pump effects (modifiers)
+  // 5. Temporary pump effects (modifiers) including battle cry
   if (creaturePerm.modifiers && Array.isArray(creaturePerm.modifiers)) {
     for (const mod of creaturePerm.modifiers) {
       if (mod.type === 'pump' || mod.type === 'PUMP' || 
           mod.type === 'ptBoost' || mod.type === 'PT_BOOST' ||
           mod.type === 'temporary_pump' || mod.type === 'TEMPORARY_PUMP' ||
-          mod.type === 'giantGrowth' || mod.type === 'GIANT_GROWTH') {
+          mod.type === 'giantGrowth' || mod.type === 'GIANT_GROWTH' ||
+          mod.type === 'battle_cry' || mod.type === 'BATTLE_CRY') {
         const p = mod.power || mod.powerBonus || 0;
         const t = mod.toughness || mod.toughnessBonus || 0;
         if (p !== 0 || t !== 0) {
           sources.push({
-            name: mod.sourceName || 'Pump effect',
+            name: mod.sourceName || (mod.type === 'battle_cry' ? 'Battle Cry' : 'Pump effect'),
             power: p,
             toughness: t,
             type: 'modifier',

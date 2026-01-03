@@ -1053,12 +1053,20 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         // Mark creature as attacking
         (creature as any).attacking = attacker.targetPlayerId || attacker.targetPermanentId;
         
+        // Track that this creature attacked this turn (for Minas Tirith, etc.)
+        (creature as any).attackedThisTurn = true;
+        
         // Tap the attacker (unless it has vigilance)
         const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
         if (!hasVigilance) {
           (creature as any).tapped = true;
         }
       }
+      
+      // Track total creatures attacked this turn for the attacking player (for Minas Tirith, Lightmine Field, etc.)
+      game.state.creaturesAttackedThisTurn = game.state.creaturesAttackedThisTurn || {};
+      game.state.creaturesAttackedThisTurn[playerId] = (game.state.creaturesAttackedThisTurn[playerId] || 0) + attackerIds.length;
+      debug(2, `[combat] Player ${playerId} has now attacked with ${game.state.creaturesAttackedThisTurn[playerId]} creature(s) this turn`);
 
       // Trepanation Blade - mill defending player until land and set temporary bonus
       for (const attacker of attackers) {
@@ -1273,6 +1281,42 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Firebending from ${trigger.cardName}`, game);
                 
                 debug(2, `[combat] Firebending trigger from ${trigger.cardName}: added ${manaAmount} red mana`);
+              } else if ((trigger.triggerType as string) === 'battle_cry') {
+                // Battle Cry - Each other attacking creature gets +1/+0 until end of turn
+                // Rule 702.91a: Apply +1/+0 to all OTHER attacking creatures
+                const attackerIds = attackers.map(a => a.creatureId);
+                const otherAttackers = battlefield.filter((p: any) => 
+                  p && attackerIds.includes(p.id) && p.id !== trigger.permanentId
+                );
+                
+                for (const attacker of otherAttackers) {
+                  // Add the battle cry bonus as a temporary modifier
+                  attacker.modifiers = attacker.modifiers || [];
+                  attacker.modifiers.push({
+                    type: 'battle_cry',
+                    power: 1,
+                    toughness: 0,
+                    source: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    expiresAt: 'end_of_turn',
+                  });
+                  
+                  // Also update the temporary power boost for immediate effect
+                  attacker.temporaryPowerBoost = (attacker.temporaryPowerBoost || 0) + 1;
+                }
+                
+                const buffedCount = otherAttackers.length;
+                if (buffedCount > 0) {
+                  io.to(gameId).emit("chat", {
+                    id: `m_${Date.now()}`,
+                    gameId,
+                    from: "system",
+                    message: `⚔️ ${trigger.cardName}'s battle cry gives ${buffedCount} other attacking creature${buffedCount !== 1 ? 's' : ''} +1/+0 until end of turn`,
+                    ts: Date.now(),
+                  });
+                  
+                  debug(2, `[combat] Battle cry from ${trigger.cardName}: buffed ${buffedCount} other attackers`);
+                }
               } else {
                 // Regular trigger - push onto stack immediately
                 game.state.stack = game.state.stack || [];

@@ -243,6 +243,19 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
+  // Battle Cry - "Whenever this creature attacks, each other attacking creature gets +1/+0 until end of turn."
+  // Rule 702.91a: Battle cry is a triggered ability
+  if (lowerOracle.includes("battle cry")) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'battle_cry',
+      description: "Each other attacking creature gets +1/+0 until end of turn",
+      effect: 'battle_cry_buff',
+      mandatory: true,
+    });
+  }
+  
   // Generic "whenever ~ attacks" - also match actual card name (e.g., "Whenever Myrel attacks")
   // Create a pattern that matches: ~, this creature, or the actual card name
   const cardNamePattern = cardName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '\\s+');

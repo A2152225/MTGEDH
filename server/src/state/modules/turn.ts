@@ -1469,6 +1469,12 @@ function endTemporaryEffects(ctx: GameContext) {
       endedCount += beforeCount - state.temporaryEffects.length;
     }
     
+    // Clear creatures attacked this turn count (for Minas Tirith, etc.)
+    if (state.creaturesAttackedThisTurn) {
+      state.creaturesAttackedThisTurn = {};
+      debug(2, `${ts()} [endTemporaryEffects] Cleared creaturesAttackedThisTurn tracking`);
+    }
+    
     if (endedCount > 0) {
       debug(2, `${ts()} [endTemporaryEffects] Ended ${endedCount} temporary effect(s) (Rule 514.2)`);
     }
