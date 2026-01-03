@@ -158,7 +158,409 @@ async function handleAIResolutionStep(
         break;
       }
       
-      // Add more AI handlers as needed
+      case ResolutionStepType.LIBRARY_SEARCH: {
+        // AI selects the best card(s) from the library search
+        const searchStep = step as any;
+        const availableCards = searchStep.availableCards || [];
+        const minSelections = searchStep.minSelections || 0;
+        const maxSelections = searchStep.maxSelections || 1;
+        const destination = searchStep.destination || 'hand';
+        const filter = searchStep.filter || {};
+        
+        if (availableCards.length === 0) {
+          // No valid cards found - complete with empty selection
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI library search: no available cards, selecting none`);
+          break;
+        }
+        
+        // Score cards based on usefulness for AI
+        const scoredCards = availableCards.map((card: any) => {
+          let score = 50; // Base score
+          const cmc = card.cmc || 0;
+          const typeLine = (card.type_line || '').toLowerCase();
+          const oracleText = (card.oracle_text || '').toLowerCase();
+          const name = (card.name || '').toLowerCase();
+          
+          // Prefer lower CMC cards for hand/battlefield (more castable)
+          if (destination === 'hand' || destination === 'battlefield') {
+            score += Math.max(0, 10 - cmc);
+          }
+          
+          // Prefer creatures for battlefield tutors
+          if (destination === 'battlefield' && typeLine.includes('creature')) {
+            score += 10;
+          }
+          
+          // Prefer cards with good abilities
+          if (oracleText.includes('draw') || oracleText.includes('destroy')) {
+            score += 5;
+          }
+          
+          // Prefer cards with higher power for creature-specific searches
+          if (filter.maxPower !== undefined) {
+            const power = card.power ? parseInt(String(card.power), 10) : 0;
+            // Higher power within limit is better
+            score += power * 2;
+          }
+          
+          return { card, score };
+        });
+        
+        // Sort by score (highest first)
+        scoredCards.sort((a: any, b: any) => b.score - a.score);
+        
+        // Select the best cards up to maxSelections
+        const numToSelect = Math.min(
+          scoredCards.length,
+          Math.max(minSelections, Math.min(maxSelections, scoredCards.length > 0 ? 1 : 0))
+        );
+        const selectedCardIds = scoredCards
+          .slice(0, numToSelect)
+          .map((sc: any) => sc.card.id);
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: selectedCardIds,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI library search: selected ${selectedCardIds.length} card(s) from ${availableCards.length} available`);
+        break;
+      }
+      
+      case ResolutionStepType.SCRY: {
+        // AI keeps all cards on top (simple strategy - could be improved)
+        const scryStep = step as any;
+        const cards = scryStep.cards || [];
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            keepTopOrder: cards, // Keep all on top
+            bottomOrder: [],     // Put none on bottom
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI scry: keeping ${cards.length} card(s) on top`);
+        break;
+      }
+      
+      case ResolutionStepType.SURVEIL: {
+        // AI puts cards to graveyard if they're lands (simple strategy)
+        const surveilStep = step as any;
+        const cards = surveilStep.cards || [];
+        
+        const keepTop: any[] = [];
+        const toGraveyard: any[] = [];
+        
+        for (const card of cards) {
+          const typeLine = (card.type_line || '').toLowerCase();
+          if (typeLine.includes('land')) {
+            toGraveyard.push(card);
+          } else {
+            keepTop.push(card);
+          }
+        }
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            keepTopOrder: keepTop,
+            toGraveyard: toGraveyard,
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI surveil: keeping ${keepTop.length} on top, ${toGraveyard.length} to graveyard`);
+        break;
+      }
+      
+      case ResolutionStepType.DISCARD_SELECTION: {
+        // AI discards highest CMC cards first (keeping lower CMC for playability)
+        const discardStep = step as any;
+        const hand = discardStep.hand || [];
+        const discardCount = discardStep.discardCount || 1;
+        
+        // Score cards - higher score = discard first
+        const scoredHand = hand.map((card: any) => {
+          const cmc = card.cmc || 0;
+          const typeLine = (card.type_line || '').toLowerCase();
+          let score = cmc; // Discard higher CMC first
+          
+          // Keep lands lower priority to discard (they're free to play)
+          if (typeLine.includes('land')) {
+            score -= 5;
+          }
+          
+          return { card, score };
+        });
+        
+        // Sort by score (highest first = discard first)
+        scoredHand.sort((a: any, b: any) => b.score - a.score);
+        
+        const toDiscard = scoredHand
+          .slice(0, discardCount)
+          .map((sc: any) => sc.card.id);
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: toDiscard,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI discard: discarding ${toDiscard.length} card(s)`);
+        break;
+      }
+      
+      case ResolutionStepType.COMMANDER_ZONE_CHOICE: {
+        // AI always sends commander back to command zone
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: true, // Go to command zone
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI commander zone choice: sending to command zone`);
+        break;
+      }
+      
+      case ResolutionStepType.COLOR_CHOICE: {
+        // AI chooses a random color (could be improved based on deck/situation)
+        const colors = ['white', 'blue', 'black', 'red', 'green'];
+        const chosenColor = colors[Math.floor(Math.random() * colors.length)];
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [chosenColor], // Wrap in array for type compatibility
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI color choice: chose ${chosenColor}`);
+        break;
+      }
+      
+      case ResolutionStepType.CREATURE_TYPE_CHOICE: {
+        // AI chooses a common/strong creature type
+        const commonTypes = ['Human', 'Soldier', 'Warrior', 'Elf', 'Goblin', 'Dragon', 'Angel'];
+        const chosenType = commonTypes[Math.floor(Math.random() * commonTypes.length)];
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [chosenType], // Wrap in array for type compatibility
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI creature type choice: chose ${chosenType}`);
+        break;
+      }
+      
+      case ResolutionStepType.OPTION_CHOICE:
+      case ResolutionStepType.MODAL_CHOICE: {
+        // AI selects the first available option (simple strategy)
+        const optionStep = step as any;
+        const options = optionStep.options || [];
+        
+        if (options.length > 0) {
+          const firstOption = options[0];
+          const selection = firstOption.id || firstOption.value || firstOption;
+          
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [selection], // Wrap in array for type compatibility
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI option/modal choice: selected first option`);
+        } else {
+          // No options - decline
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: ['decline'], // Wrap in array for type compatibility
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI option/modal choice: no options, declining`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.PLAYER_CHOICE: {
+        // AI chooses a random opponent
+        const activePlayers = (game.state?.players || [])
+          .filter((p: any) => p.id !== step.playerId && !p.eliminated);
+        
+        if (activePlayers.length > 0) {
+          const chosenPlayer = activePlayers[Math.floor(Math.random() * activePlayers.length)];
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [chosenPlayer.id], // Wrap in array for type compatibility
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI player choice: chose ${chosenPlayer.id}`);
+        } else {
+          // No valid players - this shouldn't happen but handle gracefully
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [step.playerId], // Wrap in array for type compatibility
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI player choice: no opponents, chose self`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.CASCADE: {
+        // AI always casts the cascade hit card if possible
+        const cascadeStep = step as any;
+        const hitCard = cascadeStep.hitCard;
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: hitCard ? true : false, // Use boolean instead of string
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI cascade: ${hitCard ? 'casting' : 'declining'} hit card`);
+        break;
+      }
+      
+      case ResolutionStepType.PONDER_EFFECT: {
+        // AI keeps cards in original order (simple strategy)
+        const ponderStep = step as any;
+        const cards = ponderStep.cards || [];
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            newOrder: cards.map((c: any) => c.id),
+            shouldShuffle: false,
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI ponder: keeping ${cards.length} cards in original order`);
+        break;
+      }
+      
+      case ResolutionStepType.DEVOUR_SELECTION: {
+        // AI doesn't sacrifice creatures for devour (conservative strategy)
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [], // Don't sacrifice anything
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI devour: not sacrificing any creatures`);
+        break;
+      }
+      
+      case ResolutionStepType.PROLIFERATE: {
+        // AI proliferates all beneficial targets (own creatures with +1/+1, opponents with -1/-1 or poison)
+        const proliferateStep = step as any;
+        const availableTargets = proliferateStep.availableTargets || [];
+        const playerId = step.playerId;
+        
+        const selectedTargetIds: string[] = [];
+        for (const target of availableTargets) {
+          const counters = target.counters || {};
+          const isOwnPermanent = !target.isPlayer && target.controller === playerId;
+          const isOpponentPlayer = target.isPlayer && target.id !== playerId;
+          
+          // Proliferate own permanents with +1/+1 counters
+          if (isOwnPermanent && counters['+1/+1'] > 0) {
+            selectedTargetIds.push(target.id);
+            continue;
+          }
+          
+          // Proliferate opponent players with poison counters
+          if (isOpponentPlayer && counters.poison > 0) {
+            selectedTargetIds.push(target.id);
+            continue;
+          }
+          
+          // Proliferate opponent permanents with -1/-1 counters
+          if (!target.isPlayer && target.controller !== playerId && counters['-1/-1'] > 0) {
+            selectedTargetIds.push(target.id);
+            continue;
+          }
+        }
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: selectedTargetIds,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI proliferate: selected ${selectedTargetIds.length} targets`);
+        break;
+      }
+      
+      case ResolutionStepType.KYNAIOS_CHOICE: {
+        // AI chooses to draw a card (simple strategy)
+        const kynaiosStep = step as any;
+        const isController = kynaiosStep.isController;
+        const options = kynaiosStep.options || [];
+        
+        // Controller: prefer draw if available, otherwise decline
+        // Opponent: prefer draw over giving controller benefit
+        let choice = 'decline';
+        if (options.includes('draw_card')) {
+          choice = 'draw_card';
+        } else if (options.includes('play_land') && isController) {
+          // Controller might want to play land
+          choice = 'decline'; // But conservative AI declines
+        }
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: { choice },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI Kynaios choice: ${choice}`);
+        break;
+      }
+      
+      // Default handler for any unhandled step types
+      default: {
+        // For any unhandled step type, attempt a generic response
+        // This prevents the game from hanging indefinitely
+        debugWarn(1, `[Resolution] AI has no specific handler for step type: ${step.type}, using generic decline`);
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        break;
+      }
     }
     
     if (response) {
