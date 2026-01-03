@@ -1719,6 +1719,42 @@ export function calculateAllPTBonuses(
     }
   }
   
+  // 3c. Token-specific static bonuses with turn restrictions
+  // Pattern: "During your turn, creature tokens you control get +X/+Y [and have ...]"
+  // Examples: Mite Overseer ("During your turn, creature tokens you control get +1/+0 and have first strike.")
+  const isToken = creaturePerm.isToken === true;
+  if (isToken) {
+    for (const perm of battlefield) {
+      if (!perm || !perm.card) continue;
+      if (perm.controller !== controllerId) continue;
+      
+      const oracleText = (perm.card.oracle_text || '').toLowerCase();
+      
+      // Pattern: "during your turn, creature tokens you control get +X/+Y"
+      const tokenTurnBonusMatch = oracleText.match(/during your turn,?\s*creature tokens you control get \+(\d+)\/\+(\d+)/i);
+      if (tokenTurnBonusMatch) {
+        // Only apply during controller's turn
+        const isControllerTurn = gameState.turnPlayer === controllerId;
+        if (isControllerTurn) {
+          powerBonus += parseInt(tokenTurnBonusMatch[1], 10);
+          toughnessBonus += parseInt(tokenTurnBonusMatch[2], 10);
+        }
+      }
+      
+      // Also check for non-turn-restricted token bonuses
+      // Pattern: "creature tokens you control get +X/+Y" (without "during your turn" prefix)
+      // Don't use lookbehind as it has case-sensitivity issues with the 'i' flag
+      const tokenBonusMatch = oracleText.match(/creature tokens you control get \+(\d+)\/\+(\d+)/i);
+      if (tokenBonusMatch && !tokenTurnBonusMatch) { // Don't double count if turn-restricted
+        // Only apply if there's no "during your turn" restriction in the text
+        if (!oracleText.includes('during your turn')) {
+          powerBonus += parseInt(tokenBonusMatch[1], 10);
+          toughnessBonus += parseInt(tokenBonusMatch[2], 10);
+        }
+      }
+    }
+  }
+  
   // 4. Artifact bonuses (non-equipment)
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;

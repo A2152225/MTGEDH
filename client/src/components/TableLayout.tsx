@@ -27,6 +27,7 @@ import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
+import { TokenGroups } from './TokenGroups';
 import { socket } from '../socket';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
@@ -1008,14 +1009,20 @@ export function TableLayout(props: {
               {ordered.map((pb, i) => {
                 const pos = seatPositions[i];
                 const perms = pb.permanents;
-                // Tokens are now shown as regular battlefield cards, not in a separate section
-                // This gives them proper card display with images like other permanents
+                // Separate lands from non-lands
                 const lands = splitLands ? perms.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
                 // Separate mana sources (mana rocks/dorks) from other permanents
-                // Include ALL non-land permanents (both tokens and non-tokens)
                 const nonLands = splitLands ? perms.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : perms;
                 const manaSources = nonLands.filter(x => isManaSource(x));
-                const others = nonLands.filter(x => !isManaSource(x));
+                // Separate tokens from non-token permanents (tokens have isToken: true)
+                const nonManaSourceNonLands = nonLands.filter(x => !isManaSource(x));
+                const tokens = nonManaSourceNonLands.filter(x => x.isToken === true);
+                const others = nonManaSourceNonLands.filter(x => x.isToken !== true);
+                // Threshold for collapsing tokens into TokenGroups component
+                const TOKEN_COLLAPSE_THRESHOLD = 5;
+                const showCollapsedTokens = tokens.length >= TOKEN_COLLAPSE_THRESHOLD;
+                // If showing collapsed tokens, exclude them from FreeField; otherwise show all
+                const permanentsForFreeField = showCollapsedTokens ? others : nonManaSourceNonLands;
                 const canTargetPlayer = highlightPlayerTargets?.has(pb.player.id) ?? false;
                 const isPlayerSelected = selectedPlayerTargets?.has(pb.player.id) ?? false;
                 const isYouThis = you && pb.player.id === you;
@@ -1305,8 +1312,36 @@ export function TableLayout(props: {
                           opacity={0.5}
                         />
 
+                        {/* Token Groups - collapsible token management when many tokens exist */}
+                        {showCollapsedTokens && (
+                          <div style={{ marginBottom: 8 }}>
+                            <TokenGroups
+                              tokens={tokens}
+                              groupMode="name+pt+attach"
+                              attachedToSet={new Set(perms.filter(p => p.attachedTo).map(p => p.attachedTo!))}
+                              onBulkCounter={(ids, deltas) => {
+                                // Apply counter changes to all tokens in the group
+                                if (isYouThis && gameId) {
+                                  for (const id of ids) {
+                                    for (const [counterType, delta] of Object.entries(deltas)) {
+                                      if (delta !== 0) {
+                                        onCounter?.(id, counterType, delta);
+                                      }
+                                    }
+                                  }
+                                }
+                              }}
+                              highlightTargets={highlightPermTargets}
+                              selectedTargets={selectedPermTargets}
+                              onTokenClick={onPermanentClick}
+                              collapsible={true}
+                              defaultCollapsed={true}
+                            />
+                          </div>
+                        )}
+
                         <FreeField
-                          perms={others}
+                          perms={permanentsForFreeField}
                           allBattlefieldPerms={allBattlefieldPerms}
                           imagePref={imagePref || 'small'}
                           tileWidth={TILE_W}

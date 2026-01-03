@@ -3555,12 +3555,52 @@ export function App() {
     // 1. Keywords array from Scryfall data
     // 2. Granted abilities from effects
     // 3. Oracle text (with specific matching)
-    const hasHaste = 
-      keywords.some((k: string) => k.toLowerCase() === 'haste') ||
-      grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
-      /\bhaste\b/i.test(oracleText);
+    if (keywords.some((k: string) => k.toLowerCase() === 'haste') ||
+        grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
+        /\bhaste\b/i.test(oracleText)) {
+      return true;
+    }
     
-    return hasHaste;
+    // 4. Check attached equipment for haste grants (e.g., Lightning Greaves, Swiftfoot Boots)
+    const battlefield = safeView?.battlefield || [];
+    
+    // Helper function to detect if equipment grants haste
+    const equipmentGrantsHaste = (equipOracle: string): boolean => {
+      if (!equipOracle.includes('equipped creature') && !equipOracle.includes('enchanted creature')) {
+        return false;
+      }
+      return equipOracle.includes('has haste') || 
+             equipOracle.includes('have haste') ||
+             equipOracle.includes('gains haste') ||
+             /(?:equipped|enchanted) creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle);
+    };
+    
+    // Check attachedEquipment array
+    const attachedEquipment = (perm as any).attachedEquipment || [];
+    for (const equipId of attachedEquipment) {
+      const equipment = battlefield.find((p: any) => p.id === equipId);
+      if (equipment && equipment.card) {
+        const equipOracle = ((equipment.card as any).oracle_text || '').toLowerCase();
+        if (equipmentGrantsHaste(equipOracle)) {
+          return true;
+        }
+      }
+    }
+    
+    // Also check by attachedTo relationship (in case attachedEquipment isn't set)
+    for (const equip of battlefield) {
+      if (!equip || !equip.card) continue;
+      const equipTypeLine = ((equip.card as any).type_line || '').toLowerCase();
+      if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
+      if ((equip as any).attachedTo !== perm.id) continue;
+      
+      const equipOracle = ((equip.card as any).oracle_text || '').toLowerCase();
+      if (equipmentGrantsHaste(equipOracle)) {
+        return true;
+      }
+    }
+    
+    return false;
   };
 
   // Color mapping for mana symbols - extracted as constant to avoid recreation
@@ -4500,12 +4540,56 @@ export function App() {
     }
     
     // Check for haste - creature can attack even with summoning sickness
-    const hasHaste = 
-      keywords.some((k: string) => k.toLowerCase() === 'haste') ||
-      grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
-      /\bhaste\b/i.test(oracleText);
+    // Sources: own oracle text, keywords, granted abilities, and attached equipment
     
-    return hasHaste;
+    // 1. Check own oracle text and keywords
+    if (keywords.some((k: string) => k.toLowerCase() === 'haste') ||
+        grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
+        /\bhaste\b/i.test(oracleText)) {
+      return true;
+    }
+    
+    // 2. Check attached equipment for haste grants (e.g., Lightning Greaves, Swiftfoot Boots)
+    // Pattern: "Equipped creature has haste" or "Equipped creature has shroud and haste"
+    const battlefield = safeView?.battlefield || [];
+    
+    // Helper function to detect if equipment grants haste
+    const equipmentGrantsHaste = (equipOracle: string): boolean => {
+      if (!equipOracle.includes('equipped creature') && !equipOracle.includes('enchanted creature')) {
+        return false;
+      }
+      return equipOracle.includes('has haste') || 
+             equipOracle.includes('have haste') ||
+             equipOracle.includes('gains haste') ||
+             /(?:equipped|enchanted) creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle);
+    };
+    
+    // Check attachedEquipment array
+    const attachedEquipment = (perm as any).attachedEquipment || [];
+    for (const equipId of attachedEquipment) {
+      const equipment = battlefield.find((p: any) => p.id === equipId);
+      if (equipment && equipment.card) {
+        const equipOracle = ((equipment.card as any).oracle_text || '').toLowerCase();
+        if (equipmentGrantsHaste(equipOracle)) {
+          return true;
+        }
+      }
+    }
+    
+    // Also check by attachedTo relationship (in case attachedEquipment isn't set)
+    for (const equip of battlefield) {
+      if (!equip || !equip.card) continue;
+      const equipTypeLine = ((equip.card as any).type_line || '').toLowerCase();
+      if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
+      if ((equip as any).attachedTo !== perm.id) continue;
+      
+      const equipOracle = ((equip.card as any).oracle_text || '').toLowerCase();
+      if (equipmentGrantsHaste(equipOracle)) {
+        return true;
+      }
+    }
+    
+    return false;
   };
 
   // Get creatures for combat modal - filter to only those that can attack

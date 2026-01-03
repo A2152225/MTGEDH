@@ -1372,6 +1372,50 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         debugWarn(1, "[combat] Error processing attack triggers:", triggerErr);
       }
 
+      // Check for Odric, Master Tactician style effects
+      // "Whenever Odric, Master Tactician and at least three other creatures attack"
+      try {
+        if (attackerCount >= 4) {
+          // Look for Odric or similar cards among the attacking creatures
+          for (const attacker of attackers) {
+            const permanent = battlefield.find((p: any) => p?.id === attacker.creatureId);
+            if (!permanent || !permanent.card) continue;
+            
+            const cardName = (permanent.card.name || '').toLowerCase();
+            const oracleText = (permanent.card.oracle_text || '').toLowerCase();
+            
+            // Check for Odric's specific trigger condition
+            if ((cardName.includes('odric') && oracleText.includes('at least three other creatures attack')) ||
+                (oracleText.includes('at least three other creatures attack') && oracleText.includes('you choose which creatures block'))) {
+              
+              debug(2, `[combat] Odric-style effect detected: ${permanent.card.name} - setting combat control for blockers`);
+              
+              // Set combat control for blockers
+              setCombatControl(game, {
+                controllerId: playerId,
+                sourceId: permanent.id,
+                sourceName: permanent.card.name,
+                controlsAttackers: false,
+                controlsBlockers: true,
+              });
+              
+              // Broadcast chat message
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `🎯 ${permanent.card.name}: ${getPlayerName(game, playerId)} will choose which creatures block and how they block this combat!`,
+                ts: Date.now(),
+              });
+              
+              break; // Only apply once
+            }
+          }
+        }
+      } catch (odricErr) {
+        debugWarn(1, "[combat] Error checking Odric-style effects:", odricErr);
+      }
+
       // Bump sequence and broadcast
       if (typeof (game as any).bumpSeq === "function") {
         (game as any).bumpSeq();
