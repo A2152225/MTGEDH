@@ -587,6 +587,352 @@ async function handleAIResolutionStep(
         break;
       }
       
+      // =========================================================================
+      // KEYWORD ABILITY CHOICE HANDLERS
+      // =========================================================================
+      
+      case ResolutionStepType.RIOT_CHOICE: {
+        // AI prefers haste for aggressive decks, counters for long games
+        // Simple strategy: prefer counters for permanence
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: ['counter'], // Permanent +1/+1 counter
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI Riot: chose +1/+1 counter`);
+        break;
+      }
+      
+      case ResolutionStepType.UNLEASH_CHOICE: {
+        // AI prefers the counter (bigger creature, even if can't block)
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: ['counter'], // +1/+1 counter (can't block)
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI Unleash: chose +1/+1 counter`);
+        break;
+      }
+      
+      case ResolutionStepType.FABRICATE_CHOICE: {
+        // AI prefers tokens for board presence (can be blocked)
+        // But counters are better for single large threat
+        const fabricateStep = step as any;
+        const n = fabricateStep.value || 1;
+        
+        // Simple heuristic: tokens if N >= 2, counter if N == 1
+        const choice = n >= 2 ? 'tokens' : 'counters';
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [choice],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI Fabricate ${n}: chose ${choice}`);
+        break;
+      }
+      
+      case ResolutionStepType.TRIBUTE_CHOICE: {
+        // AI (as opponent) should evaluate which is worse for them
+        // Simple strategy: decline tribute to avoid buffing the creature
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: ['decline'], // Trigger the bonus effect instead of buffing
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI Tribute: declined (triggers bonus effect)`);
+        break;
+      }
+      
+      case ResolutionStepType.EXPLOIT_CHOICE: {
+        // AI exploits the weakest creature for value
+        const exploitStep = step as any;
+        const creatures = exploitStep.creatures || [];
+        
+        if (creatures.length > 0) {
+          // Find weakest creature
+          let weakest = creatures[0];
+          let weakestValue = Infinity;
+          
+          for (const creature of creatures) {
+            const power = parseInt(creature.power) || 0;
+            const toughness = parseInt(creature.toughness) || 0;
+            const value = power + toughness;
+            if (value < weakestValue) {
+              weakestValue = value;
+              weakest = creature;
+            }
+          }
+          
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [weakest.id],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Exploit: sacrificing ${weakest.name}`);
+        } else {
+          // No creatures to exploit
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Exploit: no creatures, skipping`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.BACKUP_CHOICE: {
+        // AI chooses another creature to give backup to (for shared abilities)
+        const backupStep = step as any;
+        const targets = backupStep.targets || [];
+        const sourceId = backupStep.sourceId;
+        
+        // Prefer strongest creature that isn't the source
+        const validTargets = targets.filter((t: any) => t.id !== sourceId);
+        
+        if (validTargets.length > 0) {
+          let strongest = validTargets[0];
+          let strongestValue = 0;
+          
+          for (const target of validTargets) {
+            const power = parseInt(target.power) || 0;
+            const toughness = parseInt(target.toughness) || 0;
+            const value = power + toughness;
+            if (value > strongestValue) {
+              strongestValue = value;
+              strongest = target;
+            }
+          }
+          
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [strongest.id],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Backup: targeting ${strongest.name}`);
+        } else {
+          // Target self if no other creatures
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: sourceId ? [sourceId] : [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Backup: targeting self`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.MENTOR_TARGET: {
+        // AI targets the creature with highest base power that's still valid
+        const mentorStep = step as any;
+        const targets = mentorStep.targets || [];
+        
+        if (targets.length > 0) {
+          // Target creature with lowest power (most benefit from counter)
+          let best = targets[0];
+          let bestValue = Infinity;
+          
+          for (const target of targets) {
+            const power = parseInt(target.power) || 0;
+            if (power < bestValue) {
+              bestValue = power;
+              best = target;
+            }
+          }
+          
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [best.id],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Mentor: targeting ${best.name}`);
+        } else {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Mentor: no valid targets`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.ENLIST_CHOICE: {
+        // AI taps creature with highest power for enlist
+        const enlistStep = step as any;
+        const creatures = enlistStep.creatures || [];
+        
+        if (creatures.length > 0) {
+          let strongest = creatures[0];
+          let strongestPower = 0;
+          
+          for (const creature of creatures) {
+            const power = parseInt(creature.power) || 0;
+            if (power > strongestPower) {
+              strongestPower = power;
+              strongest = creature;
+            }
+          }
+          
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [strongest.id],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Enlist: tapping ${strongest.name} (power ${strongestPower})`);
+        } else {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Enlist: no creatures to tap`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.EXTORT_PAYMENT: {
+        // AI pays for extort if they have mana (simple check)
+        // In practice, this should check available mana, but conservative AI skips
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: ['skip'], // Conservative: don't pay
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI Extort: skipping payment (conservative)`);
+        break;
+      }
+      
+      case ResolutionStepType.MODULAR_CHOICE: {
+        // AI puts counters on strongest artifact creature
+        const modularStep = step as any;
+        const targets = modularStep.targets || [];
+        
+        if (targets.length > 0) {
+          let strongest = targets[0];
+          let strongestValue = 0;
+          
+          for (const target of targets) {
+            const power = parseInt(target.power) || 0;
+            const toughness = parseInt(target.toughness) || 0;
+            if (power + toughness > strongestValue) {
+              strongestValue = power + toughness;
+              strongest = target;
+            }
+          }
+          
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [strongest.id],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Modular: putting counters on ${strongest.name}`);
+        } else {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Modular: no artifact creatures`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.SOULSHIFT_TARGET: {
+        // AI returns highest CMC spirit
+        const soulshiftStep = step as any;
+        const spirits = soulshiftStep.spirits || [];
+        
+        if (spirits.length > 0) {
+          let best = spirits[0];
+          let bestCmc = 0;
+          
+          for (const spirit of spirits) {
+            const cmc = spirit.cmc || 0;
+            if (cmc > bestCmc) {
+              bestCmc = cmc;
+              best = spirit;
+            }
+          }
+          
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [best.id],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Soulshift: returning ${best.name}`);
+        } else {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI Soulshift: no spirits in graveyard`);
+        }
+        break;
+      }
+      
+      case ResolutionStepType.KEYWORD_CHOICE: {
+        // Generic keyword choice - select first option
+        const kwStep = step as any;
+        const options = kwStep.options || [];
+        
+        if (options.length > 0) {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [options[0].id || options[0]],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI generic keyword choice: selected first option`);
+        } else {
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: false,
+            timestamp: Date.now(),
+          };
+        }
+        break;
+      }
+      
       // Default handler for any unhandled step types
       default: {
         // For any unhandled step type, attempt a generic response

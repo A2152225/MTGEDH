@@ -239,6 +239,50 @@ function processKeywordTrigger(
     case 'renown':
       return handleRenown(ctx, keyword);
       
+    // ========== KEYWORD ACTIONS ==========
+    
+    case 'connive':
+      return handleConnive(ctx, keyword);
+      
+    case 'bolster':
+      return handleBolster(ctx, keyword);
+      
+    case 'support':
+      return handleSupport(ctx, keyword);
+      
+    case 'amass':
+      return handleAmass(ctx, keyword);
+      
+    case 'incubate':
+      return handleIncubate(ctx, keyword);
+      
+    case 'populate':
+      return handlePopulate(ctx, keyword);
+      
+    case 'monstrosity':
+      return handleMonstrosity(ctx, keyword);
+      
+    case 'adapt':
+      return handleAdapt(ctx, keyword);
+      
+    case 'exert':
+      return handleExert(ctx, keyword);
+      
+    case 'explore':
+      return handleExplore(ctx, keyword);
+      
+    case 'discover':
+      return handleDiscover(ctx, keyword);
+      
+    case 'manifest':
+      return handleManifest(ctx, keyword);
+      
+    case 'cloak':
+      return handleCloak(ctx, keyword);
+      
+    case 'goad':
+      return handleGoad(ctx, keyword);
+      
     default:
       debug(2, `[KeywordHandlers] No specific handler for ${keyword.keyword}, using generic`);
       return {
@@ -390,6 +434,10 @@ function handleMyriad(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Key
 
 /**
  * Exalted - +1/+1 to attacking creature when attacking alone
+ * Note: Each permanent with exalted triggers separately (Rule 702.83b).
+ * The caller (processKeywordTriggers) handles iterating over each permanent,
+ * so this function returns the bonus from a single exalted trigger.
+ * Multiple exalted permanents will each call this handler, stacking the bonuses.
  */
 function handleExalted(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Permanent';
@@ -644,12 +692,18 @@ function handleStorm(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Keyw
 
 /**
  * Bloodthirst N - Enter with counters if opponent was dealt damage
+ * 
+ * Note: This handler expects ctx.state.opponentsDealtDamageThisTurn to be a boolean
+ * that is set to true when any opponent takes damage during the turn. This flag
+ * should be managed by the damage handling code in the combat/spell resolution system
+ * and reset at end of turn in the cleanup step.
  */
 function handleBloodthirst(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
   const n = keyword.value || 1;
   
   // Check if any opponent was dealt damage this turn
+  // This flag should be set by damage handlers when opponents take damage
   const opponentsDealtDamage = ctx.state?.opponentsDealtDamageThisTurn ?? false;
   
   if (opponentsDealtDamage) {
@@ -670,6 +724,10 @@ function handleBloodthirst(ctx: KeywordTriggerContext, keyword: DetectedKeyword)
 
 /**
  * Sunburst - Counter for each color of mana spent
+ * 
+ * Note: This handler expects ctx.state.manaColorsUsedToCast to be a number (0-5)
+ * representing how many different colors of mana were spent to cast this spell.
+ * This should be tracked by the mana payment system when spells are cast.
  */
 function handleSunburst(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Permanent';
@@ -994,6 +1052,378 @@ function handleRenown(ctx: KeywordTriggerContext, keyword: DetectedKeyword): Key
     keyword: 'renown',
     processed: true,
     chatMessage: `${cardName} is already renowned`,
+  };
+}
+
+// ============================================================================
+// Keyword Action Handlers
+// ============================================================================
+
+/**
+ * Connive - Draw then discard, +1/+1 if nonland
+ */
+function handleConnive(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  const n = keyword.value || 1;
+  
+  return {
+    keyword: 'connive',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'connive',
+      options: [], // Hand cards populated by socket handler
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName} connives ${n > 1 ? n : ''} - draw ${n} card${n > 1 ? 's' : ''}, then discard ${n}`,
+  };
+}
+
+/**
+ * Bolster N - Put counters on creature with least toughness
+ * Note: Toughness calculation considers base + counters + temporary bonuses
+ */
+function handleBolster(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Permanent';
+  const n = keyword.value || 1;
+  
+  // Find creatures you control with least toughness
+  const myCreatures = ctx.battlefield?.filter((p: any) => {
+    if (p.controller !== ctx.controller) return false;
+    const typeLine = (p.card?.type_line || '').toLowerCase();
+    return typeLine.includes('creature');
+  }) || [];
+  
+  if (myCreatures.length === 0) {
+    return {
+      keyword: 'bolster',
+      processed: true,
+      chatMessage: `${cardName}'s Bolster ${n} - no creatures to bolster`,
+    };
+  }
+  
+  // Helper to calculate current toughness including counters and temporary bonuses
+  const getCurrentToughness = (creature: any): number => {
+    // Start with base toughness
+    let baseToughness = parseInt(creature.baseToughness ?? creature.card?.toughness ?? '0', 10);
+    
+    // Add counters
+    const counters = creature.counters || {};
+    baseToughness += (counters['+1/+1'] || 0);
+    baseToughness -= (counters['-1/-1'] || 0);
+    
+    // Add temporary bonuses
+    baseToughness += (creature.tempToughnessBonus || 0);
+    
+    return baseToughness;
+  };
+  
+  // Find minimum toughness
+  let minToughness = Infinity;
+  for (const creature of myCreatures) {
+    const toughness = getCurrentToughness(creature);
+    if (toughness < minToughness) {
+      minToughness = toughness;
+    }
+  }
+  
+  // Filter to only creatures with minimum toughness
+  const validTargets = myCreatures.filter((c: any) => {
+    const toughness = getCurrentToughness(c);
+    return toughness === minToughness;
+  });
+  
+  if (validTargets.length === 1) {
+    // Auto-select the only valid target
+    return {
+      keyword: 'bolster',
+      processed: true,
+      countersAdded: { type: '+1/+1', count: n },
+      chatMessage: `${cardName}'s Bolster ${n} - put ${n} +1/+1 counter${n > 1 ? 's' : ''} on ${validTargets[0].card?.name || 'creature'}`,
+    };
+  }
+  
+  return {
+    keyword: 'bolster',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'bolster_target',
+      options: validTargets.map((t: any) => ({
+        id: t.id,
+        name: t.card?.name || 'Creature',
+        toughness: getCurrentToughness(t),
+      })),
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName}'s Bolster ${n} - choose creature with least toughness`,
+  };
+}
+
+/**
+ * Support N - Put +1/+1 counter on up to N creatures
+ */
+function handleSupport(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Permanent';
+  const n = keyword.value || 1;
+  
+  return {
+    keyword: 'support',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'support_targets',
+      options: [], // Populated by socket handler
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName}'s Support ${n} - choose up to ${n} target creature${n > 1 ? 's' : ''} to put +1/+1 counters on`,
+  };
+}
+
+/**
+ * Amass - Create or grow an Army token
+ */
+function handleAmass(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Permanent';
+  const n = keyword.value || 1;
+  
+  // Check if controller has an Army
+  const armies = ctx.battlefield?.filter((p: any) => {
+    if (p.controller !== ctx.controller) return false;
+    const typeLine = (p.card?.type_line || '').toLowerCase();
+    return typeLine.includes('army');
+  }) || [];
+  
+  if (armies.length > 0) {
+    // Put counters on existing Army
+    return {
+      keyword: 'amass',
+      processed: true,
+      countersAdded: { type: '+1/+1', count: n },
+      chatMessage: `${cardName}'s Amass ${n} - put ${n} +1/+1 counter${n > 1 ? 's' : ''} on your Army`,
+    };
+  }
+  
+  // Create Army token
+  return {
+    keyword: 'amass',
+    processed: true,
+    tokensCreated: { count: 1, type: 'Zombie Army' },
+    countersAdded: { type: '+1/+1', count: n },
+    chatMessage: `${cardName}'s Amass ${n} - create a 0/0 Zombie Army token with ${n} +1/+1 counter${n > 1 ? 's' : ''}`,
+  };
+}
+
+/**
+ * Incubate N - Create Incubator token
+ */
+function handleIncubate(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Permanent';
+  const n = keyword.value || 1;
+  
+  return {
+    keyword: 'incubate',
+    processed: true,
+    tokensCreated: { count: 1, type: 'Incubator' },
+    countersAdded: { type: '+1/+1', count: n },
+    chatMessage: `${cardName}'s Incubate ${n} - create an Incubator token with ${n} +1/+1 counter${n > 1 ? 's' : ''}`,
+  };
+}
+
+/**
+ * Populate - Copy a creature token
+ */
+function handlePopulate(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Permanent';
+  
+  // Find creature tokens you control
+  const tokens = ctx.battlefield?.filter((p: any) => {
+    if (p.controller !== ctx.controller) return false;
+    if (!p.isToken) return false;
+    const typeLine = (p.card?.type_line || '').toLowerCase();
+    return typeLine.includes('creature');
+  }) || [];
+  
+  if (tokens.length === 0) {
+    return {
+      keyword: 'populate',
+      processed: true,
+      chatMessage: `${cardName}'s Populate - no creature tokens to copy`,
+    };
+  }
+  
+  return {
+    keyword: 'populate',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'populate_target',
+      options: tokens.map((t: any) => ({
+        id: t.id,
+        name: t.card?.name || 'Token',
+        power: t.power ?? t.card?.power,
+        toughness: t.toughness ?? t.card?.toughness,
+      })),
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName}'s Populate - choose a creature token to copy`,
+  };
+}
+
+/**
+ * Monstrosity N - Put counters and become monstrous
+ */
+function handleMonstrosity(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  const n = keyword.value || 1;
+  const isMonstrous = ctx.permanent?.monstrous === true;
+  
+  if (isMonstrous) {
+    return {
+      keyword: 'monstrosity',
+      processed: true,
+      chatMessage: `${cardName} is already monstrous`,
+    };
+  }
+  
+  return {
+    keyword: 'monstrosity',
+    processed: true,
+    countersAdded: { type: '+1/+1', count: n },
+    effect: 'becomes monstrous',
+    chatMessage: `${cardName} becomes monstrous! Put ${n} +1/+1 counter${n > 1 ? 's' : ''} on it`,
+  };
+}
+
+/**
+ * Adapt N - Put counters if has none
+ */
+function handleAdapt(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  const n = keyword.value || 1;
+  const hasCounters = (ctx.permanent?.counters?.['+1/+1'] || 0) > 0;
+  
+  if (hasCounters) {
+    return {
+      keyword: 'adapt',
+      processed: true,
+      chatMessage: `${cardName} already has +1/+1 counters`,
+    };
+  }
+  
+  return {
+    keyword: 'adapt',
+    processed: true,
+    countersAdded: { type: '+1/+1', count: n },
+    chatMessage: `${cardName} adapts! Put ${n} +1/+1 counter${n > 1 ? 's' : ''} on it`,
+  };
+}
+
+/**
+ * Exert - Choose to exert for bonus
+ */
+function handleExert(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  
+  return {
+    keyword: 'exert',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'exert_choice',
+      options: [
+        { id: 'exert', name: 'Exert (won\'t untap next turn)' },
+        { id: 'normal', name: 'Attack normally' },
+      ],
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName} attacks - you may exert it`,
+  };
+}
+
+/**
+ * Explore - Reveal top card, land to hand or counter and graveyard choice
+ */
+function handleExplore(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Creature';
+  
+  return {
+    keyword: 'explore',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'explore',
+      options: [], // Top card info populated by socket handler
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName} explores!`,
+  };
+}
+
+/**
+ * Discover N - Cascade-like effect with choice
+ */
+function handleDiscover(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || ctx.spellCast?.card?.name || 'Spell';
+  const n = keyword.value || 0;
+  
+  return {
+    keyword: 'discover',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'discover',
+      options: [],
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName}'s Discover ${n} triggers - reveal until nonland with MV ≤ ${n}`,
+  };
+}
+
+/**
+ * Manifest - Put top card face down as 2/2
+ */
+function handleManifest(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Effect';
+  
+  return {
+    keyword: 'manifest',
+    processed: true,
+    effect: 'manifest top card',
+    chatMessage: `${cardName} manifests the top card of your library as a 2/2 creature`,
+  };
+}
+
+/**
+ * Cloak - Put card face down as 2/2 with ward {2}
+ */
+function handleCloak(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Effect';
+  
+  return {
+    keyword: 'cloak',
+    processed: true,
+    effect: 'cloak card',
+    chatMessage: `${cardName} cloaks a card as a 2/2 creature with ward {2}`,
+  };
+}
+
+/**
+ * Goad - Force creature to attack
+ */
+function handleGoad(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
+  const cardName = ctx.permanent?.card?.name || 'Effect';
+  
+  return {
+    keyword: 'goad',
+    processed: true,
+    requiresPlayerChoice: {
+      type: 'goad_target',
+      options: [], // Populated by socket handler
+      playerId: ctx.controller,
+      permanentId: ctx.permanent?.id,
+    },
+    chatMessage: `${cardName} goads a creature`,
   };
 }
 

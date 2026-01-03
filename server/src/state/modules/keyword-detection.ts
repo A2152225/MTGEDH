@@ -915,12 +915,278 @@ const REPLACEMENT_KEYWORD_PATTERNS: KeywordPattern[] = [
 ];
 
 /**
+ * Keyword action patterns - keyword actions that are performed as effects
+ * These are distinct from keyword abilities in that they describe actions
+ * that happen as part of spell/ability resolution.
+ */
+const KEYWORD_ACTION_PATTERNS: KeywordPattern[] = [
+  // Connive - Draw a card, then discard a card. If nonland discarded, put +1/+1 counter
+  {
+    pattern: /\bconnive\b/i,
+    keyword: 'connive',
+    category: 'triggered',
+    timing: 'etb',
+    effect: () => 'Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on this creature',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'discard_selection',
+  },
+  
+  // Connive N
+  {
+    pattern: /\bconnive\s+(\d+)\b/i,
+    keyword: 'connive',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'cards',
+    effect: (match) => `Draw ${match[1]} cards, then discard ${match[1]} cards. Put a +1/+1 counter for each nonland discarded`,
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'discard_selection',
+  },
+  
+  // Bolster N - Put N +1/+1 counters on creature you control with least toughness
+  {
+    pattern: /\bbolster\s+(\d+)\b/i,
+    keyword: 'bolster',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'counters',
+    effect: (match) => `Put ${match[1]} +1/+1 counter${parseInt(match[1]) > 1 ? 's' : ''} on the creature you control with least toughness`,
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'target_creature',
+  },
+  
+  // Support N - Put +1/+1 counter on up to N target creatures
+  {
+    pattern: /\bsupport\s+(\d+)\b/i,
+    keyword: 'support',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'counters',
+    effect: (match) => `Put a +1/+1 counter on each of up to ${match[1]} target creatures`,
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'target_creatures',
+  },
+  
+  // Amass N - Put N +1/+1 counters on an Army you control. If you don't control one, create a 0/0 Army first
+  {
+    pattern: /\bamass\s+(\w+)\s*(\d+)\b/i,
+    keyword: 'amass',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'counters',
+    effect: (match) => `Amass ${match[1]} ${match[2]} - Put ${match[2]} +1/+1 counters on an Army you control. If you don't control one, create a 0/0 ${match[1]} Army creature token first`,
+    mandatory: true,
+  },
+  
+  // Amass N (original version without type)
+  {
+    pattern: /\bamass\s+(\d+)\b(?!\s+\w+\b)/i,
+    keyword: 'amass',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'counters',
+    effect: (match) => `Amass ${match[1]} - Put ${match[1]} +1/+1 counters on an Army you control. If you don't control one, create a 0/0 Zombie Army creature token first`,
+    mandatory: true,
+  },
+  
+  // Incubate N - Create an Incubator token with N +1/+1 counters
+  {
+    pattern: /\bincubate\s+(\d+)\b/i,
+    keyword: 'incubate',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'counters',
+    effect: (match) => `Create an Incubator token with ${match[1]} +1/+1 counter${parseInt(match[1]) > 1 ? 's' : ''} on it`,
+    mandatory: true,
+  },
+  
+  // Populate - Create a copy of a creature token you control
+  {
+    pattern: /\bpopulate\b/i,
+    keyword: 'populate',
+    category: 'triggered',
+    timing: 'etb',
+    effect: () => 'Create a copy of a creature token you control',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'target_token',
+  },
+  
+  // Forage - Exile three cards from your graveyard or sacrifice a Food
+  {
+    pattern: /\bforage\b/i,
+    keyword: 'forage',
+    category: 'cost_modifier',
+    timing: 'cast',
+    effect: () => 'Exile three cards from your graveyard or sacrifice a Food',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'forage_choice',
+  },
+  
+  // Monstrosity N - Put N +1/+1 counters on this creature
+  {
+    pattern: /\bmonstrosity\s+(\d+)\b/i,
+    keyword: 'monstrosity',
+    category: 'activated',
+    timing: 'always',
+    valueType: 'counters',
+    effect: (match) => `Put ${match[1]} +1/+1 counter${parseInt(match[1]) > 1 ? 's' : ''} on this creature. It becomes monstrous`,
+    mandatory: true,
+  },
+  
+  // Adapt N - Put N +1/+1 counters on this creature if it has none
+  {
+    pattern: /\badapt\s+(\d+)\b/i,
+    keyword: 'adapt',
+    category: 'activated',
+    timing: 'always',
+    valueType: 'counters',
+    effect: (match) => `If this creature has no +1/+1 counters on it, put ${match[1]} +1/+1 counter${parseInt(match[1]) > 1 ? 's' : ''} on it`,
+    mandatory: true,
+  },
+  
+  // Exert - When you exert, creature doesn't untap during next untap step
+  {
+    pattern: /\bexert\b/i,
+    keyword: 'exert',
+    category: 'triggered',
+    timing: 'attacks',
+    effect: () => "You may exert this creature as it attacks. It won't untap during your next untap step",
+    mandatory: false,
+    requiresChoice: true,
+    choiceType: 'exert_choice',
+  },
+  
+  // Explore - Reveal top card. If land, put in hand. Otherwise, put +1/+1 counter and decide to keep or put back
+  {
+    pattern: /\bexplore\b/i,
+    keyword: 'explore',
+    category: 'triggered',
+    timing: 'etb',
+    effect: () => 'Reveal the top card of your library. If it\'s a land, put it in your hand. Otherwise, put a +1/+1 counter on this creature and you may put that card in your graveyard',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'explore_choice',
+  },
+  
+  // Scry N - Look at top N cards, put any on bottom in any order
+  {
+    pattern: /\bscry\s+(\d+)\b/i,
+    keyword: 'scry',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'cards',
+    effect: (match) => `Look at the top ${match[1]} card${parseInt(match[1]) > 1 ? 's' : ''} of your library. Put any number on the bottom in any order`,
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'scry',
+  },
+  
+  // Surveil N - Look at top N cards, put any into graveyard, rest on top in any order
+  {
+    pattern: /\bsurveil\s+(\d+)\b/i,
+    keyword: 'surveil',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'cards',
+    effect: (match) => `Look at the top ${match[1]} card${parseInt(match[1]) > 1 ? 's' : ''} of your library. Put any into your graveyard, rest on top in any order`,
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'surveil',
+  },
+  
+  // Mill N - Put top N cards from library into graveyard
+  {
+    pattern: /\bmill\s+(\d+)\b/i,
+    keyword: 'mill',
+    category: 'triggered',
+    timing: 'etb',
+    valueType: 'cards',
+    effect: (match) => `Put the top ${match[1]} card${parseInt(match[1]) > 1 ? 's' : ''} of your library into your graveyard`,
+    mandatory: true,
+  },
+  
+  // Discover N - Exile cards from library until nonland with MV <= N, cast it or put in hand
+  {
+    pattern: /\bdiscover\s+(\d+)\b/i,
+    keyword: 'discover',
+    category: 'triggered',
+    timing: 'cast',
+    valueType: 'mana_value',
+    effect: (match) => `Exile cards from the top of your library until you exile a nonland card with mana value ${match[1]} or less. Cast it without paying its mana cost or put it into your hand`,
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'discover_choice',
+  },
+  
+  // Manifest - Put top card face down as 2/2 creature
+  {
+    pattern: /\bmanifest\b/i,
+    keyword: 'manifest',
+    category: 'triggered',
+    timing: 'etb',
+    effect: () => 'Put the top card of your library onto the battlefield face down as a 2/2 creature. Turn it face up any time for its mana cost if it\'s a creature card',
+    mandatory: true,
+  },
+  
+  // Cloak - Put card face down as 2/2 creature with ward {2}
+  {
+    pattern: /\bcloak\b/i,
+    keyword: 'cloak',
+    category: 'triggered',
+    timing: 'etb',
+    effect: () => 'Put the card onto the battlefield face down as a 2/2 creature with ward {2}. Turn it face up any time for its mana cost if it\'s a creature card',
+    mandatory: true,
+  },
+  
+  // Transform - Transform this permanent
+  {
+    pattern: /\btransform\b/i,
+    keyword: 'transform',
+    category: 'triggered',
+    timing: 'always',
+    effect: () => 'Transform this permanent (turn it to its other face)',
+    mandatory: true,
+  },
+  
+  // Goad - Target creature becomes goaded until your next turn
+  {
+    pattern: /\bgoad\b/i,
+    keyword: 'goad',
+    category: 'triggered',
+    timing: 'etb',
+    effect: () => 'Target creature becomes goaded - it attacks each combat if able and attacks a player other than you if able',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'target_creature',
+  },
+  
+  // Fight - Target creature you control fights target creature you don't control
+  {
+    pattern: /\bfight\b/i,
+    keyword: 'fight',
+    category: 'triggered',
+    timing: 'etb',
+    effect: () => 'Each creature deals damage equal to its power to the other',
+    mandatory: true,
+    requiresChoice: true,
+    choiceType: 'fight_targets',
+  },
+];
+
+/**
  * All keyword patterns combined
  */
 const ALL_KEYWORD_PATTERNS: KeywordPattern[] = [
   ...TRIGGERED_KEYWORD_PATTERNS,
   ...STATIC_KEYWORD_PATTERNS,
   ...REPLACEMENT_KEYWORD_PATTERNS,
+  ...KEYWORD_ACTION_PATTERNS,
 ];
 
 // ============================================================================
