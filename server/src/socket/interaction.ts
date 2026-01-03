@@ -9,7 +9,7 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent } from "../state/modules/triggered-abilities";
+import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit } from "../state/modules/triggered-abilities";
 import { triggerETBEffectsForToken } from "../state/modules/stack";
 import { 
   getManaAbilitiesForPermanent, 
@@ -5132,12 +5132,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      // Check if planeswalker has already activated an ability this turn
-      // (Rule 606.3: Only one loyalty ability per turn per planeswalker)
-      if ((permanent as any).loyaltyActivatedThisTurn) {
+      // Check if planeswalker has already activated maximum abilities this turn
+      // (Rule 606.3: Only one loyalty ability per turn per planeswalker, unless modified)
+      // Chain Veil and Oath of Teferi allow 2 activations per turn
+      const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
+      const maxActivations = getLoyaltyActivationLimit(game.state, pid);
+      
+      if (activationsThisTurn >= maxActivations) {
+        const extraText = maxActivations > 1 ? ` (max ${maxActivations} with effects)` : '';
         socket.emit("error", {
           code: "LOYALTY_ALREADY_USED",
-          message: `${cardName} has already activated a loyalty ability this turn`,
+          message: `${cardName} has already activated ${maxActivations} loyalty ability${maxActivations > 1 ? 'ies' : ''} this turn${extraText}`,
         });
         return;
       }
@@ -5316,11 +5321,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         debugWarn(2, `[planeswalker] Failed to enqueue activation for ${cardName}:`, e);
       }
       
-      // Apply loyalty cost
+      // Apply loyalty cost and update counters
       const newLoyalty = currentLoyalty + loyaltyCost;
       (permanent as any).counters = (permanent as any).counters || {};
       (permanent as any).counters.loyalty = newLoyalty;
-      (permanent as any).loyaltyActivatedThisTurn = true;
+      (permanent as any).loyalty = newLoyalty; // Also update top-level loyalty for client display
+      (permanent as any).loyaltyActivationsThisTurn = activationsThisTurn + 1; // Increment counter (supports Chain Veil)
       
       // Put the loyalty ability on the stack
       const stackItem = {
@@ -6364,11 +6370,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           return;
         }
         
-        // Apply loyalty cost
+        // Apply loyalty cost and update counters
         const newLoyalty = currentLoyalty + loyaltyCost;
         (permanent as any).counters = (permanent as any).counters || {};
         (permanent as any).counters.loyalty = newLoyalty;
-        (permanent as any).loyaltyActivatedThisTurn = true;
+        (permanent as any).loyalty = newLoyalty; // Also update top-level loyalty for client display
+        const currentActivations = (permanent as any).loyaltyActivationsThisTurn || 0;
+        (permanent as any).loyaltyActivationsThisTurn = currentActivations + 1; // Increment counter (supports Chain Veil)
         
         // Put the loyalty ability on the stack WITH targets
         const stackItem = {
