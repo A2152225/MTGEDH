@@ -439,6 +439,213 @@ export function getSpellCastTriggers(
 }
 
 // ============================================================================
+// Opponent Spell Cast Triggers (Esper Sentinel, Rhystic Study, Mystic Remora)
+// ============================================================================
+
+/**
+ * Opponent spell cast trigger type - cards that trigger when opponents cast spells
+ */
+export interface OpponentSpellCastTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;  // Who controls the permanent (gets the benefit)
+  casterId: string;      // Who cast the spell (the opponent)
+  description: string;
+  effect: string;
+  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature';
+  paymentCost?: string;  // What the caster can pay to prevent the effect
+  paymentAmount?: number; // X value for variable payments (Esper Sentinel)
+  benefitIfNotPaid: string; // Effect if opponent doesn't pay
+  mandatory: boolean;
+}
+
+/**
+ * Detect opponent spell cast triggers from a permanent's abilities
+ * These are permanents that trigger when an OPPONENT casts a spell
+ * 
+ * Examples:
+ * - Esper Sentinel: "Whenever an opponent casts their first noncreature spell each turn, draw a card unless that player pays {X}."
+ * - Rhystic Study: "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}."
+ * - Mystic Remora: "Whenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}."
+ */
+export function detectOpponentSpellCastTriggers(card: any, permanent: any): {
+  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature';
+  spellCondition: 'any' | 'noncreature' | 'first_noncreature';
+  paymentCost: string;
+  paymentIsVariable?: boolean;  // For Esper Sentinel where X = creature's power
+  benefitIfNotPaid: string;
+  description: string;
+}[] {
+  const triggers: {
+    triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature';
+    spellCondition: 'any' | 'noncreature' | 'first_noncreature';
+    paymentCost: string;
+    paymentIsVariable?: boolean;
+    benefitIfNotPaid: string;
+    description: string;
+  }[] = [];
+  
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = (card?.name || "").toLowerCase();
+  
+  // Skip if not an opponent cast trigger
+  if (!oracleText.includes('opponent') || !oracleText.includes('cast')) {
+    return triggers;
+  }
+  
+  // Esper Sentinel: "Whenever an opponent casts their first noncreature spell each turn, draw a card unless that player pays {X}"
+  if (cardName.includes('esper sentinel') || 
+      (oracleText.includes('first noncreature spell each turn') && 
+       oracleText.includes('unless') && 
+       oracleText.includes('pays'))) {
+    triggers.push({
+      triggerType: 'esper_sentinel',
+      spellCondition: 'first_noncreature',
+      paymentCost: '{X}',
+      paymentIsVariable: true,
+      benefitIfNotPaid: 'draw a card',
+      description: "Whenever an opponent casts their first noncreature spell each turn, draw a card unless that player pays {X}",
+    });
+    return triggers; // Return early to avoid double-matching
+  }
+  
+  // Rhystic Study: "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}."
+  if (cardName.includes('rhystic study') ||
+      (oracleText.includes('opponent casts a spell') &&
+       oracleText.includes('draw') &&
+       oracleText.includes('unless') &&
+       oracleText.match(/pays\s*\{1\}/))) {
+    triggers.push({
+      triggerType: 'rhystic_study',
+      spellCondition: 'any',
+      paymentCost: '{1}',
+      benefitIfNotPaid: 'draw a card',
+      description: "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}",
+    });
+    return triggers;
+  }
+  
+  // Mystic Remora: "Whenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}."
+  if (cardName.includes('mystic remora') ||
+      (oracleText.includes('opponent casts a noncreature spell') &&
+       oracleText.includes('draw') &&
+       oracleText.includes('unless') &&
+       oracleText.includes('pays'))) {
+    // Extract the payment cost
+    const paymentMatch = oracleText.match(/pays\s*(\{[^}]+\})/);
+    const paymentCost = paymentMatch ? paymentMatch[1] : '{4}';
+    
+    triggers.push({
+      triggerType: 'mystic_remora',
+      spellCondition: 'noncreature',
+      paymentCost,
+      benefitIfNotPaid: 'draw a card',
+      description: `Whenever an opponent casts a noncreature spell, you may draw a card unless that player pays ${paymentCost}`,
+    });
+    return triggers;
+  }
+  
+  // Generic pattern: "Whenever an opponent casts a spell/noncreature spell, [effect] unless that player pays {N}"
+  const genericOpponentMatch = oracleText.match(/whenever an opponent casts (?:a |an )?(noncreature\s+)?spell.*?unless.*?pays\s*(\{[^}]+\})/i);
+  if (genericOpponentMatch) {
+    const isNoncreature = !!genericOpponentMatch[1];
+    const paymentCost = genericOpponentMatch[2];
+    
+    triggers.push({
+      triggerType: isNoncreature ? 'opponent_casts_any' : 'opponent_casts_any',
+      spellCondition: isNoncreature ? 'noncreature' : 'any',
+      paymentCost,
+      benefitIfNotPaid: 'trigger effect',
+      description: `Whenever an opponent casts a${isNoncreature ? ' noncreature' : ''} spell, trigger unless that player pays ${paymentCost}`,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get opponent spell cast triggers that should fire when a spell is cast
+ * 
+ * @param battlefield - All permanents on the battlefield
+ * @param casterId - The player who cast the spell
+ * @param spellCard - The spell being cast
+ * @param allPlayerIds - All player IDs in the game
+ * @param isFirstNoncreatureThisTurnByCaster - Whether this is the first noncreature spell the caster has cast this turn
+ * @returns Array of triggers that should fire
+ */
+export function getOpponentSpellCastTriggers(
+  battlefield: any[],
+  casterId: string,
+  spellCard: any,
+  allPlayerIds: string[],
+  isFirstNoncreatureThisTurnByCaster: boolean = false
+): OpponentSpellCastTrigger[] {
+  const triggers: OpponentSpellCastTrigger[] = [];
+  
+  const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
+  const isCreatureSpell = spellTypeLine.includes('creature');
+  const isNoncreatureSpell = !isCreatureSpell;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const controller = permanent.controller;
+    
+    // Skip if the permanent's controller cast the spell (not an opponent)
+    if (controller === casterId) continue;
+    
+    const permTriggers = detectOpponentSpellCastTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      let shouldTrigger = false;
+      
+      switch (trigger.spellCondition) {
+        case 'any':
+          shouldTrigger = true;
+          break;
+        case 'noncreature':
+          shouldTrigger = isNoncreatureSpell;
+          break;
+        case 'first_noncreature':
+          // Only triggers on the FIRST noncreature spell the caster has cast this turn
+          shouldTrigger = isNoncreatureSpell && isFirstNoncreatureThisTurnByCaster;
+          break;
+      }
+      
+      if (shouldTrigger) {
+        // Calculate payment for variable costs (Esper Sentinel)
+        let paymentAmount = 1;
+        if (trigger.paymentIsVariable) {
+          // X = creature's power for Esper Sentinel
+          const power = parseInt(permanent.card?.power || '1', 10);
+          paymentAmount = isNaN(power) ? 1 : Math.max(0, power);
+        } else {
+          // Extract numeric value from cost string like "{1}" or "{4}"
+          const costMatch = trigger.paymentCost.match(/\{(\d+)\}/);
+          paymentAmount = costMatch ? parseInt(costMatch[1], 10) : 1;
+        }
+        
+        triggers.push({
+          permanentId: permanent.id,
+          cardName: permanent.card?.name || 'Unknown',
+          controllerId: controller,
+          casterId,
+          description: trigger.description,
+          effect: trigger.benefitIfNotPaid,
+          triggerType: trigger.triggerType,
+          paymentCost: trigger.paymentIsVariable ? `{${paymentAmount}}` : trigger.paymentCost,
+          paymentAmount,
+          benefitIfNotPaid: trigger.benefitIfNotPaid,
+          mandatory: false, // These are "may" abilities
+        });
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
 // Storm Mechanic
 // ============================================================================
 

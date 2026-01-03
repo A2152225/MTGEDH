@@ -366,35 +366,52 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     // ============================================
     // CREATURE TYPE LORD EFFECTS
     // ============================================
-    // Pattern: "Other [TYPE]s you control get +X/+Y"
+    // Pattern: "Other [TYPE]s (you control) get +X/+Y"
     // Examples: Valiant Veteran ("Other Soldiers you control get +1/+1")
-    //           Lord of Atlantis ("Other Merfolk get +1/+1 and have islandwalk")
-    //           Goblin King ("Other Goblins get +1/+1 and have mountainwalk")
+    //           Lord of Atlantis ("Other Merfolk get +1/+1 and have islandwalk") - GLOBAL effect
+    //           Goblin King ("Other Goblins get +1/+1 and have mountainwalk") - GLOBAL effect
+    //           Field Marshal ("Other Soldier creatures get +1/+1 and have first strike.") - GLOBAL effect
     //           Death Baron ("Skeletons you control and other Zombies you control get +1/+1 and have deathtouch")
     //           Elvish Archdruid ("Other Elf creatures you control get +1/+1")
     
     // First, check for "Other [TYPE]s you control get +X/+Y" pattern
     for (const creatureType of CREATURE_TYPES) {
-      // Pattern 1: "Other [TYPE]s you control get +X/+Y" (most common lord pattern)
+      // Pattern 1a: "Other [TYPE](s) (creatures) you control get +X/+Y" (controller-only lord)
+      // Pattern 1b: "Other [TYPE](s) (creatures) get +X/+Y" (GLOBAL lord - no "you control")
+      // 
+      // The key difference is:
+      // - If "you control" is present: only affects controller's creatures
+      // - If "you control" is absent: affects ALL creatures of that type (global effect)
+      //
+      // Examples:
+      //   - Field Marshal: "Other Soldier creatures get +1/+1 and have first strike" (GLOBAL)
+      //   - Lord of Atlantis: "Other Merfolk get +1/+1 and have islandwalk" (GLOBAL)
+      //   - Valiant Veteran: "Other Soldiers you control get +1/+1" (controller only)
+      
       const otherTypeBuffPattern = new RegExp(
-        `other\\s+${creatureType}s?\\s+(?:you\\s+control\\s+)?get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
+        `other\\s+${creatureType}s?\\s+(?:creatures?\\s+)?(?:(you\\s+control)\\s+)?get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
         'i'
       );
       const otherTypeMatch = oracle.match(otherTypeBuffPattern);
       if (otherTypeMatch) {
-        const buff = parseBuffSegment(otherTypeMatch[1]);
+        const hasYouControl = !!otherTypeMatch[1]; // Check if "you control" was captured
+        const buff = parseBuffSegment(otherTypeMatch[2]);
         if (buff) {
           for (const perm of state.battlefield) {
-            // "Other" means exclude source, must be controlled by same player, must be the creature type
-            if (perm.controller === controller && 
+            // "Other" means exclude source, must be the creature type
+            // If "you control" is present, restrict to controller's creatures
+            // If "you control" is absent, this is a GLOBAL effect affecting ALL creatures of that type
+            const matchesController = hasYouControl ? (perm.controller === controller) : true;
+            
+            if (matchesController && 
                 isCreature(perm) && 
                 perm.id !== source.id && 
                 hasCreatureType(perm, creatureType)) {
               const agg = perPermanent.get(perm.id)!;
               agg.pDelta += buff.p;
               agg.tDelta += buff.t;
-              // Check for abilities in the tail text
-              const tail = otherTypeMatch[2] || '';
+              // Check for abilities in the tail text (e.g., "and have first strike")
+              const tail = otherTypeMatch[3] || '';
               const abilities = parseAbilities(tail);
               for (const a of abilities) agg.abilities.add(a);
             }
@@ -402,9 +419,9 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
       
-      // Pattern 2: "[TYPE]s you control get +X/+Y" (affects all including self)
+      // Pattern 2: "[TYPE](s) (creatures) you control get +X/+Y" (affects all including self)
       const typeBuffPattern = new RegExp(
-        `(?<!other\\s+)${creatureType}s?\\s+you\\s+control\\s+get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
+        `(?<!other\\s+)${creatureType}s?\\s+(?:creatures?\\s+)?you\\s+control\\s+get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
         'i'
       );
       const typeMatch = oracle.match(typeBuffPattern);
@@ -438,6 +455,27 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         for (const perm of state.battlefield) {
           if (perm.controller === controller && 
               isCreature(perm) && 
+              perm.id !== source.id && 
+              hasCreatureType(perm, creatureType)) {
+            const agg = perPermanent.get(perm.id)!;
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+      
+      // Pattern 4: "Other [TYPE] creatures have [ABILITIES]" (GLOBAL ability grant - no "you control")
+      // Example: If a card said "Other Soldier creatures have first strike" (affects all players)
+      const otherTypeGlobalAbilitiesPattern = new RegExp(
+        `other\\s+${creatureType}\\s+creatures?\\s+have\\s+([^.]+)`,
+        'i'
+      );
+      const otherTypeGlobalAbilitiesMatch = oracle.match(otherTypeGlobalAbilitiesPattern);
+      // Only process if this is NOT a "you control" pattern (already handled above)
+      if (otherTypeGlobalAbilitiesMatch && !otherTypeAbilitiesMatch) {
+        const abilities = parseAbilities(otherTypeGlobalAbilitiesMatch[1]);
+        for (const perm of state.battlefield) {
+          // Global effect - affects ALL creatures of the type, not just controller's
+          if (isCreature(perm) && 
               perm.id !== source.id && 
               hasCreatureType(perm, creatureType)) {
             const agg = perPermanent.get(perm.id)!;

@@ -1183,10 +1183,12 @@ function executeTriggerEffect(
   // Examples: Brimaz, King of Oreskos; Hero of Bladehold; Hanweir Garrison
   // ========================================================================
   const triggerType = (triggerItem as any).triggerType;
+  debug(2, `[executeTriggerEffect] triggerType=${triggerType}, sourceName=${sourceName}`);
   if (triggerType === 'attacks' || triggerType === 'creature_attacks') {
     // Check if this is a token creation effect
     // Pattern: "create a X/Y [type] creature token" or "create X X/Y [type] creature tokens"
     const createTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+    debug(2, `[executeTriggerEffect] ATTACK TRIGGER: createTokenMatch=${!!createTokenMatch}`);
     
     if (createTokenMatch) {
       // Parse count from word or number
@@ -1308,7 +1310,9 @@ function executeTriggerEffect(
     // COUNT-BASED TOKEN CREATION (Myrel, Shield of Argive)
     // Create X tokens where X is based on counting permanents
     // ========================================================================
-    const triggerValue = (triggerItem as any).value;
+    // Note: Check both .value and .effectData as combat.ts stores object values in .effectData
+    const triggerValue = (triggerItem as any).value || (triggerItem as any).effectData;
+    debug(2, `[executeTriggerEffect] COUNT-BASED CHECK: value=${JSON.stringify((triggerItem as any).value)}, effectData=${JSON.stringify((triggerItem as any).effectData)}, triggerValue.countType=${triggerValue?.countType}`);
     if (triggerValue && typeof triggerValue === 'object' && triggerValue.countType) {
       const { countType, power, toughness, type, color, isArtifact } = triggerValue;
       
@@ -3404,16 +3408,27 @@ function executeTriggerEffect(
     
     // Count permanents of the specified type that controller controls
     let count = 0;
+    debug(2, `[executeTriggerEffect] COUNT DEBUG: battlefield.length=${battlefield.length}, controller=${controller}, countType=${countType}`);
     for (const perm of battlefield) {
       if (!perm) continue;
-      if (perm.controller !== controller) continue;
+      const permController = perm.controller;
       const typeLine = (perm.card?.type_line || '').toLowerCase();
-      if (typeLine.includes(countType)) {
+      const matchesType = typeLine.includes(countType);
+      const matchesController = permController === controller;
+      debug(3, `[executeTriggerEffect] PERM: ${perm.card?.name || 'unknown'}, controller=${permController}, typeLine=${typeLine}, matchesType=${matchesType}, matchesController=${matchesController}`);
+      if (!matchesController) continue;
+      if (matchesType) {
         count++;
       }
     }
     
     debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${count} ${tokenType} tokens for ${controller} (${countType}s controlled: ${count})`);
+    
+    // Extra debug if count is 0 but we expected soldiers
+    if (count === 0 && battlefield.length > 0) {
+      const allCreatures = battlefield.filter((p: any) => p?.card?.type_line?.toLowerCase().includes('creature'));
+      debug(1, `[executeTriggerEffect] WARNING: 0 ${countType}s found but ${allCreatures.length} creatures on battlefield. Controllers: ${[...new Set(battlefield.map((p: any) => p?.controller))].join(', ')}. Expected controller: ${controller}`);
+    }
     
     // Apply token doublers (Anointed Procession, Doubling Season, etc.)
     const tokensToCreate = count * getTokenDoublerMultiplier(controller, state);
@@ -4477,6 +4492,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     // Execute the triggered ability effect based on description
+    debug(2, `[resolveTopOfStack] Executing trigger effect: controller=${triggerController}, sourceName=${sourceName}, triggerType=${triggerType}`);
     executeTriggerEffect(ctx, triggerController, sourceName, description, item);
     
     bumpSeq();
