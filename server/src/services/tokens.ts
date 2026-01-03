@@ -554,42 +554,43 @@ export function getTokenImageUrls(
   
   // Fallback URLs for common tokens that may not be in Tokens.json
   // These are direct Scryfall URLs for specific token printings
+  // URLs verified from Scryfall API on 2026-01-03
   const FALLBACK_TOKEN_URLS: Record<string, { small?: string; normal?: string; large?: string; art_crop?: string }> = {
-    // White 1/1 Soldier (Martial Coup, etc.) - https://scryfall.com/card/tfic/2/soldier
+    // White 1/1 Soldier (Martial Coup, etc.) - https://scryfall.com/card/tsnc/14/soldier
     'soldier_white_1_1': {
-      small: 'https://cards.scryfall.io/small/front/7/8/78e9b5f6-5d21-4a18-80c0-7ac9a2b6ed69.jpg',
-      normal: 'https://cards.scryfall.io/normal/front/7/8/78e9b5f6-5d21-4a18-80c0-7ac9a2b6ed69.jpg',
-      large: 'https://cards.scryfall.io/large/front/7/8/78e9b5f6-5d21-4a18-80c0-7ac9a2b6ed69.jpg',
+      small: 'https://cards.scryfall.io/small/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
+      normal: 'https://cards.scryfall.io/normal/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
+      large: 'https://cards.scryfall.io/large/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
     },
-    // Colorless 1/1 Soldier artifact creature (Myrel) - https://scryfall.com/card/totc/26/soldier
+    // Colorless 1/1 Soldier artifact creature (Myrel, Shield of Argive) - https://scryfall.com/card/totc/26/soldier
     'soldier_colorless_artifact_1_1': {
-      small: 'https://cards.scryfall.io/small/front/c/5/c5d5c6b1-0d37-4e9b-9af3-5f7c7cddcbd5.jpg',
-      normal: 'https://cards.scryfall.io/normal/front/c/5/c5d5c6b1-0d37-4e9b-9af3-5f7c7cddcbd5.jpg',
-      large: 'https://cards.scryfall.io/large/front/c/5/c5d5c6b1-0d37-4e9b-9af3-5f7c7cddcbd5.jpg',
+      small: 'https://cards.scryfall.io/small/front/2/7/27ba03b0-feac-4d9c-9877-59c5fe18b230.jpg?1712320183',
+      normal: 'https://cards.scryfall.io/normal/front/2/7/27ba03b0-feac-4d9c-9877-59c5fe18b230.jpg?1712320183',
+      large: 'https://cards.scryfall.io/large/front/2/7/27ba03b0-feac-4d9c-9877-59c5fe18b230.jpg?1712320183',
     },
-    // White 1/1 Human Soldier (Horn of Gondor, Assemble the Legion, etc.)
+    // White 1/1 Human Soldier (Horn of Gondor, Assemble the Legion, etc.) - https://scryfall.com/card/teoe/human-soldier
     'human soldier_white_1_1': {
-      small: 'https://cards.scryfall.io/small/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
-      normal: 'https://cards.scryfall.io/normal/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
-      large: 'https://cards.scryfall.io/large/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
+      small: 'https://cards.scryfall.io/small/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
+      normal: 'https://cards.scryfall.io/normal/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
+      large: 'https://cards.scryfall.io/large/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
     },
-    // White 1/1 Warrior (Oketra's Monument, etc.) - https://scryfall.com/card/tdmc/4/warrior
+    // White 1/1 Warrior with vigilance (Oketra's Monument) - https://scryfall.com/card/tdmc/4/warrior
     'warrior_white_1_1': {
-      small: 'https://cards.scryfall.io/small/front/5/4/54c8e946-5a40-47f4-b5f3-5fd7c0bb5b60.jpg',
-      normal: 'https://cards.scryfall.io/normal/front/5/4/54c8e946-5a40-47f4-b5f3-5fd7c0bb5b60.jpg',
-      large: 'https://cards.scryfall.io/large/front/5/4/54c8e946-5a40-47f4-b5f3-5fd7c0bb5b60.jpg',
+      small: 'https://cards.scryfall.io/small/front/1/d/1d7b1dfa-14a2-4e4e-baf2-e06672651db1.jpg?1675455562',
+      normal: 'https://cards.scryfall.io/normal/front/1/d/1d7b1dfa-14a2-4e4e-baf2-e06672651db1.jpg?1675455562',
+      large: 'https://cards.scryfall.io/large/front/1/d/1d7b1dfa-14a2-4e4e-baf2-e06672651db1.jpg?1675455562',
     },
-    // Colorless 1/1 Phyrexian Mite (Mite Overseer, etc.) - artifact creature with toxic 1
+    // Colorless 1/1 Phyrexian Mite (Mite Overseer, etc.) - artifact creature with toxic 1 - https://scryfall.com/card/tone/7/phyrexian-mite
     'phyrexian mite_colorless_artifact_1_1': {
-      small: 'https://cards.scryfall.io/small/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
-      normal: 'https://cards.scryfall.io/normal/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
-      large: 'https://cards.scryfall.io/large/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+      small: 'https://cards.scryfall.io/small/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
+      normal: 'https://cards.scryfall.io/normal/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
+      large: 'https://cards.scryfall.io/large/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
     },
-    // Generic Mite token (Scryfall TONE)
+    // Generic Mite token (Scryfall TONE) - same as Phyrexian Mite
     'mite_colorless_1_1': {
-      small: 'https://cards.scryfall.io/small/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
-      normal: 'https://cards.scryfall.io/normal/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
-      large: 'https://cards.scryfall.io/large/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+      small: 'https://cards.scryfall.io/small/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
+      normal: 'https://cards.scryfall.io/normal/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
+      large: 'https://cards.scryfall.io/large/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
     },
   };
   
@@ -684,7 +685,7 @@ export function getTokenImageUrls(
   
   // Score each token for best match
   let bestMatch = tokens[0];
-  let bestScore = 0;
+  let bestScore = -1; // Start at -1 so even score 0 is better than no match
   
   for (const token of tokens) {
     let score = 0;
@@ -693,11 +694,21 @@ export function getTokenImageUrls(
     if (power !== undefined && token.power === String(power)) score += 2;
     if (toughness !== undefined && token.toughness === String(toughness)) score += 2;
     
-    // Match colors
-    if (colors && colors.length > 0) {
-      const tokenColors = token.colors || [];
-      const colorMatch = colors.every(c => tokenColors.includes(c));
-      if (colorMatch && tokenColors.length === colors.length) score += 3;
+    // Match colors - handle colorless case explicitly
+    const tokenColors = token.colors || [];
+    if (colors !== undefined) {
+      if (colors.length === 0) {
+        // Looking for colorless - prefer tokens with no colors
+        if (tokenColors.length === 0) {
+          score += 3;
+        }
+      } else if (colors.length > 0) {
+        // Looking for specific colors
+        const colorMatch = colors.every(c => tokenColors.includes(c));
+        if (colorMatch && tokenColors.length === colors.length) {
+          score += 3;
+        }
+      }
     }
     
     // Prefer tokens with images
@@ -708,6 +719,8 @@ export function getTokenImageUrls(
       bestMatch = token;
     }
   }
+  
+  debug(2, `[tokens] Best match for ${nameLower}: ${bestMatch?.name} (set: ${(bestMatch as any)?.set}, score: ${bestScore})`);
   
   // If bestMatch doesn't have an image, try to find any match that does
   if (!bestMatch?.image_uris?.normal && !bestMatch?.image_uris?.small) {
