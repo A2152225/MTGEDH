@@ -58,6 +58,23 @@ export enum StaticEffectType {
 }
 
 /**
+ * Known MTG keyword abilities that can be granted by equipment/effects
+ * Used to validate abilities extracted from oracle text
+ */
+const KNOWN_KEYWORDS = [
+  'flying', 'trample', 'lifelink', 'deathtouch', 'vigilance', 'haste',
+  'first strike', 'double strike', 'hexproof', 'shroud', 'indestructible',
+  'menace', 'reach', 'flash', 'defender', 'skulk', 'prowess',
+  'islandwalk', 'forestwalk', 'mountainwalk', 'swampwalk', 'plainswalk',
+  'protection', 'fear', 'intimidate', 'shadow', 'horsemanship', 'flanking',
+  'rampage', 'phasing', 'bushido', 'provoke', 'modular', 'persist',
+  'undying', 'wither', 'infect', 'battle cry', 'exalted', 'extort',
+  'riot', 'afterlife', 'spectacle', 'escape', 'companion', 'daybound',
+  'nightbound', 'decayed', 'disturb', 'exploit', 'myriad', 'melee',
+  'partner', 'prototype', 'renown', 'riot', 'ward', 'toxic'
+];
+
+/**
  * Target filter for static abilities
  */
 export interface StaticEffectFilter {
@@ -581,6 +598,58 @@ export function calculateEffectivePT(
   // Collect granted and removed abilities
   const grantedAbilities: string[] = [];
   const removedAbilities: string[] = [];
+  
+  // Check for attached equipment/auras that grant abilities
+  // Pattern: "Equipped creature has X" or "Enchanted creature has X"
+  // Examples: Swiftfoot Boots ("Equipped creature has hexproof and haste")
+  //           Lightning Greaves ("Equipped creature has shroud and haste")
+  const attachedEquipment = (permanent as any).attachedEquipment || [];
+  for (const equipId of attachedEquipment) {
+    const equipment = battlefield.find(p => p.id === equipId);
+    if (equipment && equipment.card) {
+      const equipOracle = ((equipment.card as any).oracle_text || '').toLowerCase();
+      
+      // Parse abilities from "Equipped creature has X and Y" or "Enchanted creature has X"
+      const equipAbilityMatch = equipOracle.match(/(?:equipped|enchanted)\s+creature\s+has\s+([^.]+)/i);
+      if (equipAbilityMatch) {
+        const abilitiesText = equipAbilityMatch[1];
+        // Split on "and" and extract individual abilities
+        const abilitiesList = abilitiesText.split(/\s+and\s+|\s*,\s*/);
+        for (const ability of abilitiesList) {
+          const trimmed = ability.trim().toLowerCase();
+          // Only add recognized keywords
+          if (trimmed && KNOWN_KEYWORDS.includes(trimmed) && !grantedAbilities.includes(trimmed)) {
+            grantedAbilities.push(trimmed);
+          }
+        }
+      }
+    }
+  }
+  
+  // Also check by attachedTo relationship (in case attachedEquipment isn't set)
+  for (const equip of battlefield) {
+    if (!equip || !equip.card) continue;
+    const equipTypeLine = ((equip.card as any).type_line || '').toLowerCase();
+    if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
+    if ((equip as any).attachedTo !== permanent.id) continue;
+    
+    const equipOracle = ((equip.card as any).oracle_text || '').toLowerCase();
+    
+    // Parse abilities from "Equipped creature has X and Y" or "Enchanted creature has X"
+    const equipAbilityMatch = equipOracle.match(/(?:equipped|enchanted)\s+creature\s+has\s+([^.]+)/i);
+    if (equipAbilityMatch) {
+      const abilitiesText = equipAbilityMatch[1];
+      // Split on "and" and extract individual abilities
+      const abilitiesList = abilitiesText.split(/\s+and\s+|\s*,\s*/);
+      for (const ability of abilitiesList) {
+        const trimmed = ability.trim().toLowerCase();
+        // Only add recognized keywords
+        if (trimmed && KNOWN_KEYWORDS.includes(trimmed) && !grantedAbilities.includes(trimmed)) {
+          grantedAbilities.push(trimmed);
+        }
+      }
+    }
+  }
   
   // Sort abilities by layer (Rule 613)
   const sortedAbilities = [...staticAbilities].sort((a, b) => a.layer - b.layer);
