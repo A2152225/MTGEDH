@@ -1016,8 +1016,8 @@ export function TableLayout(props: {
                 const manaSources = nonLands.filter(x => isManaSource(x));
                 // Separate tokens from non-token permanents (tokens have isToken: true)
                 const nonManaSourceNonLands = nonLands.filter(x => !isManaSource(x));
-                const tokens = nonManaSourceNonLands.filter(x => (x as any).isToken === true);
-                const others = nonManaSourceNonLands.filter(x => (x as any).isToken !== true);
+                const tokens = nonManaSourceNonLands.filter(x => x.isToken === true);
+                const others = nonManaSourceNonLands.filter(x => x.isToken !== true);
                 // Threshold for collapsing tokens into TokenGroups component
                 const TOKEN_COLLAPSE_THRESHOLD = 5;
                 const showCollapsedTokens = tokens.length >= TOKEN_COLLAPSE_THRESHOLD;

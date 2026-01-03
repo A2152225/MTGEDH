@@ -554,7 +554,7 @@ export function getTokenImageUrls(
   
   // Fallback URLs for common tokens that may not be in Tokens.json
   // These are direct Scryfall URLs for specific token printings
-  // URLs verified from Scryfall API on 2026-01-03
+  // URLs verified from Scryfall API
   const FALLBACK_TOKEN_URLS: Record<string, { small?: string; normal?: string; large?: string; art_crop?: string }> = {
     // White 1/1 Soldier (Martial Coup, etc.) - https://scryfall.com/card/tsnc/14/soldier
     'soldier_white_1_1': {
@@ -684,8 +684,10 @@ export function getTokenImageUrls(
   }
   
   // Score each token for best match
+  // Start with -1 so that even a score of 0 (basic match) is better than no evaluation
+  const NO_MATCH_SCORE = -1;
   let bestMatch = tokens[0];
-  let bestScore = -1; // Start at -1 so even score 0 is better than no match
+  let bestScore = NO_MATCH_SCORE;
   
   for (const token of tokens) {
     let score = 0;
