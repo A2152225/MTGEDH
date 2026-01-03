@@ -4,6 +4,7 @@ import { canAct, canRespond } from "./can-respond";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionQueueEvent } from "../resolution/ResolutionQueueManager.js";
 import type { ResolutionStep } from "../resolution/types.js";
+import { getPendingInteractions } from "./turn.js";
 
 /**
  * Normalize phase and step strings for comparison.
@@ -228,6 +229,17 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   if (pendingSummary.hasPending) {
     const pendingTypes = pendingSummary.pendingTypes.join(', ');
     debug(2, `[priority] autoPassLoop - blocking due to pending resolution steps: ${pendingTypes}`);
+    return { allPassed: false, resolved: false };
+  }
+  
+  // CRITICAL FIX: Check for pending blocker declarations
+  // During DECLARE_BLOCKERS step, we must wait for all defending players to declare blockers
+  // before auto-passing anyone. This prevents the auto-pass loop from cycling infinitely
+  // when the active player (attacker) passes but defenders haven't declared yet.
+  const pendingInteractions = getPendingInteractions(ctx);
+  if (pendingInteractions.hasPending) {
+    const pendingTypes = pendingInteractions.pendingTypes.join(', ');
+    debug(2, `[priority] autoPassLoop - blocking due to pending interactions: ${pendingTypes}`);
     return { allPassed: false, resolved: false };
   }
   

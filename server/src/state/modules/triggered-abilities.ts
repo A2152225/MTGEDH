@@ -517,6 +517,31 @@ export interface TriggeredAbility {
   creatureType?: string; // For "whenever you cast a [type] spell" triggers
   nontokenOnly?: boolean; // For triggers that only fire for nontoken creatures (Guardian Project)
   batched?: boolean; // For triggers that should only fire once per event even if multiple conditions met (Professional Face-Breaker)
+  controllerId?: string; // Controller of the permanent with this trigger
+  
+  // Token creation options
+  createTokensBasedOnCount?: {  // For Myrel, creates tokens based on count of permanents
+    countType: string;  // e.g., "soldier" - counts permanents with this type
+    power: number;
+    toughness: number;
+    type: string;
+    color: string;
+    isArtifact?: boolean;
+    abilities?: string[];
+  };
+  createTokens?: { 
+    count: number; 
+    power: number; 
+    toughness: number; 
+    type: string; 
+    color: string; 
+    abilities?: string[] 
+  };
+  
+  // Put card from hand options (Preeminent Captain)
+  putFromHand?: boolean;
+  tappedAndAttacking?: boolean;
+  putCreatureType?: string;
 }
 
 // Note: KNOWN_DEATH_TRIGGERS, KNOWN_ATTACK_TRIGGERS, KNOWN_UNTAP_TRIGGERS, 
@@ -716,19 +741,40 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
   
   // Check known cards
   for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
     if (lowerName.includes(knownName)) {
-      triggers.push({
+      const trigger: TriggeredAbility = {
         permanentId,
         cardName,
+        controllerId,
         triggerType: 'attacks',
         description: info.effect,
         effect: info.effect,
         value: info.value,
         mandatory: true,
-      });
+      };
+      
+      // Add create tokens based on count data (for Myrel, Shield of Argive, etc.)
+      if (info.createTokensBasedOnCount) {
+        trigger.createTokensBasedOnCount = info.createTokensBasedOnCount;
+      }
+      
+      // Add put from hand data (for Preeminent Captain, etc.)
+      if (info.putFromHand) {
+        trigger.putFromHand = info.putFromHand;
+        trigger.tappedAndAttacking = info.tappedAndAttacking;
+        trigger.putCreatureType = info.putCreatureType;
+      }
+      
+      // Add create tokens data (for fixed count token creation)
+      if (info.createTokens) {
+        trigger.createTokens = info.createTokens;
+      }
+      
+      triggers.push(trigger);
     }
   }
   

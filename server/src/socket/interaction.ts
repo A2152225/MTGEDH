@@ -1534,6 +1534,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     const card = zones.graveyard[cardIndex];
     const cardName = card?.name || "Unknown";
+    const oracleText = (card?.oracle_text || "").toLowerCase();
     
     // Handle different graveyard abilities
     if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape") {
@@ -1886,6 +1887,81 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${getPlayerName(game, pid)} cast ${cardName} using disturb (transformed).`,
         ts: Date.now(),
       });
+    } else if (abilityId === "exile-to-add-counters" || oracleText.includes("exile this card from your graveyard") && oracleText.includes("counter")) {
+      // Cards like Valiant Veteran: "{3}{W}{W}, Exile this card from your graveyard: Put a +1/+1 counter on each Soldier you control."
+      // Parse the creature type from oracle text
+      const counterMatch = oracleText.match(/put a \+1\/\+1 counter on each (\w+) you control/i);
+      const creatureType = counterMatch ? counterMatch[1] : null;
+      
+      // Parse mana cost from oracle text - simplified pattern to avoid regex backtracking
+      const costMatch = oracleText.match(/(\{[^}]+\}(?:[,\s]*\{[^}]+\})*)[,\s]*exile this card from your graveyard/i);
+      
+      if (costMatch) {
+        const manaCost = costMatch[1];
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        // Validate mana payment
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${manaCost}: ${validationError}`,
+          });
+          return;
+        }
+        
+        // Consume mana
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
+      
+      // Remove from graveyard
+      zones.graveyard.splice(cardIndex, 1);
+      zones.graveyardCount = zones.graveyard.length;
+      
+      // Move to exile
+      zones.exile = zones.exile || [];
+      zones.exile.push({ ...card, zone: "exile" });
+      
+      // If we have a creature type, add +1/+1 counters to those creatures
+      let countersAdded = 0;
+      if (creatureType) {
+        const battlefield = game.state?.battlefield || [];
+        for (const perm of battlefield) {
+          if (perm.controller !== pid) continue;
+          const typeLine = (perm.card?.type_line || "").toLowerCase();
+          // Check if the permanent is a creature of the specified type
+          const creatureTypePattern = new RegExp(`\\b${creatureType.toLowerCase()}s?\\b`, 'i');
+          if (typeLine.includes("creature") && creatureTypePattern.test(typeLine)) {
+            // Cast to any to bypass readonly restriction on counters
+            const permCounters = (perm.counters || {}) as Record<string, number>;
+            permCounters["+1/+1"] = (permCounters["+1/+1"] || 0) + 1;
+            (perm as any).counters = permCounters;
+            countersAdded++;
+          }
+        }
+      }
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
+        playerId: pid,
+        cardId,
+        abilityId: "exile-to-add-counters",
+        creatureType,
+        countersAdded,
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} exiled ${cardName} from graveyard, putting a +1/+1 counter on ${countersAdded} ${creatureType || "creature"}${countersAdded !== 1 ? "s" : ""}.`,
+        ts: Date.now(),
+      });
     } else {
       // Unknown or generic graveyard ability
       // Check for tutor/search effects in the oracle text
@@ -2149,7 +2225,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const baseAmount = creatureCountMana.amount;
         const totalAmount = baseAmount * effectiveMultiplier;
         
-        // Handle special 'any_combination' color (like Selvala)
+        // Handle activation cost (like Three Tree City's {2})
+        if ((creatureCountMana as any).activationCost) {
+          const activationCost = (creatureCountMana as any).activationCost;
+          const parsedCost = parseManaCost(activationCost);
+          const pool = getOrInitManaPool(game.state, pid);
+          const totalAvailable = calculateTotalAvailableMana(pool, []);
+          
+          // Validate mana payment
+          const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+          if (validationError) {
+            socket.emit("error", {
+              code: "INSUFFICIENT_MANA",
+              message: `Cannot pay activation cost ${activationCost}: ${validationError}`,
+            });
+            return;
+          }
+          
+          // Consume mana for activation cost
+          consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[tapPermanent:${cardName}]`);
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} paid ${activationCost} for ${cardName}'s ability.`,
+            ts: Date.now(),
+          });
+        }
+        
+        // Handle special 'any_combination' color (like Selvala, Three Tree City)
         if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
           // Store pending mana activation for when player selects color
           if (!game.state.pendingManaActivations) {
@@ -2172,6 +2277,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             cardName,
             amount: totalAmount,
             allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color
+            singleColor: true, // For Three Tree City, player chooses ONE color for all the mana
             cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
           });
           
@@ -2179,7 +2285,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose colors).`,
+            message: `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose a color).`,
             ts: Date.now(),
           });
           

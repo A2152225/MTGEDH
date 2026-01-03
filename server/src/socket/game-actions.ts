@@ -774,6 +774,40 @@ export function calculateCostReduction(
       }
       
       // ============================================
+      // MONUMENT COST REDUCTIONS (color creature spells)
+      // ============================================
+      
+      // Oketra's Monument: White creature spells cost {1} less
+      if (permName.includes("oketra's monument") && isCreature && hasWhite) {
+        reduction.generic += 1;
+        reduction.messages.push(`Oketra's Monument: -{1} (white creature)`);
+      }
+      
+      // Bontu's Monument: Black creature spells cost {1} less
+      if (permName.includes("bontu's monument") && isCreature && hasBlack) {
+        reduction.generic += 1;
+        reduction.messages.push(`Bontu's Monument: -{1} (black creature)`);
+      }
+      
+      // Hazoret's Monument: Red creature spells cost {1} less
+      if (permName.includes("hazoret's monument") && isCreature && hasRed) {
+        reduction.generic += 1;
+        reduction.messages.push(`Hazoret's Monument: -{1} (red creature)`);
+      }
+      
+      // Kefnet's Monument: Blue creature spells cost {1} less
+      if (permName.includes("kefnet's monument") && isCreature && hasBlue) {
+        reduction.generic += 1;
+        reduction.messages.push(`Kefnet's Monument: -{1} (blue creature)`);
+      }
+      
+      // Rhonas's Monument: Green creature spells cost {1} less
+      if (permName.includes("rhonas's monument") && isCreature && hasGreen) {
+        reduction.generic += 1;
+        reduction.messages.push(`Rhonas's Monument: -{1} (green creature)`);
+      }
+      
+      // ============================================
       // BOARD STATE / COUNTER BASED REDUCTIONS
       // ============================================
       
@@ -3953,8 +3987,18 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // Token creation handled separately
           if (trigger.createsToken && trigger.tokenDetails) {
-            // Create the token (Deeproot Waters, Murmuring Mystic)
+            // Create the token (Deeproot Waters, Murmuring Mystic, Oketra's Monument)
             const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            
+            // Build oracle text from abilities if present
+            let oracleText = '';
+            const abilitiesText = trigger.tokenDetails.abilities 
+              ? trigger.tokenDetails.abilities.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ')
+              : '';
+            if (abilitiesText) {
+              oracleText = abilitiesText;
+            }
+            
             const token = {
               id: tokenId,
               controller: playerId,
@@ -3971,17 +4015,19 @@ export function registerGameActions(io: Server, socket: Socket) {
                 type_line: trigger.tokenDetails.types,
                 power: String(trigger.tokenDetails.power),
                 toughness: String(trigger.tokenDetails.toughness),
+                oracle_text: oracleText,
                 zone: "battlefield",
               },
             };
             game.state.battlefield = game.state.battlefield || [];
             game.state.battlefield.push(token as any);
             
+            const abilitiesDisplay = abilitiesText ? ` with ${abilitiesText}` : '';
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
               gameId,
               from: "system",
-              message: `${trigger.cardName}: ${getPlayerName(game, playerId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}.`,
+              message: `${trigger.cardName}: ${getPlayerName(game, playerId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}${abilitiesDisplay}.`,
               ts: Date.now(),
             });
           }

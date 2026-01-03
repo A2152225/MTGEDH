@@ -25,6 +25,7 @@ import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
 import { hasPendingCreatureTypeSelections } from "./creature-type.js";
 import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
+import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /** AI timing delays for more natural behavior */
@@ -5931,6 +5932,15 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
   if (queueSummary.hasPending) {
     const pendingTypes = queueSummary.pendingTypes.join(', ');
     return { hasPending: true, reason: `players have pending resolution steps: ${pendingTypes}` };
+  }
+  
+  // Check for pending blocker declarations or other pending interactions
+  // This prevents the AI from advancing when humans still need to declare blockers
+  const ctx = { state: game.state, bumpSeq: () => {}, gameId } as any;
+  const pendingInteractions = getPendingInteractions(ctx);
+  if (pendingInteractions.hasPending) {
+    const pendingTypes = pendingInteractions.pendingTypes.join(', ');
+    return { hasPending: true, reason: `players have pending interactions: ${pendingTypes}` };
   }
   
   // Check legacy pending* fields that haven't been migrated yet
