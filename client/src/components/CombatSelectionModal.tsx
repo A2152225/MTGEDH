@@ -353,6 +353,9 @@ export function CombatSelectionModal({
   const [bulkAttackTarget, setBulkAttackTarget] = useState<string>('');
   const [bulkAttackCount, setBulkAttackCount] = useState<number>(0);
   
+  // Group target selection (for selecting target per token group)
+  const [groupTargets, setGroupTargets] = useState<Map<string, string>>(new Map());
+  
   // Determine if the modal should be interactive
   // For attackers mode, only the turn player can interact
   // For blockers mode, only the defending player can interact
@@ -365,6 +368,7 @@ export function CombatSelectionModal({
       setSelectedBlockers(new Map());
       setBulkAttackTarget(defenders[0]?.id || '');
       setBulkAttackCount(0);
+      setGroupTargets(new Map());
     }
   }, [open, mode, defenders]);
 
@@ -809,7 +813,16 @@ export function CombatSelectionModal({
                 {creatureGroups.map(group => {
                   const selectedInGroup = group.creatures.filter(c => selectedAttackers.has(c.id)).length;
                   const allSelected = selectedInGroup === group.creatures.length;
-                  const defaultTarget = defenders[0]?.id;
+                  // Get group-specific target or default to first defender
+                  const groupTarget = groupTargets.get(group.key) || defenders[0]?.id || '';
+                  
+                  // Calculate per-defender breakdown for this group
+                  const attackBreakdown = defenders.map(d => {
+                    const count = group.creatures.filter(c => selectedAttackers.get(c.id) === d.id).length;
+                    return { defender: d, count };
+                  }).filter(b => b.count > 0);
+                  
+                  const unselectedInGroup = group.creatures.length - selectedInGroup;
                   
                   return (
                     <div
@@ -851,16 +864,57 @@ export function CombatSelectionModal({
                             {group.isToken && <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>(Token)</span>}
                           </div>
                           <div style={{ fontSize: 12, color: '#aaa' }}>
-                            {group.creatures.length} creature{group.creatures.length !== 1 ? 's' : ''} • 
-                            {selectedInGroup} selected
+                            {group.creatures.length} total • {selectedInGroup} attacking • {unselectedInGroup} available
                           </div>
+                          {/* Show breakdown of attacks by defender */}
+                          {attackBreakdown.length > 0 && (
+                            <div style={{ fontSize: 11, color: '#f87171', marginTop: 2 }}>
+                              {attackBreakdown.map((b, i) => (
+                                <span key={b.defender.id}>
+                                  {i > 0 && ', '}
+                                  {b.count}→{b.defender.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <DangerIndicatorBadges dangers={group.dangers} />
                         </div>
                         
                         {/* Group controls */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {/* Target selector for group */}
+                          {defenders.length > 1 && (
+                            <select
+                              value={groupTarget}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setGroupTargets(prev => {
+                                  const next = new Map(prev);
+                                  next.set(group.key, e.target.value);
+                                  return next;
+                                });
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                padding: '3px 6px',
+                                borderRadius: 4,
+                                border: '1px solid #555',
+                                background: '#222',
+                                color: '#fff',
+                                fontSize: 10,
+                                marginBottom: 4,
+                              }}
+                            >
+                              {defenders.map(d => (
+                                <option key={d.id} value={d.id}>
+                                  → {d.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          
                           <button
-                            onClick={() => handleToggleGroup(group, defaultTarget || '')}
+                            onClick={() => handleToggleGroup(group, groupTarget)}
                             style={{
                               padding: '4px 10px',
                               borderRadius: 4,
@@ -871,19 +925,20 @@ export function CombatSelectionModal({
                               fontSize: 11,
                             }}
                           >
-                            {allSelected ? 'Deselect All' : `Select All (${group.creatures.length})`}
+                            {allSelected ? 'Deselect All' : `Attack All (${group.creatures.length})`}
                           </button>
                           
-                          {group.creatures.length > 1 && (
-                            <div style={{ display: 'flex', gap: 2 }}>
+                          {/* Allow adding more attackers if there are unselected creatures */}
+                          {unselectedInGroup > 0 && (
+                            <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                               <input
                                 type="number"
                                 min="1"
-                                max={group.creatures.length - selectedInGroup}
-                                placeholder="X"
+                                max={unselectedInGroup}
+                                placeholder={`1-${unselectedInGroup}`}
                                 onClick={(e) => e.stopPropagation()}
                                 style={{
-                                  width: 40,
+                                  width: 55,
                                   padding: '2px 4px',
                                   borderRadius: 3,
                                   border: '1px solid #555',
@@ -894,13 +949,17 @@ export function CombatSelectionModal({
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     const input = e.target as HTMLInputElement;
-                                    const count = parseInt(input.value) || 0;
-                                    handleSelectFromGroup(group, count, defaultTarget || '');
+                                    const count = Math.min(parseInt(input.value) || 0, unselectedInGroup);
+                                    if (count > 0) {
+                                      handleSelectFromGroup(group, count, groupTarget);
+                                    }
                                     input.value = '';
                                   }
                                 }}
                               />
-                              <span style={{ fontSize: 9, color: '#666', alignSelf: 'center' }}>+Enter</span>
+                              <span style={{ fontSize: 9, color: '#888', alignSelf: 'center' }}>
+                                /{unselectedInGroup} +↵
+                              </span>
                             </div>
                           )}
                         </div>

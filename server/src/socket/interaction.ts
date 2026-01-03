@@ -7101,11 +7101,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
-    // Validate life payment
-    if (totalLifeToPay > 0 && playerLife < totalLifeToPay) {
+    // Validate life payment - cannot pay life that would reduce to 0 or below
+    // Magic rules: players lose when life becomes 0 or less
+    if (totalLifeToPay > 0 && playerLife <= totalLifeToPay) {
       socket.emit("error", {
         code: "INSUFFICIENT_LIFE",
-        message: `Cannot pay ${totalLifeToPay} life (you have ${playerLife} life)`,
+        message: `Cannot pay ${totalLifeToPay} life (you have ${playerLife} life - payment would be lethal)`,
       });
       return;
     }
