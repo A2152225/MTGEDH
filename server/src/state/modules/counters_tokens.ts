@@ -207,7 +207,13 @@ export function createToken(
   name: string,
   count = 1,
   basePower?: number,
-  baseToughness?: number
+  baseToughness?: number,
+  options?: {
+    colors?: string[];
+    typeLine?: string;
+    abilities?: string[];
+    isArtifact?: boolean;
+  }
 ) {
   const { state, bumpSeq } = ctx;
   
@@ -250,8 +256,19 @@ export function createToken(
     debugWarn(1, "[createToken] Error calculating token doubling, using base count:", err);
   }
   
+  // Build type line based on options
+  let typeLine = options?.typeLine || 'Token Creature';
+  if (!options?.typeLine) {
+    // Auto-generate type line if not provided
+    const parts = ['Token'];
+    if (options?.isArtifact) parts.push('Artifact');
+    parts.push('Creature');
+    if (name) parts.push(`— ${name}`);
+    typeLine = parts.join(' ');
+  }
+  
   // Get token image URLs from the token service
-  const imageUrls = getTokenImageUrls(name, basePower, baseToughness);
+  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors);
   
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     state.battlefield.push({
@@ -262,13 +279,16 @@ export function createToken(
       counters: {},
       basePower,
       baseToughness,
+      summoningSickness: true, // Creatures have summoning sickness when they enter
       isToken: true,
       card: { 
         id: uid("card"), 
         name, 
-        type_line: "Token Creature", 
+        type_line: typeLine, 
         zone: "battlefield",
+        colors: options?.colors || [],
         image_uris: imageUrls,
+        oracle_text: options?.abilities?.join('. ') || '',
       }
     });
   }

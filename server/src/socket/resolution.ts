@@ -1571,6 +1571,40 @@ function handleTargetSelectionResponse(
     return;
   }
   
+  // Handle SOLDIER Military Program counter placement selection
+  if ((step as any).soldierProgramCounters) {
+    const battlefield = game.state?.battlefield || [];
+    
+    if (selections.length > 0) {
+      // Apply +1/+1 counters to the selected soldiers
+      const boostedSoldiers: string[] = [];
+      for (const soldierId of selections) {
+        const soldier = battlefield.find((p: any) => p.id === soldierId);
+        if (soldier) {
+          soldier.counters = soldier.counters || {};
+          soldier.counters['+1/+1'] = (soldier.counters['+1/+1'] || 0) + 1;
+          boostedSoldiers.push(soldier.card?.name || 'Soldier');
+          debug(2, `[Resolution] SOLDIER Military Program: Added +1/+1 counter to ${soldier.card?.name || soldier.id}`);
+        }
+      }
+      
+      if (boostedSoldiers.length > 0) {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} put a +1/+1 counter on ${boostedSoldiers.length} Soldier${boostedSoldiers.length > 1 ? 's' : ''}.`,
+          ts: Date.now(),
+        });
+      }
+    } else {
+      debug(2, `[Resolution] SOLDIER Military Program: Player chose not to add counters to any soldiers`);
+    }
+    
+    broadcastGame(io, game, gameId);
+    return;
+  }
+  
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
   
   // Clear legacy pending state if present
@@ -5680,10 +5714,14 @@ async function handleSoldierProgramChoice(
   // Card text specifies "up to two Soldiers"
   const MAX_SOLDIERS_FOR_COUNTERS = 2;
   
+  // Track if we need to add counters (may need player selection)
+  let needsCounterPlacement = false;
+  
   // Check what the player chose
   for (const choiceId of choiceIds) {
     if (choiceId === 'create_token' || choiceId === 'both') {
       // Create a 1/1 white Soldier creature token
+      // SOLDIER Military Program says: "Create a 1/1 white Soldier creature token"
       createToken(
         {
           state: game.state,
@@ -5695,33 +5733,71 @@ async function handleSoldierProgramChoice(
         'Soldier', // token name
         1, // quantity
         1, // basePower
-        1  // baseToughness
+        1, // baseToughness
+        {
+          colors: ['W'], // White Soldier (not colorless like Myrel's)
+          typeLine: 'Token Creature — Soldier',
+        }
       );
       
       actionMessages.push('created a 1/1 white Soldier creature token');
-      debug(2, `[Resolution] SOLDIER Military Program: Created Soldier token for ${playerId}`);
+      debug(2, `[Resolution] SOLDIER Military Program: Created white Soldier token for ${playerId}`);
     }
     
     if (choiceId === 'add_counters' || choiceId === 'both') {
-      // Put a +1/+1 counter on each of up to two Soldiers you control
-      const soldiers = battlefield.filter((p: any) => {
-        if (p.controller !== playerId) return false;
-        const typeLine = (p.card?.type_line || '').toLowerCase();
-        return typeLine.includes('soldier');
-      });
-      
-      // Add counters to up to MAX_SOLDIERS_FOR_COUNTERS soldiers
-      const soldiersToBoost = soldiers.slice(0, MAX_SOLDIERS_FOR_COUNTERS);
-      if (soldiersToBoost.length > 0) {
-        for (const soldier of soldiersToBoost) {
-          soldier.counters = soldier.counters || {};
-          soldier.counters['+1/+1'] = (soldier.counters['+1/+1'] || 0) + 1;
-          debug(2, `[Resolution] SOLDIER Military Program: Added +1/+1 counter to ${soldier.card?.name || soldier.id}`);
-        }
-        actionMessages.push(`put a +1/+1 counter on ${soldiersToBoost.length} Soldier${soldiersToBoost.length > 1 ? 's' : ''}`);
-      } else {
-        debug(2, `[Resolution] SOLDIER Military Program: No Soldiers to add counters to`);
+      needsCounterPlacement = true;
+    }
+  }
+  
+  if (needsCounterPlacement) {
+    // Get all Soldiers controlled by this player
+    const soldiers = battlefield.filter((p: any) => {
+      if (p.controller !== playerId) return false;
+      const typeLine = (p.card?.type_line || '').toLowerCase();
+      return typeLine.includes('soldier');
+    });
+    
+    if (soldiers.length === 0) {
+      // No soldiers to boost
+      debug(2, `[Resolution] SOLDIER Military Program: No Soldiers to add counters to`);
+    } else if (soldiers.length <= MAX_SOLDIERS_FOR_COUNTERS) {
+      // Auto-apply counters to all soldiers if 2 or fewer (since it says "up to two")
+      for (const soldier of soldiers) {
+        soldier.counters = soldier.counters || {};
+        soldier.counters['+1/+1'] = (soldier.counters['+1/+1'] || 0) + 1;
+        debug(2, `[Resolution] SOLDIER Military Program: Added +1/+1 counter to ${soldier.card?.name || soldier.id}`);
       }
+      actionMessages.push(`put a +1/+1 counter on ${soldiers.length} Soldier${soldiers.length > 1 ? 's' : ''}`);
+    } else {
+      // More than 2 soldiers - player needs to select which ones
+      debug(2, `[Resolution] SOLDIER Military Program: ${soldiers.length} Soldiers available, prompting player to select up to ${MAX_SOLDIERS_FOR_COUNTERS}`);
+      
+      // Create a target selection step for selecting up to 2 Soldiers
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: playerId,
+        description: `SOLDIER Military Program: Choose up to ${MAX_SOLDIERS_FOR_COUNTERS} Soldiers to get +1/+1 counters`,
+        mandatory: false, // "up to" means optional
+        sourceName: 'SOLDIER Military Program',
+        sourceImage: triggerData?.sourceImage,
+        validTargets: soldiers.map((s: any) => ({
+          id: s.id,
+          name: s.card?.name || 'Soldier',
+          type: 'permanent',
+          controller: s.controller,
+          imageUrl: s.card?.image_uris?.small || s.card?.image_uris?.normal,
+          power: s.basePower || s.card?.power,
+          toughness: s.baseToughness || s.card?.toughness,
+        })),
+        targetTypes: ['creature'],
+        minTargets: 0,
+        maxTargets: MAX_SOLDIERS_FOR_COUNTERS,
+        targetDescription: `Soldier creatures you control`,
+        // Store data for the response handler
+        soldierProgramCounters: true,
+      } as any);
+      
+      // Don't add to actionMessages yet - that will happen after selection
     }
   }
   
