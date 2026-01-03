@@ -30,7 +30,8 @@ export interface UpkeepTrigger {
     | 'each_player_upkeep'
     | 'opponent_upkeep'
     | 'upkeep_create_copy'  // Progenitor Mimic - create token copy at beginning of upkeep
-    | 'saga_lore_counter';  // Saga - add lore counter at beginning of your precombat main phase (Rule 714.3b)
+    | 'saga_lore_counter'   // Saga - add lore counter at beginning of your precombat main phase (Rule 714.3b)
+    | 'sacrifice_creature_or_self';  // Eldrazi Monument - sacrifice a creature or sacrifice this
   cost?: string;
   description: string;
   effect?: string;
@@ -45,6 +46,9 @@ export interface UpkeepTrigger {
   chapterAbilities?: { chapter: number; effect: string }[];
   currentChapter?: number;
   maxChapter?: number;
+  // For sacrifice_creature_or_self - the type of permanent to sacrifice if no creatures
+  sacrificeAlternativeType?: string;
+  imageUrl?: string;
 }
 
 /**
@@ -390,6 +394,45 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
         maxChapter,
       });
     }
+  }
+  
+  // ============================================================================
+  // SACRIFICE CREATURE OR SELF PATTERN (Dynamic Detection)
+  // ============================================================================
+  // Pattern: "At the beginning of your upkeep, sacrifice a creature. If you can't, sacrifice ~"
+  // or: "sacrifice a creature or sacrifice ~"
+  // Examples: Eldrazi Monument, Demonic Appetite, Jinxed Idol
+  // 
+  // Use regex to dynamically detect these patterns rather than relying on card tables
+  const sacrificeCreatureOrSelfPattern = /at the beginning of your upkeep,?\s*sacrifice a creature\.?\s*if you (?:can't|cannot),?\s*sacrifice/i;
+  const sacrificeOrPattern = /at the beginning of your upkeep,?\s*sacrifice a creature\s+or\s+sacrifice/i;
+  
+  if (sacrificeCreatureOrSelfPattern.test(oracleText) || sacrificeOrPattern.test(oracleText)) {
+    // Determine what type of permanent this is for the alternative sacrifice
+    const permTypeLine = (card?.type_line || '').toLowerCase();
+    let sacrificeAlternativeType = 'this permanent';
+    if (permTypeLine.includes('artifact')) {
+      sacrificeAlternativeType = 'this artifact';
+    } else if (permTypeLine.includes('enchantment')) {
+      sacrificeAlternativeType = 'this enchantment';
+    } else if (permTypeLine.includes('creature')) {
+      sacrificeAlternativeType = 'this creature';
+    }
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'sacrifice_creature_or_self',
+      description: `Sacrifice a creature. If you can't, sacrifice ${cardName}.`,
+      effect: 'sacrifice_creature_or_self',
+      mandatory: true,
+      requiresChoice: true,
+      controllerTrigger: true,
+      anyPlayerTrigger: false,
+      consequence: `Sacrifice ${cardName}`,
+      sacrificeAlternativeType,
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+    });
   }
   
   return triggers;

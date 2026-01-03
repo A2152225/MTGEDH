@@ -547,6 +547,46 @@ async function handleAIResolutionStep(
         break;
       }
       
+      case ResolutionStepType.UPKEEP_SACRIFICE: {
+        // AI must sacrifice a creature or the source
+        // Strategy: Sacrifice the weakest creature if available, otherwise sacrifice the source
+        const sacrificeStep = step as any;
+        const creatures = sacrificeStep.creatures || [];
+        const sourceToSacrifice = sacrificeStep.sourceToSacrifice;
+        
+        let selection: { type: 'creature' | 'source'; creatureId?: string } = { type: 'source' };
+        
+        if (creatures.length > 0) {
+          // Find the weakest creature (lowest combined power + toughness)
+          let weakestCreature = creatures[0];
+          let weakestValue = Infinity;
+          
+          for (const creature of creatures) {
+            const power = parseInt(creature.power) || 0;
+            const toughness = parseInt(creature.toughness) || 0;
+            const value = power + toughness;
+            if (value < weakestValue) {
+              weakestValue = value;
+              weakestCreature = creature;
+            }
+          }
+          
+          selection = { type: 'creature', creatureId: weakestCreature.id };
+          debug(2, `[Resolution] AI upkeep sacrifice: sacrificing ${weakestCreature.name} (weakest creature)`);
+        } else {
+          debug(2, `[Resolution] AI upkeep sacrifice: no creatures, sacrificing ${sourceToSacrifice?.name || 'source'}`);
+        }
+        
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: selection,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        break;
+      }
+      
       // Default handler for any unhandled step types
       default: {
         // For any unhandled step type, attempt a generic response
@@ -1105,6 +1145,13 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('xValue' in step) fields.xValue = step.xValue;
       if ('abilityData' in step) fields.abilityData = step.abilityData;
       break;
+      
+    case ResolutionStepType.UPKEEP_SACRIFICE:
+      if ('hasCreatures' in step) fields.hasCreatures = step.hasCreatures;
+      if ('creatures' in step) fields.creatures = step.creatures;
+      if ('sourceToSacrifice' in step) fields.sourceToSacrifice = step.sourceToSacrifice;
+      if ('alternativeSacrificeType' in step) fields.alternativeSacrificeType = step.alternativeSacrificeType;
+      break;
   }
   
   return fields;
@@ -1235,6 +1282,10 @@ async function handleStepResponse(
     
     case ResolutionStepType.CARD_NAME_CHOICE:
       await handleCardNameChoiceResponse(io, game, gameId, step, response);
+      break;
+    
+    case ResolutionStepType.UPKEEP_SACRIFICE:
+      handleUpkeepSacrificeResponse(io, game, gameId, step, response);
       break;
     
     // Add more handlers as needed
@@ -1746,6 +1797,110 @@ function handleKynaiosChoiceResponse(
     }
     
     debug(2, `[Resolution] ${pid} declined Kynaios land play option`);
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Upkeep Sacrifice choice response
+ * Player must sacrifice a creature, or if they can't, sacrifice the source (e.g., Eldrazi Monument)
+ */
+function handleUpkeepSacrificeResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selection = response.selections;
+  
+  // Extract the selection - { type: 'creature' | 'source', creatureId?: string }
+  let sacrificeType: 'creature' | 'source' = 'source';
+  let creatureId: string | undefined;
+  
+  if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+    sacrificeType = (selection as any).type || 'source';
+    creatureId = (selection as any).creatureId;
+  } else if (typeof selection === 'string') {
+    // Direct creature ID passed
+    creatureId = selection;
+    sacrificeType = 'creature';
+  }
+  
+  const stepData = step as any;
+  const sourceName = step.sourceName || 'Upkeep Sacrifice';
+  const sourceId = stepData.sourceId;
+  const sourceToSacrifice = stepData.sourceToSacrifice;
+  const creatures = stepData.creatures || [];
+  
+  const battlefield = game.state?.battlefield || [];
+  const zones = game.state?.zones || {};
+  
+  if (sacrificeType === 'creature' && creatureId) {
+    // Validate the creature is in the valid options
+    const isValidCreature = creatures.some((c: any) => c.id === creatureId);
+    if (!isValidCreature) {
+      debugWarn(1, `[Resolution] Invalid creature selection for upkeep sacrifice: ${creatureId}`);
+      return;
+    }
+    
+    // Find and sacrifice the creature
+    const creatureIdx = battlefield.findIndex((p: any) => p.id === creatureId);
+    if (creatureIdx !== -1) {
+      const [sacrificed] = battlefield.splice(creatureIdx, 1);
+      const creatureName = sacrificed.card?.name || 'Creature';
+      const owner = sacrificed.owner || pid;
+      
+      // Move to graveyard (tokens cease to exist instead)
+      if (!sacrificed.isToken) {
+        const ownerZones = zones[owner] || (zones[owner] = { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 });
+        ownerZones.graveyard = ownerZones.graveyard || [];
+        ownerZones.graveyard.push({ ...sacrificed.card, zone: 'graveyard' });
+        ownerZones.graveyardCount = ownerZones.graveyard.length;
+      }
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} sacrifices ${creatureName} for ${sourceName}.`,
+        ts: Date.now(),
+      });
+      
+      debug(2, `[Resolution] ${pid} sacrificed ${creatureName} for ${sourceName}`);
+    }
+  } else {
+    // Sacrifice the source (e.g., Eldrazi Monument)
+    if (sourceId) {
+      const sourceIdx = battlefield.findIndex((p: any) => p.id === sourceId);
+      if (sourceIdx !== -1) {
+        const [sacrificed] = battlefield.splice(sourceIdx, 1);
+        const artifactName = sacrificed.card?.name || sourceName;
+        const owner = sacrificed.owner || pid;
+        
+        // Move to graveyard
+        if (!sacrificed.isToken) {
+          const ownerZones = zones[owner] || (zones[owner] = { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 });
+          ownerZones.graveyard = ownerZones.graveyard || [];
+          ownerZones.graveyard.push({ ...sacrificed.card, zone: 'graveyard' });
+          ownerZones.graveyardCount = ownerZones.graveyard.length;
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} has no creatures and sacrifices ${artifactName}.`,
+          ts: Date.now(),
+        });
+        
+        debug(2, `[Resolution] ${pid} sacrificed ${artifactName} (source) - no creatures available`);
+      }
+    }
   }
   
   if (typeof game.bumpSeq === "function") {
