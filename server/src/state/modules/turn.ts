@@ -3113,6 +3113,17 @@ export function nextStep(ctx: GameContext) {
 
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
+      // CRITICAL: During replay, do NOT call nextTurn here!
+      // The nextTurn event is persisted separately in the event log and will be
+      // applied via applyEvent("nextTurn") when it's reached in the replay sequence.
+      // Calling nextTurn here during replay causes duplicate turn advancement,
+      // which corrupts game state (e.g., double turn increments, repeated side effects).
+      if (isReplaying) {
+        debug(2, `${ts()} [nextStep] In replay mode - skipping nextTurn call (nextTurn event is in event log)`);
+        ctx.bumpSeq();
+        return;
+      }
+      
       // Check if we're proceeding from cleanup (player already had chance to use Sundial)
       const cleanupProceed = (ctx as any)._cleanupProceed === true;
       delete (ctx as any)._cleanupProceed; // Clear the flag
