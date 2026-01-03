@@ -15,6 +15,35 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
+// ============================================================================
+// DYNAMIC PATTERN DETECTION REGEXES
+// ============================================================================
+
+/**
+ * Pattern for "sacrifice a creature, if you can't sacrifice this" style triggers
+ * Matches: "At the beginning of your upkeep, sacrifice a creature. If you can't, sacrifice ~"
+ * Examples: Eldrazi Monument, Demonic Appetite
+ * 
+ * Breakdown:
+ * - `at the beginning of your upkeep,?` - matches the upkeep timing
+ * - `\s*sacrifice a creature\.?` - matches "sacrifice a creature" with optional period
+ * - `\s*if you (?:can't|cannot),?` - matches "if you can't" or "if you cannot"
+ * - `\s*sacrifice` - matches the start of "sacrifice this/~"
+ */
+const SACRIFICE_CREATURE_OR_SELF_PATTERN = /at the beginning of your upkeep,?\s*sacrifice a creature\.?\s*if you (?:can't|cannot),?\s*sacrifice/i;
+
+/**
+ * Pattern for "sacrifice a creature or sacrifice this" style triggers
+ * Matches: "At the beginning of your upkeep, sacrifice a creature or sacrifice ~"
+ * Examples: Jinxed Idol variants
+ * 
+ * Breakdown:
+ * - `at the beginning of your upkeep,?` - matches the upkeep timing
+ * - `\s*sacrifice a creature` - matches "sacrifice a creature"
+ * - `\s+or\s+sacrifice` - matches "or sacrifice" with required whitespace
+ */
+const SACRIFICE_OR_PATTERN = /at the beginning of your upkeep,?\s*sacrifice a creature\s+or\s+sacrifice/i;
+
 export interface UpkeepTrigger {
   permanentId: string;
   cardName: string;
@@ -403,11 +432,8 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
   // or: "sacrifice a creature or sacrifice ~"
   // Examples: Eldrazi Monument, Demonic Appetite, Jinxed Idol
   // 
-  // Use regex to dynamically detect these patterns rather than relying on card tables
-  const sacrificeCreatureOrSelfPattern = /at the beginning of your upkeep,?\s*sacrifice a creature\.?\s*if you (?:can't|cannot),?\s*sacrifice/i;
-  const sacrificeOrPattern = /at the beginning of your upkeep,?\s*sacrifice a creature\s+or\s+sacrifice/i;
-  
-  if (sacrificeCreatureOrSelfPattern.test(oracleText) || sacrificeOrPattern.test(oracleText)) {
+  // Use module-level constants for these patterns (defined at top of file)
+  if (SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText)) {
     // Determine what type of permanent this is for the alternative sacrifice
     const permTypeLine = (card?.type_line || '').toLowerCase();
     let sacrificeAlternativeType = 'this permanent';
