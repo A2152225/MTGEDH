@@ -827,7 +827,11 @@ export function runSBA(ctx: GameContext) {
       if (!perm) continue;
       
       const controller = (perm as any).controller || (perm as any).owner || '';
-      const cardName = (perm.card as any)?.name || '';
+      const cardName = (perm.card as any)?.name || perm.id; // Use permanent ID as fallback if no name
+      
+      // Skip permanents without a name (shouldn't happen for legendaries, but be safe)
+      if (!(perm.card as any)?.name) continue;
+      
       const key = `${controller}:${cardName}`;
       
       const existing = violationsByKey.get(key) || [];

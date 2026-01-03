@@ -5184,6 +5184,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               break;
             case 'player':
             case 'opponent':
+              const lifeDict = game.state.life || {};
+              const startingLife = game.state.startingLife || 40;
               validTargets.push(...players
                 .filter((p: any) => {
                   if (!p || !p.id) return false;
@@ -5195,6 +5197,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                   kind: 'player',
                   name: p.name || p.id,
                   isOpponent: p.id !== pid,
+                  life: lifeDict[p.id] ?? p.life ?? startingLife,
                 })));
               break;
             case 'any':
@@ -5211,6 +5214,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                   controller: p.controller,
                   imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
                 })));
+              // Also add players to 'any' targets
+              const anyLifeDict = game.state.life || {};
+              const anyStartingLife = game.state.startingLife || 40;
               validTargets.push(...players
                 .filter((p: any) => p && p.id)
                 .map((p: any) => ({
@@ -5218,6 +5224,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                   kind: 'player',
                   name: p.name || p.id,
                   isOpponent: p.id !== pid,
+                  life: anyLifeDict[p.id] ?? p.life ?? anyStartingLife,
                 })));
               break;
             case 'artifact':
@@ -5259,19 +5266,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           targetReqs,
         };
         
-        // Emit target selection request
-        socket.emit("selectTargets", {
+        // Emit target selection request (same event as spell casting uses)
+        socket.emit("targetSelectionRequest", {
           gameId,
           effectId: pendingAbilityId,
-          source: cardName,
-          sourceImage: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+          source: {
+            name: cardName,
+            imageUrl: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+          },
+          title: `Choose ${targetReqs.targetDescription} for ${cardName}`,
           description: ability.text,
-          targetDescription: targetReqs.targetDescription,
-          validTargets: uniqueTargets,
+          targets: uniqueTargets.map(t => ({
+            id: t.id,
+            type: t.kind === 'player' ? 'player' : 'permanent',
+            name: t.name,
+            displayName: t.name,
+            imageUrl: t.imageUrl,
+            controller: t.controller,
+            life: (t as any).life,
+            isOpponent: t.isOpponent,
+          })),
           minTargets: targetReqs.minTargets,
           maxTargets: targetReqs.maxTargets,
-          isAbility: true,
-          isPlaneswalkerAbility: true,
         });
         
         debug(2, `[planeswalker] Requesting target selection for ${cardName} ability: ${targetReqs.targetDescription}`);
@@ -6319,16 +6335,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const { playerId, permanentId, cardName, ability, abilityIndex, loyaltyCost, currentLoyalty, targetReqs } = pendingAbility;
         
         // Validate targets against min/max
-        // "up to X" abilities allow 0 targets
+        // Note: "up to X" abilities have minTargets=0, so 0 targets is valid for them
         if (targetIds.length < targetReqs.minTargets) {
-          // For "up to" abilities, 0 is valid
-          if (targetReqs.minTargets > 0) {
-            socket.emit("error", {
-              code: "INSUFFICIENT_TARGETS",
-              message: `${cardName} requires at least ${targetReqs.minTargets} target(s).`,
-            });
-            return;
-          }
+          socket.emit("error", {
+            code: "INSUFFICIENT_TARGETS",
+            message: `${cardName} requires at least ${targetReqs.minTargets} target(s).`,
+          });
+          return;
         }
         
         if (targetIds.length > targetReqs.maxTargets) {
