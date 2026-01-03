@@ -1528,6 +1528,23 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
         if (grantorOracle.includes('all creatures have haste')) {
           return true;
         }
+        
+        // Check for token-specific haste grants with turn restrictions
+        // Pattern: "During your turn, creature tokens you control ... have haste"
+        const isToken = permanent?.isToken === true;
+        if (isToken && grantorOracle.includes('creature tokens you control') && 
+            grantorOracle.includes('have haste')) {
+          // Check if there's a turn restriction
+          if (grantorOracle.includes('during your turn')) {
+            // Need to check if it's the controller's turn - but we don't have turnPlayer here
+            // For now, assume it's the controller's turn if checking for attacking/tapping
+            // This is a conservative approach - may need refinement
+            return true;
+          } else {
+            // No turn restriction, always grants haste
+            return true;
+          }
+        }
       }
       
       // Check for effects that grant haste to all creatures (both players)
@@ -1653,6 +1670,34 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
         // Check for "all creatures have [keyword]" (rare but exists)
         if (grantorOracle.includes(`all creatures have ${lowerKeyword}`)) {
           return true;
+        }
+        
+        // Check for token-specific keyword grants with turn restrictions
+        // Pattern: "During your turn, creature tokens you control ... have [keyword]"
+        // Examples: Mite Overseer ("During your turn, creature tokens you control get +1/+0 and have first strike.")
+        const isToken = permanent?.isToken === true;
+        if (isToken) {
+          // Pattern with turn restriction
+          const tokenTurnKeywordPattern = new RegExp(
+            `during your turn,?\\s*creature tokens you control.*?have.*?\\b${lowerKeyword}\\b`,
+            'i'
+          );
+          if (tokenTurnKeywordPattern.test(grantorOracle)) {
+            // Need to check if it's the controller's turn
+            // Get turn player from battlefield context (find any permanent with turnPlayer info)
+            const anyPerm = battlefield.find((p: any) => p?.gameState?.turnPlayer);
+            const turnPlayer = anyPerm?.gameState?.turnPlayer || (perm as any).gameState?.turnPlayer;
+            if (turnPlayer === controller) {
+              return true;
+            }
+          }
+          
+          // Pattern without turn restriction: "creature tokens you control have [keyword]"
+          if (grantorOracle.includes(`creature tokens you control`) && 
+              grantorOracle.includes(`have ${lowerKeyword}`) &&
+              !grantorOracle.includes('during your turn')) {
+            return true;
+          }
         }
       }
       

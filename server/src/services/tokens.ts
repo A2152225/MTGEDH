@@ -573,6 +573,24 @@ export function getTokenImageUrls(
       normal: 'https://cards.scryfall.io/normal/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
       large: 'https://cards.scryfall.io/large/front/b/8/b8fb7b72-a5eb-485f-8b49-2b3b0b5d8e9c.jpg',
     },
+    // White 1/1 Warrior (Oketra's Monument, etc.) - https://scryfall.com/card/tdmc/4/warrior
+    'warrior_white_1_1': {
+      small: 'https://cards.scryfall.io/small/front/5/4/54c8e946-5a40-47f4-b5f3-5fd7c0bb5b60.jpg',
+      normal: 'https://cards.scryfall.io/normal/front/5/4/54c8e946-5a40-47f4-b5f3-5fd7c0bb5b60.jpg',
+      large: 'https://cards.scryfall.io/large/front/5/4/54c8e946-5a40-47f4-b5f3-5fd7c0bb5b60.jpg',
+    },
+    // Colorless 1/1 Phyrexian Mite (Mite Overseer, etc.) - artifact creature with toxic 1
+    'phyrexian mite_colorless_artifact_1_1': {
+      small: 'https://cards.scryfall.io/small/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+      normal: 'https://cards.scryfall.io/normal/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+      large: 'https://cards.scryfall.io/large/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+    },
+    // Generic Mite token (Scryfall TONE)
+    'mite_colorless_1_1': {
+      small: 'https://cards.scryfall.io/small/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+      normal: 'https://cards.scryfall.io/normal/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+      large: 'https://cards.scryfall.io/large/front/f/d/fd3cf7cf-4f82-416c-a777-a7a3d1e6ce03.jpg',
+    },
   };
   
   // Check for fallback soldier tokens based on characteristics
@@ -606,6 +624,42 @@ export function getTokenImageUrls(
           debug(2, `[tokens] Using white soldier fallback`);
           return fallback;
         }
+      }
+    }
+  }
+  
+  // Check for fallback Warrior tokens (Oketra's Monument, etc.)
+  if (nameLower === 'warrior' || nameLower.includes('warrior')) {
+    const colorArr = colors || [];
+    const isWhite = colorArr.some(c => c.toUpperCase() === 'W' || c.toLowerCase() === 'white');
+    const p = power !== undefined ? String(power) : '1';
+    const t = toughness !== undefined ? String(toughness) : '1';
+    
+    debug(2, `[tokens] Warrior token check: isWhite=${isWhite}, p=${p}, t=${t}`);
+    
+    if (p === '1' && t === '1' && isWhite) {
+      const fallback = FALLBACK_TOKEN_URLS['warrior_white_1_1'];
+      if (fallback) {
+        debug(2, `[tokens] Using white warrior fallback`);
+        return fallback;
+      }
+    }
+  }
+  
+  // Check for fallback Phyrexian Mite tokens (Mite Overseer, etc.)
+  if (nameLower === 'mite' || nameLower.includes('mite') || nameLower.includes('phyrexian mite')) {
+    const colorArr = colors || [];
+    const isColorless = colorArr.length === 0;
+    const p = power !== undefined ? String(power) : '1';
+    const t = toughness !== undefined ? String(toughness) : '1';
+    
+    debug(2, `[tokens] Mite token check: isColorless=${isColorless}, p=${p}, t=${t}`);
+    
+    if (p === '1' && t === '1' && isColorless) {
+      const fallback = FALLBACK_TOKEN_URLS['mite_colorless_1_1'] || FALLBACK_TOKEN_URLS['phyrexian mite_colorless_artifact_1_1'];
+      if (fallback) {
+        debug(2, `[tokens] Using colorless mite fallback`);
+        return fallback;
       }
     }
   }

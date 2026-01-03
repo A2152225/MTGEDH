@@ -1667,6 +1667,64 @@ export function getCreatureCountManaAmount(
     return { color: manaColor, amount: Math.max(0, matchingCount) };
   }
   
+  // ==========================================================================
+  // White Lotus Tile pattern: "Add X mana of any one color, where X is the 
+  // greatest number of creatures you control that have a creature type in common."
+  // Also handles similar patterns like Cryptic Gateway, Steely Resolve, etc.
+  // ==========================================================================
+  const anyOneColorCreatureTypeMatch = oracleText.match(
+    /add\s+x\s+mana\s+of\s+any\s+one\s+color[^.]*where\s+x\s+is\s+(?:the\s+)?(.+?)(?:\.|$)/i
+  );
+  
+  if (anyOneColorCreatureTypeMatch) {
+    const condition = anyOneColorCreatureTypeMatch[1].toLowerCase().trim();
+    const battlefield = gameState?.battlefield || [];
+    let amount = 0;
+    
+    // "greatest number of creatures you control that have a creature type in common"
+    if (condition.includes('creature type in common') || condition.includes('creature type') && condition.includes('greatest')) {
+      // Build a map of creature types to count
+      const creatureTypeCounts: Record<string, number> = {};
+      
+      for (const perm of battlefield) {
+        if (!perm || perm.controller !== playerId) continue;
+        const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+        if (!permTypeLine.includes('creature')) continue;
+        
+        // Extract creature types from type line (after the em-dash)
+        // Format: "Creature — Human Soldier" or "Legendary Creature — Elf Druid"
+        const typeLineParts = permTypeLine.split(/[—-]/);
+        if (typeLineParts.length > 1) {
+          const subtypes = typeLineParts[1].trim().split(/\s+/);
+          for (const subtype of subtypes) {
+            if (subtype && subtype.length > 0) {
+              creatureTypeCounts[subtype] = (creatureTypeCounts[subtype] || 0) + 1;
+            }
+          }
+        }
+      }
+      
+      // Find the greatest count
+      for (const [_, count] of Object.entries(creatureTypeCounts)) {
+        if (count > amount) {
+          amount = count;
+        }
+      }
+      
+      debug(2, `[getCreatureCountManaAmount] White Lotus Tile pattern: greatest creature type count = ${amount}`);
+    }
+    // "the number of creatures you control" 
+    else if (condition.includes('creature') && condition.includes('control')) {
+      amount = battlefield.filter((p: any) => 
+        p?.controller === playerId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      ).length;
+    }
+    
+    // Return 'any_one_color' to indicate player must choose ONE color for all the mana
+    return { color: 'any_one_color', amount: Math.max(0, amount) };
+  }
+  
   return null;
 }
 

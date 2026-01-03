@@ -2255,7 +2255,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         
         // Handle special 'any_combination' color (like Selvala, Three Tree City)
-        if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
+        // Also handle 'any_one_color' (like White Lotus Tile)
+        if (creatureCountMana.color === 'any_combination' || 
+            creatureCountMana.color === 'any_one_color' ||
+            creatureCountMana.color.startsWith('combination:')) {
           // Store pending mana activation for when player selects color
           if (!game.state.pendingManaActivations) {
             game.state.pendingManaActivations = {};
@@ -2277,7 +2280,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             cardName,
             amount: totalAmount,
             allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color
-            singleColor: true, // For Three Tree City, player chooses ONE color for all the mana
+            singleColor: true, // For White Lotus Tile/Three Tree City, player chooses ONE color for all the mana
             cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
           });
           
