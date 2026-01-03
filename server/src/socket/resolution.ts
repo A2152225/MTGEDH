@@ -217,10 +217,10 @@ async function handleAIResolutionStep(
         scoredCards.sort((a: any, b: any) => b.score - a.score);
         
         // Select the best cards up to maxSelections
-        const numToSelect = Math.min(
-          scoredCards.length,
-          Math.max(minSelections, Math.min(maxSelections, scoredCards.length > 0 ? 1 : 0))
-        );
+        // If cards are available, select at least 1 (up to maxSelections), respecting minSelections
+        const defaultSelection = scoredCards.length > 0 ? 1 : 0;
+        const desiredSelection = Math.max(minSelections, Math.min(maxSelections, defaultSelection));
+        const numToSelect = Math.min(scoredCards.length, desiredSelection);
         const selectedCardIds = scoredCards
           .slice(0, numToSelect)
           .map((sc: any) => sc.card.id);
@@ -438,7 +438,7 @@ async function handleAIResolutionStep(
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: hitCard ? true : false, // Use boolean instead of string
+          selections: !!hitCard, // Cast to boolean
           cancelled: false,
           timestamp: Date.now(),
         };
