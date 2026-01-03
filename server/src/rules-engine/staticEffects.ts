@@ -465,13 +465,18 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       
       // Pattern 4: "Other [TYPE] creatures have [ABILITIES]" (GLOBAL ability grant - no "you control")
       // Example: If a card said "Other Soldier creatures have first strike" (affects all players)
+      // This pattern should NOT match if "you control" is present
       const otherTypeGlobalAbilitiesPattern = new RegExp(
         `other\\s+${creatureType}\\s+creatures?\\s+have\\s+([^.]+)`,
         'i'
       );
       const otherTypeGlobalAbilitiesMatch = oracle.match(otherTypeGlobalAbilitiesPattern);
-      // Only process if this is NOT a "you control" pattern (already handled above)
-      if (otherTypeGlobalAbilitiesMatch && !otherTypeAbilitiesMatch) {
+      // Only process if:
+      // 1. We matched the pattern
+      // 2. The "you control" pattern did NOT match (already handled above)
+      // 3. The oracle text doesn't contain "you control" for this type (double-check)
+      const hasYouControlAbilities = oracle.match(new RegExp(`other\\s+${creatureType}\\s+creatures?\\s+you\\s+control\\s+have`, 'i'));
+      if (otherTypeGlobalAbilitiesMatch && !otherTypeAbilitiesMatch && !hasYouControlAbilities) {
         const abilities = parseAbilities(otherTypeGlobalAbilitiesMatch[1]);
         for (const perm of state.battlefield) {
           // Global effect - affects ALL creatures of the type, not just controller's

@@ -550,6 +550,8 @@ export function getTokenImageUrls(
   
   const nameLower = tokenName.toLowerCase();
   
+  debug(2, `[tokens] getTokenImageUrls: name=${tokenName}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}`);
+  
   // Fallback URLs for common tokens that may not be in Tokens.json
   // These are direct Scryfall URLs for specific token printings
   const FALLBACK_TOKEN_URLS: Record<string, { small?: string; normal?: string; large?: string; art_crop?: string }> = {
@@ -581,18 +583,29 @@ export function getTokenImageUrls(
     const p = power !== undefined ? String(power) : '1';
     const t = toughness !== undefined ? String(toughness) : '1';
     
+    debug(2, `[tokens] Soldier token check: isWhite=${isWhite}, isColorless=${isColorless}, p=${p}, t=${t}`);
+    
     if (p === '1' && t === '1') {
       if (isColorless) {
         const fallback = FALLBACK_TOKEN_URLS['soldier_colorless_artifact_1_1'];
-        if (fallback) return fallback;
+        if (fallback) {
+          debug(2, `[tokens] Using colorless soldier fallback`);
+          return fallback;
+        }
       } else if (isWhite) {
         // Check if it's a Human Soldier
         if (nameLower.includes('human')) {
           const fallback = FALLBACK_TOKEN_URLS['human soldier_white_1_1'];
-          if (fallback) return fallback;
+          if (fallback) {
+            debug(2, `[tokens] Using human soldier fallback`);
+            return fallback;
+          }
         }
         const fallback = FALLBACK_TOKEN_URLS['soldier_white_1_1'];
-        if (fallback) return fallback;
+        if (fallback) {
+          debug(2, `[tokens] Using white soldier fallback`);
+          return fallback;
+        }
       }
     }
   }

@@ -552,7 +552,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): {
     const paymentCost = genericOpponentMatch[2];
     
     triggers.push({
-      triggerType: isNoncreature ? 'opponent_casts_any' : 'opponent_casts_any',
+      triggerType: isNoncreature ? 'opponent_casts_noncreature' : 'opponent_casts_any',
       spellCondition: isNoncreature ? 'noncreature' : 'any',
       paymentCost,
       benefitIfNotPaid: 'trigger effect',

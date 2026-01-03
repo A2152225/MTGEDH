@@ -2588,6 +2588,7 @@ function executeTriggerEffect(
     
     // Create the tokens
     state.battlefield = state.battlefield || [];
+    debug(2, `[executeTriggerEffect] Creating tokens: tokenName=${creatureTypes.join(' ')}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}`);
     for (let i = 0; i < tokensToCreate; i++) {
       const tokenId = uid("token");
       const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
@@ -2595,6 +2596,7 @@ function executeTriggerEffect(
       
       // Get token image from Scryfall data
       const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+      debug(2, `[executeTriggerEffect] Token ${i+1}/${tokensToCreate}: imageUrls=${tokenImageUrls ? 'found' : 'NOT FOUND'}, normal=${tokenImageUrls?.normal?.substring(0, 50) || 'none'}...`);
       
       const token = {
         id: tokenId,
