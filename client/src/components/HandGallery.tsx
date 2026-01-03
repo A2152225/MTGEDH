@@ -62,17 +62,34 @@ function isLand(tl?: string): boolean {
 
 /**
  * Get the type_line for a card, handling cards with card_faces
+ * For transform cards, we need to check the FRONT face type_line to determine
+ * how to play the card from hand (the back face transforms into something else)
  */
 function getTypeLine(card: KnownCardRef): string | undefined {
-  // First check the card's root type_line
+  // For cards with card_faces (like DFCs/transform cards), ALWAYS check the first face
+  // This is critical for cards like Thousand Moons Smithy where:
+  // - Root type_line is "Legendary Artifact // Legendary Artifact Land"
+  // - Front face (index 0) is "Legendary Artifact" - this is what we play from hand
+  // - Back face (index 1) is "Legendary Artifact Land" - this is what it transforms into
+  const faces = (card as any).card_faces;
+  const layout = (card as any).layout;
+  
+  // For transform and modal_dfc layouts, always use the front face
+  if ((layout === 'transform' || layout === 'modal_dfc') && 
+      Array.isArray(faces) && faces.length > 0 && faces[0].type_line) {
+    return faces[0].type_line;
+  }
+  
+  // For other cards, use the root type_line
   if (card.type_line) {
     return card.type_line;
   }
-  // For cards with card_faces (like DFCs), check the first face
-  const faces = (card as any).card_faces;
+  
+  // Fallback for any card_faces without a layout specified
   if (Array.isArray(faces) && faces.length > 0 && faces[0].type_line) {
     return faces[0].type_line;
   }
+  
   return undefined;
 }
 

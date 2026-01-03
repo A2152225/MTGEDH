@@ -1064,9 +1064,9 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
       
       // Track total creatures attacked this turn for the attacking player (for Minas Tirith, Lightmine Field, etc.)
-      game.state.creaturesAttackedThisTurn = game.state.creaturesAttackedThisTurn || {};
-      game.state.creaturesAttackedThisTurn[playerId] = (game.state.creaturesAttackedThisTurn[playerId] || 0) + attackerIds.length;
-      debug(2, `[combat] Player ${playerId} has now attacked with ${game.state.creaturesAttackedThisTurn[playerId]} creature(s) this turn`);
+      (game.state as any).creaturesAttackedThisTurn = (game.state as any).creaturesAttackedThisTurn || {};
+      (game.state as any).creaturesAttackedThisTurn[playerId] = ((game.state as any).creaturesAttackedThisTurn[playerId] || 0) + attackerIds.length;
+      debug(2, `[combat] Player ${playerId} has now attacked with ${(game.state as any).creaturesAttackedThisTurn[playerId]} creature(s) this turn`);
 
       // Trepanation Blade - mill defending player until land and set temporary bonus
       for (const attacker of attackers) {
@@ -1291,8 +1291,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 
                 for (const attacker of otherAttackers) {
                   // Add the battle cry bonus as a temporary modifier
-                  attacker.modifiers = attacker.modifiers || [];
-                  attacker.modifiers.push({
+                  (attacker as any).modifiers = (attacker as any).modifiers || [];
+                  (attacker as any).modifiers.push({
                     type: 'battle_cry',
                     power: 1,
                     toughness: 0,
@@ -1302,7 +1302,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   });
                   
                   // Also update the temporary power boost for immediate effect
-                  attacker.temporaryPowerBoost = (attacker.temporaryPowerBoost || 0) + 1;
+                  (attacker as any).temporaryPowerBoost = ((attacker as any).temporaryPowerBoost || 0) + 1;
                 }
                 
                 const buffedCount = otherAttackers.length;

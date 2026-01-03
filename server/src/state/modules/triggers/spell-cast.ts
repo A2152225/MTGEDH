@@ -452,7 +452,7 @@ export interface OpponentSpellCastTrigger {
   casterId: string;      // Who cast the spell (the opponent)
   description: string;
   effect: string;
-  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature';
+  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature' | 'opponent_casts_noncreature';
   paymentCost?: string;  // What the caster can pay to prevent the effect
   paymentAmount?: number; // X value for variable payments (Esper Sentinel)
   benefitIfNotPaid: string; // Effect if opponent doesn't pay
@@ -469,7 +469,7 @@ export interface OpponentSpellCastTrigger {
  * - Mystic Remora: "Whenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}."
  */
 export function detectOpponentSpellCastTriggers(card: any, permanent: any): {
-  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature';
+  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature' | 'opponent_casts_noncreature';
   spellCondition: 'any' | 'noncreature' | 'first_noncreature';
   paymentCost: string;
   paymentIsVariable?: boolean;  // For Esper Sentinel where X = creature's power
@@ -477,7 +477,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): {
   description: string;
 }[] {
   const triggers: {
-    triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature';
+    triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature' | 'opponent_casts_noncreature';
     spellCondition: 'any' | 'noncreature' | 'first_noncreature';
     paymentCost: string;
     paymentIsVariable?: boolean;

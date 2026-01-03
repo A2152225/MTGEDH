@@ -33,6 +33,7 @@ export interface EndStepTrigger {
   mandatory: boolean;
   requiresChoice?: boolean;
   affectsAllPlayers?: boolean;
+  triggersOnOpponentEndStep?: boolean;  // For cards like Keeper of the Accord
 }
 
 export interface DrawStepTrigger {
@@ -91,6 +92,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
         mandatory: info.mandatory,
         requiresChoice: info.requiresChoice,
         affectsAllPlayers: info.affectsAllPlayers,
+        triggersOnOpponentEndStep: (info as any).triggersOnOpponentEndStep,
       });
       foundInKnownCards = true;
       break; // Only match once in known cards
@@ -100,8 +102,24 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
   // Generic detection: "At the beginning of each end step" or "At the beginning of your end step"
   // Skip generic detection if we already found this card in known cards to prevent duplicates
   if (!foundInKnownCards) {
+    // Pattern for "each opponent's end step" (Keeper of the Accord style)
+    const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
+    if (opponentEndStepMatch) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: opponentEndStepMatch[1].trim(),
+        effect: opponentEndStepMatch[1].trim(),
+        mandatory: !opponentEndStepMatch[1].toLowerCase().includes('you may'),
+        triggersOnOpponentEndStep: true,
+      });
+    }
+    
+    // Pattern for regular end step triggers
     const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+)/i);
-    if (endStepMatch) {
+    if (endStepMatch && !opponentEndStepMatch) {
       triggers.push({
         permanentId,
         cardName,
@@ -135,8 +153,16 @@ export function getEndStepTriggers(
     for (const trigger of permTriggers) {
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
       
+      // Check for "each opponent's end step" triggers (Keeper of the Accord style)
+      // These trigger when it's an OPPONENT's end step, not the controller's
+      if (trigger.triggersOnOpponentEndStep || lowerOracle.includes("each opponent's end step") || lowerOracle.includes("each opponent's end step")) {
+        // Triggers if the active player (whose end step it is) is NOT the controller
+        if (permanent.controller !== activePlayerId) {
+          triggers.push(trigger);
+        }
+      }
       // "At the beginning of your end step" - only for controller
-      if (lowerOracle.includes('your end step')) {
+      else if (lowerOracle.includes('your end step')) {
         if (permanent.controller === activePlayerId) {
           triggers.push(trigger);
         }

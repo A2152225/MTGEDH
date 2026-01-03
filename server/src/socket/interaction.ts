@@ -9,7 +9,7 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit } from "../state/modules/triggered-abilities";
+import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility } from "../state/modules/triggered-abilities";
 import { triggerETBEffectsForToken } from "../state/modules/stack";
 import { 
   getManaAbilitiesForPermanent, 
@@ -5563,6 +5563,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${cardName} is already tapped`,
       });
       return;
+    }
+    
+    // Check for activation conditions (e.g., Minas Tirith: "Activate only if you attacked with two or more creatures this turn")
+    const utilityLandAbility = detectUtilityLandAbility(card, permanent);
+    if (utilityLandAbility?.activationCondition) {
+      if (utilityLandAbility.activationCondition === 'attacked_with_two_or_more') {
+        const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
+        if (creaturesAttacked < 2) {
+          socket.emit("error", {
+            code: "ACTIVATION_CONDITION_NOT_MET",
+            message: `${cardName}'s ability can only be activated if you attacked with two or more creatures this turn. (You attacked with ${creaturesAttacked})`,
+          });
+          return;
+        }
+      }
+    }
+    
+    // Also check oracle text for "activate only if" patterns dynamically
+    const activateOnlyIfMatch = oracleText.match(/activate only if you attacked with (\w+) or more creatures this turn/i);
+    if (activateOnlyIfMatch && !utilityLandAbility?.activationCondition) {
+      const requiredCount = activateOnlyIfMatch[1] === 'two' ? 2 : 
+                           activateOnlyIfMatch[1] === 'three' ? 3 : 
+                           parseInt(activateOnlyIfMatch[1], 10) || 2;
+      const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
+      if (creaturesAttacked < requiredCount) {
+        socket.emit("error", {
+          code: "ACTIVATION_CONDITION_NOT_MET",
+          message: `${cardName}'s ability can only be activated if you attacked with ${requiredCount} or more creatures this turn. (You attacked with ${creaturesAttacked})`,
+        });
+        return;
+      }
     }
     
     // Check if sacrifice is required and we need to prompt for selection
