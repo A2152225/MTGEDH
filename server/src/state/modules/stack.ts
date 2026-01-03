@@ -3617,7 +3617,7 @@ function executeTriggerEffect(
       }
     }
     
-    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${soldierCount} Soldier artifact tokens for ${controller} (soldiers controlled: ${soldierCount})`);
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${soldierCount} Soldier artifact tokens for ${controller}`);
     
     // Apply token doublers (Anointed Procession, Doubling Season, etc.)
     const tokensToCreate = soldierCount * getTokenDoublerMultiplier(controller, state);

@@ -1893,8 +1893,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const counterMatch = oracleText.match(/put a \+1\/\+1 counter on each (\w+) you control/i);
       const creatureType = counterMatch ? counterMatch[1] : null;
       
-      // Parse mana cost from oracle text
-      const costMatch = oracleText.match(/(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*,?\s*exile this card from your graveyard/i);
+      // Parse mana cost from oracle text - simplified pattern to avoid regex backtracking
+      const costMatch = oracleText.match(/(\{[^}]+\}(?:[,\s]*\{[^}]+\})*)[,\s]*exile this card from your graveyard/i);
       
       if (costMatch) {
         const manaCost = costMatch[1];
