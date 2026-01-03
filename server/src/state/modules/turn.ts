@@ -2820,6 +2820,7 @@ export function nextStep(ctx: GameContext) {
                   triggerType,
                   mandatory: trigger.mandatory !== false,
                   imageUrl: trigger.imageUrl,
+                  requiresChoice: trigger.requiresChoice,  // Preserve modal choice flag
                 });
                 debug(2, `${ts()} [nextStep] 📋 Queued trigger for ordering: ${trigger.cardName}`);
               }
@@ -2844,8 +2845,9 @@ export function nextStep(ctx: GameContext) {
                 triggerType,
                 mandatory: trigger.mandatory !== false,
                 effect: trigger.effect,
+                requiresChoice: trigger.requiresChoice,  // Preserve modal choice flag
               });
-              debug(2, `${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
+              debug(2, `${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}${trigger.requiresChoice ? ' (modal)' : ''}`);
             }
           }
         };
