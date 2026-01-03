@@ -5422,6 +5422,51 @@ async function handleModalChoiceResponse(
       debugWarn(1, `[Resolution] Error triggering ETB effects:`, err);
     }
     
+    // ========================================================================
+    // CHECK FOR "AS ENTERS" CHOICES (Greymond, Avacyn's Stalwart, etc.)
+    // Cards with "As ~ enters, choose..." need to have those choices made
+    // even when put onto the battlefield by effects like Preeminent Captain
+    // ========================================================================
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    
+    // Pattern: "As ~ enters, choose X abilities from among A, B, and C"
+    // Example: Greymond - "As Greymond enters, choose two abilities from among first strike, vigilance, and lifelink."
+    const fromAmongPattern = /as .+? enters(?:,| the battlefield,?)?\s*choose\s+(\w+)\s+(?:abilities?|options?)\s+from\s+among\s+([^.]+)/i;
+    const fromAmongMatch = oracleText.match(fromAmongPattern);
+    
+    if (fromAmongMatch) {
+      const numWord = fromAmongMatch[1].toLowerCase();
+      const numMap: Record<string, number> = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'a': 1, 'an': 1,
+      };
+      const choiceCount = numMap[numWord] || parseInt(numWord, 10) || 1;
+      
+      // Extract the list of options
+      const itemList = fromAmongMatch[2];
+      const parts = itemList.split(/,\s+(?:and\s+)?|(?:,\s+)?and\s+/);
+      const options = parts.map(p => p.trim().replace(/^(a|an|the)\s+/i, '')).filter(p => p.length > 0);
+      
+      if (options.length >= choiceCount) {
+        debug(2, `[Resolution] Detected "As enters" choice for ${card.name}: choose ${choiceCount} from ${options.join(', ')}`);
+        
+        // Add resolution step for the choice
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: pid,
+          description: `Choose ${choiceCount} for ${card.name}: ${options.join(', ')}`,
+          mandatory: true,
+          sourceId: newPermanent.id,
+          sourceName: card.name,
+          options,
+          minSelections: choiceCount,
+          maxSelections: choiceCount,
+          // Use permanentId for existing handler compatibility
+          permanentId: newPermanent.id,
+        } as any);
+      }
+    }
+    
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }

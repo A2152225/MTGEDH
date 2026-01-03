@@ -11,6 +11,7 @@ import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selec
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
@@ -4077,6 +4078,86 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       } catch (err) {
         debugWarn(1, '[castSpellFromHand] Failed to process heroic triggers:', err);
+      }
+      
+      // ========================================================================
+      // OPPONENT SPELL CAST TRIGGERS (Esper Sentinel, Rhystic Study, Mystic Remora)
+      // These trigger when OPPONENTS cast spells, not the caster themselves
+      // ========================================================================
+      try {
+        const allPlayerIds = (game.state?.players || []).map((p: any) => p.id);
+        const battlefield = game.state?.battlefield || [];
+        
+        // Track if this is the first noncreature spell the caster has cast this turn
+        const spellTypeLine = (cardInHand?.type_line || '').toLowerCase();
+        const isNoncreatureSpell = !spellTypeLine.includes('creature');
+        
+        // Check noncreature spells cast this turn by this player
+        const noncreatureSpellsThisTurn = (game.state?.noncreatureSpellsCastThisTurn || {})[playerId] || 0;
+        const isFirstNoncreatureThisTurn = isNoncreatureSpell && noncreatureSpellsThisTurn === 0;
+        
+        // Increment counter if this is a noncreature spell
+        if (isNoncreatureSpell) {
+          game.state.noncreatureSpellsCastThisTurn = game.state.noncreatureSpellsCastThisTurn || {};
+          game.state.noncreatureSpellsCastThisTurn[playerId] = noncreatureSpellsThisTurn + 1;
+        }
+        
+        const opponentTriggers = getOpponentSpellCastTriggers(
+          battlefield,
+          playerId, // The caster (opponent to the trigger controllers)
+          cardInHand,
+          allPlayerIds,
+          isFirstNoncreatureThisTurn
+        );
+        
+        for (const trigger of opponentTriggers) {
+          debug(2, `[castSpellFromHand] Opponent spell trigger: ${trigger.cardName} - ${trigger.description}`);
+          
+          // Push the trigger to the stack for resolution
+          // The trigger's controller can choose to draw a card unless the caster pays
+          game.state.stack = game.state.stack || [];
+          const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          
+          const stackItem: any = {
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: trigger.controllerId, // The Esper Sentinel/Rhystic Study controller
+            source: trigger.permanentId,
+            sourceName: trigger.cardName,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            mandatory: trigger.mandatory,
+            effectData: {
+              casterId: trigger.casterId,
+              paymentCost: trigger.paymentCost,
+              paymentAmount: trigger.paymentAmount,
+              benefitIfNotPaid: trigger.benefitIfNotPaid,
+            },
+          };
+          game.state.stack.push(stackItem);
+          
+          // Emit trigger notification
+          io.to(gameId).emit("triggeredAbility", {
+            gameId,
+            triggerId,
+            playerId: trigger.controllerId,
+            sourcePermanentId: trigger.permanentId,
+            sourceName: trigger.cardName,
+            triggerType: trigger.triggerType,
+            description: trigger.description,
+            mandatory: trigger.mandatory,
+          });
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+            ts: Date.now(),
+          });
+        }
+      } catch (err) {
+        debugWarn(1, '[castSpellFromHand] Failed to process opponent spell triggers:', err);
       }
       
       io.to(gameId).emit("chat", {
