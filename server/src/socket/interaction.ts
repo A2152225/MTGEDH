@@ -5508,7 +5508,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let abilityText = "";
     let requiresTap = false;
     let manaCost = "";
-    let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | null = null;
+    let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature' | null = null;
     let sacrificeSubtype: string | undefined = undefined; // For creature subtypes like Soldier, Goblin, etc.
     
     // Parse activated abilities: look for "cost: effect" patterns
@@ -5605,9 +5605,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Check if sacrifice is required and we need to prompt for selection
     if (sacrificeType && sacrificeType !== 'self') {
+      // Get the sacrifice count (default 1)
+      const sacrificeInfo = parseSacrificeCost(manaCost || '');
+      const sacrificeCount = sacrificeInfo.sacrificeCount || 1;
+      const mustBeOther = sacrificeInfo.mustBeOther || false;
+      
       // Get eligible permanents for sacrifice
       const eligiblePermanents = battlefield.filter((p: any) => {
         if (p.controller !== pid) return false;
+        // If mustBeOther is true, exclude the source permanent
+        if (mustBeOther && p.id === permanentId) return false;
+        
         const permTypeLine = (p.card?.type_line || '').toLowerCase();
         
         // First check if it matches the basic type requirement
@@ -5627,6 +5635,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             break;
           case 'permanent':
             matchesType = true; // Any permanent
+            break;
+          case 'artifact_or_creature':
+            // Match either artifact or creature (e.g., Mondrak's ability)
+            matchesType = permTypeLine.includes('artifact') || permTypeLine.includes('creature');
             break;
           default:
             matchesType = false;
@@ -5648,12 +5660,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       // Determine what type label to show in error message
-      const sacrificeLabel = sacrificeSubtype ? sacrificeSubtype : sacrificeType;
+      let sacrificeLabel = sacrificeSubtype ? sacrificeSubtype : sacrificeType;
+      let sacrificeLabelPlural = sacrificeLabel + 's';
+      if (sacrificeType === 'artifact_or_creature') {
+        sacrificeLabel = 'artifact or creature';
+        sacrificeLabelPlural = 'artifacts and/or creatures';
+      }
       
-      if (eligiblePermanents.length === 0) {
+      if (eligiblePermanents.length < sacrificeCount) {
         socket.emit("error", {
-          code: "NO_SACRIFICE_TARGET",
-          message: `You don't control any ${sacrificeLabel}s to sacrifice.`,
+          code: "INSUFFICIENT_SACRIFICE_TARGETS",
+          message: `You don't control enough ${sacrificeLabelPlural} to sacrifice. (Need ${sacrificeCount}, have ${eligiblePermanents.length})`,
         });
         return;
       }
@@ -5671,6 +5688,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         requiresTap,
         sacrificeType,
         sacrificeSubtype,
+        sacrificeCount,
+        mustBeOther,
         effect: abilityText,
       };
       
@@ -5690,10 +5709,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         cardName,
         abilityEffect: abilityText,
         sacrificeType: sacrificeLabel, // Use the more specific label
+        sacrificeCount,
         eligibleTargets: sacrificeTargets,
       });
       
-      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeLabel}. Waiting for selection from ${pid}`);
+      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of ${sacrificeCount} ${sacrificeLabel}(s). Waiting for selection from ${pid}`);
       return;
     }
     
@@ -7247,10 +7267,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     gameId,
     pendingId,
     sacrificeTargetId,
+    sacrificeTargetIds,
   }: {
     gameId: string;
     pendingId: string;
-    sacrificeTargetId: string;
+    sacrificeTargetId: string; // For backward compatibility (single sacrifice)
+    sacrificeTargetIds?: string[]; // New field for multiple sacrifices
   }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -7279,26 +7301,43 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const battlefield = game.state.battlefield || [];
     
-    // Find and remove the sacrificed permanent
-    const sacrificeIndex = battlefield.findIndex((p: any) => p.id === sacrificeTargetId && p.controller === pid);
-    if (sacrificeIndex === -1) {
+    // Use sacrificeTargetIds if provided, otherwise fall back to single target
+    const targetIds = sacrificeTargetIds || [sacrificeTargetId];
+    const requiredCount = pending.sacrificeCount || 1;
+    
+    if (targetIds.length !== requiredCount) {
       socket.emit("error", {
-        code: "SACRIFICE_TARGET_NOT_FOUND",
-        message: "Sacrifice target not found",
+        code: "WRONG_SACRIFICE_COUNT",
+        message: `Expected ${requiredCount} sacrifice target(s), got ${targetIds.length}`,
       });
       return;
     }
+    
+    const sacrificedNames: string[] = [];
+    
+    // Find and remove all sacrificed permanents
+    for (const targetId of targetIds) {
+      const sacrificeIndex = battlefield.findIndex((p: any) => p.id === targetId && p.controller === pid);
+      if (sacrificeIndex === -1) {
+        socket.emit("error", {
+          code: "SACRIFICE_TARGET_NOT_FOUND",
+          message: `Sacrifice target ${targetId} not found`,
+        });
+        return;
+      }
 
-    const sacrificed = battlefield.splice(sacrificeIndex, 1)[0];
-    const sacrificedCard = (sacrificed as any).card;
-    const sacrificedName = sacrificedCard?.name || "Unknown";
+      const sacrificed = battlefield.splice(sacrificeIndex, 1)[0];
+      const sacrificedCard = (sacrificed as any).card;
+      const sacrificedName = sacrificedCard?.name || "Unknown";
+      sacrificedNames.push(sacrificedName);
 
-    // Move sacrificed permanent to graveyard
-    const zones = game.state.zones?.[pid];
-    if (zones) {
-      zones.graveyard = zones.graveyard || [];
-      (zones.graveyard as any[]).push({ ...sacrificedCard, zone: 'graveyard' });
-      zones.graveyardCount = (zones.graveyard as any[]).length;
+      // Move sacrificed permanent to graveyard
+      const zones = game.state.zones?.[pid];
+      if (zones) {
+        zones.graveyard = zones.graveyard || [];
+        (zones.graveyard as any[]).push({ ...sacrificedCard, zone: 'graveyard' });
+        zones.graveyardCount = (zones.graveyard as any[]).length;
+      }
     }
 
     // Find the source permanent and tap it if required
@@ -7310,8 +7349,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Check if this is a mana ability (doesn't use the stack)
     const oracleText = (sourcePerm as any)?.card?.oracle_text || pending.effect || "";
     const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(oracleText);
+    
+    // Check if this is a Dominus indestructible counter ability
+    const isDominusAbility = /put\s+an?\s+indestructible\s+counter/i.test(oracleText);
 
-    if (!isManaAbility) {
+    if (isDominusAbility) {
+      // Dominus ability - put an indestructible counter on the source
+      if (sourcePerm) {
+        (sourcePerm as any).counters = (sourcePerm as any).counters || {};
+        (sourcePerm as any).counters.indestructible = ((sourcePerm as any).counters.indestructible || 0) + 1;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🛡️ ${getPlayerName(game, pid)} sacrificed ${sacrificedNames.join(' and ')} to put an indestructible counter on ${pending.cardName}!`,
+          ts: Date.now(),
+        });
+      }
+    } else if (!isManaAbility) {
       // Put the ability on the stack
       const stackItem = {
         id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -7320,10 +7376,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         source: pending.permanentId,
         sourceName: pending.cardName,
         description: pending.abilityText,
-        sacrificedPermanent: {
-          id: sacrificeTargetId,
-          name: sacrificedName,
-        },
+        sacrificedPermanents: targetIds.map((id, i) => ({
+          id,
+          name: sacrificedNames[i],
+        })),
       } as any;
 
       game.state.stack = game.state.stack || [];
@@ -7348,7 +7404,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `⚡ ${getPlayerName(game, pid)} activated ${pending.cardName}'s ability (sacrificed ${sacrificedName}): ${pending.abilityText}`,
+        message: `⚡ ${getPlayerName(game, pid)} activated ${pending.cardName}'s ability (sacrificed ${sacrificedNames.join(', ')}): ${pending.abilityText}`,
         ts: Date.now(),
       });
     } else {
@@ -7375,7 +7431,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${getPlayerName(game, pid)} activated ${pending.cardName} (sacrificed ${sacrificedName}) for mana.`,
+        message: `${getPlayerName(game, pid)} activated ${pending.cardName} (sacrificed ${sacrificedNames.join(', ')}) for mana.`,
         ts: Date.now(),
       });
     }
@@ -7388,8 +7444,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       playerId: pid,
       pendingId,
       permanentId: pending.permanentId,
-      sacrificeTargetId,
-      sacrificedName,
+      sacrificeTargetIds: targetIds,
+      sacrificedNames,
     });
 
     broadcastGame(io, game, gameId);

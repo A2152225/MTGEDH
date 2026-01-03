@@ -33,7 +33,7 @@ export function parseNumberFromText(text: string, defaultValue: number = 1): num
 /**
  * Types of permanents that can be sacrificed
  */
-export type SacrificeType = 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+export type SacrificeType = 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';
 
 /**
  * Result of parsing sacrifice requirements from a cost string
@@ -48,12 +48,18 @@ export interface SacrificeCostInfo {
    * This is used for cards like "Sacrifice a Soldier" or "Sacrifice a Goblin".
    */
   creatureSubtype?: string;
+  /**
+   * Whether the sacrifice must be "other" permanents (not the source itself)
+   * Example: "Sacrifice two other artifacts and/or creatures"
+   */
+  mustBeOther?: boolean;
 }
 
 /**
  * Parse sacrifice requirements from a cost string
  * Detects patterns like "Sacrifice a creature", "Sacrifice an artifact", etc.
  * Also handles creature subtypes like "Sacrifice a Soldier".
+ * Handles compound types like "artifacts and/or creatures".
  * 
  * @param costStr The cost portion of an activated ability (e.g., "Sacrifice a creature")
  * @returns Information about the sacrifice requirement
@@ -67,9 +73,28 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
   
   const result: SacrificeCostInfo = { requiresSacrifice: true };
   
+  // Check for "other" modifier (e.g., "Sacrifice two other artifacts")
+  result.mustBeOther = /sacrifice\s+(?:\d+|one|two|three|four|five|an?)\s+other\b/i.test(lowerCost);
+  
   // "Sacrifice ~" or "sacrifice this" = sacrifice self
   if (lowerCost.includes('sacrifice ~') || lowerCost.includes('sacrifice this')) {
     result.sacrificeType = 'self';
+    return result;
+  }
+  
+  // Handle compound types: "artifacts and/or creatures" (Mondrak, Dominus pattern)
+  // Pattern structure:
+  //   - "sacrifice" keyword
+  //   - count: number (1-5) or "a/an"
+  //   - optional "other" modifier
+  //   - type combination: "artifacts and/or creatures" OR "creatures and/or artifacts"
+  // Examples: "Sacrifice two other artifacts and/or creatures"
+  const artifactOrCreatureMatch = lowerCost.match(
+    /sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?(?:artifacts?\s+and\/or\s+creatures?|creatures?\s+and\/or\s+artifacts?)/i
+  );
+  if (artifactOrCreatureMatch) {
+    result.sacrificeType = 'artifact_or_creature';
+    result.sacrificeCount = parseNumberFromText(artifactOrCreatureMatch[1]);
     return result;
   }
   
@@ -102,9 +127,20 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
   }
   
   // "Sacrifice X creatures/artifacts/etc" (multiple)
-  if (/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i.test(lowerCost)) {
+  // Pattern: "sacrifice [count] [other] creatures" where count is number word or digit
+  if (/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?creatures?/i.test(lowerCost)) {
     result.sacrificeType = 'creature';
-    const countMatch = lowerCost.match(/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i);
+    const countMatch = lowerCost.match(/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?creatures?/i);
+    if (countMatch) {
+      result.sacrificeCount = parseNumberFromText(countMatch[1]);
+    }
+  }
+  
+  // "Sacrifice X artifacts" (multiple)
+  // Pattern: "sacrifice [count] [other] artifacts" where count is number word or digit
+  if (/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?artifacts?/i.test(lowerCost)) {
+    result.sacrificeType = 'artifact';
+    const countMatch = lowerCost.match(/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?artifacts?/i);
     if (countMatch) {
       result.sacrificeCount = parseNumberFromText(countMatch[1]);
     }

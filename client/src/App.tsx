@@ -444,7 +444,7 @@ export function App() {
     }>;
   } | null>(null);
   
-  // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, etc.)
+  // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
   const [abilitySacrificeModalOpen, setAbilitySacrificeModalOpen] = useState(false);
   const [abilitySacrificeData, setAbilitySacrificeData] = useState<{
     pendingId: string;
@@ -452,6 +452,7 @@ export function App() {
     cardName: string;
     abilityEffect: string;
     sacrificeType: string;
+    sacrificeCount?: number;
     eligibleTargets: Array<{
       id: string;
       type: 'permanent';
@@ -2257,7 +2258,7 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Ability sacrifice request listener (for Ashnod's Altar, Phyrexian Altar, etc.)
+  // Ability sacrifice request listener (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
   React.useEffect(() => {
     const handler = (payload: {
       gameId: string;
@@ -2266,6 +2267,7 @@ export function App() {
       cardName: string;
       abilityEffect: string;
       sacrificeType: string;
+      sacrificeCount?: number;
       eligibleTargets: Array<{
         id: string;
         type: 'permanent';
@@ -2281,6 +2283,7 @@ export function App() {
           cardName: payload.cardName,
           abilityEffect: payload.abilityEffect,
           sacrificeType: payload.sacrificeType,
+          sacrificeCount: payload.sacrificeCount,
           eligibleTargets: payload.eligibleTargets,
         });
         setAbilitySacrificeModalOpen(true);
@@ -6327,10 +6330,10 @@ export function App() {
         }}
       />
 
-      {/* Ability Sacrifice Selection Modal (for Ashnod's Altar, Phyrexian Altar, etc.) */}
+      {/* Ability Sacrifice Selection Modal (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.) */}
       <TargetSelectionModal
         open={abilitySacrificeModalOpen}
-        title={`Sacrifice a ${abilitySacrificeData?.sacrificeType || 'permanent'}`}
+        title={`Sacrifice ${abilitySacrificeData?.sacrificeCount || 1} ${abilitySacrificeData?.sacrificeType || 'permanent'}${(abilitySacrificeData?.sacrificeCount || 1) !== 1 ? 's' : ''}`}
         description={abilitySacrificeData ? `${abilitySacrificeData.cardName}: ${abilitySacrificeData.abilityEffect}` : undefined}
         targets={abilitySacrificeData?.eligibleTargets.map(t => ({
           id: t.id,
@@ -6339,14 +6342,16 @@ export function App() {
           imageUrl: t.imageUrl,
           typeLine: t.typeLine,
         })) || []}
-        minTargets={1}
-        maxTargets={1}
+        minTargets={abilitySacrificeData?.sacrificeCount || 1}
+        maxTargets={abilitySacrificeData?.sacrificeCount || 1}
         onConfirm={(selectedIds) => {
-          if (selectedIds.length > 0 && abilitySacrificeData && safeView?.id) {
+          const requiredCount = abilitySacrificeData?.sacrificeCount || 1;
+          if (selectedIds.length === requiredCount && abilitySacrificeData && safeView?.id) {
             socket.emit("abilitySacrificeConfirm", {
               gameId: safeView.id,
               pendingId: abilitySacrificeData.pendingId,
-              sacrificeTargetId: selectedIds[0],
+              sacrificeTargetId: selectedIds[0], // For backward compatibility
+              sacrificeTargetIds: selectedIds, // New field for multiple sacrifices
             });
             setAbilitySacrificeModalOpen(false);
             setAbilitySacrificeData(null);
