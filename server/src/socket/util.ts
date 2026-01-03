@@ -2578,6 +2578,7 @@ export function getManaColorName(symbol: string): string {
 
 /**
  * Parses a string mana cost into its individual components (color distribution, generic mana, etc.).
+ * Handles Phyrexian mana symbols like {W/P} (can be paid with W or 2 life)
  */
 export function parseManaCost(
   manaCost?: string
@@ -2587,6 +2588,7 @@ export function parseManaCost(
   hybrids: Array<Array<string>>;
   hasX: boolean;
 } {
+  const PHYREXIAN_LIFE_COST = 2;
   const result = {
     colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
     generic: 0,
@@ -2605,7 +2607,22 @@ export function parseManaCost(
       result.generic += parseInt(clean, 10);
     } else if (clean.includes("/")) {
       const parts = clean.split("/");
-      result.hybrids.push(parts);
+      
+      // Handle Phyrexian mana {W/P}, {U/P}, {B/P}, {R/P}, {G/P}
+      if (parts[1] === "P") {
+        // Phyrexian mana can be paid with the color OR 2 life
+        const firstColor = parts[0];
+        if (firstColor.length === 1 && (result.colors as any).hasOwnProperty(firstColor)) {
+          result.hybrids.push([firstColor, `LIFE:${PHYREXIAN_LIFE_COST}`]);
+        }
+      } else if (/^\d+$/.test(parts[0])) {
+        // Hybrid generic/color: {2/W}, {3/U}, etc.
+        // Can be paid with either N generic OR 1 colored mana
+        result.hybrids.push([`GENERIC:${parts[0]}`, parts[1]]);
+      } else {
+        // Regular hybrid: {W/U}, {B/R}, etc.
+        result.hybrids.push(parts);
+      }
     } else if (clean.length === 1 && (result.colors as any).hasOwnProperty(clean)) {
       (result.colors as any)[clean] =
         ((result.colors as any)[clean] || 0) + 1;

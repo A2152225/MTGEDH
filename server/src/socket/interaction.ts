@@ -19,6 +19,7 @@ import {
   getCreatureCountManaAmount,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
+import { canPayManaCost } from "../state/modules/mana-check.js";
 import { exchangePermanentOracleText } from "../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
@@ -5676,7 +5677,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Parse and validate mana cost if present
     // Extract just the mana symbols from the cost string (excluding {T}, sacrifice, etc.)
     if (manaCost) {
-      const manaSymbols = manaCost.match(/\{[WUBRGC0-9X]+\}/gi);
+      // Match all mana symbols including Phyrexian {W/P}, hybrid {W/U}, etc.
+      const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi);
       if (manaSymbols) {
         // Filter out {T} and {Q} to get just the mana cost
         const manaOnly = manaSymbols.filter(s => 
@@ -5686,25 +5688,128 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (manaOnly) {
           const parsedCost = parseManaCost(manaOnly);
           const manaPool = getOrInitManaPool(game.state, pid);
-          const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
           
-          // Validate payment
-          const validationError = validateManaPayment(
-            totalAvailable,
-            parsedCost.colors,
-            parsedCost.generic
-          );
+          // For Phyrexian mana costs, we need to check if player can pay with mana OR life
+          const playerLife = game.state.life?.[pid] || 40;
           
-          if (validationError) {
+          // Adapt parsedCost for canPayManaCost (uses 'hybrid' instead of 'hybrids')
+          const costForCheck = {
+            colors: parsedCost.colors,
+            generic: parsedCost.generic,
+            hasX: parsedCost.hasX,
+            hybrid: parsedCost.hybrids, // Map hybrids to hybrid for compatibility
+          };
+          
+          // Check if we can pay the cost (considering Phyrexian mana can be paid with life)
+          if (!canPayManaCost(manaPool as unknown as Record<string, number>, costForCheck, playerLife)) {
             socket.emit("error", {
               code: "INSUFFICIENT_MANA",
-              message: validationError,
+              message: `Cannot pay ${manaOnly} - insufficient mana or life`,
             });
             return;
           }
           
-          // Consume the mana from the pool
-          consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+          // If there are Phyrexian mana costs and player doesn't have the colored mana,
+          // they need to pay life - handle this via a modal or auto-deduct
+          if (parsedCost.hybrids && parsedCost.hybrids.length > 0) {
+            // Check each hybrid/phyrexian cost
+            let lifeToPay = 0;
+            let manaToConsume = { colors: { ...parsedCost.colors }, generic: parsedCost.generic };
+            
+            for (const hybridOptions of parsedCost.hybrids) {
+              let paid = false;
+              
+              for (const option of hybridOptions) {
+                if (option.startsWith('LIFE:')) {
+                  // This is a Phyrexian mana option - check if we can pay with color first
+                  continue; // Try color options first
+                } else if (option.startsWith('GENERIC:')) {
+                  // Hybrid generic option - check if we have enough generic
+                  const genericAmount = parseInt(option.split(':')[1], 10);
+                  const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+                  const totalMana = Object.values(totalAvailable).reduce((a, b) => a + b, 0);
+                  if (totalMana >= genericAmount) {
+                    // Can pay with generic - add to generic cost
+                    manaToConsume.generic += genericAmount;
+                    paid = true;
+                    break;
+                  }
+                } else {
+                  // Color option
+                  const colorMap: Record<string, string> = {
+                    'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
+                  };
+                  const colorKey = colorMap[option];
+                  if (colorKey && (manaPool[colorKey] || 0) >= 1) {
+                    // Can pay with this color
+                    manaToConsume.colors[option] = (manaToConsume.colors[option] || 0) + 1;
+                    paid = true;
+                    break;
+                  }
+                }
+              }
+              
+              // If we couldn't pay with mana, check for Phyrexian life payment
+              if (!paid) {
+                const lifeOption = hybridOptions.find(o => o.startsWith('LIFE:'));
+                if (lifeOption) {
+                  const lifeAmount = parseInt(lifeOption.split(':')[1], 10);
+                  lifeToPay += lifeAmount;
+                  paid = true;
+                }
+              }
+              
+              if (!paid) {
+                socket.emit("error", {
+                  code: "INSUFFICIENT_MANA",
+                  message: `Cannot pay ${manaOnly} - insufficient mana or life`,
+                });
+                return;
+              }
+            }
+            
+            // Pay life for Phyrexian mana
+            if (lifeToPay > 0) {
+              if (playerLife <= lifeToPay) {
+                socket.emit("error", {
+                  code: "INSUFFICIENT_LIFE",
+                  message: `Cannot pay ${lifeToPay} life for Phyrexian mana (you have ${playerLife} life)`,
+                });
+                return;
+              }
+              game.state.life[pid] -= lifeToPay;
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `${getPlayerName(game, pid)} paid ${lifeToPay} life for Phyrexian mana to activate ${cardName}.`,
+                ts: Date.now(),
+              });
+            }
+            
+            // Consume the mana (excluding Phyrexian-paid portions)
+            consumeManaFromPool(manaPool, manaToConsume.colors, manaToConsume.generic);
+          } else {
+            // No hybrid costs - just validate and consume normally
+            const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+            const validationError = validateManaPayment(
+              totalAvailable,
+              parsedCost.colors,
+              parsedCost.generic
+            );
+            
+            if (validationError) {
+              socket.emit("error", {
+                code: "INSUFFICIENT_MANA",
+                message: validationError,
+              });
+              return;
+            }
+            
+            // Consume the mana from the pool
+            consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+          }
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
