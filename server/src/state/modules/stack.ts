@@ -31,6 +31,24 @@ import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js"
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 
 /**
+ * Mapping of irregular plural creature types to their singular forms.
+ * Used when counting creatures of a specific type (e.g., Myrel counting Soldiers).
+ * Type lines use singular forms (e.g., "Creature - Elf") but oracle text often uses
+ * plural forms (e.g., "number of Elves you control").
+ */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  'elves': 'elf',
+  'wolves': 'wolf',
+  'dwarves': 'dwarf',
+  'halves': 'half',
+  'leaves': 'leaf',
+  'knives': 'knife',
+  'lives': 'life',
+  'selves': 'self',
+  'calves': 'calf',
+};
+
+/**
  * Detect "enters with counters" patterns from a card's oracle text.
  * Handles patterns like:
  * - "~ enters the battlefield with N +1/+1 counter(s) on it"
@@ -3404,7 +3422,17 @@ function executeTriggerEffect(
     const isColorless = !!createXTokensPattern[3];
     const tokenType = createXTokensPattern[4].trim();
     const isArtifact = !!createXTokensPattern[5];
-    const countType = createXTokensPattern[6].toLowerCase();
+    // Normalize countType to singular form - the regex may capture plural form (e.g., "Soldiers")
+    // but type_line uses singular (e.g., "Creature - Soldier")
+    let countType = createXTokensPattern[6].toLowerCase();
+    // Handle irregular plurals first (using module-level constant), then regular plurals
+    if (IRREGULAR_PLURALS[countType]) {
+      countType = IRREGULAR_PLURALS[countType];
+    } else if (countType.endsWith('s') && countType.length > 1) {
+      // Strip trailing 's' to get singular form for matching
+      // This handles: Soldiers -> soldier, Goblins -> goblin, Humans -> human, etc.
+      countType = countType.slice(0, -1);
+    }
     
     const battlefield = state.battlefield || [];
     
@@ -3424,7 +3452,7 @@ function executeTriggerEffect(
       }
     }
     
-    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${count} ${tokenType} tokens for ${controller} (${countType}s controlled: ${count})`);
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${count} ${tokenType} tokens for ${controller} (${countType} controlled: ${count})`);
     
     // Extra debug if count is 0 but we expected soldiers
     if (count === 0 && battlefield.length > 0) {
