@@ -1196,6 +1196,108 @@ function executeTriggerEffect(
   }
   
   // ========================================================================
+  // UPKEEP SACRIFICE TRIGGERS
+  // Handle "sacrifice a creature or sacrifice [this]" style triggers
+  // Examples: Eldrazi Monument, Demonic Appetite, Jinxed Idol
+  // Pattern: "Sacrifice a creature. If you can't, sacrifice ~" or
+  //          "Sacrifice a creature or sacrifice ~"
+  // 
+  // This handles both:
+  // 1. triggerType === 'sacrifice_creature_or_self' (from dynamic detection)
+  // 2. Description-based detection for legacy/fallback
+  // ========================================================================
+  const triggerTypeFromItem = (triggerItem as any).triggerType;
+  const isUpkeepSacrificeTrigger = (
+    triggerTypeFromItem === 'sacrifice_creature_or_self' ||
+    (desc.includes('sacrifice a creature') && 
+     (desc.includes("or sacrifice") || desc.includes("if you can't") || desc.includes("if you cannot")))
+  );
+  
+  if (isUpkeepSacrificeTrigger) {
+    const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Upkeep sacrifice: skipping resolution steps during replay`);
+      return;
+    }
+    
+    // Get creatures controlled by this player
+    const battlefield = state.battlefield || [];
+    const controllerCreatures = battlefield.filter((perm: any) => {
+      if (perm.controller !== controller) return false;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      return typeLine.includes('creature');
+    });
+    
+    // Get the source permanent (e.g., Eldrazi Monument)
+    const sourceId = (triggerItem as any).source || (triggerItem as any).permanentId || (triggerItem as any).sourceId;
+    const sourcePermanent = battlefield.find((p: any) => p.id === sourceId);
+    const sourceTypeLine = (sourcePermanent?.card?.type_line || '').toLowerCase();
+    
+    // Determine what type of permanent to sacrifice if no creature available
+    // "sacrifice Eldrazi Monument" -> artifact
+    // "sacrifice ~" -> this artifact/enchantment/etc
+    let alternativeSacrificeType = 'this permanent';
+    if (sourceTypeLine.includes('artifact')) {
+      alternativeSacrificeType = 'this artifact';
+    } else if (sourceTypeLine.includes('enchantment')) {
+      alternativeSacrificeType = 'this enchantment';
+    }
+    
+    // Create a resolution step for the sacrifice choice
+    const stepConfig = {
+      type: ResolutionStepType.UPKEEP_SACRIFICE,
+      playerId: controller,
+      description: `${sourceName}: Sacrifice a creature${controllerCreatures.length === 0 ? ` (you must sacrifice ${alternativeSacrificeType})` : ` or sacrifice ${alternativeSacrificeType}`}`,
+      mandatory: true,
+      sourceId: sourceId,
+      sourceName,
+      sourceImage: sourcePermanent?.card?.image_uris?.small || triggerItem?.card?.image_uris?.small,
+      // Custom data for the sacrifice choice
+      hasCreatures: controllerCreatures.length > 0,
+      creatures: controllerCreatures.map((perm: any) => ({
+        id: perm.id,
+        name: perm.card?.name || 'Creature',
+        imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+        power: perm.card?.power || perm.basePower,
+        toughness: perm.card?.toughness || perm.baseToughness,
+      })),
+      sourceToSacrifice: {
+        id: sourceId,
+        name: sourceName,
+        imageUrl: sourcePermanent?.card?.image_uris?.small || sourcePermanent?.card?.image_uris?.normal,
+      },
+      alternativeSacrificeType,
+    };
+    
+    if (gameId !== 'unknown') {
+      ResolutionQueueManager.addStep(gameId, stepConfig);
+      debug(2, `[executeTriggerEffect] ${sourceName}: Created upkeep sacrifice resolution step (${controllerCreatures.length} creatures available)`);
+    } else {
+      debugWarn(2, `[executeTriggerEffect] ${sourceName}: gameId is unknown, cannot create resolution step`);
+      // Fallback: if no creatures, sacrifice the source
+      if (controllerCreatures.length === 0 && sourcePermanent) {
+        debug(2, `[executeTriggerEffect] ${sourceName}: No creatures available, sacrificing source`);
+        const idx = battlefield.findIndex((p: any) => p.id === sourceId);
+        if (idx !== -1) {
+          const [removed] = battlefield.splice(idx, 1);
+          // Move to graveyard (non-token)
+          if (!removed.isToken) {
+            const zones = state.zones || {};
+            const ownerZones = zones[removed.owner || controller] || {};
+            ownerZones.graveyard = ownerZones.graveyard || [];
+            ownerZones.graveyard.push({ ...removed.card, zone: 'graveyard' });
+            ownerZones.graveyardCount = ownerZones.graveyard.length;
+          }
+        }
+      }
+    }
+    
+    return; // Effect handled
+  }
+  
+  // ========================================================================
   // ATTACK TRIGGER TOKEN CREATION
   // Handle "whenever ~ attacks, create X Y/Z tokens that are attacking" 
   // Examples: Brimaz, King of Oreskos; Hero of Bladehold; Hanweir Garrison

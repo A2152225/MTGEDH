@@ -488,8 +488,12 @@ function hasEffectiveAbility(
       }
       
       // Also check for ability-granting effects: "[Type] creatures have [ability]"
+      // This includes patterns like:
+      // - "creatures you control have flying"
+      // - "creatures you control get +1/+1 and have flying and indestructible" (Eldrazi Monument)
       const grantPattern = new RegExp(`creatures?\\s+(?:you\\s+control\\s+)?have\\s+${lowerAbility}`, 'i');
-      if (grantPattern.test(permOracle) && permController === controllerId) {
+      const grantWithBuffPattern = new RegExp(`creatures?\\s+you\\s+control\\s+get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+have\\s+[^.]*\\b${lowerAbility}\\b`, 'i');
+      if ((grantPattern.test(permOracle) || grantWithBuffPattern.test(permOracle)) && permController === controllerId) {
         // This permanent grants the ability
         // Check if our permanent matches the filter (simplified - assumes creature)
         const permTypeLine = (permanent?.card?.type_line || '').toLowerCase();

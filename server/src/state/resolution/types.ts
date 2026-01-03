@@ -89,6 +89,9 @@ export enum ResolutionStepType {
   CLASH = 'clash',
   VOTE = 'vote',
   
+  // Upkeep sacrifice triggers (Eldrazi Monument, Smokestack, etc.)
+  UPKEEP_SACRIFICE = 'upkeep_sacrifice',
+  
   // Activated ability resolution (for non-mana abilities)
   ACTIVATED_ABILITY = 'activated_ability',
 }

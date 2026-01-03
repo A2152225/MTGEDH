@@ -519,26 +519,31 @@ export function CastSpellModal({
   }, [alternateCosts, selectedCostId]);
 
   // Calculate suggested payment for auto-fill (considers floating mana)
+  // IMPORTANT: Use the reduced cost (effectiveManaCost) when calculating suggestions
   const suggestedPayment = useMemo(() => {
-    const parsed = parseManaCost(currentCost?.manaCost || manaCost);
+    // Use the effective (reduced) cost, falling back to alternate cost or original
+    const costToUse = currentCost?.manaCost || effectiveManaCost || manaCost;
+    const parsed = parseManaCost(costToUse);
     // For XX costs, multiply xValue by the number of X's (xCount)
     const xMultiplier = parsed.xCount || 1;
     const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue * xMultiplier), hybrids: parsed.hybrids };
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
     return calculateSuggestedPayment(cost, availableSources, colorsToPreserve, floatingMana);
-  }, [currentCost, manaCost, xValue, availableSources, otherCardsInHand, floatingMana]);
+  }, [currentCost, effectiveManaCost, manaCost, xValue, availableSources, otherCardsInHand, floatingMana]);
 
   // Calculate how much floating mana will be used
   const floatingManaUsage = useMemo(() => {
     if (!floatingMana) return null;
-    const parsed = parseManaCost(currentCost?.manaCost || manaCost);
+    // Use the effective (reduced) cost for floating mana calculation too
+    const costToUse = currentCost?.manaCost || effectiveManaCost || manaCost;
+    const parsed = parseManaCost(costToUse);
     // For XX costs, multiply xValue by the number of X's (xCount)
     const xMultiplier = parsed.xCount || 1;
     const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue * xMultiplier), hybrids: parsed.hybrids };
     const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
     const totalUsed = Object.values(usedFromPool).reduce((a, b) => a + b, 0);
     return totalUsed > 0 ? usedFromPool : null;
-  }, [currentCost, manaCost, xValue, floatingMana]);
+  }, [currentCost, effectiveManaCost, manaCost, xValue, floatingMana]);
 
   if (!open) return null;
 

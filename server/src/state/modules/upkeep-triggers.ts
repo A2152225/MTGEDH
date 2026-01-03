@@ -15,6 +15,35 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
+// ============================================================================
+// DYNAMIC PATTERN DETECTION REGEXES
+// ============================================================================
+
+/**
+ * Pattern for "sacrifice a creature, if you can't sacrifice this" style triggers
+ * Matches: "At the beginning of your upkeep, sacrifice a creature. If you can't, sacrifice ~"
+ * Examples: Eldrazi Monument, Demonic Appetite
+ * 
+ * Breakdown:
+ * - `at the beginning of your upkeep,?` - matches the upkeep timing
+ * - `\s*sacrifice a creature\.?` - matches "sacrifice a creature" with optional period
+ * - `\s*if you (?:can't|cannot),?` - matches "if you can't" or "if you cannot"
+ * - `\s*sacrifice` - matches the start of "sacrifice this/~"
+ */
+const SACRIFICE_CREATURE_OR_SELF_PATTERN = /at the beginning of your upkeep,?\s*sacrifice a creature\.?\s*if you (?:can't|cannot),?\s*sacrifice/i;
+
+/**
+ * Pattern for "sacrifice a creature or sacrifice this" style triggers
+ * Matches: "At the beginning of your upkeep, sacrifice a creature or sacrifice ~"
+ * Examples: Jinxed Idol variants
+ * 
+ * Breakdown:
+ * - `at the beginning of your upkeep,?` - matches the upkeep timing
+ * - `\s*sacrifice a creature` - matches "sacrifice a creature"
+ * - `\s+or\s+sacrifice` - matches "or sacrifice" with required whitespace
+ */
+const SACRIFICE_OR_PATTERN = /at the beginning of your upkeep,?\s*sacrifice a creature\s+or\s+sacrifice/i;
+
 export interface UpkeepTrigger {
   permanentId: string;
   cardName: string;
@@ -30,7 +59,8 @@ export interface UpkeepTrigger {
     | 'each_player_upkeep'
     | 'opponent_upkeep'
     | 'upkeep_create_copy'  // Progenitor Mimic - create token copy at beginning of upkeep
-    | 'saga_lore_counter';  // Saga - add lore counter at beginning of your precombat main phase (Rule 714.3b)
+    | 'saga_lore_counter'   // Saga - add lore counter at beginning of your precombat main phase (Rule 714.3b)
+    | 'sacrifice_creature_or_self';  // Eldrazi Monument - sacrifice a creature or sacrifice this
   cost?: string;
   description: string;
   effect?: string;
@@ -45,6 +75,9 @@ export interface UpkeepTrigger {
   chapterAbilities?: { chapter: number; effect: string }[];
   currentChapter?: number;
   maxChapter?: number;
+  // For sacrifice_creature_or_self - the type of permanent to sacrifice if no creatures
+  sacrificeAlternativeType?: string;
+  imageUrl?: string;
 }
 
 /**
@@ -390,6 +423,42 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
         maxChapter,
       });
     }
+  }
+  
+  // ============================================================================
+  // SACRIFICE CREATURE OR SELF PATTERN (Dynamic Detection)
+  // ============================================================================
+  // Pattern: "At the beginning of your upkeep, sacrifice a creature. If you can't, sacrifice ~"
+  // or: "sacrifice a creature or sacrifice ~"
+  // Examples: Eldrazi Monument, Demonic Appetite, Jinxed Idol
+  // 
+  // Use module-level constants for these patterns (defined at top of file)
+  if (SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText)) {
+    // Determine what type of permanent this is for the alternative sacrifice
+    const permTypeLine = (card?.type_line || '').toLowerCase();
+    let sacrificeAlternativeType = 'this permanent';
+    if (permTypeLine.includes('artifact')) {
+      sacrificeAlternativeType = 'this artifact';
+    } else if (permTypeLine.includes('enchantment')) {
+      sacrificeAlternativeType = 'this enchantment';
+    } else if (permTypeLine.includes('creature')) {
+      sacrificeAlternativeType = 'this creature';
+    }
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'sacrifice_creature_or_self',
+      description: `Sacrifice a creature. If you can't, sacrifice ${cardName}.`,
+      effect: 'sacrifice_creature_or_self',
+      mandatory: true,
+      requiresChoice: true,
+      controllerTrigger: true,
+      anyPlayerTrigger: false,
+      consequence: `Sacrifice ${cardName}`,
+      sacrificeAlternativeType,
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+    });
   }
   
   return triggers;

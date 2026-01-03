@@ -87,7 +87,14 @@ export function isCurrentlyCreature(permanent: any): boolean {
   const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
                      permanent.oracle_text?.toLowerCase() || '';
   
-  // FIRST: Check for the isCreature flag - this is set by animation effects
+  // FIRST: Check for the notCreature flag - this is set by the game state
+  // for Gods with insufficient devotion (Rule 704.5n - "Theros-style gods")
+  // Example: Iroas, God of Victory is only a creature when devotion to red and white is 7+
+  if (permanent.notCreature === true) {
+    return false;
+  }
+  
+  // SECOND: Check for the isCreature flag - this is set by animation effects
   // like Tezzeret, Karn, Nissa, March of the Machines, etc.
   // This takes highest priority as it represents the current game state
   if (permanent.isCreature === true) {
@@ -383,7 +390,19 @@ export function hasHaste(permanent: any): boolean {
  * @param attacker - The attacking creature (optional, for evasion checks)
  * @returns CombatValidationResult with canParticipate and reason
  */
-export function canPermanentBlock(permanent: any, attacker?: any): CombatValidationResult {
+/**
+ * Check if a permanent has a "can't block" restriction
+ * This includes:
+ * - Effects that say "can't block" (e.g., Cobblebrute, Goblin Heelcutter)
+ * - Creature is tapped
+ * - Shadow/fear/menace/flying restrictions (vs specific attackers)
+ * 
+ * @param permanent - The permanent to check
+ * @param attacker - The attacking creature (optional, for evasion checks)
+ * @param battlefield - The battlefield array (optional, for granted abilities check)
+ * @returns CombatValidationResult with canParticipate and reason
+ */
+export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: any[]): CombatValidationResult {
   if (!permanent) {
     return { canParticipate: false, reason: 'Permanent not found' };
   }
@@ -418,9 +437,9 @@ export function canPermanentBlock(permanent: any, attacker?: any): CombatValidat
     }
   }
   
-  // If an attacker is provided, check evasion abilities
+  // If an attacker is provided, check evasion abilities (flying, shadow, etc.)
   if (attacker) {
-    const evasionResult = checkEvasionAbilities(permanent, attacker);
+    const evasionResult = checkEvasionAbilities(permanent, attacker, battlefield);
     if (!evasionResult.canParticipate) {
       return evasionResult;
     }
@@ -437,30 +456,39 @@ export function canPermanentBlock(permanent: any, attacker?: any): CombatValidat
  * @param attacker - The attacking creature
  * @returns CombatValidationResult
  */
-export function checkEvasionAbilities(blocker: any, attacker: any): CombatValidationResult {
+/**
+ * Check evasion abilities when blocking
+ * Flying, shadow, horsemanship, menace, fear, intimidate, skulk, etc.
+ * 
+ * @param blocker - The potential blocking creature
+ * @param attacker - The attacking creature
+ * @param battlefield - The battlefield array (for checking granted abilities)
+ * @returns CombatValidationResult
+ */
+export function checkEvasionAbilities(blocker: any, attacker: any, battlefield?: any[]): CombatValidationResult {
   const attackerText = attacker.card?.oracle_text?.toLowerCase() || 
                        attacker.oracle_text?.toLowerCase() || '';
   const blockerText = blocker.card?.oracle_text?.toLowerCase() || 
                       blocker.oracle_text?.toLowerCase() || '';
   
   // Flying (Rule 702.9) - can only be blocked by creatures with flying or reach
-  if (attackerText.includes('flying') || hasAbility(attacker, 'flying')) {
-    if (!attackerText.includes('reach') && !hasAbility(blocker, 'reach') &&
-        !blockerText.includes('flying') && !hasAbility(blocker, 'flying')) {
+  if (attackerText.includes('flying') || hasAbility(attacker, 'flying', battlefield)) {
+    if (!attackerText.includes('reach') && !hasAbility(blocker, 'reach', battlefield) &&
+        !blockerText.includes('flying') && !hasAbility(blocker, 'flying', battlefield)) {
       return { canParticipate: false, reason: 'Cannot block a creature with flying without flying or reach' };
     }
   }
   
   // Shadow (Rule 702.27) - can only be blocked by creatures with shadow
-  if (attackerText.includes('shadow') || hasAbility(attacker, 'shadow')) {
-    if (!blockerText.includes('shadow') && !hasAbility(blocker, 'shadow')) {
+  if (attackerText.includes('shadow') || hasAbility(attacker, 'shadow', battlefield)) {
+    if (!blockerText.includes('shadow') && !hasAbility(blocker, 'shadow', battlefield)) {
       return { canParticipate: false, reason: 'Only creatures with shadow can block creatures with shadow' };
     }
   }
   
   // Horsemanship (Rule 702.30) - can only be blocked by creatures with horsemanship
-  if (attackerText.includes('horsemanship') || hasAbility(attacker, 'horsemanship')) {
-    if (!blockerText.includes('horsemanship') && !hasAbility(blocker, 'horsemanship')) {
+  if (attackerText.includes('horsemanship') || hasAbility(attacker, 'horsemanship', battlefield)) {
+    if (!blockerText.includes('horsemanship') && !hasAbility(blocker, 'horsemanship', battlefield)) {
       return { canParticipate: false, reason: 'Only creatures with horsemanship can block creatures with horsemanship' };
     }
   }
@@ -471,12 +499,12 @@ export function checkEvasionAbilities(blocker: any, attacker: any): CombatValida
 /**
  * Helper to check if a permanent has a specific ability
  */
-function hasAbility(permanent: any, abilityName: string): boolean {
+function hasAbility(permanent: any, abilityName: string, battlefield?: any[]): boolean {
   if (!permanent) return false;
   
   const lowerName = abilityName.toLowerCase();
   
-  // Check granted abilities
+  // Check granted abilities stored on the permanent
   if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
     if (permanent.grantedAbilities.some((a: string) => a.toLowerCase() === lowerName)) {
       return true;
@@ -489,6 +517,43 @@ function hasAbility(permanent: any, abilityName: string): boolean {
       a.type?.toLowerCase() === lowerName || a.name?.toLowerCase() === lowerName
     )) {
       return true;
+    }
+  }
+  
+  // Check keywords array from card data
+  if (permanent.card?.keywords && Array.isArray(permanent.card.keywords)) {
+    if (permanent.card.keywords.some((k: string) => k.toLowerCase() === lowerName)) {
+      return true;
+    }
+  }
+  
+  // Check for abilities granted by other battlefield permanents
+  // This is for effects like Eldrazi Monument ("creatures you control have flying and indestructible")
+  if (battlefield && Array.isArray(battlefield)) {
+    const permTypeLine = (permanent.card?.type_line || permanent.type_line || '').toLowerCase();
+    const isCreature = permTypeLine.includes('creature');
+    
+    for (const source of battlefield) {
+      if (!source || !source.card) continue;
+      
+      const sourceOracle = (source.card.oracle_text || '').toLowerCase();
+      const sourceController = source.controller;
+      
+      // Pattern: "creatures you control have [ability]" or "creatures you control get +X/+X and have [ability]"
+      // This handles Eldrazi Monument, anthem effects, etc.
+      if (isCreature && sourceController === permanent.controller) {
+        // Check if the source grants this ability to creatures
+        const grantPattern = new RegExp(`creatures\\s+you\\s+control\\s+(?:get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+)?have\\s+[^.]*\\b${lowerName}\\b`, 'i');
+        if (grantPattern.test(sourceOracle)) {
+          return true;
+        }
+        
+        // Pattern: "other creatures you control have [ability]"
+        const otherPattern = new RegExp(`other\\s+creatures\\s+you\\s+control\\s+(?:get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+)?have\\s+[^.]*\\b${lowerName}\\b`, 'i');
+        if (otherPattern.test(sourceOracle) && source.id !== permanent.id) {
+          return true;
+        }
+      }
     }
   }
   
@@ -839,20 +904,19 @@ export function getGoadedAttackers(state: GameState, playerId: string): string[]
 export function getLegalBlockers(state: GameState, playerId: string, attackerId?: string): string[] {
   const legalBlockers: string[] = [];
   let attacker: any = null;
+  const battlefield = state.battlefield as any[] || [];
   
   // Find the attacker if specified
   if (attackerId) {
-    attacker = (state.battlefield as any[])?.find((p: any) => p.id === attackerId);
+    attacker = battlefield.find((p: any) => p.id === attackerId);
   }
   
   // Check global battlefield (single source of truth)
-  if (state.battlefield) {
-    for (const perm of state.battlefield as any[]) {
-      if (perm.controller === playerId) {
-        const result = canPermanentBlock(perm, attacker);
-        if (result.canParticipate) {
-          legalBlockers.push(perm.id);
-        }
+  for (const perm of battlefield) {
+    if (perm.controller === playerId) {
+      const result = canPermanentBlock(perm, attacker, battlefield);
+      if (result.canParticipate) {
+        legalBlockers.push(perm.id);
       }
     }
   }

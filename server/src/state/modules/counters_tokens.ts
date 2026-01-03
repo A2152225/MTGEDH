@@ -897,9 +897,20 @@ export function runSBA(ctx: GameContext) {
     if (!playerZones) continue;
     
     // Clean tokens from graveyard
+    // Note: Tokens may be identified by:
+    // - card.isToken flag (if copied from permanent)
+    // - card name starting with "Token" in type_line
+    // - isToken flag directly on the card object
     if (Array.isArray(playerZones.graveyard)) {
       const beforeCount = playerZones.graveyard.length;
-      playerZones.graveyard = playerZones.graveyard.filter((card: any) => !card.isToken) as any;
+      playerZones.graveyard = playerZones.graveyard.filter((card: any) => {
+        // Check all possible token indicators
+        if (card.isToken) return false;
+        if (card.card?.isToken) return false; // If the graveyard entry has a nested card object
+        const typeLine = (card.type_line || card.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('token')) return false;
+        return true;
+      }) as any;
       if (playerZones.graveyard.length !== beforeCount) {
         playerZones.graveyardCount = playerZones.graveyard.length;
         debug(2, `[runSBA] Removed ${beforeCount - playerZones.graveyard.length} token(s) from ${playerId}'s graveyard`);
@@ -908,9 +919,16 @@ export function runSBA(ctx: GameContext) {
     }
     
     // Clean tokens from exile
+    // Note: Same token detection logic as graveyard
     if (Array.isArray(playerZones.exile)) {
       const beforeCount = playerZones.exile.length;
-      playerZones.exile = playerZones.exile.filter((card: any) => !card.isToken) as any;
+      playerZones.exile = playerZones.exile.filter((card: any) => {
+        if (card.isToken) return false;
+        if (card.card?.isToken) return false;
+        const typeLine = (card.type_line || card.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('token')) return false;
+        return true;
+      }) as any;
       if (playerZones.exile.length !== beforeCount) {
         playerZones.exileCount = playerZones.exile.length;
         debug(2, `[runSBA] Removed ${beforeCount - playerZones.exile.length} token(s) from ${playerId}'s exile`);
@@ -919,9 +937,16 @@ export function runSBA(ctx: GameContext) {
     }
     
     // Clean tokens from hand (unlikely but possible)
+    // Note: Same token detection logic as graveyard
     if (Array.isArray(playerZones.hand)) {
       const beforeCount = playerZones.hand.length;
-      playerZones.hand = playerZones.hand.filter((card: any) => !card.isToken) as any;
+      playerZones.hand = playerZones.hand.filter((card: any) => {
+        if (card.isToken) return false;
+        if (card.card?.isToken) return false;
+        const typeLine = (card.type_line || card.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('token')) return false;
+        return true;
+      }) as any;
       if (playerZones.hand.length !== beforeCount) {
         playerZones.handCount = playerZones.hand.length;
         debug(2, `[runSBA] Removed ${beforeCount - playerZones.hand.length} token(s) from ${playerId}'s hand`);
@@ -930,10 +955,17 @@ export function runSBA(ctx: GameContext) {
     }
     
     // Clean tokens from library (shouldn't happen but be thorough)
+    // Note: Same token detection logic as graveyard
     const library = (ctx as any).libraries?.get(playerId);
     if (Array.isArray(library)) {
       const beforeCount = library.length;
-      const cleanedLibrary = library.filter((card: any) => !card.isToken);
+      const cleanedLibrary = library.filter((card: any) => {
+        if (card.isToken) return false;
+        if (card.card?.isToken) return false;
+        const typeLine = (card.type_line || card.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('token')) return false;
+        return true;
+      });
       if (cleanedLibrary.length !== beforeCount) {
         (ctx as any).libraries.set(playerId, cleanedLibrary);
         if (playerZones.libraryCount !== undefined) {

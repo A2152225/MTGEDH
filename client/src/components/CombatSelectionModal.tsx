@@ -146,9 +146,10 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
   const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
   
   // Check for granted abilities and card text for danger indicators
-  const grantedAbilities = (perm.grantedAbilities || []).map(a => a.toLowerCase());
+  // Note: grantedAbilities was already declared above (line ~98), reuse it here
+  const lowerGrantedAbilities = grantedAbilities.map((a: string) => (a || '').toLowerCase());
   const hasAbility = (keyword: string) => 
-    grantedAbilities.some(a => a.includes(keyword)) || 
+    lowerGrantedAbilities.some((a: string) => a.includes(keyword)) || 
     oracleText.includes(keyword);
   
   // Parse toxic value
