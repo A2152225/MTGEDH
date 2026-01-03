@@ -3404,7 +3404,29 @@ function executeTriggerEffect(
     const isColorless = !!createXTokensPattern[3];
     const tokenType = createXTokensPattern[4].trim();
     const isArtifact = !!createXTokensPattern[5];
-    const countType = createXTokensPattern[6].toLowerCase();
+    // Normalize countType to singular form - the regex may capture plural form (e.g., "Soldiers")
+    // but type_line uses singular (e.g., "Creature - Soldier")
+    let countType = createXTokensPattern[6].toLowerCase();
+    // Handle irregular plurals first, then regular plurals
+    // Elves -> Elf, Wolves -> Wolf, Dwarves -> Dwarf, etc.
+    const irregularPlurals: Record<string, string> = {
+      'elves': 'elf',
+      'wolves': 'wolf',
+      'dwarves': 'dwarf',
+      'halves': 'half',
+      'leaves': 'leaf',
+      'knives': 'knife',
+      'lives': 'life',
+      'selves': 'self',
+      'calves': 'calf',
+    };
+    if (irregularPlurals[countType]) {
+      countType = irregularPlurals[countType];
+    } else if (countType.endsWith('s') && countType.length > 1) {
+      // Strip trailing 's' to get singular form for matching
+      // This handles: Soldiers -> soldier, Goblins -> goblin, Humans -> human, etc.
+      countType = countType.slice(0, -1);
+    }
     
     const battlefield = state.battlefield || [];
     
@@ -3424,7 +3446,7 @@ function executeTriggerEffect(
       }
     }
     
-    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${count} ${tokenType} tokens for ${controller} (${countType}s controlled: ${count})`);
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${count} ${tokenType} tokens for ${controller} (${countType} controlled: ${count})`);
     
     // Extra debug if count is 0 but we expected soldiers
     if (count === 0 && battlefield.length > 0) {
