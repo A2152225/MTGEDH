@@ -1879,6 +1879,13 @@ export function nextTurn(ctx: GameContext) {
       debug(2, `${ts()} [nextTurn] Cleared autoPassForTurn flags for new turn`);
     }
     
+    // Clear noncreature spells cast this turn counter (for Esper Sentinel, Rhystic Study, etc.)
+    // These abilities trigger on each player's FIRST noncreature spell each turn
+    if ((ctx as any).state.noncreatureSpellsCastThisTurn) {
+      (ctx as any).state.noncreatureSpellsCastThisTurn = {};
+      debug(2, `${ts()} [nextTurn] Cleared noncreatureSpellsCastThisTurn for new turn`);
+    }
+    
     // Clear justSkippedToPhase flag when starting a new turn
     // Players need to use phase navigator again if they want priority protection
     if ((ctx as any).state.justSkippedToPhase) {

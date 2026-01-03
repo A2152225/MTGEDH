@@ -528,6 +528,12 @@ export interface GameState {
     controller: string;
     description: string;
   }>;
+  /**
+   * Tracks noncreature spells cast per player per turn.
+   * Used for triggers like Esper Sentinel that care about "first noncreature spell each turn".
+   * Reset at the start of each turn.
+   */
+  noncreatureSpellsCastThisTurn?: Record<PlayerID, number>;
   /** Pending library search prompts keyed by player */
   pendingLibrarySearch?: Record<PlayerID, any>;
   /**

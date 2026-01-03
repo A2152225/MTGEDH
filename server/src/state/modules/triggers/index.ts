@@ -117,8 +117,11 @@ export {
   applySpellCastUntapEffect,
   detectStormAbility,
   getStormCount,
+  detectOpponentSpellCastTriggers,
+  getOpponentSpellCastTriggers,
   type SpellCastTrigger as SpellCastTriggerType,
   type SpellCastUntapEffect as SpellCastUntapEffectType,
+  type OpponentSpellCastTrigger as OpponentSpellCastTriggerType,
 } from "./spell-cast.js";
 // Export from tap-untap.ts (full implementation, replaces re-exports)
 export {
