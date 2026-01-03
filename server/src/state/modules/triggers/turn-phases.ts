@@ -155,7 +155,10 @@ export function getEndStepTriggers(
       
       // Check for "each opponent's end step" triggers (Keeper of the Accord style)
       // These trigger when it's an OPPONENT's end step, not the controller's
-      if (trigger.triggersOnOpponentEndStep || lowerOracle.includes("each opponent's end step") || lowerOracle.includes("each opponent's end step")) {
+      // Handle both straight (') and curly (') apostrophes
+      if (trigger.triggersOnOpponentEndStep || 
+          lowerOracle.includes("each opponent's end step") || 
+          lowerOracle.includes("each opponent's end step")) {
         // Triggers if the active player (whose end step it is) is NOT the controller
         if (permanent.controller !== activePlayerId) {
           triggers.push(trigger);

@@ -101,6 +101,8 @@ export function parseTargetRequirements(oracleText?: string): {
   minTargets: number;
   maxTargets: number;
   targetDescription: string;
+  perOpponent?: boolean;  // For "for each opponent, up to one target X that player controls"
+  targetControllerConstraint?: 'opponent' | 'that_player' | 'you' | 'any';
 } {
   if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
   
@@ -109,6 +111,58 @@ export function parseTargetRequirements(oracleText?: string): {
   let minTargets = 0;
   let maxTargets = 0;
   let targetDescription = '';
+  
+  // Check for "for each opponent, X target Y that player controls" patterns
+  // Examples:
+  // - "For each opponent, destroy up to one target artifact or enchantment that player controls."
+  // - "For each opponent, exile target creature that player controls."
+  const perOpponentMatch = t.match(/for each opponent,?\s+(?:destroy|exile|return|tap|untap)?\s*up\s+to\s+(\w+)\s+target\s+([^.]+?)\s+that\s+player\s+controls/i);
+  if (perOpponentMatch) {
+    const numWord = perOpponentMatch[1];
+    const targetType = perOpponentMatch[2].trim();
+    const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+    const targetsPerOpponent = numMap[numWord] || parseInt(numWord, 10) || 1;
+    // For "up to", min is 0
+    minTargets = 0;
+    maxTargets = targetsPerOpponent;
+    // Parse the target type (e.g., "artifact or enchantment")
+    const types = targetType.split(/\s+or\s+/);
+    for (const type of types) {
+      targetTypes.push(type.trim());
+    }
+    targetDescription = `for each opponent, up to ${numWord} target ${targetType} that player controls`;
+    return { 
+      needsTargets: true, 
+      targetTypes, 
+      minTargets, 
+      maxTargets, 
+      targetDescription,
+      perOpponent: true,
+      targetControllerConstraint: 'that_player',
+    };
+  }
+  
+  // Check for "for each opponent, target X that player controls" (exact one, not "up to")
+  const perOpponentExactMatch = t.match(/for each opponent,?\s+(?:destroy|exile|return|tap|untap)?\s*target\s+([^.]+?)\s+that\s+player\s+controls/i);
+  if (perOpponentExactMatch) {
+    const targetType = perOpponentExactMatch[1].trim();
+    minTargets = 1;
+    maxTargets = 1;
+    const types = targetType.split(/\s+or\s+/);
+    for (const type of types) {
+      targetTypes.push(type.trim());
+    }
+    targetDescription = `for each opponent, target ${targetType} that player controls`;
+    return { 
+      needsTargets: true, 
+      targetTypes, 
+      minTargets, 
+      maxTargets, 
+      targetDescription,
+      perOpponent: true,
+      targetControllerConstraint: 'that_player',
+    };
+  }
   
   // Check for "up to X target" patterns
   const upToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(\w+)/i);
