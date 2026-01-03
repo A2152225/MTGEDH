@@ -1829,6 +1829,26 @@ export function nextTurn(ctx: GameContext) {
       debugWarn(1, `${ts()} [nextTurn] Failed to clear temporary land bonuses:`, err);
     }
     
+    // Reset planeswalker loyalty activation counters for the active player's permanents
+    // Rule 606.3: Each loyalty ability can only be activated once per turn (or more with Chain Veil/Oath of Teferi)
+    try {
+      const battlefield = (ctx as any).state.battlefield || [];
+      for (const perm of battlefield) {
+        if (perm && perm.controller === next) {
+          // Reset both the old boolean flag and the new counter for compatibility
+          if (perm.loyaltyActivatedThisTurn) {
+            perm.loyaltyActivatedThisTurn = false;
+          }
+          if (perm.loyaltyActivationsThisTurn) {
+            perm.loyaltyActivationsThisTurn = 0;
+          }
+        }
+      }
+      debug(2, `${ts()} [nextTurn] Reset planeswalker loyalty activation counters for player ${next}`);
+    } catch (err) {
+      debugWarn(1, `${ts()} [nextTurn] Failed to reset planeswalker loyalty flags:`, err);
+    }
+    
     // Immediately advance from UNTAP to UPKEEP (Rule 502.1: untap step has no priority)
     // Untap all permanents controlled by the active player
     try {

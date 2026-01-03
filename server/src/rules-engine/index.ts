@@ -24,6 +24,7 @@ export type EngineSBAResult = {
   readonly counterUpdates: readonly EngineCounterUpdate[];
   readonly destroys: readonly string[];
   readonly playersLost: readonly string[]; // Player IDs who have lost due to SBA (Rule 704.5a)
+  readonly legendRuleViolations?: readonly string[]; // Permanent IDs involved in legend rule violations (Rule 704.5j)
 };
 
 // Normalize counters: positives only; +1/+1 and -1/-1 cancel pairwise
@@ -259,6 +260,56 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     }
   }
 
+  // CR 704.5i: If a planeswalker has loyalty 0, it's put into its owner's graveyard.
+  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
+    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+    if (!typeLine.includes('planeswalker')) continue;
+    
+    // Get current loyalty from counters
+    const loyalty = (perm as any).counters?.loyalty ?? 0;
+    
+    if (loyalty <= 0) {
+      destroys.push(perm.id);
+    }
+  }
+  
+  // CR 704.5j: Legend Rule - If a player controls two or more legendary permanents
+  // with the same name, that player chooses one of them, and the rest are put into
+  // their owners' graveyards. This is called the "legend rule."
+  // Note: This function returns which permanents NEED a choice, the actual choice
+  // is handled by the caller (runSBA) via ResolutionQueueManager
+  const legendaryByControllerAndName = new Map<string, BattlefieldPermanent[]>();
+  
+  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
+    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+    // Check for "legendary" supertype (both legendary creatures and legendary planeswalkers)
+    if (!typeLine.includes('legendary')) continue;
+    
+    const controller = (perm as any).controller || (perm as any).owner || '';
+    const cardName = (perm.card as any)?.name || '';
+    
+    if (!controller || !cardName) continue;
+    
+    const key = `${controller}:${cardName}`;
+    const existing = legendaryByControllerAndName.get(key) || [];
+    existing.push(perm);
+    legendaryByControllerAndName.set(key, existing);
+  }
+  
+  // For duplicate legendaries, we need to mark them for legend rule processing
+  // The caller will handle prompting the player to choose which to keep
+  // For now, we return all IDs of permanents that are part of a legend rule violation
+  const legendRuleViolations: string[] = [];
+  for (const [, perms] of legendaryByControllerAndName) {
+    if (perms.length > 1) {
+      // All permanents in this group are part of a legend rule violation
+      // The player will need to choose which one to keep
+      for (const perm of perms) {
+        legendRuleViolations.push(perm.id);
+      }
+    }
+  }
+
   // CR 704.5a: If a player has 0 or less life, that player loses the game.
   const playersLost: string[] = [];
   const life = (state as any).life || {};
@@ -276,7 +327,7 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     }
   }
 
-  return { counterUpdates: updates, destroys, playersLost };
+  return { counterUpdates: updates, destroys, playersLost, legendRuleViolations };
 }
 
 // Damage evaluation (wither/infect → -1/-1 counters)

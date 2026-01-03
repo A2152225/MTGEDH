@@ -9,7 +9,7 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent } from "../state/modules/triggered-abilities";
+import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit } from "../state/modules/triggered-abilities";
 import { triggerETBEffectsForToken } from "../state/modules/stack";
 import { 
   getManaAbilitiesForPermanent, 
@@ -27,6 +27,7 @@ import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activ
 import { creatureHasHaste } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { registerManaHandlers } from "./mana-handlers.js";
+import { parseTargetRequirements } from "../rules-engine/targeting.js";
 
 // ============================================================================
 // Constants
@@ -5114,6 +5115,190 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       const ability = abilities[abilityIndex];
       
+      // Check if this ability requires targets
+      const targetReqs = parseTargetRequirements(ability.text);
+      
+      // Get current loyalty (needed for validation)
+      const currentLoyalty = (permanent as any).counters?.loyalty || 0;
+      const loyaltyCost = ability.loyaltyCost;
+      
+      // Check if we can pay the cost BEFORE prompting for targets
+      // For minus abilities, check we have enough loyalty
+      if (loyaltyCost < 0 && currentLoyalty + loyaltyCost < 0) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_LOYALTY",
+          message: `${cardName} has ${currentLoyalty} loyalty, need at least ${Math.abs(loyaltyCost)} to activate this ability`,
+        });
+        return;
+      }
+      
+      // Check if planeswalker has already activated maximum abilities this turn
+      // (Rule 606.3: Only one loyalty ability per turn per planeswalker, unless modified)
+      // Chain Veil and Oath of Teferi allow 2 activations per turn
+      const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
+      const maxActivations = getLoyaltyActivationLimit(game.state, pid);
+      
+      if (activationsThisTurn >= maxActivations) {
+        const extraText = maxActivations > 1 ? ` (max ${maxActivations} with effects)` : '';
+        socket.emit("error", {
+          code: "LOYALTY_ALREADY_USED",
+          message: `${cardName} has already activated ${maxActivations} loyalty ability${maxActivations > 1 ? 'ies' : ''} this turn${extraText}`,
+        });
+        return;
+      }
+      
+      // If this ability requires targets, prompt for target selection
+      if (targetReqs.needsTargets) {
+        // Build valid target list based on target type
+        let validTargets: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string }[] = [];
+        
+        for (const targetType of targetReqs.targetTypes) {
+          const battlefield = game.state.battlefield || [];
+          const players = game.state.players || [];
+          
+          switch (targetType.toLowerCase()) {
+            case 'creature':
+              validTargets.push(...battlefield
+                .filter((p: any) => {
+                  const typeLine = (p.card?.type_line || '').toLowerCase();
+                  return typeLine.includes('creature');
+                })
+                .map((p: any) => ({
+                  id: p.id,
+                  kind: 'permanent',
+                  name: p.card?.name || 'Creature',
+                  controller: p.controller,
+                  imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                })));
+              break;
+            case 'permanent':
+            case 'nonland':
+              validTargets.push(...battlefield
+                .filter((p: any) => {
+                  const typeLine = (p.card?.type_line || '').toLowerCase();
+                  if (targetType === 'nonland') return !typeLine.includes('land');
+                  return true;
+                })
+                .map((p: any) => ({
+                  id: p.id,
+                  kind: 'permanent',
+                  name: p.card?.name || 'Permanent',
+                  controller: p.controller,
+                  imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                })));
+              break;
+            case 'player':
+            case 'opponent':
+              const lifeDict = game.state.life || {};
+              const startingLife = game.state.startingLife || 40;
+              validTargets.push(...players
+                .filter((p: any) => {
+                  if (!p || !p.id) return false;
+                  if (targetType === 'opponent') return p.id !== pid;
+                  return true;
+                })
+                .map((p: any) => ({
+                  id: p.id,
+                  kind: 'player',
+                  name: p.name || p.id,
+                  isOpponent: p.id !== pid,
+                  life: lifeDict[p.id] ?? p.life ?? startingLife,
+                })));
+              break;
+            case 'any':
+              // Can target creatures, planeswalkers, or players
+              validTargets.push(...battlefield
+                .filter((p: any) => {
+                  const typeLine = (p.card?.type_line || '').toLowerCase();
+                  return typeLine.includes('creature') || typeLine.includes('planeswalker');
+                })
+                .map((p: any) => ({
+                  id: p.id,
+                  kind: 'permanent',
+                  name: p.card?.name || 'Permanent',
+                  controller: p.controller,
+                  imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                })));
+              // Also add players to 'any' targets
+              const anyLifeDict = game.state.life || {};
+              const anyStartingLife = game.state.startingLife || 40;
+              validTargets.push(...players
+                .filter((p: any) => p && p.id)
+                .map((p: any) => ({
+                  id: p.id,
+                  kind: 'player',
+                  name: p.name || p.id,
+                  isOpponent: p.id !== pid,
+                  life: anyLifeDict[p.id] ?? p.life ?? anyStartingLife,
+                })));
+              break;
+            case 'artifact':
+            case 'enchantment':
+            case 'planeswalker':
+            case 'land':
+              validTargets.push(...battlefield
+                .filter((p: any) => {
+                  const typeLine = (p.card?.type_line || '').toLowerCase();
+                  return typeLine.includes(targetType);
+                })
+                .map((p: any) => ({
+                  id: p.id,
+                  kind: 'permanent',
+                  name: p.card?.name || targetType,
+                  controller: p.controller,
+                  imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                })));
+              break;
+          }
+        }
+        
+        // Remove duplicates
+        const uniqueTargets = validTargets.filter((t, i, arr) => 
+          arr.findIndex(x => x.id === t.id) === i
+        );
+        
+        // Store pending ability activation info
+        const pendingAbilityId = `pw_${permanentId}_${Date.now()}`;
+        (game as any).pendingPlaneswalkerAbility = (game as any).pendingPlaneswalkerAbility || {};
+        (game as any).pendingPlaneswalkerAbility[pendingAbilityId] = {
+          playerId: pid,
+          permanentId,
+          cardName,
+          ability,
+          abilityIndex,
+          loyaltyCost,
+          currentLoyalty,
+          targetReqs,
+        };
+        
+        // Emit target selection request (same event as spell casting uses)
+        socket.emit("targetSelectionRequest", {
+          gameId,
+          effectId: pendingAbilityId,
+          source: {
+            name: cardName,
+            imageUrl: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+          },
+          title: `Choose ${targetReqs.targetDescription} for ${cardName}`,
+          description: ability.text,
+          targets: uniqueTargets.map(t => ({
+            id: t.id,
+            type: t.kind === 'player' ? 'player' : 'permanent',
+            name: t.name,
+            displayName: t.name,
+            imageUrl: t.imageUrl,
+            controller: t.controller,
+            life: (t as any).life,
+            isOpponent: t.isOpponent,
+          })),
+          minTargets: targetReqs.minTargets,
+          maxTargets: targetReqs.maxTargets,
+        });
+        
+        debug(2, `[planeswalker] Requesting target selection for ${cardName} ability: ${targetReqs.targetDescription}`);
+        return; // Wait for target selection
+      }
+      
       // Enqueue activation in the resolution queue for unified handling/ordering
       try {
         const step = ResolutionQueueManager.addStep(gameId, {
@@ -5136,35 +5321,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         debugWarn(2, `[planeswalker] Failed to enqueue activation for ${cardName}:`, e);
       }
       
-      // Get current loyalty
-      const currentLoyalty = (permanent as any).counters?.loyalty || 0;
-      const loyaltyCost = ability.loyaltyCost;
-      
-      // Check if we can pay the cost
-      // For minus abilities, check we have enough loyalty
-      if (loyaltyCost < 0 && currentLoyalty + loyaltyCost < 0) {
-        socket.emit("error", {
-          code: "INSUFFICIENT_LOYALTY",
-          message: `${cardName} has ${currentLoyalty} loyalty, need at least ${Math.abs(loyaltyCost)} to activate this ability`,
-        });
-        return;
-      }
-      
-      // Check if planeswalker has already activated an ability this turn
-      // (Rule 606.3: Only one loyalty ability per turn per planeswalker)
-      if ((permanent as any).loyaltyActivatedThisTurn) {
-        socket.emit("error", {
-          code: "LOYALTY_ALREADY_USED",
-          message: `${cardName} has already activated a loyalty ability this turn`,
-        });
-        return;
-      }
-      
-      // Apply loyalty cost
+      // Apply loyalty cost and update counters
       const newLoyalty = currentLoyalty + loyaltyCost;
       (permanent as any).counters = (permanent as any).counters || {};
       (permanent as any).counters.loyalty = newLoyalty;
-      (permanent as any).loyaltyActivatedThisTurn = true;
+      (permanent as any).loyalty = newLoyalty; // Also update top-level loyalty for client display
+      (permanent as any).loyaltyActivationsThisTurn = activationsThisTurn + 1; // Increment counter (supports Chain Veil)
       
       // Put the loyalty ability on the stack
       const stackItem = {
@@ -6170,6 +6332,106 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
+    // Check if this is a planeswalker ability that was waiting for targets
+    // effectId format is "pw_${permanentId}_${timestamp}"
+    if (effectId && effectId.startsWith('pw_')) {
+      const pendingAbility = (game as any).pendingPlaneswalkerAbility?.[effectId];
+      
+      if (pendingAbility) {
+        const { playerId, permanentId, cardName, ability, abilityIndex, loyaltyCost, currentLoyalty, targetReqs } = pendingAbility;
+        
+        // Validate targets against min/max
+        // Note: "up to X" abilities have minTargets=0, so 0 targets is valid for them
+        if (targetIds.length < targetReqs.minTargets) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_TARGETS",
+            message: `${cardName} requires at least ${targetReqs.minTargets} target(s).`,
+          });
+          return;
+        }
+        
+        if (targetIds.length > targetReqs.maxTargets) {
+          socket.emit("error", {
+            code: "TOO_MANY_TARGETS",
+            message: `${cardName} can target at most ${targetReqs.maxTargets} target(s).`,
+          });
+          return;
+        }
+        
+        // Find the permanent
+        const permanent = game.state.battlefield?.find((p: any) => p.id === permanentId);
+        if (!permanent) {
+          socket.emit("error", {
+            code: "PERMANENT_NOT_FOUND",
+            message: `${cardName} is no longer on the battlefield.`,
+          });
+          // Clean up pending
+          delete (game as any).pendingPlaneswalkerAbility[effectId];
+          return;
+        }
+        
+        // Apply loyalty cost and update counters
+        const newLoyalty = currentLoyalty + loyaltyCost;
+        (permanent as any).counters = (permanent as any).counters || {};
+        (permanent as any).counters.loyalty = newLoyalty;
+        (permanent as any).loyalty = newLoyalty; // Also update top-level loyalty for client display
+        const currentActivations = (permanent as any).loyaltyActivationsThisTurn || 0;
+        (permanent as any).loyaltyActivationsThisTurn = currentActivations + 1; // Increment counter (supports Chain Veil)
+        
+        // Put the loyalty ability on the stack WITH targets
+        const stackItem = {
+          id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          type: 'ability' as const,
+          controller: playerId,
+          source: permanentId,
+          sourceName: cardName,
+          description: ability.text,
+          targets: targetIds,  // Include selected targets
+        };
+        
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push(stackItem);
+        
+        // Emit stack update
+        io.to(gameId).emit("stackUpdate", {
+          gameId,
+          stack: (game.state.stack || []).map((s: any) => ({
+            id: s.id,
+            type: s.type,
+            name: s.sourceName || s.card?.name || 'Ability',
+            controller: s.controller,
+            targets: s.targets,
+            source: s.source,
+            sourceName: s.sourceName,
+            description: s.description,
+          })),
+        });
+        
+        appendEvent(gameId, (game as any).seq ?? 0, "activatePlaneswalkerAbility", { 
+          playerId, 
+          permanentId, 
+          abilityIndex, 
+          loyaltyCost,
+          newLoyalty,
+          targets: targetIds,
+        });
+        
+        const costSign = loyaltyCost >= 0 ? "+" : "";
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `⚡ ${getPlayerName(game, playerId)} activated ${cardName}'s [${costSign}${loyaltyCost}] ability${targetIds.length > 0 ? ` targeting ${targetIds.length} target(s)` : ''}. (Loyalty: ${currentLoyalty} → ${newLoyalty})`,
+          ts: Date.now(),
+        });
+        
+        // Clean up pending
+        delete (game as any).pendingPlaneswalkerAbility[effectId];
+        
+        debug(2, `[targetSelectionConfirm] Planeswalker ability ${cardName} activated with ${targetIds.length} targets`);
+      }
+    }
+    
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }
@@ -6200,6 +6462,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
       delete (game.state as any).pendingSpellCasts[effectId];
       debug(2, `[targetSelectionCancel] Cleaned up pending spell cast for effectId: ${effectId}`);
+    }
+    
+    // Clean up pending planeswalker ability if target selection was cancelled
+    if (effectId && (game as any).pendingPlaneswalkerAbility?.[effectId]) {
+      delete (game as any).pendingPlaneswalkerAbility[effectId];
+      debug(2, `[targetSelectionCancel] Cleaned up pending planeswalker ability for effectId: ${effectId}`);
     }
     
     // Also clean up pending targets if stored

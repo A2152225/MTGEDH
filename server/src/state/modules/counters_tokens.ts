@@ -813,6 +813,82 @@ export function runSBA(ctx: GameContext) {
     }
   }
   
+  // CR 704.5j: Legend Rule - If a player controls two or more legendary permanents
+  // with the same name, that player chooses one of them, and the rest are put into
+  // their owners' graveyards.
+  // 
+  // Handle legend rule violations by prompting the player to choose which to keep
+  if (res.legendRuleViolations && res.legendRuleViolations.length > 0) {
+    // Group violations by controller + name
+    const violationsByKey = new Map<string, typeof state.battlefield>();
+    
+    for (const permId of res.legendRuleViolations) {
+      const perm = state.battlefield.find(p => p.id === permId);
+      if (!perm) continue;
+      
+      const controller = (perm as any).controller || (perm as any).owner || '';
+      const cardName = (perm.card as any)?.name || perm.id; // Use permanent ID as fallback if no name
+      
+      // Skip permanents without a name (shouldn't happen for legendaries, but be safe)
+      if (!(perm.card as any)?.name) continue;
+      
+      const key = `${controller}:${cardName}`;
+      
+      const existing = violationsByKey.get(key) || [];
+      existing.push(perm);
+      violationsByKey.set(key, existing);
+    }
+    
+    // For each group of duplicate legendaries, need to keep only one
+    // Since we can't synchronously prompt the user, we'll handle this by:
+    // 1. If a player has multiple copies of the same legendary, keep the first one (by timestamp/order)
+    // 2. Move the rest to graveyard
+    // This is a simplification; a full implementation would use ResolutionQueueManager
+    // to prompt the player to choose which to keep
+    const zones = state.zones = state.zones || {};
+    
+    for (const [key, perms] of violationsByKey) {
+      if (perms.length <= 1) continue;
+      
+      // Keep the first one (oldest by array position), sacrifice the rest
+      // In a full implementation, we'd let the player choose
+      const [keep, ...toSacrifice] = perms;
+      
+      const controller = (keep as any).controller || '';
+      const cardName = (keep.card as any)?.name || '';
+      
+      debug(1, `[runSBA] Legend Rule: ${controller} controls ${perms.length} copies of ${cardName}, keeping first and sacrificing ${toSacrifice.length}`);
+      
+      for (const toRemove of toSacrifice) {
+        const idx = state.battlefield.findIndex(b => b.id === toRemove.id);
+        if (idx >= 0) {
+          const removed = state.battlefield.splice(idx, 1)[0];
+          const owner = (removed as any).owner || (removed as any).controller;
+          const isToken = (removed as any).isToken === true;
+          
+          // Tokens cease to exist
+          if (isToken) {
+            debug(2, `[runSBA] Legend Rule: Token ${cardName} ceased to exist`);
+            changed = true;
+            continue;
+          }
+          
+          // Move to owner's graveyard
+          if (owner) {
+            const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
+            (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
+            const card = (removed as any).card;
+            if (card) {
+              (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+              (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
+            }
+          }
+          changed = true;
+        }
+      }
+    }
+  }
+  
   // Rule 111.7: Clean up tokens in non-battlefield zones
   // A token that's in a zone other than the battlefield ceases to exist as a state-based action
   const zones = state.zones || {};
