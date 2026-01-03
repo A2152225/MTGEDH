@@ -497,11 +497,13 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   
   // ======== PLANESWALKER LOYALTY ABILITIES ========
   if (typeLine.includes('planeswalker')) {
-    // Match planeswalker ability patterns: [+N], [-N], or [0]
-    const pwAbilityPattern = /\[([+−\-]?\d+)\]:\s*([^[\]]+?)(?=\n|\[|$)/gi;
+    // Match planeswalker ability patterns: +N:, -N:, or 0: at start of line
+    // Scryfall oracle text uses plain format without brackets (e.g., "+1: Effect text")
+    // The pattern matches various dash characters: regular minus (-), en dash (–), em dash (—), and Unicode minus (−)
+    const pwAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
     let pwMatch;
     while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
-      const loyaltyCostStr = pwMatch[1].replace('−', '-');
+      const loyaltyCostStr = pwMatch[1].replace(/[−–—]/g, '-');
       const loyaltyCost = parseInt(loyaltyCostStr, 10);
       const abilityText = pwMatch[2].trim();
       const shortText = abilityText.length > 60 ? abilityText.slice(0, 57) + '...' : abilityText;
