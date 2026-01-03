@@ -5509,6 +5509,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let requiresTap = false;
     let manaCost = "";
     let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | null = null;
+    let sacrificeSubtype: string | undefined = undefined; // For creature subtypes like Soldier, Goblin, etc.
     
     // Parse activated abilities: look for "cost: effect" patterns
     const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
@@ -5533,6 +5534,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const sacrificeInfo = parseSacrificeCost(ability.cost);
       if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
         sacrificeType = sacrificeInfo.sacrificeType;
+        sacrificeSubtype = sacrificeInfo.creatureSubtype;
       }
     } else {
       // FALLBACK: If parsing failed or abilityIndex is out of range, try to extract ability text from oracle
@@ -5551,6 +5553,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const sacrificeInfo = parseSacrificeCost(ability.cost);
         if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
           sacrificeType = sacrificeInfo.sacrificeType;
+          sacrificeSubtype = sacrificeInfo.creatureSubtype;
         }
       } else {
         // Use the full oracle text to check if this is a mana ability
@@ -5607,26 +5610,50 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (p.controller !== pid) return false;
         const permTypeLine = (p.card?.type_line || '').toLowerCase();
         
+        // First check if it matches the basic type requirement
+        let matchesType = false;
         switch (sacrificeType) {
           case 'creature':
-            return permTypeLine.includes('creature');
+            matchesType = permTypeLine.includes('creature');
+            break;
           case 'artifact':
-            return permTypeLine.includes('artifact');
+            matchesType = permTypeLine.includes('artifact');
+            break;
           case 'enchantment':
-            return permTypeLine.includes('enchantment');
+            matchesType = permTypeLine.includes('enchantment');
+            break;
           case 'land':
-            return permTypeLine.includes('land');
+            matchesType = permTypeLine.includes('land');
+            break;
           case 'permanent':
-            return true; // Any permanent
+            matchesType = true; // Any permanent
+            break;
           default:
-            return false;
+            matchesType = false;
         }
+        
+        if (!matchesType) return false;
+        
+        // If there's a creature subtype requirement, also check that
+        // Subtypes like "Soldier", "Goblin", etc. appear in the type_line after the em-dash
+        // Example: "Token Creature — Human Soldier" contains "Soldier" subtype
+        if (sacrificeSubtype) {
+          const subtypeLower = sacrificeSubtype.toLowerCase();
+          // Check if the type line contains the subtype
+          // Type line format: "Creature — Human Soldier" or "Token Creature — Goblin Warrior"
+          return permTypeLine.includes(subtypeLower);
+        }
+        
+        return true;
       });
+      
+      // Determine what type label to show in error message
+      const sacrificeLabel = sacrificeSubtype ? sacrificeSubtype : sacrificeType;
       
       if (eligiblePermanents.length === 0) {
         socket.emit("error", {
           code: "NO_SACRIFICE_TARGET",
-          message: `You don't control any ${sacrificeType}s to sacrifice.`,
+          message: `You don't control any ${sacrificeLabel}s to sacrifice.`,
         });
         return;
       }
@@ -5643,6 +5670,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         manaCost,
         requiresTap,
         sacrificeType,
+        sacrificeSubtype,
         effect: abilityText,
       };
       
@@ -5661,11 +5689,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         permanentId,
         cardName,
         abilityEffect: abilityText,
-        sacrificeType,
+        sacrificeType: sacrificeLabel, // Use the more specific label
         eligibleTargets: sacrificeTargets,
       });
       
-      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeType}. Waiting for selection from ${pid}`);
+      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeLabel}. Waiting for selection from ${pid}`);
       return;
     }
     
@@ -5709,39 +5737,96 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
           
-          // If there are Phyrexian mana costs and player doesn't have the colored mana,
-          // they need to pay life - handle this via a modal or auto-deduct
+          // Check if there are Phyrexian mana costs that require a player choice
+          // Phyrexian mana can ALWAYS be paid with life (2 life per {X/P}), even if the player has the color
+          const phyrexianCosts = (parsedCost.hybrids || []).filter((options: string[]) => 
+            options.some(o => o.startsWith('LIFE:'))
+          );
+          
+          if (phyrexianCosts.length > 0) {
+            // Store pending ability activation info for after Phyrexian choice
+            const pendingPhyrexianId = `phyrexian_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            (game.state as any).pendingPhyrexianAbility = (game.state as any).pendingPhyrexianAbility || {};
+            (game.state as any).pendingPhyrexianAbility[pid] = {
+              pendingId: pendingPhyrexianId,
+              permanentId,
+              abilityIndex,
+              cardName,
+              abilityText,
+              manaCost: manaOnly,
+              parsedCost,
+              requiresTap,
+              sacrificeType,
+              sacrificeSubtype,
+              phyrexianCosts,
+            };
+            
+            // Build the choice options for each Phyrexian mana symbol
+            const phyrexianChoices = phyrexianCosts.map((options: string[], index: number) => {
+              const colorOption = options.find((o: string) => !o.startsWith('LIFE:') && !o.startsWith('GENERIC:'));
+              const lifeOption = options.find((o: string) => o.startsWith('LIFE:'));
+              const lifeAmount = lifeOption ? parseInt(lifeOption.split(':')[1], 10) : 2;
+              
+              const colorMap: Record<string, string> = {
+                'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
+              };
+              const colorName = colorOption ? colorMap[colorOption] || colorOption : 'colored';
+              const hasColorMana = colorOption ? (manaPool[colorName] || 0) >= 1 : false;
+              
+              return {
+                index,
+                colorOption,
+                colorName,
+                lifeAmount,
+                hasColorMana,
+                symbol: colorOption ? `{${colorOption}/P}` : '{P}',
+              };
+            });
+            
+            // Emit the Phyrexian mana choice request
+            socket.emit("phyrexianManaChoice", {
+              gameId,
+              pendingId: pendingPhyrexianId,
+              permanentId,
+              cardName,
+              abilityText,
+              totalManaCost: manaOnly,
+              genericCost: parsedCost.generic,
+              phyrexianChoices,
+              playerLife,
+              cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+            });
+            
+            debug(2, `[activateBattlefieldAbility] ${cardName} has Phyrexian mana costs. Prompting ${pid} for payment choice.`);
+            return; // Wait for player's choice
+          }
+          
+          // No Phyrexian costs - handle regular hybrid costs (like {W/U} or {2/W})
           if (parsedCost.hybrids && parsedCost.hybrids.length > 0) {
-            // Check each hybrid/phyrexian cost
-            let lifeToPay = 0;
             let manaToConsume = { colors: { ...parsedCost.colors }, generic: parsedCost.generic };
             
             for (const hybridOptions of parsedCost.hybrids) {
               let paid = false;
               
               for (const option of hybridOptions) {
-                if (option.startsWith('LIFE:')) {
-                  // This is a Phyrexian mana option - check if we can pay with color first
-                  continue; // Try color options first
-                } else if (option.startsWith('GENERIC:')) {
-                  // Hybrid generic option - check if we have enough generic
+                if (option.startsWith('GENERIC:')) {
+                  // Hybrid generic/color option (like {2/W}) - check if we have enough generic
                   const genericAmount = parseInt(option.split(':')[1], 10);
                   const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
                   const totalMana = Object.values(totalAvailable).reduce((a, b) => a + b, 0);
-                  if (totalMana >= genericAmount) {
+                  if (totalMana >= genericAmount + manaToConsume.generic) {
                     // Can pay with generic - add to generic cost
                     manaToConsume.generic += genericAmount;
                     paid = true;
                     break;
                   }
                 } else {
-                  // Color option
+                  // Regular hybrid color option (like W or U from {W/U})
                   const colorMap: Record<string, string> = {
                     'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
                   };
                   const colorKey = colorMap[option];
                   if (colorKey && (manaPool[colorKey] || 0) >= 1) {
-                    // Can pay with this color
                     manaToConsume.colors[option] = (manaToConsume.colors[option] || 0) + 1;
                     paid = true;
                     break;
@@ -5749,47 +5834,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 }
               }
               
-              // If we couldn't pay with mana, check for Phyrexian life payment
-              if (!paid) {
-                const lifeOption = hybridOptions.find(o => o.startsWith('LIFE:'));
-                if (lifeOption) {
-                  const lifeAmount = parseInt(lifeOption.split(':')[1], 10);
-                  lifeToPay += lifeAmount;
-                  paid = true;
-                }
-              }
-              
               if (!paid) {
                 socket.emit("error", {
                   code: "INSUFFICIENT_MANA",
-                  message: `Cannot pay ${manaOnly} - insufficient mana or life`,
+                  message: `Cannot pay ${manaOnly} - insufficient mana`,
                 });
                 return;
               }
             }
             
-            // Pay life for Phyrexian mana
-            if (lifeToPay > 0) {
-              // Player must have MORE life than cost to pay (can't pay cost that would reduce to 0)
-              if (playerLife < lifeToPay) {
-                socket.emit("error", {
-                  code: "INSUFFICIENT_LIFE",
-                  message: `Cannot pay ${lifeToPay} life for Phyrexian mana (you have ${playerLife} life)`,
-                });
-                return;
-              }
-              game.state.life[pid] -= lifeToPay;
-              
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message: `${getPlayerName(game, pid)} paid ${lifeToPay} life for Phyrexian mana to activate ${cardName}.`,
-                ts: Date.now(),
-              });
-            }
-            
-            // Consume the mana (excluding Phyrexian-paid portions)
+            // Consume the mana
             consumeManaFromPool(manaPool, manaToConsume.colors, manaToConsume.generic);
           } else {
             // No hybrid costs - just validate and consume normally
@@ -6549,12 +6603,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Store targets with the pending cast
         pendingCast.targets = targetIds;
         
+        // Calculate final mana cost, accounting for Strive and other target-based modifiers
+        let finalManaCost = pendingCast.manaCost;
+        let striveCostMessage = '';
+        
+        // Check for Strive additional cost (cost increases for each target beyond the first)
+        const cardOracleText = pendingCast.card?.oracle_text || '';
+        const striveMatch = cardOracleText.match(/\bStrive\s*[—\-]\s*This spell costs\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s+more to cast for each target beyond the first/i);
+        if (striveMatch && targetIds.length > 1) {
+          const striveCostPer = striveMatch[1].trim();
+          const additionalTargets = targetIds.length - 1;
+          
+          // Build the additional cost string (repeat the strive cost for each extra target)
+          let additionalCost = '';
+          for (let i = 0; i < additionalTargets; i++) {
+            additionalCost += striveCostPer;
+          }
+          
+          finalManaCost = finalManaCost + additionalCost;
+          striveCostMessage = ` (Strive: +${striveCostPer} × ${additionalTargets} for ${targetIds.length} targets)`;
+          debug(1, `[targetSelectionConfirm] Strive cost added: base ${pendingCast.manaCost} + ${additionalCost} = ${finalManaCost}`);
+        }
+        
+        // Update the pending cast with the final cost
+        pendingCast.finalManaCost = finalManaCost;
+        
         // Emit payment required event
         emitToPlayer(io, pid as string, "paymentRequired", {
           gameId,
           cardId: pendingCast.cardId,
-          cardName: pendingCast.cardName,
-          manaCost: pendingCast.manaCost,
+          cardName: pendingCast.cardName + striveCostMessage,
+          manaCost: finalManaCost,
           effectId,
           targets: targetIds,
         });
@@ -6936,6 +7015,223 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     broadcastGame(io, game, gameId);
+  });
+
+  // ============================================================================
+  // Phyrexian Mana Payment Choice
+  // ============================================================================
+
+  /**
+   * Handle Phyrexian mana payment choice for activated abilities
+   * Players can choose to pay with colored mana OR 2 life for each Phyrexian symbol
+   * Example: {3}{W/P} - player chooses to pay {W} or 2 life for the Phyrexian white
+   */
+  socket.on("phyrexianManaConfirm", ({
+    gameId,
+    pendingId,
+    choices,
+  }: {
+    gameId: string;
+    pendingId: string;
+    choices: Array<{ index: number; payWithLife: boolean }>;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    // Get the pending Phyrexian ability
+    const pendingAbility = (game.state as any).pendingPhyrexianAbility?.[pid];
+    if (!pendingAbility || pendingAbility.pendingId !== pendingId) {
+      socket.emit("error", {
+        code: "NO_PENDING_PHYREXIAN",
+        message: "No pending Phyrexian mana payment found",
+      });
+      return;
+    }
+    
+    const {
+      permanentId,
+      cardName,
+      abilityText,
+      manaCost,
+      parsedCost,
+      requiresTap,
+      phyrexianCosts,
+    } = pendingAbility;
+    
+    // Find the permanent
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p.id === permanentId);
+    if (!permanent) {
+      delete (game.state as any).pendingPhyrexianAbility[pid];
+      socket.emit("error", {
+        code: "PERMANENT_NOT_FOUND",
+        message: "Permanent no longer on battlefield",
+      });
+      return;
+    }
+    
+    const manaPool = getOrInitManaPool(game.state, pid);
+    const playerLife = game.state.life?.[pid] || 40;
+    
+    // Calculate total life and mana needed based on choices
+    let totalLifeToPay = 0;
+    let manaToConsume = { colors: { ...parsedCost.colors }, generic: parsedCost.generic };
+    
+    const colorMap: Record<string, string> = {
+      'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
+    };
+    
+    for (const choice of choices) {
+      const phyrexianOption = phyrexianCosts[choice.index];
+      if (!phyrexianOption) continue;
+      
+      if (choice.payWithLife) {
+        const lifeOption = phyrexianOption.find((o: string) => o.startsWith('LIFE:'));
+        if (lifeOption) {
+          totalLifeToPay += parseInt(lifeOption.split(':')[1], 10);
+        }
+      } else {
+        // Pay with colored mana
+        const colorOption = phyrexianOption.find((o: string) => !o.startsWith('LIFE:') && !o.startsWith('GENERIC:'));
+        if (colorOption) {
+          manaToConsume.colors[colorOption] = (manaToConsume.colors[colorOption] || 0) + 1;
+        }
+      }
+    }
+    
+    // Validate life payment - cannot pay life that would reduce to 0 or below
+    // Magic rules: players lose when life becomes 0 or less
+    if (totalLifeToPay > 0 && playerLife <= totalLifeToPay) {
+      socket.emit("error", {
+        code: "INSUFFICIENT_LIFE",
+        message: `Cannot pay ${totalLifeToPay} life (you have ${playerLife} life - payment would be lethal)`,
+      });
+      return;
+    }
+    
+    // Validate mana payment
+    const totalManaInPool = Object.values(manaPool as unknown as Record<string, number>).reduce((a, b) => a + b, 0);
+    const coloredManaNeeded = Object.entries(manaToConsume.colors).reduce((sum, [color, amount]) => {
+      const numAmount = typeof amount === 'number' ? amount : 0;
+      if (numAmount > 0) {
+        const colorKey = colorMap[color];
+        const available = colorKey ? (manaPool[colorKey] || 0) : 0;
+        if (available < numAmount) {
+          return -Infinity; // Mark as invalid
+        }
+      }
+      return sum + numAmount;
+    }, 0);
+    
+    if (coloredManaNeeded === -Infinity) {
+      socket.emit("error", {
+        code: "INSUFFICIENT_MANA",
+        message: `Insufficient colored mana for the selected payment`,
+      });
+      return;
+    }
+    
+    // Check total mana for generic + colored
+    const totalManaNeeded = manaToConsume.generic + coloredManaNeeded;
+    if (totalManaInPool < totalManaNeeded) {
+      socket.emit("error", {
+        code: "INSUFFICIENT_MANA",
+        message: `Insufficient mana: need ${totalManaNeeded}, have ${totalManaInPool}`,
+      });
+      return;
+    }
+    
+    // Clear pending state
+    delete (game.state as any).pendingPhyrexianAbility[pid];
+    
+    // Pay life
+    if (totalLifeToPay > 0) {
+      game.state.life[pid] -= totalLifeToPay;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} paid ${totalLifeToPay} life for Phyrexian mana.`,
+        ts: Date.now(),
+      });
+    }
+    
+    // Consume mana
+    consumeManaFromPool(manaPool, manaToConsume.colors, manaToConsume.generic);
+    
+    // Tap permanent if needed
+    if (requiresTap && !(permanent as any).tapped) {
+      (permanent as any).tapped = true;
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} paid ${manaCost} to activate ${cardName}.`,
+      ts: Date.now(),
+    });
+    
+    // Check if this is a mana ability (doesn't use the stack)
+    const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
+                          !/target/i.test(abilityText);
+    
+    if (!isManaAbility) {
+      // Put the ability on the stack
+      const stackItem = {
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: abilityText,
+      } as any;
+      
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+      
+      // Emit stack update
+      io.to(gameId).emit("stackUpdate", {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: ${abilityText}`,
+        ts: Date.now(),
+      });
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
+      playerId: pid, 
+      permanentId, 
+      cardName,
+      abilityText,
+      phyrexianLifePaid: totalLifeToPay,
+    });
+    
+    broadcastGame(io, game, gameId);
+    
+    debug(2, `[phyrexianManaConfirm] ${cardName} ability activated by ${pid}. Life paid: ${totalLifeToPay}`);
   });
 
   // ============================================================================

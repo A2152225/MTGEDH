@@ -23,30 +23,45 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * Examples include discarding cards (Faithless Looting), sacrificing permanents,
  * or paying life.
  * 
- * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', or 'squad')
+ * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', 'squad', or 'strive')
  * @property amount - How many of the cost type must be paid (e.g., 1 card, 2 life)
  * @property filter - Optional filter for sacrifice costs (e.g., "creature", "artifact")
- * @property cost - For squad: the mana cost to pay per copy (e.g., "{1}{W}")
+ * @property cost - For squad/strive: the mana cost to pay per copy/target (e.g., "{1}{W}")
  * @property canPayMultipleTimes - For squad: indicates the cost can be paid any number of times
+ * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad' | 'strive';
   amount: number;
   filter?: string;
   cost?: string;
   canPayMultipleTimes?: boolean;
+  costPerTarget?: boolean;  // For strive - indicates cost is per target beyond first
 }
 
 /**
  * Detect if a spell/permanent has additional costs like "discard a card" or "sacrifice a creature"
  * Returns the additional cost requirement if found.
  * 
- * This handles Seize the Spoils, Faithless Looting, Squad, and similar cards.
+ * This handles Seize the Spoils, Faithless Looting, Squad, Strive, and similar cards.
  * Pattern: "As an additional cost to cast this spell, discard a card"
  * Squad pattern: "Squad [cost]" which means "As an additional cost to cast this spell, you may pay [cost] any number of times"
+ * Strive pattern: "Strive — This spell costs {X}{Y} more to cast for each target beyond the first"
  */
 export function detectAdditionalCost(oracleText: string): AdditionalCostResult | null {
   const lowerText = (oracleText || "").toLowerCase();
+  
+  // Strive: "Strive — This spell costs {X}{Y} more to cast for each target beyond the first"
+  // Pattern: "Strive — This spell costs {cost} more to cast for each target beyond the first"
+  const striveMatch = oracleText.match(/\bStrive\s*[—\-]\s*This spell costs\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s+more to cast for each target beyond the first/i);
+  if (striveMatch) {
+    return {
+      type: 'strive',
+      amount: 0, // Will be calculated based on number of targets
+      cost: striveMatch[1].trim(),
+      costPerTarget: true,
+    };
+  }
   
   // Squad: "Squad {cost}" - Rule 702.157
   // This is an additional cost that can be paid any number of times

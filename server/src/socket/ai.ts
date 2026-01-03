@@ -27,6 +27,7 @@ import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool }
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { runSBA } from "../state/modules/counters_tokens.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -2455,6 +2456,30 @@ export async function handleAIPriority(
         }
       }
       
+      // CRITICAL: During DECLARE_BLOCKERS step, check if ALL defending players have declared
+      // Don't let AI pass priority until all humans have had a chance to select blockers
+      if (phase === 'combat' && (step.includes('blockers') || step === 'declare_blockers')) {
+        const state = game.state as any;
+        const blockersDeclaredBy = state.blockersDeclaredBy || [];
+        const players = game.state?.players || [];
+        const activePlayerId = players[state.activePlayerIndex || 0]?.id;
+        
+        // Get all defending players (everyone except the active/attacking player)
+        // and check if any human players haven't declared blockers yet
+        const humanDefendersStillDeciding = players.filter((p: any) => {
+          if (p.id === activePlayerId) return false; // Skip attacker
+          if (p.isAI) return false; // AI handled above
+          if (blockersDeclaredBy.includes(p.id)) return false; // Already declared
+          return true; // Human who hasn't declared yet
+        });
+        
+        if (humanDefendersStillDeciding.length > 0) {
+          debug(1, `[AI] Waiting for ${humanDefendersStillDeciding.length} human player(s) to declare blockers, not passing priority`);
+          // Don't take any action - wait for humans to declare blockers
+          return;
+        }
+      }
+      
       // Default behavior for non-turn player: pass priority
       debug(1, '[AI] Not AI turn, passing priority');
       await executePassPriority(io, gameId, playerId);
@@ -2629,6 +2654,16 @@ export async function handleAIPriority(
           return;
         }
         
+        // CRITICAL: Run state-based actions before AI makes attack decisions
+        // This ensures Gods with insufficient devotion have notCreature flag set
+        // and other SBA-affected permanents are updated (Rule 704.5n)
+        const sbaCtx = { 
+          state: game.state, 
+          bumpSeq: () => { if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq(); },
+          gameId 
+        } as any;
+        runSBA(sbaCtx);
+        
         // Determine what type of decision is needed
         const context: AIDecisionContext = {
           gameState: game.state as any,
@@ -2654,6 +2689,25 @@ export async function handleAIPriority(
         const state = game.state as any;
         const blockersDeclaredBy = state.blockersDeclaredBy || [];
         const alreadyDeclared = blockersDeclaredBy.includes(playerId);
+        
+        // CRITICAL: Check if all defending players have declared blockers
+        // The attacking player (AI) should wait until all defenders have declared
+        const players = game.state?.players || [];
+        const activePlayerId = players[state.activePlayerIndex || 0]?.id;
+        
+        // Get all defending players (everyone except the active/attacking player)
+        const humanDefendersStillDeciding = players.filter((p: any) => {
+          if (p.id === activePlayerId) return false; // Skip attacker
+          if (p.isAI) return false; // AI defenders will declare on their own
+          if (blockersDeclaredBy.includes(p.id)) return false; // Already declared
+          return true; // Human who hasn't declared yet
+        });
+        
+        if (humanDefendersStillDeciding.length > 0) {
+          debug(1, `[AI] As attacker, waiting for ${humanDefendersStillDeciding.length} human defender(s) to declare blockers`);
+          // Don't take any action - wait for humans to declare blockers
+          return;
+        }
         
         if (alreadyDeclared) {
           // Blockers already declared, just pass priority to allow responses
