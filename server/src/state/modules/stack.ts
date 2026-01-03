@@ -4845,7 +4845,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           sourceId: newPermId,
           sourceName: effectiveCard.name || 'Permanent',
           sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
-          colors: ['White', 'Blue', 'Black', 'Red', 'Green'],
+          colors: ['white', 'blue', 'black', 'red', 'green'],
           permanentId: newPermId,
         });
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, added resolution step`);

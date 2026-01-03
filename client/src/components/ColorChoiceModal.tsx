@@ -184,8 +184,17 @@ export function ColorChoiceModal({
           gap: 10,
           padding: '8px 0',
         }}>
-          {colors.map(color => {
+          {colors.map(rawColor => {
+            // Normalize color to lowercase to handle both 'White' and 'white' from server
+            const color = rawColor.toLowerCase() as 'white' | 'blue' | 'black' | 'red' | 'green';
             const colorTheme = COLOR_DATA[color];
+            
+            // Skip if color is not valid
+            if (!colorTheme) {
+              console.warn(`[ColorChoiceModal] Invalid color: ${rawColor}`);
+              return null;
+            }
+            
             const isSelected = selectedColor === color;
             const isHovered = hoveredColor === color;
             
