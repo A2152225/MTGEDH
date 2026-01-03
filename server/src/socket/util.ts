@@ -3587,6 +3587,49 @@ export function calculateManaProduction(
     result.colors = ['G'];
   }
   
+  // White Lotus Tile - "Add X mana of any one color, where X is the greatest number of creatures you control that have a creature type in common."
+  // This counts the maximum number of creatures sharing ANY creature type
+  if (cardName.includes('white lotus tile') || 
+      (oracleText.includes('creature type in common') && oracleText.includes('greatest number'))) {
+    // Build a map of creature types to count
+    const creatureTypeCounts: Record<string, number> = {};
+    
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!permTypeLine.includes('creature')) continue;
+      
+      // Extract creature types from type line (after the em-dash)
+      // Format: "Creature — Human Soldier" or "Legendary Creature — Elf Druid"
+      const typeLineParts = permTypeLine.split(/[—-]/);
+      if (typeLineParts.length > 1) {
+        const subtypes = typeLineParts[1].trim().split(/\s+/);
+        for (const subtype of subtypes) {
+          if (subtype && subtype.length > 0) {
+            creatureTypeCounts[subtype] = (creatureTypeCounts[subtype] || 0) + 1;
+          }
+        }
+      }
+    }
+    
+    // Find the greatest count
+    let greatestCount = 0;
+    let bestType = '';
+    for (const [creatureType, count] of Object.entries(creatureTypeCounts)) {
+      if (count > greatestCount) {
+        greatestCount = count;
+        bestType = creatureType;
+      }
+    }
+    
+    debug(2, `[calculateManaProduction] ${cardName}: Greatest creature type in common: ${bestType} (${greatestCount})`);
+    result.isDynamic = true;
+    result.baseAmount = greatestCount;
+    result.dynamicDescription = `Add ${greatestCount} mana of any color (${bestType}s: ${greatestCount})`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
   // Tanuki Transplanter - "Add an amount of {G} equal to equipped creature's power"
   if (cardName.includes('tanuki transplanter')) {
     const attachedTo = (permanent as any).attachedTo;

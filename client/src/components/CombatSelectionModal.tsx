@@ -50,6 +50,7 @@ interface DangerIndicators {
   indestructible: boolean;
   goaded: boolean; // If creature is goaded and must attack
   goadedBy?: string[]; // Player IDs who goaded this creature
+  lure: boolean; // If creature must be blocked by all able creatures (Lure effect)
 }
 
 /**
@@ -82,6 +83,7 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
         lifelink: false, 
         indestructible: false,
         goaded: false,
+        lure: false,
       }
     };
   }
@@ -89,6 +91,16 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
   const card = perm.card as KnownCardRef | undefined;
   const name = card?.name || perm.id || 'Unknown';
   const oracleText = (card?.oracle_text || '').toLowerCase();
+  
+  // Check for Lure effect - from the creature itself or from attached auras
+  // Lure: "All creatures able to block enchanted creature do so"
+  // Also check grantedAbilities for lure effects
+  const grantedAbilities = (perm as any).grantedAbilities || [];
+  const hasLure = oracleText.includes('must be blocked') || 
+                  oracleText.includes('all creatures able to block') ||
+                  grantedAbilities.some((a: string) => 
+                    a && (a.toLowerCase().includes('must be blocked') || 
+                          a.toLowerCase().includes('all creatures able to block')));
   
   // Use pre-calculated effective P/T if available
   let effectivePower = perm.effectivePower;
@@ -158,6 +170,7 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
     indestructible: hasAbility('indestructible'),
     goaded: (perm.goadedBy && Array.isArray(perm.goadedBy) && perm.goadedBy.length > 0) || false,
     goadedBy: perm.goadedBy,
+    lure: hasLure,
   };
   
   return { name, pt, effectivePower, effectiveToughness, imageUrl, dangers };
@@ -201,6 +214,10 @@ function DangerIndicatorBadges({ dangers }: { dangers: DangerIndicators }) {
       ? `Goaded by ${goadedByCount} players - Must attack if able, cannot attack goaders unless only option`
       : 'Goaded - Must attack if able, cannot attack goader unless only option';
     badges.push(<DangerBadge key="goad" label="🎯GOAD" color="#d97706" tooltip={goadTooltip} />);
+  }
+  
+  if (dangers.lure) {
+    badges.push(<DangerBadge key="lure" label="🧲LURE" color="#f472b6" tooltip="Lure - All creatures able to block this creature must do so" />);
   }
   
   if (dangers.deathtouch) {
@@ -267,6 +284,52 @@ function checkMenaceBlocking(
   return { isLegal: true };
 }
 
+/**
+ * Group identical creatures (tokens) for easier selection
+ */
+interface CreatureGroup {
+  key: string;
+  name: string;
+  pt: string;
+  creatures: BattlefieldPermanent[];
+  isToken: boolean;
+  imageUrl?: string;
+  dangers: DangerIndicators;
+}
+
+function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
+  const map = new Map<string, CreatureGroup>();
+  
+  for (const c of creatures) {
+    const { name, pt, imageUrl, dangers } = getCreatureInfo(c);
+    const isToken = !!(c as any).isToken;
+    
+    // Create a key based on name and P/T for grouping
+    const key = `${name}|${pt}|${isToken ? 'token' : 'card'}`;
+    
+    const existing = map.get(key);
+    if (existing) {
+      existing.creatures.push(c);
+    } else {
+      map.set(key, {
+        key,
+        name,
+        pt,
+        creatures: [c],
+        isToken,
+        imageUrl,
+        dangers,
+      });
+    }
+  }
+  
+  return Array.from(map.values()).sort((a, b) => {
+    // Sort tokens last, then by name
+    if (a.isToken !== b.isToken) return a.isToken ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export function CombatSelectionModal({
   open,
   mode,
@@ -285,6 +348,10 @@ export function CombatSelectionModal({
   // For blockers: which blockers block which attackers
   const [selectedBlockers, setSelectedBlockers] = useState<Map<string, string>>(new Map());
   
+  // Bulk attack target selection
+  const [bulkAttackTarget, setBulkAttackTarget] = useState<string>('');
+  const [bulkAttackCount, setBulkAttackCount] = useState<number>(0);
+  
   // Determine if the modal should be interactive
   // For attackers mode, only the turn player can interact
   // For blockers mode, only the defending player can interact
@@ -295,8 +362,10 @@ export function CombatSelectionModal({
     if (open) {
       setSelectedAttackers(new Map());
       setSelectedBlockers(new Map());
+      setBulkAttackTarget(defenders[0]?.id || '');
+      setBulkAttackCount(0);
     }
-  }, [open, mode]);
+  }, [open, mode, defenders]);
 
   // Filter to only untapped creatures for attackers
   const availableForAttack = useMemo(() => {
@@ -307,6 +376,94 @@ export function CombatSelectionModal({
   const availableForBlock = useMemo(() => {
     return availableCreatures.filter(c => !c.tapped);
   }, [availableCreatures]);
+  
+  // Group creatures for display
+  const creatureGroups = useMemo(() => {
+    return groupCreatures(availableForAttack);
+  }, [availableForAttack]);
+  
+  // Count of unselected attackers available
+  const unselectedCount = useMemo(() => {
+    return availableForAttack.filter(c => !selectedAttackers.has(c.id)).length;
+  }, [availableForAttack, selectedAttackers]);
+  
+  // Handle "Attack All" - select all unselected creatures to attack a target
+  const handleAttackAll = (targetId: string) => {
+    if (!isInteractive) return;
+    setSelectedAttackers(prev => {
+      const next = new Map(prev);
+      for (const creature of availableForAttack) {
+        if (!next.has(creature.id)) {
+          next.set(creature.id, targetId);
+        }
+      }
+      return next;
+    });
+  };
+  
+  // Handle bulk attack - select X creatures to attack a target
+  const handleBulkAttack = (count: number, targetId: string) => {
+    if (!isInteractive || count <= 0) return;
+    
+    // Get unselected creatures
+    const unselected = availableForAttack.filter(c => !selectedAttackers.has(c.id));
+    const toSelect = unselected.slice(0, count);
+    
+    setSelectedAttackers(prev => {
+      const next = new Map(prev);
+      for (const creature of toSelect) {
+        next.set(creature.id, targetId);
+      }
+      return next;
+    });
+    
+    setBulkAttackCount(0); // Reset the bulk count
+  };
+  
+  // Handle selecting/deselecting entire group
+  const handleToggleGroup = (group: CreatureGroup, targetId: string) => {
+    if (!isInteractive) return;
+    
+    const allSelected = group.creatures.every(c => selectedAttackers.has(c.id));
+    
+    setSelectedAttackers(prev => {
+      const next = new Map(prev);
+      if (allSelected) {
+        // Deselect all in group
+        for (const c of group.creatures) {
+          next.delete(c.id);
+        }
+      } else {
+        // Select all in group
+        for (const c of group.creatures) {
+          next.set(c.id, targetId);
+        }
+      }
+      return next;
+    });
+  };
+  
+  // Handle selecting X from a group
+  const handleSelectFromGroup = (group: CreatureGroup, count: number, targetId: string) => {
+    if (!isInteractive || count <= 0) return;
+    
+    const unselectedInGroup = group.creatures.filter(c => !selectedAttackers.has(c.id));
+    const toSelect = unselectedInGroup.slice(0, count);
+    
+    setSelectedAttackers(prev => {
+      const next = new Map(prev);
+      for (const creature of toSelect) {
+        next.set(creature.id, targetId);
+      }
+      return next;
+    });
+  };
+  
+  // Clear all selections
+  const handleClearAll = () => {
+    if (!isInteractive) return;
+    setSelectedAttackers(new Map());
+  };
 
   // Check for menace violations
   const menaceViolations = useMemo(() => {
@@ -320,6 +477,79 @@ export function CombatSelectionModal({
     }
     return violations;
   }, [attackingCreatures, selectedBlockers]);
+  
+  // Check for Lure violations - all able blockers MUST block creatures with Lure
+  const lureViolations = useMemo(() => {
+    const violations: Map<string, string> = new Map();
+    
+    // Find attackers with Lure
+    const attackersWithLure = attackingCreatures.filter(a => {
+      const { dangers } = getCreatureInfo(a);
+      return dangers.lure;
+    });
+    
+    if (attackersWithLure.length === 0) return violations;
+    
+    // For each attacker with Lure, check if all able blockers are blocking it
+    for (const attacker of attackersWithLure) {
+      const { name } = getCreatureInfo(attacker);
+      
+      // Get blockers currently assigned to this attacker
+      const blockersForThisAttacker = Array.from(selectedBlockers.entries())
+        .filter(([_, aid]) => aid === attacker.id)
+        .map(([bid]) => bid);
+      
+      // Check if any available blocker is NOT blocking this attacker
+      // (In a full implementation, we'd also check for "can't block" effects)
+      const unassignedBlockers = availableForBlock.filter(b => {
+        // Blocker must not be assigned to another attacker
+        const currentAssignment = selectedBlockers.get(b.id);
+        return !currentAssignment || currentAssignment === attacker.id;
+      });
+      
+      const notBlockingLure = unassignedBlockers.filter(b => !blockersForThisAttacker.includes(b.id));
+      
+      if (notBlockingLure.length > 0) {
+        violations.set(attacker.id, `${name} has Lure - all ${notBlockingLure.length} able creature(s) must block it`);
+      }
+    }
+    
+    return violations;
+  }, [attackingCreatures, selectedBlockers, availableForBlock]);
+  
+  // Auto-assign blockers to Lure creatures
+  const handleAutoBlockLure = () => {
+    if (!isInteractive) return;
+    
+    // Find all attackers with Lure
+    const attackersWithLure = attackingCreatures.filter(a => {
+      const { dangers } = getCreatureInfo(a);
+      return dangers.lure;
+    });
+    
+    if (attackersWithLure.length === 0) return;
+    
+    setSelectedBlockers(prev => {
+      const next = new Map(prev);
+      
+      // For each Lure attacker, assign all able blockers
+      for (const attacker of attackersWithLure) {
+        for (const blocker of availableForBlock) {
+          // Only assign if not already blocking something else
+          if (!next.has(blocker.id)) {
+            next.set(blocker.id, attacker.id);
+          }
+        }
+      }
+      
+      return next;
+    });
+  };
+  
+  // Group blockers for display
+  const blockerGroups = useMemo(() => {
+    return groupCreatures(availableForBlock);
+  }, [availableForBlock]);
 
   const handleToggleAttacker = (creatureId: string) => {
     if (!isInteractive) return; // Don't allow interaction if read-only
@@ -455,15 +685,231 @@ export function CombatSelectionModal({
         {/* Attacker Selection Mode */}
         {mode === 'attackers' && (
           <div>
+            {/* Bulk Attack Controls */}
+            {availableForAttack.length > 0 && defenders.length > 0 && (
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                marginBottom: 16,
+                padding: '12px 16px',
+                background: 'rgba(239,68,68,0.1)',
+                borderRadius: 8,
+                border: '1px solid rgba(239,68,68,0.3)',
+              }}>
+                <span style={{ fontWeight: 600, fontSize: 13, marginRight: 8 }}>Quick Attack:</span>
+                
+                {/* Attack All buttons - one per defender */}
+                {defenders.map(d => (
+                  <button
+                    key={`attack-all-${d.id}`}
+                    onClick={() => handleAttackAll(d.id)}
+                    disabled={unselectedCount === 0}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: unselectedCount === 0 ? '#555' : '#ef4444',
+                      color: '#fff',
+                      cursor: unselectedCount === 0 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Attack All → {d.name} ({unselectedCount})
+                  </button>
+                ))}
+                
+                {/* Bulk count selector */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max={unselectedCount}
+                    value={bulkAttackCount}
+                    onChange={(e) => setBulkAttackCount(Math.min(Math.max(0, parseInt(e.target.value) || 0), unselectedCount))}
+                    style={{
+                      width: 60,
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      border: '1px solid #555',
+                      background: '#222',
+                      color: '#fff',
+                      fontSize: 12,
+                    }}
+                    placeholder="Count"
+                  />
+                  <select
+                    value={bulkAttackTarget}
+                    onChange={(e) => setBulkAttackTarget(e.target.value)}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      border: '1px solid #555',
+                      background: '#222',
+                      color: '#fff',
+                      fontSize: 12,
+                    }}
+                  >
+                    {defenders.map(d => (
+                      <option key={d.id} value={d.id}>→ {d.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => handleBulkAttack(bulkAttackCount, bulkAttackTarget)}
+                    disabled={bulkAttackCount === 0 || !bulkAttackTarget}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 4,
+                      border: 'none',
+                      background: bulkAttackCount === 0 ? '#555' : '#dc2626',
+                      color: '#fff',
+                      cursor: bulkAttackCount === 0 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+                
+                {/* Clear all button */}
+                {selectedAttackers.size > 0 && (
+                  <button
+                    onClick={handleClearAll}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #666',
+                      background: 'transparent',
+                      color: '#aaa',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    Clear All ({selectedAttackers.size})
+                  </button>
+                )}
+              </div>
+            )}
+            
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-              Your Creatures ({availableForAttack.length} available)
+              Your Creatures ({availableForAttack.length} available, {selectedAttackers.size} selected)
             </div>
             
             {availableForAttack.length === 0 ? (
               <div style={{ color: '#666', padding: 12, textAlign: 'center' }}>
                 No untapped creatures available to attack
               </div>
+            ) : availableForAttack.length > 50 ? (
+              /* Grouped view for many creatures */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+                {creatureGroups.map(group => {
+                  const selectedInGroup = group.creatures.filter(c => selectedAttackers.has(c.id)).length;
+                  const allSelected = selectedInGroup === group.creatures.length;
+                  const defaultTarget = defenders[0]?.id;
+                  
+                  return (
+                    <div
+                      key={group.key}
+                      style={{
+                        padding: 12,
+                        borderRadius: 8,
+                        border: allSelected ? '2px solid #ef4444' : '2px solid #333',
+                        background: allSelected ? 'rgba(239,68,68,0.2)' : selectedInGroup > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(0,0,0,0.3)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                        {/* Token image or placeholder */}
+                        {group.imageUrl ? (
+                          <img
+                            src={group.imageUrl}
+                            alt={group.name}
+                            style={{ width: 50, height: 70, borderRadius: 4, objectFit: 'cover' }}
+                          />
+                        ) : (
+                          <div style={{
+                            width: 50,
+                            height: 70,
+                            background: '#222',
+                            borderRadius: 4,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 9,
+                            textAlign: 'center',
+                          }}>
+                            {group.name}
+                          </div>
+                        )}
+                        
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>
+                            {group.name} {group.pt}
+                            {group.isToken && <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>(Token)</span>}
+                          </div>
+                          <div style={{ fontSize: 12, color: '#aaa' }}>
+                            {group.creatures.length} creature{group.creatures.length !== 1 ? 's' : ''} • 
+                            {selectedInGroup} selected
+                          </div>
+                          <DangerIndicatorBadges dangers={group.dangers} />
+                        </div>
+                        
+                        {/* Group controls */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <button
+                            onClick={() => handleToggleGroup(group, defaultTarget || '')}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 4,
+                              border: 'none',
+                              background: allSelected ? '#666' : '#ef4444',
+                              color: '#fff',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                          >
+                            {allSelected ? 'Deselect All' : `Select All (${group.creatures.length})`}
+                          </button>
+                          
+                          {group.creatures.length > 1 && (
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              <input
+                                type="number"
+                                min="1"
+                                max={group.creatures.length - selectedInGroup}
+                                placeholder="X"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  width: 40,
+                                  padding: '2px 4px',
+                                  borderRadius: 3,
+                                  border: '1px solid #555',
+                                  background: '#222',
+                                  color: '#fff',
+                                  fontSize: 10,
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const input = e.target as HTMLInputElement;
+                                    const count = parseInt(input.value) || 0;
+                                    handleSelectFromGroup(group, count, defaultTarget || '');
+                                    input.value = '';
+                                  }
+                                }}
+                              />
+                              <span style={{ fontSize: 9, color: '#666', alignSelf: 'center' }}>+Enter</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
+              /* Standard card view for smaller numbers */
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
                 {availableForAttack.map(creature => {
                   const { name, pt, effectivePower, imageUrl, dangers } = getCreatureInfo(creature);
@@ -573,6 +1019,76 @@ export function CombatSelectionModal({
         {/* Blocker Selection Mode */}
         {mode === 'blockers' && (
           <div>
+            {/* Lure warning banner and auto-block button */}
+            {lureViolations.size > 0 && (
+              <div style={{
+                padding: '12px 16px',
+                backgroundColor: 'rgba(244,114,182,0.2)',
+                border: '1px solid #f472b6',
+                borderRadius: 8,
+                marginBottom: 16,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}>
+                <div style={{ fontSize: 12, color: '#fbcfe8' }}>
+                  🧲 <strong>Lure Effect:</strong> {Array.from(lureViolations.values()).join('. ')}
+                </div>
+                <button
+                  onClick={handleAutoBlockLure}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: '#f472b6',
+                    color: '#000',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Auto-Block Lure
+                </button>
+              </div>
+            )}
+            
+            {/* Quick blocking controls */}
+            {availableForBlock.length > 0 && attackingCreatures.length > 0 && (
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                marginBottom: 16,
+                padding: '12px 16px',
+                background: 'rgba(16,185,129,0.1)',
+                borderRadius: 8,
+                border: '1px solid rgba(16,185,129,0.3)',
+              }}>
+                <span style={{ fontWeight: 600, fontSize: 13, marginRight: 8 }}>Quick Block:</span>
+                
+                {/* Clear all blockers button */}
+                {selectedBlockers.size > 0 && (
+                  <button
+                    onClick={() => setSelectedBlockers(new Map())}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #666',
+                      background: 'transparent',
+                      color: '#aaa',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    Clear All ({selectedBlockers.size})
+                  </button>
+                )}
+              </div>
+            )}
+            
             {/* Show attacking creatures */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: '#ef4444' }}>
@@ -591,6 +1107,8 @@ export function CombatSelectionModal({
                       .filter(([_, attackerId]) => attackerId === attacker.id)
                       .map(([blockerId]) => blockerId);
                     const menaceViolation = menaceViolations.get(attacker.id);
+                    const lureViolation = lureViolations.get(attacker.id);
+                    const hasViolation = menaceViolation || lureViolation;
                     
                     return (
                       <div
@@ -599,8 +1117,8 @@ export function CombatSelectionModal({
                           width: 130,
                           padding: 8,
                           borderRadius: 8,
-                          border: menaceViolation ? '2px solid #f59e0b' : '2px solid #ef4444',
-                          background: menaceViolation ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.15)',
+                          border: lureViolation ? '2px solid #f472b6' : menaceViolation ? '2px solid #f59e0b' : '2px solid #ef4444',
+                          background: lureViolation ? 'rgba(244,114,182,0.2)' : menaceViolation ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.15)',
                         }}
                       >
                         {imageUrl ? (

@@ -793,6 +793,7 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
   requiresChoice?: boolean;
   affectsAllPlayers?: boolean;
   modalOptions?: string[];
+  triggersOnOpponentEndStep?: boolean;
 }> = {
   "kynaios and tiro of meletis": { 
     effect: "draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card", 
@@ -878,6 +879,14 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
     mandatory: true,
     requiresChoice: true,
     affectsAllPlayers: true,
+  },
+  // Keeper of the Accord - At the beginning of each opponent's end step triggers
+  "keeper of the accord": {
+    effect: "Create a 1/1 white Soldier token if opponent controls more creatures. Search for a basic Plains if opponent controls more lands.",
+    mandatory: false,  // "you may" for the Plains search
+    requiresChoice: true,
+    affectsAllPlayers: false,
+    triggersOnOpponentEndStep: true,
   },
 };
 

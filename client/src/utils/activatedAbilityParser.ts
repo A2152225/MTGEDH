@@ -559,6 +559,17 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       // Skip if this looks like a triggered ability (starts with "when", "whenever", "at")
       if (triggeredAbilityPattern.test(effectPart)) continue;
       
+      // Skip Channel abilities - these can only be activated from hand, not battlefield
+      // Channel format: "Channel — {cost}, Discard this card: effect"
+      // The ability cost will contain "Discard this card" or "Discard CARDNAME"
+      const costLower = costPart.toLowerCase();
+      if (costLower.includes('discard this card') || 
+          costLower.includes('discard ' + name.toLowerCase()) ||
+          sentence.toLowerCase().includes('channel —') ||
+          sentence.toLowerCase().includes('channel -')) {
+        continue;
+      }
+      
       // Skip if this is already captured (basic land mana, fetch, or planeswalker)
       if (abilities.some(a => a.effect.toLowerCase().includes(effectPart.toLowerCase().slice(0, 20)))) {
         continue;

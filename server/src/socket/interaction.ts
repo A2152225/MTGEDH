@@ -9,7 +9,7 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit } from "../state/modules/triggered-abilities";
+import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility } from "../state/modules/triggered-abilities";
 import { triggerETBEffectsForToken } from "../state/modules/stack";
 import { 
   getManaAbilitiesForPermanent, 
@@ -5565,6 +5565,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Check for activation conditions (e.g., Minas Tirith: "Activate only if you attacked with two or more creatures this turn")
+    const utilityLandAbility = detectUtilityLandAbility(card, permanent);
+    if (utilityLandAbility?.activationCondition) {
+      if (utilityLandAbility.activationCondition === 'attacked_with_two_or_more') {
+        const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
+        if (creaturesAttacked < 2) {
+          socket.emit("error", {
+            code: "ACTIVATION_CONDITION_NOT_MET",
+            message: `${cardName}'s ability can only be activated if you attacked with two or more creatures this turn. (You attacked with ${creaturesAttacked})`,
+          });
+          return;
+        }
+      }
+    }
+    
+    // Also check oracle text for "activate only if" patterns dynamically
+    const activateOnlyIfMatch = oracleText.match(/activate only if you attacked with (\w+) or more creatures this turn/i);
+    if (activateOnlyIfMatch && !utilityLandAbility?.activationCondition) {
+      const requiredCount = activateOnlyIfMatch[1] === 'two' ? 2 : 
+                           activateOnlyIfMatch[1] === 'three' ? 3 : 
+                           parseInt(activateOnlyIfMatch[1], 10) || 2;
+      const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
+      if (creaturesAttacked < requiredCount) {
+        socket.emit("error", {
+          code: "ACTIVATION_CONDITION_NOT_MET",
+          message: `${cardName}'s ability can only be activated if you attacked with ${requiredCount} or more creatures this turn. (You attacked with ${creaturesAttacked})`,
+        });
+        return;
+      }
+    }
+    
     // Check if sacrifice is required and we need to prompt for selection
     if (sacrificeType && sacrificeType !== 'self') {
       // Get eligible permanents for sacrifice
@@ -6590,6 +6621,86 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       message: `${getPlayerName(game, pid)} cancelled target selection.`,
       ts: Date.now(),
     });
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  // Per-opponent target selection confirmation (for spells like Dismantling Wave)
+  // Handles "For each opponent, destroy up to one target X that player controls"
+  socket.on("perOpponentTargetSelectionConfirm", ({ gameId, effectId, targetsPerOpponent }: {
+    gameId: string;
+    effectId: string;
+    targetsPerOpponent: Record<string, string[]>;  // opponentId -> selectedTargetIds
+  }) => {
+    debug(2, `[perOpponentTargetSelectionConfirm] ======== CONFIRM START ========`);
+    debug(2, `[perOpponentTargetSelectionConfirm] gameId: ${gameId}, effectId: ${effectId}`);
+    debug(2, `[perOpponentTargetSelectionConfirm] targetsPerOpponent: ${JSON.stringify(targetsPerOpponent)}`);
+    
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) {
+      debug(1, `[perOpponentTargetSelectionConfirm] ERROR: No playerId or is spectator`);
+      return;
+    }
+
+    const game = ensureGame(gameId);
+    debug(2, `[perOpponentTargetSelectionConfirm] playerId: ${pid}`);
+    
+    // Flatten all targets into a single array
+    const allTargetIds: string[] = [];
+    for (const opponentId of Object.keys(targetsPerOpponent)) {
+      const targets = targetsPerOpponent[opponentId];
+      if (Array.isArray(targets)) {
+        allTargetIds.push(...targets);
+      }
+    }
+    
+    debug(1, `[perOpponentTargetSelectionConfirm] All targetIds: ${allTargetIds.join(',')}`);
+    
+    // Store targets for the pending effect/spell (same as regular targeting)
+    game.state.pendingTargets = game.state.pendingTargets || {};
+    (game.state.pendingTargets as any)[effectId] = {
+      playerId: pid,
+      targetIds: allTargetIds,
+      perOpponent: true,
+      targetsPerOpponent,  // Also store grouped targets for resolution
+    };
+    
+    // Check for pending spell cast
+    const pendingSpell = (game.state as any).pendingSpellCasts?.[effectId];
+    if (pendingSpell) {
+      debug(2, `[perOpponentTargetSelectionConfirm] Found pending spell: ${pendingSpell.cardName}`);
+      
+      // Request mana payment from player
+      const card = pendingSpell.card;
+      const manaCost = card?.mana_cost || pendingSpell.manaCost || "";
+      
+      if (manaCost) {
+        socket.emit("requestManaPayment", {
+          gameId,
+          cardId: pendingSpell.cardId,
+          cardName: pendingSpell.cardName,
+          manaCost,
+          effectId,
+          targets: allTargetIds,
+          isPerOpponentTargeting: true,
+        });
+        
+        debug(2, `[perOpponentTargetSelectionConfirm] Requesting mana payment for ${pendingSpell.cardName}`);
+      }
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "perOpponentTargetSelectionConfirm", {
+      playerId: pid,
+      effectId,
+      targetsPerOpponent,
+      allTargetIds,
+    });
+    
+    debug(2, `[perOpponentTargetSelectionConfirm] Player ${pid} selected per-opponent targets`);
     
     broadcastGame(io, game, gameId);
   });

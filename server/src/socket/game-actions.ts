@@ -3355,6 +3355,42 @@ export function registerGameActions(io: Server, socket: Socket) {
             card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
           };
           
+          // Check for per-opponent targeting (e.g., Dismantling Wave)
+          // For these spells, group targets by controller and let player select one per opponent
+          if (targetReqs?.perOpponent) {
+            const opponents = (game.state.players || []).filter((p: any) => p.id !== playerId);
+            const targetsPerOpponent: Record<string, typeof validTargetList> = {};
+            
+            // Group valid targets by their controller (opponent)
+            for (const target of validTargetList) {
+              if (target.controller && target.controller !== playerId) {
+                if (!targetsPerOpponent[target.controller]) {
+                  targetsPerOpponent[target.controller] = [];
+                }
+                targetsPerOpponent[target.controller].push(target);
+              }
+            }
+            
+            // Emit per-opponent target selection request
+            socket.emit("perOpponentTargetSelectionRequest", {
+              gameId,
+              cardId,
+              cardName: cardInHand.name,
+              source: cardInHand.name,
+              title: `Choose targets for ${cardInHand.name}`,
+              description: `${oracleText}\n\nSelect up to ${requiredMaxTargets} target(s) for each opponent.`,
+              targetsPerOpponent,
+              opponents: opponents.map((p: any) => ({ id: p.id, name: p.name || p.id })),
+              minTargetsPerOpponent: requiredMinTargets,
+              maxTargetsPerOpponent: requiredMaxTargets,
+              targetTypes: targetReqs.targetTypes,
+              effectId,
+            });
+            
+            debug(2, `[castSpellFromHand] Requesting per-opponent targets for ${cardInHand.name} (${opponents.length} opponents, ${requiredMinTargets}-${requiredMaxTargets} targets each)`);
+            return; // Wait for per-opponent target selection
+          }
+          
           socket.emit("targetSelectionRequest", {
             gameId,
             cardId,

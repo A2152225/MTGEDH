@@ -4448,6 +4448,7 @@ export interface UtilityLandAbility {
   targetType?: 'land' | 'nonbasic_land' | 'creature' | 'permanent' | 'counter';
   targetController?: 'any' | 'opponent' | 'you';
   additionalEffects?: string[];
+  activationCondition?: 'attacked_with_two_or_more';  // For cards like Minas Tirith
 }
 
 const KNOWN_UTILITY_LANDS: Record<string, Omit<UtilityLandAbility, 'permanentId' | 'cardName'>> = {
@@ -4546,6 +4547,12 @@ const KNOWN_UTILITY_LANDS: Record<string, Omit<UtilityLandAbility, 'permanentId'
     effect: "Target creature gets +2/+0 and gains vigilance and haste until end of turn",
     targetType: 'creature',
     targetController: 'you',
+  },
+  "minas tirith": {
+    cost: "{1}{W}, {T}",
+    requiresTap: true,
+    effect: "Draw a card",
+    activationCondition: 'attacked_with_two_or_more',
   },
 };
 
