@@ -42,11 +42,18 @@ export interface SacrificeCostInfo {
   requiresSacrifice: boolean;
   sacrificeType?: SacrificeType;
   sacrificeCount?: number;
+  /**
+   * For creature subtypes like Soldier, Goblin, etc.
+   * If set, the sacrifice must be a creature of this subtype.
+   * This is used for cards like "Sacrifice a Soldier" or "Sacrifice a Goblin".
+   */
+  creatureSubtype?: string;
 }
 
 /**
  * Parse sacrifice requirements from a cost string
  * Detects patterns like "Sacrifice a creature", "Sacrifice an artifact", etc.
+ * Also handles creature subtypes like "Sacrifice a Soldier".
  * 
  * @param costStr The cost portion of an activated ability (e.g., "Sacrifice a creature")
  * @returns Information about the sacrifice requirement
@@ -66,17 +73,32 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
     return result;
   }
   
-  // "Sacrifice a/an X" patterns
-  if (/sacrifice\s+(?:a|an)\s+creature/i.test(lowerCost)) {
+  // "Sacrifice a/an X" patterns - first check for permanent types
+  if (/sacrifice\s+(?:a|an)\s+creature\b/i.test(lowerCost)) {
     result.sacrificeType = 'creature';
-  } else if (/sacrifice\s+(?:a|an)\s+artifact/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an)\s+artifact\b/i.test(lowerCost)) {
     result.sacrificeType = 'artifact';
-  } else if (/sacrifice\s+(?:a|an)\s+enchantment/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an)\s+enchantment\b/i.test(lowerCost)) {
     result.sacrificeType = 'enchantment';
-  } else if (/sacrifice\s+(?:a|an)\s+land/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an)\s+land\b/i.test(lowerCost)) {
     result.sacrificeType = 'land';
-  } else if (/sacrifice\s+(?:a|an)\s+permanent/i.test(lowerCost)) {
+  } else if (/sacrifice\s+(?:a|an)\s+permanent\b/i.test(lowerCost)) {
     result.sacrificeType = 'permanent';
+  } else {
+    // Check for creature subtypes dynamically using regex
+    // Pattern: "Sacrifice a/an [Subtype]" where Subtype is a capitalized word
+    // Examples: "Sacrifice a Soldier", "Sacrifice a Goblin", "Sacrifice an Elf"
+    const subtypeMatch = costStr.match(/sacrifice\s+(?:a|an)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/i);
+    if (subtypeMatch) {
+      const potentialSubtype = subtypeMatch[1].trim();
+      // Verify it's not a card type (case-insensitive check)
+      const cardTypes = ['creature', 'artifact', 'enchantment', 'land', 'permanent', 'planeswalker', 'instant', 'sorcery'];
+      if (!cardTypes.includes(potentialSubtype.toLowerCase())) {
+        // This is a creature subtype
+        result.sacrificeType = 'creature';
+        result.creatureSubtype = potentialSubtype;
+      }
+    }
   }
   
   // "Sacrifice X creatures/artifacts/etc" (multiple)

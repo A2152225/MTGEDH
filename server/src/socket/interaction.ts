@@ -5509,6 +5509,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let requiresTap = false;
     let manaCost = "";
     let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | null = null;
+    let sacrificeSubtype: string | undefined = undefined; // For creature subtypes like Soldier, Goblin, etc.
     
     // Parse activated abilities: look for "cost: effect" patterns
     const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
@@ -5533,6 +5534,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const sacrificeInfo = parseSacrificeCost(ability.cost);
       if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
         sacrificeType = sacrificeInfo.sacrificeType;
+        sacrificeSubtype = sacrificeInfo.creatureSubtype;
       }
     } else {
       // FALLBACK: If parsing failed or abilityIndex is out of range, try to extract ability text from oracle
@@ -5551,6 +5553,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const sacrificeInfo = parseSacrificeCost(ability.cost);
         if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
           sacrificeType = sacrificeInfo.sacrificeType;
+          sacrificeSubtype = sacrificeInfo.creatureSubtype;
         }
       } else {
         // Use the full oracle text to check if this is a mana ability
@@ -5607,26 +5610,50 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (p.controller !== pid) return false;
         const permTypeLine = (p.card?.type_line || '').toLowerCase();
         
+        // First check if it matches the basic type requirement
+        let matchesType = false;
         switch (sacrificeType) {
           case 'creature':
-            return permTypeLine.includes('creature');
+            matchesType = permTypeLine.includes('creature');
+            break;
           case 'artifact':
-            return permTypeLine.includes('artifact');
+            matchesType = permTypeLine.includes('artifact');
+            break;
           case 'enchantment':
-            return permTypeLine.includes('enchantment');
+            matchesType = permTypeLine.includes('enchantment');
+            break;
           case 'land':
-            return permTypeLine.includes('land');
+            matchesType = permTypeLine.includes('land');
+            break;
           case 'permanent':
-            return true; // Any permanent
+            matchesType = true; // Any permanent
+            break;
           default:
-            return false;
+            matchesType = false;
         }
+        
+        if (!matchesType) return false;
+        
+        // If there's a creature subtype requirement, also check that
+        // Subtypes like "Soldier", "Goblin", etc. appear in the type_line after the em-dash
+        // Example: "Token Creature — Human Soldier" contains "Soldier" subtype
+        if (sacrificeSubtype) {
+          const subtypeLower = sacrificeSubtype.toLowerCase();
+          // Check if the type line contains the subtype
+          // Type line format: "Creature — Human Soldier" or "Token Creature — Goblin Warrior"
+          return permTypeLine.includes(subtypeLower);
+        }
+        
+        return true;
       });
+      
+      // Determine what type label to show in error message
+      const sacrificeLabel = sacrificeSubtype ? sacrificeSubtype : sacrificeType;
       
       if (eligiblePermanents.length === 0) {
         socket.emit("error", {
           code: "NO_SACRIFICE_TARGET",
-          message: `You don't control any ${sacrificeType}s to sacrifice.`,
+          message: `You don't control any ${sacrificeLabel}s to sacrifice.`,
         });
         return;
       }
@@ -5643,6 +5670,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         manaCost,
         requiresTap,
         sacrificeType,
+        sacrificeSubtype,
         effect: abilityText,
       };
       
@@ -5661,11 +5689,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         permanentId,
         cardName,
         abilityEffect: abilityText,
-        sacrificeType,
+        sacrificeType: sacrificeLabel, // Use the more specific label
         eligibleTargets: sacrificeTargets,
       });
       
-      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeType}. Waiting for selection from ${pid}`);
+      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeLabel}. Waiting for selection from ${pid}`);
       return;
     }
     
@@ -5716,6 +5744,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             let lifeToPay = 0;
             let manaToConsume = { colors: { ...parsedCost.colors }, generic: parsedCost.generic };
             
+            // For Phyrexian mana, we need to decide whether to pay with color or life
+            // The key consideration is: if we pay with color, do we still have enough mana for the generic cost?
+            // We should pay with life if paying with color would leave us short on generic.
+            
             for (const hybridOptions of parsedCost.hybrids) {
               let paid = false;
               
@@ -5735,16 +5767,27 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                     break;
                   }
                 } else {
-                  // Color option
+                  // Color option (for Phyrexian mana like {W/P})
                   const colorMap: Record<string, string> = {
                     'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
                   };
                   const colorKey = colorMap[option];
                   if (colorKey && (manaPool[colorKey] || 0) >= 1) {
-                    // Can pay with this color
-                    manaToConsume.colors[option] = (manaToConsume.colors[option] || 0) + 1;
-                    paid = true;
-                    break;
+                    // Check if paying with this color would leave enough for generic cost
+                    // Calculate total remaining after paying this color and all generic
+                    const totalPoolMana = Object.values(manaPool as unknown as Record<string, number>)
+                      .reduce((a, b) => a + b, 0);
+                    const colorsAlreadyNeeded = Object.values(manaToConsume.colors)
+                      .reduce((a, b) => a + b, 0);
+                    const totalNeeded = manaToConsume.generic + colorsAlreadyNeeded + 1; // +1 for this color
+                    
+                    if (totalPoolMana >= totalNeeded) {
+                      // Can pay with this color and still have enough for generic
+                      manaToConsume.colors[option] = (manaToConsume.colors[option] || 0) + 1;
+                      paid = true;
+                      break;
+                    }
+                    // Not enough mana if we pay with color - fall through to try life payment
                   }
                 }
               }

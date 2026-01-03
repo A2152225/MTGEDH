@@ -27,6 +27,7 @@ import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool }
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { runSBA } from "../state/modules/counters_tokens.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -2628,6 +2629,16 @@ export async function handleAIPriority(
           await executePassPriority(io, gameId, playerId);
           return;
         }
+        
+        // CRITICAL: Run state-based actions before AI makes attack decisions
+        // This ensures Gods with insufficient devotion have notCreature flag set
+        // and other SBA-affected permanents are updated (Rule 704.5n)
+        const sbaCtx = { 
+          state: game.state, 
+          bumpSeq: () => { if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq(); },
+          gameId 
+        } as any;
+        runSBA(sbaCtx);
         
         // Determine what type of decision is needed
         const context: AIDecisionContext = {

@@ -156,6 +156,9 @@ export function canPayManaCost(
     for (const hybridOptions of parsedCost.hybrid) {
       let paid = false;
       
+      // Check if this is a Phyrexian cost (has LIFE: option)
+      const isPhyrexianCost = hybridOptions.some(o => o.startsWith('LIFE:'));
+      
       // Try to pay with one of the hybrid options
       for (const option of hybridOptions) {
         if (option.startsWith('LIFE:')) {
@@ -202,6 +205,16 @@ export function canPayManaCost(
           // Try to pay with this specific color
           const colorKey = manaColorMap[option];
           if (colorKey && remainingPool[colorKey] > 0) {
+            // For Phyrexian costs, check if paying with color would leave enough for generic
+            if (isPhyrexianCost) {
+              // Calculate if we'd have enough after paying this color
+              const totalAfterColorPayment = getTotalManaFromPool(remainingPool) - 1;
+              if (totalAfterColorPayment < parsedCost.generic) {
+                // Not enough mana left for generic if we pay with color
+                // Skip this option and try life payment instead
+                continue;
+              }
+            }
             remainingPool[colorKey] -= 1;
             paid = true;
             break;
