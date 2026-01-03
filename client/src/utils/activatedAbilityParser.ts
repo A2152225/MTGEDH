@@ -12,7 +12,7 @@
  */
 
 import type { KnownCardRef } from '../../../shared/src';
-import { parseSacrificeCost, type SacrificeType } from '../../../shared/src/textUtils';
+import { parseSacrificeCost, parseNumberFromText, type SacrificeType } from '../../../shared/src/textUtils';
 
 /**
  * Represents a parsed activated ability
@@ -27,8 +27,9 @@ export interface ParsedActivatedAbility {
   requiresTap: boolean;
   requiresUntap: boolean;  // For untap symbol costs like {Q}
   requiresSacrifice: boolean;
-  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';  // What to sacrifice
+  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';  // What to sacrifice
   sacrificeCount?: number;  // How many to sacrifice (default 1)
+  mustBeOther?: boolean;  // Whether sacrifice must be "other" permanents (not the source)
   manaCost?: string;
   lifeCost?: number;
   loyaltyCost?: number;  // For planeswalker abilities
@@ -149,8 +150,6 @@ function parseManaProduction(text: string): string | null {
   return null;
 }
 
-import { parseNumberFromText } from '../../../shared/src/textUtils';
-
 /**
  * Parse mill effects from oracle text
  * Returns mill count and target type if this is a mill ability
@@ -235,7 +234,7 @@ function parseCostComponents(costStr: string): {
   requiresTap: boolean;
   requiresUntap: boolean;
   requiresSacrifice: boolean;
-  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';
   sacrificeCount?: number;
   manaCost?: string;
   lifeCost?: number;
@@ -244,12 +243,13 @@ function parseCostComponents(costStr: string): {
   tapOtherPermanentsCost?: TapOtherPermanentsCost;
   hasXCost?: boolean;
   xCount?: number;
+  mustBeOther?: boolean;
 } {
   const result: {
     requiresTap: boolean;
     requiresUntap: boolean;
     requiresSacrifice: boolean;
-    sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+    sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature';
     sacrificeCount?: number;
     manaCost?: string;
     lifeCost?: number;
@@ -258,6 +258,7 @@ function parseCostComponents(costStr: string): {
     tapOtherPermanentsCost?: TapOtherPermanentsCost;
     hasXCost?: boolean;
     xCount?: number;
+    mustBeOther?: boolean;
   } = {
     requiresTap: false,
     requiresUntap: false,
@@ -271,6 +272,7 @@ function parseCostComponents(costStr: string): {
     tapOtherPermanentsCost: undefined,
     hasXCost: false,
     xCount: 0,
+    mustBeOther: false,
   };
 
   const lowerCost = costStr.toLowerCase();
@@ -291,10 +293,11 @@ function parseCostComponents(costStr: string): {
     result.requiresSacrifice = true;
     result.sacrificeType = sacrificeInfo.sacrificeType;
     result.sacrificeCount = sacrificeInfo.sacrificeCount;
+    result.mustBeOther = sacrificeInfo.mustBeOther;
   }
   
-  // Extract mana cost
-  const manaSymbols = costStr.match(/\{[WUBRGC0-9X\/]+\}/gi);
+  // Extract mana cost (including Phyrexian mana symbols like {W/P}, {U/P}, etc.)
+  const manaSymbols = costStr.match(/\{[WUBRGC0-9X\/P]+\}/gi);
   if (manaSymbols) {
     // Filter out {T} and {Q}
     const manaPart = manaSymbols.filter(s => 
@@ -873,6 +876,29 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
     });
   }
   
+  // ======== OUTLAST ABILITIES (Rule 702.107) ========
+  // "Outlast [cost]" means "[Cost], {T}: Put a +1/+1 counter on this creature. Activate only as a sorcery."
+  // Example oracle text: "Outlast {W} ({W}, {T}: Put a +1/+1 counter on this creature. Outlast only as a sorcery.)"
+  const outlastMatch = oracleText.match(/outlast\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (outlastMatch) {
+    const outlastCost = outlastMatch[1];
+    abilities.push({
+      id: `${card.id}-outlast-${abilityIndex++}`,
+      label: `Outlast ${outlastCost}`,
+      description: 'Put a +1/+1 counter on this creature (sorcery speed, tap)',
+      cost: `${outlastCost}, {T}`,
+      effect: 'Put a +1/+1 counter on this creature',
+      requiresTap: true,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: outlastCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      timingRestriction: 'sorcery', // Outlast is sorcery speed only (Rule 702.107a)
+    });
+  }
+  
   // ======== CYCLING ABILITIES ========
   const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
   if (cyclingMatch) {
@@ -886,6 +912,35 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       requiresUntap: false,
       requiresSacrifice: false,
       manaCost: cyclingMatch[1],
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+    });
+  }
+  
+  // ======== DOMINUS INDESTRUCTIBLE COUNTER ABILITIES ========
+  // Pattern: "{mana}, Sacrifice two other artifacts and/or creatures: Put an indestructible counter on [CARDNAME]."
+  // This handles Mondrak, Glory Dominus and similar Phyrexian Dominus cards
+  // These abilities have Phyrexian mana symbols like {W/P} which can be paid with life
+  const dominusMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*),?\s*sacrifice\s+(two|three|\d+)\s+other\s+(artifacts?\s+and\/or\s+creatures?|creatures?\s+and\/or\s+artifacts?):\s*put\s+an?\s+indestructible\s+counter/i);
+  if (dominusMatch) {
+    const manaCost = dominusMatch[1];
+    const sacrificeCountStr = dominusMatch[2];
+    const sacrificeCount = parseNumberFromText(sacrificeCountStr);
+    
+    abilities.push({
+      id: `${card.id}-dominus-indestructible-${abilityIndex++}`,
+      label: `Indestructible (${manaCost})`,
+      description: `Pay ${manaCost} and sacrifice ${sacrificeCount} other artifacts and/or creatures to put an indestructible counter on ${name}`,
+      cost: `${manaCost}, Sacrifice ${sacrificeCount} other artifacts and/or creatures`,
+      effect: `Put an indestructible counter on ${name}`,
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: true,
+      sacrificeType: 'artifact_or_creature',
+      sacrificeCount,
+      mustBeOther: true,
+      manaCost,
       isManaAbility: false,
       isLoyaltyAbility: false,
       isFetchAbility: false,

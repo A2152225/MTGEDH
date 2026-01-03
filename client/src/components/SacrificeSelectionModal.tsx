@@ -15,7 +15,7 @@ export interface SacrificeSelectionProps {
   description: string;
   permanents: BattlefieldPermanent[];
   count: number;
-  permanentType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent';
+  permanentType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature' | 'artifact or creature';
   sourceImage?: string;
   onConfirm: (selectedIds: string[]) => void;
   onCancel?: () => void;
@@ -72,6 +72,10 @@ export function SacrificeSelectionModal({
     }
     return permanents.filter(perm => {
       const typeLine = (perm.card as KnownCardRef)?.type_line?.toLowerCase() || '';
+      // Handle compound types like "artifact_or_creature" or "artifact or creature"
+      if (permanentType === 'artifact_or_creature' || permanentType === 'artifact or creature') {
+        return typeLine.includes('artifact') || typeLine.includes('creature');
+      }
       return typeLine.includes(permanentType);
     });
   }, [permanents, permanentType]);

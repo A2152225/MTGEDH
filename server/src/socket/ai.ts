@@ -2462,12 +2462,13 @@ export async function handleAIPriority(
         const state = game.state as any;
         const blockersDeclaredBy = state.blockersDeclaredBy || [];
         const players = game.state?.players || [];
-        const activePlayerId = players[state.activePlayerIndex || 0]?.id;
+        // The attacking player is the turn player - they cannot block their own attackers
+        const attackingPlayerId = game.state.turnPlayer;
         
-        // Get all defending players (everyone except the active/attacking player)
+        // Get all defending players (everyone except the attacking/turn player)
         // and check if any human players haven't declared blockers yet
         const humanDefendersStillDeciding = players.filter((p: any) => {
-          if (p.id === activePlayerId) return false; // Skip attacker
+          if (p.id === attackingPlayerId) return false; // Skip attacker (turn player cannot block)
           if (p.isAI) return false; // AI handled above
           if (blockersDeclaredBy.includes(p.id)) return false; // Already declared
           return true; // Human who hasn't declared yet
@@ -2693,11 +2694,12 @@ export async function handleAIPriority(
         // CRITICAL: Check if all defending players have declared blockers
         // The attacking player (AI) should wait until all defenders have declared
         const players = game.state?.players || [];
-        const activePlayerId = players[state.activePlayerIndex || 0]?.id;
+        // The attacking player is the turn player - they cannot block their own attackers
+        const attackingPlayerId = game.state.turnPlayer;
         
-        // Get all defending players (everyone except the active/attacking player)
+        // Get all defending players (everyone except the attacking/turn player)
         const humanDefendersStillDeciding = players.filter((p: any) => {
-          if (p.id === activePlayerId) return false; // Skip attacker
+          if (p.id === attackingPlayerId) return false; // Skip attacker (turn player cannot block)
           if (p.isAI) return false; // AI defenders will declare on their own
           if (blockersDeclaredBy.includes(p.id)) return false; // Already declared
           return true; // Human who hasn't declared yet
