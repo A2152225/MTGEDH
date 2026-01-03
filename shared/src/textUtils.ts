@@ -82,9 +82,16 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
     return result;
   }
   
-  // Handle compound types: "artifacts and/or creatures" (Mondrak pattern)
-  // Pattern: "Sacrifice [count] [other] artifacts and/or creatures"
-  const artifactOrCreatureMatch = lowerCost.match(/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?(?:artifacts?\s+and\/or\s+creatures?|creatures?\s+and\/or\s+artifacts?)/i);
+  // Handle compound types: "artifacts and/or creatures" (Mondrak, Dominus pattern)
+  // Pattern structure:
+  //   - "sacrifice" keyword
+  //   - count: number (1-5) or "a/an"
+  //   - optional "other" modifier
+  //   - type combination: "artifacts and/or creatures" OR "creatures and/or artifacts"
+  // Examples: "Sacrifice two other artifacts and/or creatures"
+  const artifactOrCreatureMatch = lowerCost.match(
+    /sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?(?:artifacts?\s+and\/or\s+creatures?|creatures?\s+and\/or\s+artifacts?)/i
+  );
   if (artifactOrCreatureMatch) {
     result.sacrificeType = 'artifact_or_creature';
     result.sacrificeCount = parseNumberFromText(artifactOrCreatureMatch[1]);

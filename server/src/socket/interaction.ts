@@ -5667,7 +5667,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       if (eligiblePermanents.length < sacrificeCount) {
         socket.emit("error", {
-          code: "NO_SACRIFICE_TARGET",
+          code: "INSUFFICIENT_SACRIFICE_TARGETS",
           message: `You don't control enough ${sacrificeLabel}s to sacrifice. (Need ${sacrificeCount}, have ${eligiblePermanents.length})`,
         });
         return;

@@ -15,7 +15,11 @@ export interface SacrificeSelectionProps {
   description: string;
   permanents: BattlefieldPermanent[];
   count: number;
-  permanentType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature' | 'artifact or creature';
+  /** 
+   * Type of permanent required for sacrifice.
+   * Use 'artifact_or_creature' for compound types (e.g., Mondrak's ability).
+   */
+  permanentType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature';
   sourceImage?: string;
   onConfirm: (selectedIds: string[]) => void;
   onCancel?: () => void;
@@ -72,8 +76,8 @@ export function SacrificeSelectionModal({
     }
     return permanents.filter(perm => {
       const typeLine = (perm.card as KnownCardRef)?.type_line?.toLowerCase() || '';
-      // Handle compound types like "artifact_or_creature" or "artifact or creature"
-      if (permanentType === 'artifact_or_creature' || permanentType === 'artifact or creature') {
+      // Handle compound type: "artifact_or_creature" matches either artifact or creature
+      if (permanentType === 'artifact_or_creature') {
         return typeLine.includes('artifact') || typeLine.includes('creature');
       }
       return typeLine.includes(permanentType);

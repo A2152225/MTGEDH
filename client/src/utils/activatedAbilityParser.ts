@@ -899,6 +899,101 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
     });
   }
   
+  // ======== BOAST ABILITIES (Rule 702.142) ========
+  // "Boast — [Cost]: [Effect]" - Activate only if creature attacked this turn and only once each turn
+  // Example: "Boast — {1}{R}: Create a Treasure token."
+  const boastMatch = oracleText.match(/boast\s*[—-]\s*(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*([^.]+)/i);
+  if (boastMatch) {
+    const boastCost = boastMatch[1];
+    const boastEffect = boastMatch[2].trim();
+    abilities.push({
+      id: `${card.id}-boast-${abilityIndex++}`,
+      label: `Boast ${boastCost}`,
+      description: `${boastEffect} (only if attacked this turn, once per turn)`,
+      cost: boastCost,
+      effect: boastEffect,
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: boastCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      oncePerTurn: true,
+    });
+  }
+  
+  // ======== MONSTROSITY ABILITIES (Rule 702.94) ========
+  // "{cost}: Monstrosity N" - Put N +1/+1 counters on this creature (if not monstrous)
+  // Example: "Monstrosity 3" or "{5}{G}{G}: Monstrosity 3"
+  const monstrosityMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*monstrosity\s+(\d+)/i);
+  if (monstrosityMatch) {
+    const monstrosityCost = monstrosityMatch[1];
+    const monstrosityN = parseInt(monstrosityMatch[2], 10);
+    abilities.push({
+      id: `${card.id}-monstrosity-${abilityIndex++}`,
+      label: `Monstrosity ${monstrosityN}`,
+      description: `Put ${monstrosityN} +1/+1 counter${monstrosityN !== 1 ? 's' : ''} on ${name} (can only be activated if not monstrous)`,
+      cost: monstrosityCost,
+      effect: `Put ${monstrosityN} +1/+1 counter${monstrosityN !== 1 ? 's' : ''} on this creature. It becomes monstrous.`,
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: monstrosityCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+    });
+  }
+  
+  // ======== ADAPT ABILITIES (Rule 702.140) ========
+  // "{cost}: Adapt N" - Put N +1/+1 counters if no +1/+1 counters on it
+  // Example: "{1}{G}{U}: Adapt 2"
+  const adaptMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*adapt\s+(\d+)/i);
+  if (adaptMatch) {
+    const adaptCost = adaptMatch[1];
+    const adaptN = parseInt(adaptMatch[2], 10);
+    abilities.push({
+      id: `${card.id}-adapt-${abilityIndex++}`,
+      label: `Adapt ${adaptN}`,
+      description: `Put ${adaptN} +1/+1 counter${adaptN !== 1 ? 's' : ''} on ${name} (only if it has no +1/+1 counters)`,
+      cost: adaptCost,
+      effect: `Put ${adaptN} +1/+1 counter${adaptN !== 1 ? 's' : ''} on this creature if it has no +1/+1 counters on it.`,
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: adaptCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+    });
+  }
+  
+  // ======== FORTIFY ABILITIES (Rule 702.67) ========
+  // "Fortify {cost}" - Attach Fortification to target land you control (sorcery speed)
+  // Example: "Fortify {3}"
+  const fortifyMatch = oracleText.match(/fortify\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (fortifyMatch && typeLine.toLowerCase().includes('fortification')) {
+    const fortifyCost = fortifyMatch[1];
+    abilities.push({
+      id: `${card.id}-fortify-${abilityIndex++}`,
+      label: `Fortify ${fortifyCost}`,
+      description: 'Attach to target land you control (sorcery speed)',
+      cost: fortifyCost,
+      effect: 'Attach this Fortification to target land you control',
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: fortifyCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      timingRestriction: 'sorcery',
+      requiresTarget: true,
+      targetDescription: 'land you control',
+    });
+  }
+  
   // ======== CYCLING ABILITIES ========
   const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
   if (cyclingMatch) {
@@ -922,7 +1017,19 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   // Pattern: "{mana}, Sacrifice two other artifacts and/or creatures: Put an indestructible counter on [CARDNAME]."
   // This handles Mondrak, Glory Dominus and similar Phyrexian Dominus cards
   // These abilities have Phyrexian mana symbols like {W/P} which can be paid with life
-  const dominusMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*),?\s*sacrifice\s+(two|three|\d+)\s+other\s+(artifacts?\s+and\/or\s+creatures?|creatures?\s+and\/or\s+artifacts?):\s*put\s+an?\s+indestructible\s+counter/i);
+  // 
+  // Regex breakdown:
+  //   (\{[^}]+\}(?:\{[^}]+\})*) - Capture mana cost (one or more mana symbols)
+  //   ,?\s*                      - Optional comma and whitespace
+  //   sacrifice\s+               - "sacrifice" keyword
+  //   (two|three|\d+)            - Count word or number
+  //   \s+other\s+                - "other" keyword (required for these abilities)
+  //   (artifacts?...)            - Type combination (artifact and/or creature variants)
+  //   :\s*put\s+an?\s+           - Colon separator and "put a/an"
+  //   indestructible\s+counter   - The effect being detected
+  const dominusMatch = oracleText.match(
+    /(\{[^}]+\}(?:\{[^}]+\})*),?\s*sacrifice\s+(two|three|\d+)\s+other\s+(artifacts?\s+and\/or\s+creatures?|creatures?\s+and\/or\s+artifacts?):\s*put\s+an?\s+indestructible\s+counter/i
+  );
   if (dominusMatch) {
     const manaCost = dominusMatch[1];
     const sacrificeCountStr = dominusMatch[2];
