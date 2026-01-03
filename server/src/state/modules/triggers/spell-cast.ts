@@ -269,11 +269,28 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         createsToken = true;
         const tokenPowerMatch = effectText.match(/(\d+)\/(\d+)/);
         if (tokenPowerMatch) {
+          // Extract color and creature type: "1/1 white Warrior creature token"
+          const typeMatch = effectText.match(/(\d+\/\d+)\s+(white|blue|black|red|green|colorless)?\s*(\w+)\s+(?:artifact\s+)?creature\s+token/i);
+          const tokenColor = typeMatch?.[2] || '';
+          const tokenType = typeMatch?.[3] || tribalType || 'Token';
+          
+          // Extract abilities: "token with vigilance" or "token with flying and haste"
+          const abilityMatch = effectText.match(/token\s+with\s+([^.]+)/i);
+          let abilities: string[] | undefined;
+          if (abilityMatch) {
+            // Split on "and" or "," to get individual abilities
+            abilities = abilityMatch[1].split(/\s+and\s+|,\s*/i).map(a => a.trim().toLowerCase());
+          }
+          
+          // Check for artifact token
+          const isArtifact = effectText.toLowerCase().includes('artifact creature token');
+          
           tokenDetails = {
-            name: tribalType ? `${tribalType} Token` : 'Token',
+            name: `${tokenColor ? tokenColor.charAt(0).toUpperCase() + tokenColor.slice(1) + ' ' : ''}${tokenType.charAt(0).toUpperCase() + tokenType.slice(1)}`,
             power: parseInt(tokenPowerMatch[1]),
             toughness: parseInt(tokenPowerMatch[2]),
-            types: `Creature — ${tribalType || 'Token'}`,
+            types: `${isArtifact ? 'Artifact ' : ''}Creature — ${tokenType.charAt(0).toUpperCase() + tokenType.slice(1)}`,
+            abilities,
           };
         }
       }

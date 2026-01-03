@@ -3062,6 +3062,8 @@ export function validateManaPayment(
 export interface ManaProductionInfo {
   /** Base colors this permanent can produce */
   colors: string[];
+  /** Single color for creature-count mana (like any_combination for color choice) */
+  color?: string;
   /** Base amount of mana produced per tap (before multipliers) */
   baseAmount: number;
   /** Whether the amount is dynamic (depends on game state) */
@@ -3074,6 +3076,10 @@ export interface ManaProductionInfo {
   multiplier: number;
   /** Total mana produced (baseAmount * multiplier + bonuses) */
   totalAmount: number;
+  /** Activation cost (for abilities like Three Tree City that require mana to activate) */
+  activationCost?: string;
+  /** Whether this ability requires a color choice prompt */
+  requiresColorChoice?: boolean;
 }
 
 /**
@@ -3213,7 +3219,7 @@ export function calculateManaProduction(
   
   // Three Tree City - Has two abilities:
   // 1. {T}: Add {C}
-  // 2. {2}, {T}: Add mana equal to creatures of the chosen type
+  // 2. {2}, {T}: Choose a color. Add an amount of mana of that color equal to creatures of the chosen type.
   // The chosen creature type is stored on the permanent
   if (cardName.includes("three tree city")) {
     // Get the chosen creature type from the permanent
@@ -3231,9 +3237,13 @@ export function calculateManaProduction(
       
       result.isDynamic = true;
       result.baseAmount = creatureCount;
-      result.dynamicDescription = `Mana for each ${chosenCreatureType} you control (${creatureCount})`;
+      result.dynamicDescription = `Choose a color. Add ${creatureCount} mana of that color (one for each ${chosenCreatureType} you control)`;
+      // Mark as "any_combination" to trigger color choice prompt
+      result.color = 'any_combination';
       result.colors = ['W', 'U', 'B', 'R', 'G'];
-      if (chosenColor) result.colors = [chosenColor];
+      // Mark that this ability requires paying {2}
+      result.activationCost = '{2}';
+      result.requiresColorChoice = true;
     } else {
       // No creature type chosen yet, just produces {C}
       result.baseAmount = 1;

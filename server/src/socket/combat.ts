@@ -175,6 +175,7 @@ function processTapTriggersForAttackers(
  * - Vehicles (only creatures when crewed this turn)
  * - Spacecraft with Station (creatures when charge counter threshold met)
  * - Bestow creatures (may be Auras when attached to another creature)
+ * - Gods with devotion requirements
  * 
  * Note: This does NOT handle "can't attack" effects like Defang or Pacifism,
  * which are checked separately in the attack validation.
@@ -183,9 +184,11 @@ function processTapTriggersForAttackers(
  * to avoid circular dependencies. Keep both versions in sync when making changes.
  * 
  * @param permanent - The permanent to check
+ * @param battlefield - Optional battlefield array for devotion calculations
+ * @param controllerId - Optional controller ID for filtering battlefield by controller
  * @returns true if the permanent is currently a creature
  */
-function isCurrentlyCreature(permanent: any): boolean {
+function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?: string): boolean {
   if (!permanent) return false;
   
   // Check type_line from card data
@@ -332,9 +335,12 @@ function isCurrentlyCreature(permanent: any): boolean {
       const color2 = devotionMatch[2]?.toLowerCase();
       const threshold = parseInt(devotionMatch[3], 10);
       
-      // Calculate devotion from permanents in the same context
-      // If we have access to battlefield through permanent.battlefield or similar
-      const playerPerms = permanent.controllerBattlefield || [];
+      // Calculate devotion from permanents controlled by the same player
+      // Use the passed battlefield parameter if available, otherwise use permanent.controllerBattlefield
+      const controller = controllerId || permanent.controller;
+      const playerPerms = battlefield 
+        ? battlefield.filter((p: any) => p && p.controller === controller)
+        : (permanent.controllerBattlefield || []);
       let devotion = 0;
       
       // Map color words to mana symbols
@@ -378,6 +384,7 @@ function isCurrentlyCreature(permanent: any): boolean {
       
       // If devotion is less than threshold, it's not a creature
       if (devotion < threshold) {
+        debug(2, `[isCurrentlyCreature] God ${permanent.card?.name} does not meet devotion threshold: ${devotion} < ${threshold}`);
         return false;
       }
       // Devotion met - it IS a creature
@@ -952,7 +959,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
         // Check if permanent is actually a creature (Rule 508.1a)
         // Enchantments, artifacts without animation, lands, etc. cannot attack
-        if (!isCurrentlyCreature(creature)) {
+        // Pass battlefield and controller for proper devotion calculation (Gods)
+        if (!isCurrentlyCreature(creature, battlefield, playerId)) {
           socket.emit("error", {
             code: "NOT_A_CREATURE",
             message: `${(creature as any).card?.name || "This permanent"} is not a creature and cannot attack`,
@@ -1581,7 +1589,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
         // Check if permanent is actually a creature (Rule 509.1a)
         // Enchantments, artifacts without animation, lands, etc. cannot block
-        if (!isCurrentlyCreature(blockerCreature)) {
+        // Pass battlefield and controller for proper devotion calculation (Gods)
+        if (!isCurrentlyCreature(blockerCreature, battlefield, playerId)) {
           socket.emit("error", {
             code: "NOT_A_CREATURE",
             message: `${(blockerCreature as any).card?.name || "This permanent"} is not a creature and cannot block`,
@@ -2069,8 +2078,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           return;
         }
 
-        // Check if permanent is a creature
-        if (!isCurrentlyCreature(creature)) {
+        // Check if permanent is a creature (includes devotion check for Gods)
+        if (!isCurrentlyCreature(creature, battlefield, playerId)) {
           socket.emit("error", {
             code: "NOT_A_CREATURE",
             message: `${(creature as any).card?.name || "This permanent"} is not a creature`,
@@ -2257,8 +2266,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           return;
         }
 
-        // Check if permanent is a creature
-        if (!isCurrentlyCreature(blockerCreature)) {
+        // Check if permanent is a creature (includes devotion check for Gods)
+        if (!isCurrentlyCreature(blockerCreature, battlefield, playerId)) {
           socket.emit("error", {
             code: "NOT_A_CREATURE",
             message: `${(blockerCreature as any).card?.name || "This permanent"} is not a creature`,

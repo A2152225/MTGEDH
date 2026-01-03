@@ -152,6 +152,44 @@ function isColor(creature: BattlefieldPermanent, colorWord: string): boolean {
   return tl.includes(colorWord.toLowerCase());
 }
 
+/**
+ * Check if a creature has a specific creature type (e.g., "Soldier", "Goblin")
+ * Handles both main types and subtypes in the type line
+ */
+function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string): boolean {
+  const tl = ((permanent.card as any)?.type_line || '').toLowerCase();
+  // Check if the creature type exists as a word in the type line
+  // Use word boundary to avoid false positives (e.g., "soldier" shouldn't match "soldiers")
+  const typePattern = new RegExp(`\\b${creatureType.toLowerCase()}s?\\b`, 'i');
+  return typePattern.test(tl);
+}
+
+// List of common creature types for pattern matching
+const CREATURE_TYPES = [
+  'advisor', 'aetherborn', 'ally', 'angel', 'antelope', 'ape', 'archer', 'archon', 'army', 'assassin', 'avatar',
+  'barbarian', 'basilisk', 'bat', 'bear', 'beast', 'bird', 'boar', 'bringer', 'brushwagg',
+  'camel', 'cat', 'centaur', 'chimera', 'cleric', 'construct', 'coward', 'crab', 'crocodile', 'cyclops',
+  'demon', 'djinn', 'dragon', 'drake', 'druid', 'dwarf',
+  'elder', 'elemental', 'elephant', 'elf', 'elk', 'eye',
+  'faerie', 'ferret', 'fish', 'flagbearer', 'fox', 'frog', 'fungus',
+  'giant', 'gnome', 'goat', 'goblin', 'god', 'golem', 'gorgon', 'griffin',
+  'hag', 'harpy', 'hippo', 'horror', 'human', 'hydra', 'hyena',
+  'illusion', 'imp', 'insect',
+  'jellyfish',
+  'kavu', 'kirin', 'kithkin', 'knight', 'kobold', 'kor',
+  'leviathan', 'lhurgoyf', 'lizard',
+  'manticore', 'masticore', 'mercenary', 'merfolk', 'minion', 'minotaur', 'monkey', 'monk', 'moonfolk', 'mutant', 'myr',
+  'naga', 'nightmare', 'ninja', 'noble', 'noggle', 'nomad', 'nymph',
+  'octopus', 'ogre', 'ooze', 'orb', 'orc', 'ox',
+  'peasant', 'pegasus', 'pest', 'phoenix', 'pilot', 'pirate', 'plant', 'praetor', 'prism', 'processor',
+  'rabbit', 'rat', 'rebel', 'reflection', 'rhino', 'rogue',
+  'salamander', 'samurai', 'satyr', 'scarecrow', 'scorpion', 'scout', 'serpent', 'shade', 'shaman', 'shapeshifter', 'skeleton', 'slith', 'sliver', 'slug', 'snake', 'soldier', 'soltari', 'specter', 'spider', 'spike', 'spirit', 'sponge', 'squid', 'squirrel', 'starfish', 'survivor',
+  'tentacle', 'thopter', 'treefolk', 'troll', 'turtle',
+  'vampire', 'vedalken', 'viashino',
+  'wall', 'warrior', 'weird', 'werewolf', 'whale', 'wizard', 'wolf', 'wolverine', 'worm', 'wraith',
+  'zombie', 'zubera'
+];
+
 export function computeContinuousEffects(state: GameState): ContinuousEffectResult {
   const perPermanent = new Map<string, EffectAggregate>();
   const playerHexproof = new Set<PlayerID>();
@@ -319,6 +357,90 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
             const agg = perPermanent.get(perm.id)!;
             agg.pDelta += buff.p;
             agg.tDelta += buff.t;
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
+    
+    // ============================================
+    // CREATURE TYPE LORD EFFECTS
+    // ============================================
+    // Pattern: "Other [TYPE]s you control get +X/+Y"
+    // Examples: Valiant Veteran ("Other Soldiers you control get +1/+1")
+    //           Lord of Atlantis ("Other Merfolk get +1/+1 and have islandwalk")
+    //           Goblin King ("Other Goblins get +1/+1 and have mountainwalk")
+    //           Death Baron ("Skeletons you control and other Zombies you control get +1/+1 and have deathtouch")
+    //           Elvish Archdruid ("Other Elf creatures you control get +1/+1")
+    
+    // First, check for "Other [TYPE]s you control get +X/+Y" pattern
+    for (const creatureType of CREATURE_TYPES) {
+      // Pattern 1: "Other [TYPE]s you control get +X/+Y" (most common lord pattern)
+      const otherTypeBuffPattern = new RegExp(
+        `other\\s+${creatureType}s?\\s+(?:you\\s+control\\s+)?get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
+        'i'
+      );
+      const otherTypeMatch = oracle.match(otherTypeBuffPattern);
+      if (otherTypeMatch) {
+        const buff = parseBuffSegment(otherTypeMatch[1]);
+        if (buff) {
+          for (const perm of state.battlefield) {
+            // "Other" means exclude source, must be controlled by same player, must be the creature type
+            if (perm.controller === controller && 
+                isCreature(perm) && 
+                perm.id !== source.id && 
+                hasCreatureType(perm, creatureType)) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+              // Check for abilities in the tail text
+              const tail = otherTypeMatch[2] || '';
+              const abilities = parseAbilities(tail);
+              for (const a of abilities) agg.abilities.add(a);
+            }
+          }
+        }
+      }
+      
+      // Pattern 2: "[TYPE]s you control get +X/+Y" (affects all including self)
+      const typeBuffPattern = new RegExp(
+        `(?<!other\\s+)${creatureType}s?\\s+you\\s+control\\s+get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
+        'i'
+      );
+      const typeMatch = oracle.match(typeBuffPattern);
+      if (typeMatch && !otherTypeMatch) { // Don't double-apply if already matched "other"
+        const buff = parseBuffSegment(typeMatch[1]);
+        if (buff) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller && 
+                isCreature(perm) && 
+                hasCreatureType(perm, creatureType)) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+              // Check for abilities in the tail text
+              const tail = typeMatch[2] || '';
+              const abilities = parseAbilities(tail);
+              for (const a of abilities) agg.abilities.add(a);
+            }
+          }
+        }
+      }
+      
+      // Pattern 3: "Other [TYPE] creatures you control have [ABILITIES]"
+      const otherTypeAbilitiesPattern = new RegExp(
+        `other\\s+${creatureType}\\s+creatures?\\s+you\\s+control\\s+have\\s+([^.]+)`,
+        'i'
+      );
+      const otherTypeAbilitiesMatch = oracle.match(otherTypeAbilitiesPattern);
+      if (otherTypeAbilitiesMatch) {
+        const abilities = parseAbilities(otherTypeAbilitiesMatch[1]);
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller && 
+              isCreature(perm) && 
+              perm.id !== source.id && 
+              hasCreatureType(perm, creatureType)) {
+            const agg = perPermanent.get(perm.id)!;
             for (const a of abilities) agg.abilities.add(a);
           }
         }

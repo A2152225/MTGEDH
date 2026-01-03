@@ -3598,6 +3598,69 @@ function executeTriggerEffect(
     return;
   }
   
+  // ===== MYREL, SHIELD OF ARGIVE =====
+  // Pattern: "Create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control"
+  // This handles Myrel and similar "create tokens based on type count" effects
+  if ((desc.includes('create') && desc.includes('soldier') && desc.includes('artifact') && 
+       (desc.includes('number of soldiers you control') || desc.includes('soldiers you control'))) ||
+      (sourceName.toLowerCase().includes('myrel'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count Soldiers the controller controls
+    let soldierCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('soldier')) {
+        soldierCount++;
+      }
+    }
+    
+    debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${soldierCount} Soldier artifact tokens for ${controller} (soldiers controlled: ${soldierCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = soldierCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 colorless Soldier artifact creature tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Artifact Creature — Soldier';
+      const imageUrls = getTokenImageUrls('Soldier', 1, 1, []);
+      
+      const soldierToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Soldier',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: [], // colorless
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(soldierToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, soldierToken, controller);
+      
+      debug(2, `[executeTriggerEffect] Created Soldier artifact token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
   // ===== DEPLOY TO THE FRONT =====
   // Pattern: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield"
   // Deploy to the Front: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield."
