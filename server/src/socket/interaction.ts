@@ -5661,14 +5661,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Determine what type label to show in error message
       let sacrificeLabel = sacrificeSubtype ? sacrificeSubtype : sacrificeType;
+      let sacrificeLabelPlural = sacrificeLabel + 's';
       if (sacrificeType === 'artifact_or_creature') {
         sacrificeLabel = 'artifact or creature';
+        sacrificeLabelPlural = 'artifacts and/or creatures';
       }
       
       if (eligiblePermanents.length < sacrificeCount) {
         socket.emit("error", {
           code: "INSUFFICIENT_SACRIFICE_TARGETS",
-          message: `You don't control enough ${sacrificeLabel}s to sacrifice. (Need ${sacrificeCount}, have ${eligiblePermanents.length})`,
+          message: `You don't control enough ${sacrificeLabelPlural} to sacrifice. (Need ${sacrificeCount}, have ${eligiblePermanents.length})`,
         });
         return;
       }

@@ -127,18 +127,20 @@ export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
   }
   
   // "Sacrifice X creatures/artifacts/etc" (multiple)
-  if (/sacrifice\s+(\d+|two|three|four|five)\s+(?:other\s+)?creatures?/i.test(lowerCost)) {
+  // Pattern: "sacrifice [count] [other] creatures" where count is number word or digit
+  if (/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?creatures?/i.test(lowerCost)) {
     result.sacrificeType = 'creature';
-    const countMatch = lowerCost.match(/sacrifice\s+(\d+|two|three|four|five)\s+(?:other\s+)?creatures?/i);
+    const countMatch = lowerCost.match(/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?creatures?/i);
     if (countMatch) {
       result.sacrificeCount = parseNumberFromText(countMatch[1]);
     }
   }
   
   // "Sacrifice X artifacts" (multiple)
-  if (/sacrifice\s+(\d+|two|three|four|five)\s+(?:other\s+)?artifacts?/i.test(lowerCost)) {
+  // Pattern: "sacrifice [count] [other] artifacts" where count is number word or digit
+  if (/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?artifacts?/i.test(lowerCost)) {
     result.sacrificeType = 'artifact';
-    const countMatch = lowerCost.match(/sacrifice\s+(\d+|two|three|four|five)\s+(?:other\s+)?artifacts?/i);
+    const countMatch = lowerCost.match(/sacrifice\s+(\d+|one|two|three|four|five|an?)\s+(?:other\s+)?artifacts?/i);
     if (countMatch) {
       result.sacrificeCount = parseNumberFromText(countMatch[1]);
     }
