@@ -1829,6 +1829,20 @@ export function nextTurn(ctx: GameContext) {
       debugWarn(1, `${ts()} [nextTurn] Failed to clear temporary land bonuses:`, err);
     }
     
+    // Reset planeswalker loyalty activation flags for the active player's permanents
+    // Rule 606.3: Each loyalty ability can only be activated once per turn
+    try {
+      const battlefield = (ctx as any).state.battlefield || [];
+      for (const perm of battlefield) {
+        if (perm && perm.controller === next && perm.loyaltyActivatedThisTurn) {
+          perm.loyaltyActivatedThisTurn = false;
+        }
+      }
+      debug(2, `${ts()} [nextTurn] Reset planeswalker loyalty activation flags for player ${next}`);
+    } catch (err) {
+      debugWarn(1, `${ts()} [nextTurn] Failed to reset planeswalker loyalty flags:`, err);
+    }
+    
     // Immediately advance from UNTAP to UPKEEP (Rule 502.1: untap step has no priority)
     // Untap all permanents controlled by the active player
     try {
