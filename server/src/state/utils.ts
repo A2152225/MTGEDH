@@ -1742,11 +1742,15 @@ export function calculateAllPTBonuses(
       }
       
       // Also check for non-turn-restricted token bonuses
-      // Pattern: "creature tokens you control get +X/+Y"
-      const tokenBonusMatch = oracleText.match(/(?<!during your turn,?\s*)creature tokens you control get \+(\d+)\/\+(\d+)/i);
+      // Pattern: "creature tokens you control get +X/+Y" (without "during your turn" prefix)
+      // Don't use lookbehind as it has case-sensitivity issues with the 'i' flag
+      const tokenBonusMatch = oracleText.match(/creature tokens you control get \+(\d+)\/\+(\d+)/i);
       if (tokenBonusMatch && !tokenTurnBonusMatch) { // Don't double count if turn-restricted
-        powerBonus += parseInt(tokenBonusMatch[1], 10);
-        toughnessBonus += parseInt(tokenBonusMatch[2], 10);
+        // Only apply if there's no "during your turn" restriction in the text
+        if (!oracleText.includes('during your turn')) {
+          powerBonus += parseInt(tokenBonusMatch[1], 10);
+          toughnessBonus += parseInt(tokenBonusMatch[2], 10);
+        }
       }
     }
   }

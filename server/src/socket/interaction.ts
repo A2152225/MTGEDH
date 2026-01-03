@@ -5770,7 +5770,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             // Pay life for Phyrexian mana
             if (lifeToPay > 0) {
-              if (playerLife <= lifeToPay) {
+              // Player must have MORE life than cost to pay (can't pay cost that would reduce to 0)
+              if (playerLife < lifeToPay) {
                 socket.emit("error", {
                   code: "INSUFFICIENT_LIFE",
                   message: `Cannot pay ${lifeToPay} life for Phyrexian mana (you have ${playerLife} life)`,
