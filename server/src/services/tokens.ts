@@ -655,6 +655,15 @@ export function getTokenImageUrls(
     }
   }
   
+  // If bestMatch doesn't have an image, try to find any match that does
+  if (!bestMatch?.image_uris?.normal && !bestMatch?.image_uris?.small) {
+    const anyWithImage = tokens.find(t => t.image_uris?.normal || t.image_uris?.small);
+    if (anyWithImage) {
+      debug(2, `[tokens] bestMatch lacks image, falling back to any with image`);
+      return anyWithImage.image_uris;
+    }
+  }
+  
   return bestMatch?.image_uris;
 }
 
