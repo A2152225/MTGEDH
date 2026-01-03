@@ -267,8 +267,8 @@ export function createToken(
     typeLine = parts.join(' ');
   }
   
-  // Get token image URLs from the token service
-  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors);
+  // Get token image URLs from the token service (pass abilities for exact matching)
+  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities);
   
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     state.battlefield.push({
@@ -289,8 +289,9 @@ export function createToken(
         colors: options?.colors || [],
         image_uris: imageUrls,
         oracle_text: options?.abilities?.join('. ') || '',
-      }
-    });
+        keywords: options?.abilities || [],
+      } as any  // Cast to any to allow keywords field
+    } as any);
   }
   bumpSeq();
   runSBA(ctx);

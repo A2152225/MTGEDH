@@ -538,19 +538,22 @@ export function getCommonToken(tokenType: string): {
  * @param power - Optional power to help match specific tokens
  * @param toughness - Optional toughness to help match specific tokens
  * @param colors - Optional colors to help match specific tokens
+ * @param abilities - Optional abilities/keywords to help match specific tokens (e.g., ['vigilance', 'lifelink'])
  * @returns Image URLs object or undefined
  */
 export function getTokenImageUrls(
   tokenName: string, 
   power?: number | string, 
   toughness?: number | string,
-  colors?: string[]
+  colors?: string[],
+  abilities?: string[]
 ): { small?: string; normal?: string; large?: string; art_crop?: string } | undefined {
   loadTokens();
   
   const nameLower = tokenName.toLowerCase();
+  const abilitiesLower = abilities?.map(a => a.toLowerCase()) || [];
   
-  debug(2, `[tokens] getTokenImageUrls: name=${tokenName}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}`);
+  debug(2, `[tokens] getTokenImageUrls: name=${tokenName}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}, abilities=${JSON.stringify(abilities)}`);
   
   // Fallback URLs for common tokens that may not be in Tokens.json
   // These are direct Scryfall URLs for specific token printings
@@ -713,6 +716,48 @@ export function getTokenImageUrls(
       }
     }
     
+    // Match abilities/keywords - tokens store these in `keywords` array or `oracle_text`
+    if (abilitiesLower.length > 0) {
+      const tokenKeywords = (token.keywords || []).map(k => k.toLowerCase());
+      const tokenOracleText = (token.oracle_text || '').toLowerCase();
+      
+      let abilityMatchCount = 0;
+      let abilityMismatchCount = 0;
+      
+      for (const ability of abilitiesLower) {
+        // Check if this ability is in the token's keywords or oracle text
+        const hasAbility = tokenKeywords.includes(ability) || 
+                          tokenOracleText.includes(ability);
+        if (hasAbility) {
+          abilityMatchCount++;
+        }
+      }
+      
+      // Check if token has abilities we DON'T want (penalty for extra abilities)
+      for (const keyword of tokenKeywords) {
+        if (!abilitiesLower.includes(keyword)) {
+          abilityMismatchCount++;
+        }
+      }
+      
+      // Significant bonus for matching abilities (4 points each)
+      score += abilityMatchCount * 4;
+      
+      // Penalty for extra unwanted abilities (1 point each)
+      score -= abilityMismatchCount;
+      
+      // Extra bonus if ALL requested abilities match
+      if (abilityMatchCount === abilitiesLower.length) {
+        score += 5;
+      }
+    } else {
+      // If no abilities requested, slightly prefer tokens without keywords
+      const tokenKeywords = token.keywords || [];
+      if (tokenKeywords.length === 0) {
+        score += 1;
+      }
+    }
+    
     // Prefer tokens with images
     if (token.image_uris?.normal || token.image_uris?.small) score += 1;
     
@@ -757,7 +802,8 @@ export function createTokenCard(options: {
     options.name, 
     options.power, 
     options.toughness, 
-    options.colors
+    options.colors,
+    options.keywords  // Pass abilities for better matching
   );
   
   return {
