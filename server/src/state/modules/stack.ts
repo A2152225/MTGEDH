@@ -2,6 +2,22 @@ import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus } from "./game-state-effects.js";
+import { 
+  detectKeywords, 
+  getAttackTriggerKeywords, 
+  getETBKeywords, 
+  getDeathTriggerKeywords,
+  getCombatDamageTriggerKeywords,
+  getSpellCastTriggerKeywords,
+  type DetectedKeyword 
+} from "./keyword-detection.js";
+import { 
+  processKeywordTriggers, 
+  applyKeywordCounters, 
+  applyKeywordPTMod,
+  type KeywordTriggerResult,
+  type KeywordTriggerContext
+} from "./keyword-handlers.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { 
@@ -3948,6 +3964,92 @@ function executeTriggerEffect(
     }
     
     return;
+  }
+  
+  // ===== KEYWORD-BASED FALLBACK =====
+  // Try to detect and process keyword abilities dynamically using the keyword detection system
+  // This handles keywords like prowess, dethrone, evolve, extort, etc.
+  const sourceCard = (triggerItem as any)?.card || {};
+  const oracleText = sourceCard.oracle_text || description;
+  const cardNameForKeyword = sourceCard.name || sourceName;
+  
+  const detectedKeywords = detectKeywords(oracleText, cardNameForKeyword);
+  
+  if (detectedKeywords.keywords.length > 0) {
+    debug(2, `[executeTriggerEffect] Found ${detectedKeywords.keywords.length} keywords via dynamic detection for ${sourceName}`);
+    
+    // Determine trigger timing from triggerType
+    const triggerType = (triggerItem as any).triggerType;
+    let timing: 'attacks' | 'etb' | 'dies' | 'combat_damage' | 'cast' | 'noncreature_cast' = 'cast';
+    
+    if (triggerType === 'attacks' || triggerType === 'creature_attacks') {
+      timing = 'attacks';
+    } else if (triggerType === 'etb' || triggerType === 'etb_self') {
+      timing = 'etb';
+    } else if (triggerType === 'dies' || triggerType === 'death') {
+      timing = 'dies';
+    } else if (triggerType === 'combat_damage' || triggerType === 'deals_combat_damage') {
+      timing = 'combat_damage';
+    } else if (triggerType === 'cast' || triggerType === 'spell_cast') {
+      timing = 'cast';
+    }
+    
+    // Get the permanent from the battlefield
+    const battlefield = state.battlefield || [];
+    const sourceId = (triggerItem as any).source || (triggerItem as any).permanentId;
+    const permanent = battlefield.find((p: any) => p.id === sourceId);
+    
+    if (permanent) {
+      // Build trigger context
+      const keywordCtx: KeywordTriggerContext = {
+        gameId: (ctx as any).gameId || 'unknown',
+        permanent,
+        controller,
+        state,
+        battlefield,
+        players: state.players || [],
+        activePlayer: state.activePlayer || controller,
+        defendingPlayer: (triggerItem as any).defendingPlayer,
+        attackingCreatures: (triggerItem as any).attackingCreatures,
+        spellCast: (triggerItem as any).spellCast,
+      };
+      
+      // Process keywords for this timing
+      const results = processKeywordTriggers(keywordCtx, timing);
+      
+      for (const result of results) {
+        debug(2, `[executeTriggerEffect] Keyword ${result.keyword} processed: ${result.chatMessage || result.effect}`);
+        
+        // Apply counter modifications
+        if (result.countersAdded) {
+          applyKeywordCounters(permanent, result);
+        }
+        
+        // Apply P/T modifications
+        if (result.ptModification) {
+          applyKeywordPTMod(permanent, result);
+        }
+        
+        // Handle player choices (will be processed by socket layer)
+        if (result.requiresPlayerChoice) {
+          // Store pending choice for socket layer to handle
+          state.pendingKeywordChoice = state.pendingKeywordChoice || [];
+          state.pendingKeywordChoice.push({
+            keyword: result.keyword,
+            playerId: result.requiresPlayerChoice.playerId,
+            permanentId: result.requiresPlayerChoice.permanentId,
+            type: result.requiresPlayerChoice.type,
+            options: result.requiresPlayerChoice.options,
+            sourceName,
+            sourceId,
+          });
+        }
+      }
+      
+      if (results.length > 0) {
+        return; // Keyword handlers processed the effect
+      }
+    }
   }
   
   // Log unhandled triggers for future implementation
