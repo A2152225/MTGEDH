@@ -112,6 +112,24 @@ export function parseTargetRequirements(oracleText?: string): {
   let maxTargets = 0;
   let targetDescription = '';
   
+  // Check for "Choose any number of target opponents" pattern (Strive spells like Call the Coppercoats)
+  // Pattern: "choose any number of target opponents" - can target 0 or more opponents
+  const anyNumberOpponentsMatch = t.match(/choose\s+any\s+number\s+of\s+target\s+opponents?/i);
+  if (anyNumberOpponentsMatch) {
+    minTargets = 0; // "any number" means minimum is 0
+    maxTargets = 999; // Effectively unlimited (bounded by number of opponents)
+    targetTypes.push('opponent');
+    targetDescription = 'any number of target opponents';
+    return { 
+      needsTargets: true, 
+      targetTypes, 
+      minTargets, 
+      maxTargets, 
+      targetDescription,
+      targetControllerConstraint: 'opponent',
+    };
+  }
+  
   // Check for "for each opponent, X target Y that player controls" patterns
   // Examples:
   // - "For each opponent, destroy up to one target artifact or enchantment that player controls."

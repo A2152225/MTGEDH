@@ -44,6 +44,7 @@ import { AnyColorManaModal } from "./components/AnyColorManaModal";
 import { ManaDistributionModal } from "./components/ManaDistributionModal";
 import { AdditionalCostModal } from "./components/AdditionalCostModal";
 import { SquadCostModal } from "./components/SquadCostModal";
+import { PhyrexianManaChoiceModal } from "./components/PhyrexianManaChoiceModal";
 import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
@@ -659,6 +660,27 @@ export function App() {
     cardName: string;
     amount: number;
     allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
+    cardImageUrl?: string;
+  } | null>(null);
+  
+  // Phyrexian Mana Choice Modal state - for cards with {W/P}, {U/P}, etc. costs
+  const [phyrexianManaModalOpen, setPhyrexianManaModalOpen] = useState(false);
+  const [phyrexianManaModalData, setPhyrexianManaModalData] = useState<{
+    pendingId: string;
+    permanentId: string;
+    cardName: string;
+    abilityText: string;
+    totalManaCost: string;
+    genericCost: number;
+    phyrexianChoices: Array<{
+      index: number;
+      colorOption: string;
+      colorName: string;
+      lifeAmount: number;
+      hasColorMana: boolean;
+      symbol: string;
+    }>;
+    playerLife: number;
     cardImageUrl?: string;
   } | null>(null);
   
@@ -1958,6 +1980,48 @@ export function App() {
     socket.on("manaColorChoice", handler);
     return () => {
       socket.off("manaColorChoice", handler);
+    };
+  }, [safeView?.id]);
+
+  // Phyrexian mana choice listener (for Mite Overseer, K'rrik, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      pendingId: string;
+      permanentId: string;
+      cardName: string;
+      abilityText: string;
+      totalManaCost: string;
+      genericCost: number;
+      phyrexianChoices: Array<{
+        index: number;
+        colorOption: string;
+        colorName: string;
+        lifeAmount: number;
+        hasColorMana: boolean;
+        symbol: string;
+      }>;
+      playerLife: number;
+      cardImageUrl?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setPhyrexianManaModalData({
+          pendingId: payload.pendingId,
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          abilityText: payload.abilityText,
+          totalManaCost: payload.totalManaCost,
+          genericCost: payload.genericCost,
+          phyrexianChoices: payload.phyrexianChoices,
+          playerLife: payload.playerLife,
+          cardImageUrl: payload.cardImageUrl,
+        });
+        setPhyrexianManaModalOpen(true);
+      }
+    };
+    socket.on("phyrexianManaChoice", handler);
+    return () => {
+      socket.off("phyrexianManaChoice", handler);
     };
   }, [safeView?.id]);
 
@@ -6413,6 +6477,33 @@ export function App() {
         onCancel={() => {
           setAnyColorManaModalOpen(false);
           setAnyColorManaModalData(null);
+        }}
+      />
+
+      {/* Phyrexian Mana Choice Modal (Mite Overseer, K'rrik, etc.) */}
+      <PhyrexianManaChoiceModal
+        open={phyrexianManaModalOpen}
+        cardName={phyrexianManaModalData?.cardName || ''}
+        abilityText={phyrexianManaModalData?.abilityText || ''}
+        totalManaCost={phyrexianManaModalData?.totalManaCost || ''}
+        genericCost={phyrexianManaModalData?.genericCost || 0}
+        phyrexianChoices={phyrexianManaModalData?.phyrexianChoices || []}
+        playerLife={phyrexianManaModalData?.playerLife || 40}
+        cardImageUrl={phyrexianManaModalData?.cardImageUrl}
+        onConfirm={(choices) => {
+          if (safeView?.id && phyrexianManaModalData) {
+            socket.emit("phyrexianManaConfirm", {
+              gameId: safeView.id,
+              pendingId: phyrexianManaModalData.pendingId,
+              choices,
+            });
+            setPhyrexianManaModalOpen(false);
+            setPhyrexianManaModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setPhyrexianManaModalOpen(false);
+          setPhyrexianManaModalData(null);
         }}
       />
 
