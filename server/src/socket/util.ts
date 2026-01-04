@@ -833,7 +833,17 @@ function normalizeViewForEmit(rawView: any, game: any) {
           const isAttachedToSomething = !!perm.attachedTo;
           const hasDamage = (perm.damageTaken || 0) > 0 || (perm.damageMarked || 0) > 0;
           const isInCombat = perm.isBlocking || perm.isAttacking || perm.blocking?.length > 0;
-          const hasTempMods = perm.tempPTMod || perm.temporaryProtection?.length > 0;
+          
+          // Check for ANY temporary modifications that would make this token unique:
+          // - modifiers: Array of P/T modifiers from Giant Growth, battle cry, anthems, etc.
+          // - temporaryEffects: Array of temporary effects like "exile if dies this turn"
+          // - tempPTMod: Legacy field for some temporary P/T changes
+          // - temporaryProtection: Array of temporary protection effects (e.g., Brave the Elements)
+          const hasModifiers = perm.modifiers?.length > 0;
+          const hasTemporaryEffects = perm.temporaryEffects?.length > 0;
+          const hasTempPTMod = !!perm.tempPTMod;
+          const hasTemporaryProtection = perm.temporaryProtection?.length > 0;
+          const hasTempMods = hasModifiers || hasTemporaryEffects || hasTempPTMod || hasTemporaryProtection;
           
           const isGroupableToken = 
             perm.isToken === true &&
@@ -842,7 +852,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
             !isAttachedToSomething && // Not attached to anything
             !hasDamage &&         // No damage taken
             !isInCombat &&        // Not in combat
-            !hasTempMods;         // No temporary modifications
+            !hasTempMods;         // No temporary modifications (Giant Growth, etc.)
           
           if (isGroupableToken) {
             // Create a deterministic grouping key based on relevant properties
