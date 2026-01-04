@@ -345,6 +345,11 @@ export function FreeField(props: {
       attachmentNames?: string[];
       damageMarked?: number;
       ptSources?: { name: string; power: number; toughness: number }[];
+      // Grouped token support
+      isGroupedTokens?: boolean;
+      tokenCount?: number;
+      groupedTokenIds?: string[];
+      isToken?: boolean;
     }> = [];
 
     const gap = 10;
@@ -436,6 +441,12 @@ export function FreeField(props: {
       // P/T bonus sources
       const ptSources = p.ptSources || [];
 
+      // Grouped token properties
+      const isGroupedTokens = (p as any).isGroupedTokens === true;
+      const tokenCount = (p as any).tokenCount as number | undefined;
+      const groupedTokenIds = (p as any).groupedTokenIds as string[] | undefined;
+      const isToken = (p as any).isToken === true;
+
       const counters = p.counters || {};
       const existing = (p as any).pos || null;
       const pos = existing ? { ...existing } : nextAuto();
@@ -468,6 +479,10 @@ export function FreeField(props: {
         attachmentNames,
         damageMarked,
         ptSources,
+        isGroupedTokens,
+        tokenCount,
+        groupedTokenIds,
+        isToken,
       });
     }
     return placed;
@@ -527,7 +542,7 @@ export function FreeField(props: {
         overflow: 'visible' // Allow attack indicators to overflow
       }}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources }) => {
+      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources, isGroupedTokens, tokenCount, isToken }) => {
         const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
         const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
@@ -642,6 +657,35 @@ export function FreeField(props: {
             ) : (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#eee', fontSize: 12, padding: 8 }}>
                 {name}
+              </div>
+            )}
+
+            {/* Token count badge - shown for grouped tokens or any token with count > 1 */}
+            {((isGroupedTokens && tokenCount && tokenCount > 1) || (isToken && tokenCount && tokenCount > 1)) && (
+              <div style={{
+                position: 'absolute',
+                top: Math.round(4 * scale),
+                left: Math.round(4 * scale),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: Math.round(24 * scale),
+                height: Math.round(20 * scale),
+                padding: `${Math.round(2 * scale)}px ${Math.round(6 * scale)}px`,
+                borderRadius: Math.round(10 * scale),
+                background: 'linear-gradient(135deg, rgba(147,51,234,0.95), rgba(126,34,206,0.95))',
+                border: '2px solid rgba(255,255,255,0.4)',
+                boxShadow: '0 2px 8px rgba(147,51,234,0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
+                zIndex: 25,
+              }}>
+                <span style={{
+                  fontSize: Math.round(12 * scale),
+                  fontWeight: 700,
+                  color: '#fff',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                }}>
+                  {tokenCount}×
+                </span>
               </div>
             )}
 

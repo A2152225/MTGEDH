@@ -1664,7 +1664,65 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Validate blockers
       const battlefield = game.state?.battlefield || [];
       
+      // IMPORTANT: Resolve grouped token IDs to actual token IDs
+      // When the client sends a grouped token ID (e.g., "group_perm_xxx"),
+      // we need to find an available token from that group to use as the blocker
+      const resolvedBlockers: Array<{ blockerId: string; attackerId: string }> = [];
+      const usedTokenIds = new Set<string>(); // Track which tokens have been assigned
+      
       for (const blocker of blockers) {
+        let actualBlockerId = blocker.blockerId;
+        
+        // Check if this is a grouped token ID (starts with "group_")
+        if (blocker.blockerId.startsWith('group_')) {
+          // Extract the original first token ID from the group identifier
+          const originalId = blocker.blockerId.replace('group_', '');
+          
+          // Find the first available token from this group
+          // Grouped tokens all have the same card name and similar properties
+          const groupPrototype = battlefield.find((perm: any) => perm.id === originalId);
+          
+          if (groupPrototype) {
+            const tokenName = groupPrototype.card?.name;
+            const tokenType = groupPrototype.card?.type_line;
+            
+            // Find all tokens that match this prototype (same name, type, controller)
+            // and are available (not tapped, not already used as a blocker this declaration)
+            const availableToken = battlefield.find((perm: any) => {
+              if (usedTokenIds.has(perm.id)) return false; // Already used in this declaration
+              if (perm.controller !== playerId) return false;
+              if (perm.tapped) return false; // Can't block if tapped
+              if (perm.blocking && perm.blocking.length > 0) return false; // Already blocking
+              // Match by name and token status
+              return perm.card?.name === tokenName && 
+                     perm.isToken === true;
+            });
+            
+            if (availableToken) {
+              actualBlockerId = availableToken.id;
+              usedTokenIds.add(actualBlockerId);
+              debug(2, `[combat] Resolved grouped token ${blocker.blockerId} to actual token ${actualBlockerId}`);
+            } else {
+              socket.emit("error", {
+                code: "NO_AVAILABLE_TOKEN",
+                message: `No available ${tokenName} token to block with`,
+              });
+              return;
+            }
+          } else {
+            socket.emit("error", {
+              code: "INVALID_GROUP_ID",
+              message: `Could not resolve grouped token ${blocker.blockerId}`,
+            });
+            return;
+          }
+        }
+        
+        resolvedBlockers.push({ blockerId: actualBlockerId, attackerId: blocker.attackerId });
+      }
+      
+      // Now process the resolved blockers
+      for (const blocker of resolvedBlockers) {
         // Find the blocker creature
         const blockerCreature = battlefield.find((perm: any) => 
           perm.id === blocker.blockerId && 
@@ -1791,24 +1849,24 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Use game's declareBlockers method if available
       if (typeof (game as any).declareBlockers === "function") {
         try {
-          (game as any).declareBlockers(playerId, blockers);
+          (game as any).declareBlockers(playerId, resolvedBlockers);
         } catch (e) {
           debugWarn(1, "[combat] game.declareBlockers failed:", e);
         }
       }
 
-      // Persist the event
+      // Persist the event (use resolved blockers for replay consistency)
       try {
         await appendEvent(gameId, (game as any).seq || 0, "declareBlockers", {
           playerId,
-          blockers,
+          blockers: resolvedBlockers,
         });
       } catch (e) {
         debugWarn(1, "[combat] Failed to persist declareBlockers event:", e);
       }
 
       // Broadcast chat message
-      const blockerCount = blockers.length;
+      const blockerCount = resolvedBlockers.length;
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
@@ -1819,7 +1877,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       // Process block triggers
       try {
-        const blockingCreatures = blockers.map(b => 
+        const blockingCreatures = resolvedBlockers.map(b => 
           battlefield.find((perm: any) => perm.id === b.blockerId)
         ).filter(Boolean);
         

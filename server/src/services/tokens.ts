@@ -552,233 +552,174 @@ export function getTokenImageUrls(
   
   const nameLower = tokenName.toLowerCase();
   const abilitiesLower = abilities?.map(a => a.toLowerCase()) || [];
+  const abilitiesSet = new Set(abilitiesLower); // Use Set for O(1) lookup
   
   debug(2, `[tokens] getTokenImageUrls: name=${tokenName}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}, abilities=${JSON.stringify(abilities)}`);
   
-  // Fallback URLs for common tokens that may not be in Tokens.json
-  // These are direct Scryfall URLs for specific token printings
-  // URLs verified from Scryfall API
+  // DYNAMIC TOKEN MATCHING
+  // The primary method is to search Tokens.json with a scoring system
+  // that matches on name, power/toughness, colors, and abilities
+  // Fallback URLs are only used as a last resort if no match is found
+  
+  const tokens = tokensByName.get(nameLower) || [];
+  
+  // Also search by type if name doesn't match directly
+  let searchTokens = tokens;
+  if (tokens.length === 0) {
+    const byType = tokensByType.get(nameLower) || [];
+    searchTokens = byType;
+  }
+  
+  // If we still have no tokens, try partial name matching
+  // This handles cases like "Cat Soldier" where we might have tokens indexed differently
+  if (searchTokens.length === 0) {
+    // Search through all tokens for partial name matches
+    for (const [key, tokenList] of tokensByName.entries()) {
+      if (key.includes(nameLower) || nameLower.includes(key)) {
+        searchTokens = [...searchTokens, ...tokenList];
+      }
+    }
+  }
+  
+  if (searchTokens.length > 0) {
+    // Score each token for best match
+    const NO_MATCH_SCORE = -1;
+    let bestMatch = searchTokens[0];
+    let bestScore = NO_MATCH_SCORE;
+    
+    for (const token of searchTokens) {
+      let score = 0;
+      
+      // Match power/toughness (2 points each)
+      if (power !== undefined && token.power === String(power)) score += 2;
+      if (toughness !== undefined && token.toughness === String(toughness)) score += 2;
+      
+      // Match colors - handle colorless case explicitly (3 points)
+      const tokenColors = token.colors || [];
+      if (colors !== undefined) {
+        if (colors.length === 0) {
+          // Looking for colorless - prefer tokens with no colors
+          if (tokenColors.length === 0) {
+            score += 3;
+          }
+        } else if (colors.length > 0) {
+          // Looking for specific colors
+          const colorMatch = colors.every(c => tokenColors.includes(c));
+          if (colorMatch && tokenColors.length === colors.length) {
+            score += 3;
+          }
+        }
+      }
+      
+      // Match abilities/keywords (4 points each match, 5 bonus for all matches)
+      if (abilitiesLower.length > 0) {
+        const tokenKeywords = (token.keywords || []).map((k: string) => k.toLowerCase());
+        const tokenOracleText = (token.oracle_text || '').toLowerCase();
+        
+        let abilityMatchCount = 0;
+        
+        for (const ability of abilitiesLower) {
+          const hasAbility = tokenKeywords.includes(ability) || 
+                            tokenOracleText.includes(ability);
+          if (hasAbility) {
+            abilityMatchCount++;
+          }
+        }
+        
+        // Significant bonus for matching abilities
+        score += abilityMatchCount * 4;
+        
+        // Extra bonus if ALL requested abilities match
+        if (abilityMatchCount === abilitiesLower.length && abilitiesLower.length > 0) {
+          score += 5;
+        }
+        
+        // Penalty for extra unwanted abilities (use Set for O(1) lookup)
+        for (const keyword of tokenKeywords) {
+          if (!abilitiesSet.has(keyword)) {
+            score -= 1;
+          }
+        }
+      } else {
+        // If no abilities requested, slightly prefer tokens without keywords
+        const tokenKeywords = token.keywords || [];
+        if (tokenKeywords.length === 0) {
+          score += 1;
+        }
+      }
+      
+      // Prefer tokens with images (1 point)
+      if (token.image_uris?.normal || token.image_uris?.small) score += 1;
+      
+      // Exact name match bonus (3 points)
+      if ((token.name || '').toLowerCase() === nameLower) {
+        score += 3;
+      }
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = token;
+      }
+    }
+    
+    debug(2, `[tokens] Best dynamic match for ${nameLower}: ${bestMatch?.name} (score: ${bestScore})`);
+    
+    // If bestMatch has an image, return it
+    if (bestMatch?.image_uris?.normal || bestMatch?.image_uris?.small) {
+      return bestMatch.image_uris;
+    }
+    
+    // Try to find any match that has an image
+    const anyWithImage = searchTokens.find(t => t.image_uris?.normal || t.image_uris?.small);
+    if (anyWithImage) {
+      debug(2, `[tokens] Using fallback token with image: ${anyWithImage.name}`);
+      return anyWithImage.image_uris;
+    }
+  }
+  
+  // FALLBACK: Only if dynamic matching completely fails
+  // These are direct Scryfall URLs for specific token printings that may not be in Tokens.json
+  debug(2, `[tokens] Dynamic matching failed for ${nameLower}, trying fallback URLs`);
+  
+  // Build a dynamic fallback key based on characteristics
+  const colorArr = colors || [];
+  const isWhite = colorArr.some(c => c.toUpperCase() === 'W' || c.toLowerCase() === 'white');
+  const isColorless = colorArr.length === 0;
+  const p = power !== undefined ? String(power) : '1';
+  const t = toughness !== undefined ? String(toughness) : '1';
+  
+  // Minimal fallback URLs - only for tokens that are commonly missing from Tokens.json
   const FALLBACK_TOKEN_URLS: Record<string, { small?: string; normal?: string; large?: string; art_crop?: string }> = {
-    // White 1/1 Soldier (Martial Coup, etc.) - https://scryfall.com/card/tsnc/14/soldier
+    // White 1/1 Soldier
     'soldier_white_1_1': {
       small: 'https://cards.scryfall.io/small/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
       normal: 'https://cards.scryfall.io/normal/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
       large: 'https://cards.scryfall.io/large/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
     },
-    // Colorless 1/1 Soldier artifact creature (Myrel, Shield of Argive) - https://scryfall.com/card/totc/26/soldier
-    'soldier_colorless_artifact_1_1': {
-      small: 'https://cards.scryfall.io/small/front/2/7/27ba03b0-feac-4d9c-9877-59c5fe18b230.jpg?1712320183',
-      normal: 'https://cards.scryfall.io/normal/front/2/7/27ba03b0-feac-4d9c-9877-59c5fe18b230.jpg?1712320183',
-      large: 'https://cards.scryfall.io/large/front/2/7/27ba03b0-feac-4d9c-9877-59c5fe18b230.jpg?1712320183',
-    },
-    // White 1/1 Human Soldier (Horn of Gondor, Assemble the Legion, etc.) - https://scryfall.com/card/teoe/human-soldier
-    'human soldier_white_1_1': {
-      small: 'https://cards.scryfall.io/small/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
-      normal: 'https://cards.scryfall.io/normal/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
-      large: 'https://cards.scryfall.io/large/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
-    },
-    // White 1/1 Warrior with vigilance (Oketra's Monument) - https://scryfall.com/card/tdmc/4/warrior
-    'warrior_white_1_1': {
-      small: 'https://cards.scryfall.io/small/front/1/d/1d7b1dfa-14a2-4e4e-baf2-e06672651db1.jpg?1675455562',
-      normal: 'https://cards.scryfall.io/normal/front/1/d/1d7b1dfa-14a2-4e4e-baf2-e06672651db1.jpg?1675455562',
-      large: 'https://cards.scryfall.io/large/front/1/d/1d7b1dfa-14a2-4e4e-baf2-e06672651db1.jpg?1675455562',
-    },
-    // Colorless 1/1 Phyrexian Mite (Mite Overseer, etc.) - artifact creature with toxic 1 - https://scryfall.com/card/tone/7/phyrexian-mite
-    'phyrexian mite_colorless_artifact_1_1': {
-      small: 'https://cards.scryfall.io/small/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
-      normal: 'https://cards.scryfall.io/normal/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
-      large: 'https://cards.scryfall.io/large/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
-    },
-    // Generic Mite token (Scryfall TONE) - same as Phyrexian Mite
-    'mite_colorless_1_1': {
-      small: 'https://cards.scryfall.io/small/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
-      normal: 'https://cards.scryfall.io/normal/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
-      large: 'https://cards.scryfall.io/large/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
-    },
   };
   
-  // Check for fallback soldier tokens based on characteristics
-  if (nameLower === 'soldier' || nameLower.includes('soldier')) {
-    const colorArr = colors || [];
-    const isWhite = colorArr.some(c => c.toUpperCase() === 'W' || c.toLowerCase() === 'white');
-    const isColorless = colorArr.length === 0;
-    const p = power !== undefined ? String(power) : '1';
-    const t = toughness !== undefined ? String(toughness) : '1';
-    
-    debug(2, `[tokens] Soldier token check: isWhite=${isWhite}, isColorless=${isColorless}, p=${p}, t=${t}`);
-    
-    if (p === '1' && t === '1') {
-      if (isColorless) {
-        const fallback = FALLBACK_TOKEN_URLS['soldier_colorless_artifact_1_1'];
-        if (fallback) {
-          debug(2, `[tokens] Using colorless soldier fallback`);
-          return fallback;
-        }
-      } else if (isWhite) {
-        // Check if it's a Human Soldier
-        if (nameLower.includes('human')) {
-          const fallback = FALLBACK_TOKEN_URLS['human soldier_white_1_1'];
-          if (fallback) {
-            debug(2, `[tokens] Using human soldier fallback`);
-            return fallback;
-          }
-        }
-        const fallback = FALLBACK_TOKEN_URLS['soldier_white_1_1'];
-        if (fallback) {
-          debug(2, `[tokens] Using white soldier fallback`);
-          return fallback;
-        }
-      }
-    }
+  // Try to build a fallback key from the token characteristics
+  let fallbackKey = nameLower.replace(/\s+/g, '_');
+  if (isWhite) fallbackKey += '_white';
+  else if (isColorless) fallbackKey += '_colorless';
+  fallbackKey += `_${p}_${t}`;
+  
+  const fallback = FALLBACK_TOKEN_URLS[fallbackKey];
+  if (fallback) {
+    debug(2, `[tokens] Using fallback URL for key: ${fallbackKey}`);
+    return fallback;
   }
   
-  // Check for fallback Warrior tokens (Oketra's Monument, etc.)
-  if (nameLower === 'warrior' || nameLower.includes('warrior')) {
-    const colorArr = colors || [];
-    const isWhite = colorArr.some(c => c.toUpperCase() === 'W' || c.toLowerCase() === 'white');
-    const p = power !== undefined ? String(power) : '1';
-    const t = toughness !== undefined ? String(toughness) : '1';
-    
-    debug(2, `[tokens] Warrior token check: isWhite=${isWhite}, p=${p}, t=${t}`);
-    
-    if (p === '1' && t === '1' && isWhite) {
-      const fallback = FALLBACK_TOKEN_URLS['warrior_white_1_1'];
-      if (fallback) {
-        debug(2, `[tokens] Using white warrior fallback`);
-        return fallback;
-      }
-    }
+  // Try simpler fallback keys
+  const simpleKey = `${nameLower.split(' ')[0]}_${isWhite ? 'white' : 'colorless'}_${p}_${t}`;
+  const simpleFallback = FALLBACK_TOKEN_URLS[simpleKey];
+  if (simpleFallback) {
+    debug(2, `[tokens] Using simple fallback URL for key: ${simpleKey}`);
+    return simpleFallback;
   }
   
-  // Check for fallback Phyrexian Mite tokens (Mite Overseer, etc.)
-  if (nameLower === 'mite' || nameLower.includes('mite') || nameLower.includes('phyrexian mite')) {
-    const colorArr = colors || [];
-    const isColorless = colorArr.length === 0;
-    const p = power !== undefined ? String(power) : '1';
-    const t = toughness !== undefined ? String(toughness) : '1';
-    
-    debug(2, `[tokens] Mite token check: isColorless=${isColorless}, p=${p}, t=${t}`);
-    
-    if (p === '1' && t === '1' && isColorless) {
-      const fallback = FALLBACK_TOKEN_URLS['mite_colorless_1_1'] || FALLBACK_TOKEN_URLS['phyrexian mite_colorless_artifact_1_1'];
-      if (fallback) {
-        debug(2, `[tokens] Using colorless mite fallback`);
-        return fallback;
-      }
-    }
-  }
-  
-  const tokens = tokensByName.get(nameLower) || [];
-  
-  if (tokens.length === 0) {
-    // Try searching by type
-    const byType = tokensByType.get(nameLower) || [];
-    if (byType.length > 0) {
-      // Return first match with images
-      const withImage = byType.find(t => t.image_uris?.normal || t.image_uris?.small);
-      return withImage?.image_uris;
-    }
-    return undefined;
-  }
-  
-  // If we have multiple matches, try to find the best one based on P/T and colors
-  if (tokens.length === 1) {
-    return tokens[0].image_uris;
-  }
-  
-  // Score each token for best match
-  // Start with -1 so that even a score of 0 (basic match) is better than no evaluation
-  const NO_MATCH_SCORE = -1;
-  let bestMatch = tokens[0];
-  let bestScore = NO_MATCH_SCORE;
-  
-  for (const token of tokens) {
-    let score = 0;
-    
-    // Match power/toughness
-    if (power !== undefined && token.power === String(power)) score += 2;
-    if (toughness !== undefined && token.toughness === String(toughness)) score += 2;
-    
-    // Match colors - handle colorless case explicitly
-    const tokenColors = token.colors || [];
-    if (colors !== undefined) {
-      if (colors.length === 0) {
-        // Looking for colorless - prefer tokens with no colors
-        if (tokenColors.length === 0) {
-          score += 3;
-        }
-      } else if (colors.length > 0) {
-        // Looking for specific colors
-        const colorMatch = colors.every(c => tokenColors.includes(c));
-        if (colorMatch && tokenColors.length === colors.length) {
-          score += 3;
-        }
-      }
-    }
-    
-    // Match abilities/keywords - tokens store these in `keywords` array or `oracle_text`
-    if (abilitiesLower.length > 0) {
-      const tokenKeywords = (token.keywords || []).map(k => k.toLowerCase());
-      const tokenOracleText = (token.oracle_text || '').toLowerCase();
-      
-      let abilityMatchCount = 0;
-      let abilityMismatchCount = 0;
-      
-      for (const ability of abilitiesLower) {
-        // Check if this ability is in the token's keywords or oracle text
-        const hasAbility = tokenKeywords.includes(ability) || 
-                          tokenOracleText.includes(ability);
-        if (hasAbility) {
-          abilityMatchCount++;
-        }
-      }
-      
-      // Check if token has abilities we DON'T want (penalty for extra abilities)
-      for (const keyword of tokenKeywords) {
-        if (!abilitiesLower.includes(keyword)) {
-          abilityMismatchCount++;
-        }
-      }
-      
-      // Significant bonus for matching abilities (4 points each)
-      score += abilityMatchCount * 4;
-      
-      // Penalty for extra unwanted abilities (1 point each)
-      score -= abilityMismatchCount;
-      
-      // Extra bonus if ALL requested abilities match
-      if (abilityMatchCount === abilitiesLower.length) {
-        score += 5;
-      }
-    } else {
-      // If no abilities requested, slightly prefer tokens without keywords
-      const tokenKeywords = token.keywords || [];
-      if (tokenKeywords.length === 0) {
-        score += 1;
-      }
-    }
-    
-    // Prefer tokens with images
-    if (token.image_uris?.normal || token.image_uris?.small) score += 1;
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = token;
-    }
-  }
-  
-  debug(2, `[tokens] Best match for ${nameLower}: ${bestMatch?.name} (set: ${(bestMatch as any)?.set}, score: ${bestScore})`);
-  
-  // If bestMatch doesn't have an image, try to find any match that does
-  if (!bestMatch?.image_uris?.normal && !bestMatch?.image_uris?.small) {
-    const anyWithImage = tokens.find(t => t.image_uris?.normal || t.image_uris?.small);
-    if (anyWithImage) {
-      debug(2, `[tokens] bestMatch lacks image, falling back to any with image`);
-      return anyWithImage.image_uris;
-    }
-  }
-  
-  return bestMatch?.image_uris;
+  debug(2, `[tokens] No token image found for: ${tokenName}`);
+  return undefined;
 }
 
 /**

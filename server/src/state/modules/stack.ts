@@ -2124,6 +2124,27 @@ function executeTriggerEffect(
     const turnOrder = players.map((p: any) => p.id);
     const activePlayerId = state.activePlayer || controller;
     
+    // Get gameId from context - MUST be present for resolution queue to work
+    const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId;
+    
+    if (!gameId || gameId === 'unknown') {
+      debugError(1, `[executeTriggerEffect] Kynaios: CRITICAL - gameId is missing or unknown! ctx.gameId=${(ctx as any).gameId}, ctx.id=${(ctx as any).id}, triggerItem.gameId=${triggerItem?.gameId}`);
+      // Fall back to legacy pending state if resolution queue won't work
+      debug(1, `[executeTriggerEffect] Kynaios: Falling back to legacy pendingKynaiosChoice due to missing gameId`);
+      state.pendingKynaiosChoice = state.pendingKynaiosChoice || {};
+      state.pendingKynaiosChoice[controller] = {
+        active: true,
+        sourceName,
+        sourceController: controller,
+        playersWhoMayPlayLand: players.map((p: any) => p.id),
+        playersWhoPlayedLand: [],
+        playersWhoDeclined: [],
+      };
+      return;
+    }
+    
+    debug(1, `[executeTriggerEffect] Kynaios: Creating resolution steps for ${players.length} players, gameId=${gameId}`);
+    
     // Create resolution steps for each player using APNAP ordering
     // Each player gets a step to choose whether to play a land
     const stepConfigs = players.map((p: any) => {
@@ -2160,20 +2181,14 @@ function executeTriggerEffect(
       };
     });
     
-    // Add steps with APNAP ordering using the ResolutionQueueManager
-    // Try to get gameId from context (ctx.gameId, ctx.id, or triggerItem)
-    const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId || 'unknown';
-    
-    if (gameId === 'unknown') {
-      debugWarn(2, `[executeTriggerEffect] Kynaios: gameId is unknown, resolution steps may not work properly`);
-    }
-    
     // Skip adding resolution steps during replay to prevent infinite loops
     const isReplaying = !!(ctx as any).isReplaying;
     if (isReplaying) {
       debug(2, `[executeTriggerEffect] Kynaios: skipping resolution steps during replay`);
       return;
     }
+    
+    debug(1, `[executeTriggerEffect] Kynaios: Adding ${stepConfigs.length} resolution steps via ResolutionQueueManager`);
     
     ResolutionQueueManager.addStepsWithAPNAP(
       gameId,
@@ -2182,7 +2197,7 @@ function executeTriggerEffect(
       activePlayerId
     );
     
-    debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices (gameId: ${gameId})`);
+    debug(1, `[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices (gameId: ${gameId})`);
     return;
   }
   
