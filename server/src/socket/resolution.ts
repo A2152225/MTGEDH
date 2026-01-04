@@ -14,7 +14,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
-import { parsePT } from "../state/utils.js";
+import { parsePT, uid } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB } from "./ai.js";
 import { appendEvent } from "../db/index.js";
@@ -5583,7 +5583,7 @@ async function executeTargetedTriggerEffect(
 
 /**
  * Handle option choice response (for generic "choose one" effects)
- * Used by Agitator Ant, modal spells, etc.
+ * Used by Agitator Ant, modal spells, Rebound, etc.
  */
 async function handleOptionChoiceResponse(
   io: Server,
@@ -5597,6 +5597,94 @@ async function handleOptionChoiceResponse(
   const playerId = response.playerId;
   
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
+  
+  // ===== REBOUND HANDLING =====
+  // Handle rebound trigger resolution - player may cast the spell from exile
+  if (stepData.reboundCardId && stepData.reboundCard) {
+    const reboundCard = stepData.reboundCard;
+    const reboundCardId = stepData.reboundCardId;
+    
+    // Extract the choice - 'cast' or 'decline'
+    let choice = 'decline';
+    if (Array.isArray(selectedOption) && selectedOption.length > 0) {
+      choice = typeof selectedOption[0] === 'string' ? selectedOption[0] : (selectedOption[0] as any)?.id || 'decline';
+    } else if (typeof selectedOption === 'string') {
+      choice = selectedOption;
+    } else if (typeof selectedOption === 'object' && selectedOption !== null) {
+      choice = (selectedOption as any).id || (selectedOption as any).value || 'decline';
+    }
+    
+    // Find the card in exile
+    const zones = game.state?.zones?.[playerId];
+    if (!zones || !zones.exile) {
+      debugWarn(2, `[Resolution] Rebound: No exile zone found for player ${playerId}`);
+      return;
+    }
+    
+    const cardIndex = zones.exile.findIndex((c: any) => c.id === reboundCardId);
+    if (cardIndex === -1) {
+      debugWarn(2, `[Resolution] Rebound: Card ${reboundCardId} not found in exile`);
+      return;
+    }
+    
+    const exiledCard = zones.exile[cardIndex];
+    
+    if (choice === 'cast') {
+      // Player chose to cast - remove from exile and put on stack
+      zones.exile.splice(cardIndex, 1);
+      zones.exileCount = zones.exile.length;
+      
+      // Add to stack as a spell (without paying mana cost)
+      const stackItem = {
+        id: uid("rebound_spell"),
+        type: 'spell',
+        card: { ...exiledCard, zone: 'stack', reboundPending: false, reboundTriggered: false },
+        controller: playerId,
+        targets: [],
+        castFromRebound: true, // Mark that this was cast from rebound (goes to graveyard, not exile again)
+        castFromHand: false, // Not cast from hand this time
+      };
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+      
+      // Emit chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🔄 ${getPlayerName(game, playerId)} cast ${exiledCard.name} from rebound!`,
+        ts: Date.now(),
+      });
+      
+      debug(2, `[Resolution] Rebound: ${playerId} cast ${exiledCard.name} from exile`);
+    } else {
+      // Player declined - move card from exile to graveyard
+      zones.exile.splice(cardIndex, 1);
+      zones.exileCount = zones.exile.length;
+      
+      zones.graveyard = zones.graveyard || [];
+      zones.graveyard.push({ ...exiledCard, zone: 'graveyard', reboundPending: false, reboundTriggered: false });
+      zones.graveyardCount = zones.graveyard.length;
+      
+      // Emit chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} from rebound - moved to graveyard.`,
+        ts: Date.now(),
+      });
+      
+      debug(2, `[Resolution] Rebound: ${playerId} declined to cast ${exiledCard.name}, moved to graveyard`);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    return;
+  }
   
   // Check if this is an ETB permanent option choice (e.g., "choose flying or first strike")
   if (stepData.permanentId) {

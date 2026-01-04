@@ -1306,14 +1306,194 @@ export function CombatSelectionModal({
             {/* Show available blockers */}
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: '#10b981' }}>
-                🛡️ Your Creatures ({availableForBlock.length} can block)
+                🛡️ Your Creatures ({availableForBlock.length} can block, {selectedBlockers.size} blocking)
               </div>
               
               {availableForBlock.length === 0 ? (
                 <div style={{ color: '#666', padding: 12, textAlign: 'center' }}>
                   No untapped creatures available to block
                 </div>
+              ) : availableForBlock.length > 20 ? (
+                /* Grouped view for many creatures (tokens) */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {blockerGroups.map(group => {
+                    // Count how many from this group are blocking
+                    const blockingInGroup = group.creatures.filter(c => selectedBlockers.has(c.id)).length;
+                    const availableInGroup = group.creatures.length - blockingInGroup;
+                    
+                    // Get blocking assignments breakdown
+                    const blockingBreakdown = attackingCreatures.map(attacker => {
+                      const attackerInfo = getCreatureInfo(attacker);
+                      const count = group.creatures.filter(c => selectedBlockers.get(c.id) === attacker.id).length;
+                      return { attacker, attackerInfo, count };
+                    }).filter(b => b.count > 0);
+                    
+                    return (
+                      <div
+                        key={group.key}
+                        style={{
+                          padding: 12,
+                          borderRadius: 8,
+                          border: blockingInGroup > 0 ? '2px solid #10b981' : '2px solid #333',
+                          background: blockingInGroup > 0 ? 'rgba(16,185,129,0.2)' : 'rgba(0,0,0,0.3)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          {/* Token image or placeholder */}
+                          {group.imageUrl ? (
+                            <img
+                              src={group.imageUrl}
+                              alt={group.name}
+                              style={{ width: 50, height: 70, borderRadius: 4, objectFit: 'cover' }}
+                            />
+                          ) : (
+                            <div style={{
+                              width: 50,
+                              height: 70,
+                              background: '#222',
+                              borderRadius: 4,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 9,
+                              textAlign: 'center',
+                            }}>
+                              {group.name}
+                            </div>
+                          )}
+                          
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>
+                              {group.name} {group.pt}
+                              {group.isToken && <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>(Token)</span>}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#aaa' }}>
+                              {group.creatures.length} total • {blockingInGroup} blocking • {availableInGroup} available
+                            </div>
+                            {/* Show breakdown of blocking assignments */}
+                            {blockingBreakdown.length > 0 && (
+                              <div style={{ fontSize: 11, color: '#86efac', marginTop: 2 }}>
+                                {blockingBreakdown.map((b, i) => (
+                                  <span key={b.attacker.id}>
+                                    {i > 0 && ', '}
+                                    {b.count}→{b.attackerInfo.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <DangerIndicatorBadges dangers={group.dangers} />
+                          </div>
+                          
+                          {/* Group blocking controls */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {/* Assign blockers to specific attacker */}
+                            {attackingCreatures.map(attacker => {
+                              const attackerInfo = getCreatureInfo(attacker);
+                              const dangerText = [];
+                              if (attackerInfo.dangers.deathtouch) dangerText.push('☠️');
+                              if (attackerInfo.dangers.trample) dangerText.push('🦶');
+                              if (attackerInfo.dangers.menace) dangerText.push('👹');
+                              const dangerStr = dangerText.join('');
+                              
+                              // Count current blockers from this group for this attacker
+                              const currentCount = group.creatures.filter(c => selectedBlockers.get(c.id) === attacker.id).length;
+                              
+                              return (
+                                <div key={attacker.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontSize: 10, color: '#f87171', minWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {dangerStr}{attackerInfo.name}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      // Remove one blocker from this attacker
+                                      const blockerToRemove = group.creatures.find(c => selectedBlockers.get(c.id) === attacker.id);
+                                      if (blockerToRemove) {
+                                        setSelectedBlockers(prev => {
+                                          const next = new Map(prev);
+                                          next.delete(blockerToRemove.id);
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    disabled={currentCount === 0}
+                                    style={{
+                                      padding: '2px 6px',
+                                      fontSize: 10,
+                                      borderRadius: 3,
+                                      border: 'none',
+                                      background: currentCount === 0 ? '#333' : '#dc2626',
+                                      color: '#fff',
+                                      cursor: currentCount === 0 ? 'not-allowed' : 'pointer',
+                                    }}
+                                  >
+                                    −
+                                  </button>
+                                  <span style={{ fontSize: 11, minWidth: 20, textAlign: 'center', fontWeight: 600 }}>
+                                    {currentCount}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      // Add one blocker to this attacker
+                                      const unassignedBlocker = group.creatures.find(c => !selectedBlockers.has(c.id));
+                                      if (unassignedBlocker) {
+                                        setSelectedBlockers(prev => {
+                                          const next = new Map(prev);
+                                          next.set(unassignedBlocker.id, attacker.id);
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    disabled={availableInGroup === 0}
+                                    style={{
+                                      padding: '2px 6px',
+                                      fontSize: 10,
+                                      borderRadius: 3,
+                                      border: 'none',
+                                      background: availableInGroup === 0 ? '#333' : '#10b981',
+                                      color: '#fff',
+                                      cursor: availableInGroup === 0 ? 'not-allowed' : 'pointer',
+                                    }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              );
+                            })}
+                            
+                            {/* Clear all from this group */}
+                            {blockingInGroup > 0 && (
+                              <button
+                                onClick={() => {
+                                  setSelectedBlockers(prev => {
+                                    const next = new Map(prev);
+                                    for (const c of group.creatures) {
+                                      next.delete(c.id);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  padding: '3px 8px',
+                                  fontSize: 9,
+                                  borderRadius: 3,
+                                  border: '1px solid #666',
+                                  background: 'transparent',
+                                  color: '#aaa',
+                                  cursor: 'pointer',
+                                  marginTop: 4,
+                                }}
+                              >
+                                Clear ({blockingInGroup})
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
+                /* Standard card view for smaller numbers */
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                   {availableForBlock.map(blocker => {
                     const { name, pt, effectivePower, effectiveToughness, imageUrl, dangers } = getCreatureInfo(blocker);
