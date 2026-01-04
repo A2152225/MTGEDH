@@ -94,6 +94,21 @@ export enum ResolutionStepType {
   
   // Activated ability resolution (for non-mana abilities)
   ACTIVATED_ABILITY = 'activated_ability',
+  
+  // Keyword ability choices
+  KEYWORD_CHOICE = 'keyword_choice',       // Generic keyword choice
+  RIOT_CHOICE = 'riot_choice',             // Choose counter or haste
+  UNLEASH_CHOICE = 'unleash_choice',       // Choose to enter with counter
+  FABRICATE_CHOICE = 'fabricate_choice',   // Choose counters or tokens
+  TRIBUTE_CHOICE = 'tribute_choice',       // Opponent choice for tribute
+  EXPLOIT_CHOICE = 'exploit_choice',       // Choose creature to sacrifice
+  BACKUP_CHOICE = 'backup_choice',         // Choose target for backup
+  MODULAR_CHOICE = 'modular_choice',       // Choose artifact creature for counters
+  MYRIAD_TOKENS = 'myriad_tokens',         // Configure myriad token targets
+  MENTOR_TARGET = 'mentor_target',         // Choose mentor target
+  ENLIST_CHOICE = 'enlist_choice',         // Choose creature to tap for enlist
+  EXTORT_PAYMENT = 'extort_payment',       // Choose to pay for extort
+  SOULSHIFT_TARGET = 'soulshift_target',   // Choose spirit from graveyard
 }
 
 /**
@@ -155,6 +170,18 @@ export const LEGACY_PENDING_TO_STEP_TYPE: Record<string, ResolutionStepType> = {
   pendingSurveil: ResolutionStepType.SURVEIL,
   pendingDiscard: ResolutionStepType.DISCARD_EFFECT,
   pendingMill: ResolutionStepType.MILL,
+  pendingKeywordChoice: ResolutionStepType.KEYWORD_CHOICE,
+  pendingRiotChoice: ResolutionStepType.RIOT_CHOICE,
+  pendingUnleashChoice: ResolutionStepType.UNLEASH_CHOICE,
+  pendingFabricateChoice: ResolutionStepType.FABRICATE_CHOICE,
+  pendingTributeChoice: ResolutionStepType.TRIBUTE_CHOICE,
+  pendingExploitChoice: ResolutionStepType.EXPLOIT_CHOICE,
+  pendingBackupChoice: ResolutionStepType.BACKUP_CHOICE,
+  pendingModularChoice: ResolutionStepType.MODULAR_CHOICE,
+  pendingMentorTarget: ResolutionStepType.MENTOR_TARGET,
+  pendingEnlistChoice: ResolutionStepType.ENLIST_CHOICE,
+  pendingExtortPayment: ResolutionStepType.EXTORT_PAYMENT,
+  pendingSoulshiftTarget: ResolutionStepType.SOULSHIFT_TARGET,
 };
 
 /**
