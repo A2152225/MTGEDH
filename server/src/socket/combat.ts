@@ -327,13 +327,22 @@ function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?:
   // Handle Gods - they are only creatures if devotion threshold is met
   // Theros gods like Purphoros require devotion to their color(s) >= a threshold
   // Oracle text pattern: "As long as your devotion to [color] is less than [N], ~ isn't a creature"
+  // Note: N can be a digit OR a word (e.g., "seven" for Iroas)
   if (typeLine.includes('god') && typeLine.includes('creature')) {
     // Check if this is a Theros-style god with devotion requirement
-    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+)/i);
+    // Support both digit and word numbers (five, six, seven, etc.)
+    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
     if (devotionMatch) {
       const color1 = devotionMatch[1].toLowerCase();
       const color2 = devotionMatch[2]?.toLowerCase();
-      const threshold = parseInt(devotionMatch[3], 10);
+      const thresholdStr = devotionMatch[3].toLowerCase();
+      
+      // Convert word numbers to digits
+      const wordToNumber: Record<string, number> = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      };
+      const threshold = wordToNumber[thresholdStr] ?? parseInt(thresholdStr, 10);
       
       // Calculate devotion from permanents controlled by the same player
       // Use the passed battlefield parameter if available, otherwise use permanent.controllerBattlefield
@@ -363,7 +372,8 @@ function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?:
           if (matches2) devotion += matches2.length;
         }
         
-        // Also check hybrid mana symbols
+        // Also check hybrid mana symbols - each hybrid symbol counts for BOTH colors
+        // Per MTG rules, {R/W} contributes 1 to both red and white devotion
         const hybridRegex = /\{([WUBRG])\/([WUBRG])\}/gi;
         let hybridMatch;
         while ((hybridMatch = hybridRegex.exec(manaCost)) !== null) {
@@ -384,10 +394,11 @@ function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?:
       
       // If devotion is less than threshold, it's not a creature
       if (devotion < threshold) {
-        debug(2, `[isCurrentlyCreature] God ${permanent.card?.name} does not meet devotion threshold: ${devotion} < ${threshold}`);
+        debug(2, `[isCurrentlyCreature] God ${permanent.card?.name} does not meet devotion threshold: ${devotion} < ${threshold} (${color1}${color2 ? ` and ${color2}` : ''})`);
         return false;
       }
       // Devotion met - it IS a creature
+      debug(2, `[isCurrentlyCreature] God ${permanent.card?.name} meets devotion threshold: ${devotion} >= ${threshold}`);
       return true;
     }
   }

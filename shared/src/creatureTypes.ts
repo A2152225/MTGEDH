@@ -222,15 +222,37 @@ export function extractCreatureTypes(
  * Check if a permanent (battlefield object) has a specific creature type.
  * Convenience wrapper for cardHasCreatureType that works with permanent objects.
  * 
+ * Also checks for `chosenCreatureType` property on the permanent, which is set
+ * by cards like Roaming Throne that let you choose a creature type on ETB
+ * and become that type in addition to their other types.
+ * 
  * @param permanent - A battlefield permanent with a card property
  * @param creatureType - The creature type to check for
  * @returns true if the permanent has the specified creature type
  */
 export function permanentHasCreatureType(
-  permanent: { card?: { type_line?: string; oracle_text?: string } } | null | undefined,
+  permanent: { card?: { type_line?: string; oracle_text?: string }; chosenCreatureType?: string } | null | undefined,
   creatureType: string
 ): boolean {
   if (!permanent?.card) return false;
+  
+  // Check if permanent has a chosen creature type that matches
+  // This handles cards like Roaming Throne that become the chosen type
+  const permAny = permanent as any;
+  if (permAny.chosenCreatureType && 
+      permAny.chosenCreatureType.toLowerCase() === creatureType.toLowerCase()) {
+    return true;
+  }
+  
+  // Also check for grantedCreatureTypes array (for other type-granting effects)
+  if (Array.isArray(permAny.grantedCreatureTypes)) {
+    if (permAny.grantedCreatureTypes.some((t: string) => 
+      t.toLowerCase() === creatureType.toLowerCase()
+    )) {
+      return true;
+    }
+  }
+  
   return cardHasCreatureType(
     permanent.card.type_line,
     permanent.card.oracle_text,

@@ -740,7 +740,8 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   "krenko, tin street kingpin": { effect: "Put a +1/+1 counter on Krenko. Create X 1/1 red Goblin tokens where X is Krenko's power", createsToken: true },
   "tilonalli's summoner": { effect: "Create X 1/1 red Elemental tokens tapped and attacking, exile at end of combat", createsToken: true },
   "tendershoot dryad": { effect: "Create a 1/1 green Saproling creature token" },
-  "captain of the watch": { effect: "Soldier creatures you control get +1/+1 and have vigilance" },
+  // NOTE: Captain of the Watch REMOVED from here - its "+1/+1 and vigilance" is a STATIC ability, not a triggered ability.
+  // Its ETB trigger "create three 1/1 white Soldier tokens" is handled by KNOWN_ETB_TRIGGERS.
   // Equipment triggers
   "helm of the host": { effect: "Create a token that's a copy of equipped creature, except it's not legendary and has haste", tokenCopy: true, createsToken: true },
   "blade of selves": { effect: "Myriad - create token copies attacking each opponent", tokenCopy: true, createsToken: true },
