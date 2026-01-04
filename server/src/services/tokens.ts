@@ -577,6 +577,13 @@ export function getTokenImageUrls(
       normal: 'https://cards.scryfall.io/normal/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
       large: 'https://cards.scryfall.io/large/front/6/3/631c2c16-132d-4607-ab7e-207a6af188e5.jpg?1757686920',
     },
+    // White 1/1 Cat Soldier with vigilance (Brimaz, King of Oreskos) - https://scryfall.com/card/tbng/2/cat-soldier
+    'cat soldier_white_1_1_vigilance': {
+      small: 'https://cards.scryfall.io/small/front/9/2/921d6192-6b6d-4aa1-be80-bc0b9f503e33.jpg?1562636789',
+      normal: 'https://cards.scryfall.io/normal/front/9/2/921d6192-6b6d-4aa1-be80-bc0b9f503e33.jpg?1562636789',
+      large: 'https://cards.scryfall.io/large/front/9/2/921d6192-6b6d-4aa1-be80-bc0b9f503e33.jpg?1562636789',
+      art_crop: 'https://cards.scryfall.io/art_crop/front/9/2/921d6192-6b6d-4aa1-be80-bc0b9f503e33.jpg?1562636789',
+    },
     // White 1/1 Warrior with vigilance (Oketra's Monument) - https://scryfall.com/card/tdmc/4/warrior
     'warrior_white_1_1': {
       small: 'https://cards.scryfall.io/small/front/1/d/1d7b1dfa-14a2-4e4e-baf2-e06672651db1.jpg?1675455562',
@@ -596,6 +603,25 @@ export function getTokenImageUrls(
       large: 'https://cards.scryfall.io/large/front/9/6/96ec91a9-659a-455f-98e0-cd30b6c6c2a4.jpg?1675957569',
     },
   };
+  
+  // Check for Cat Soldier tokens (Brimaz, King of Oreskos)
+  if (nameLower === 'cat soldier' || nameLower.includes('cat soldier')) {
+    const colorArr = colors || [];
+    const isWhite = colorArr.some(c => c.toUpperCase() === 'W' || c.toLowerCase() === 'white');
+    const hasVigilance = abilitiesLower.includes('vigilance');
+    const p = power !== undefined ? String(power) : '1';
+    const t = toughness !== undefined ? String(toughness) : '1';
+    
+    debug(2, `[tokens] Cat Soldier token check: isWhite=${isWhite}, hasVigilance=${hasVigilance}, p=${p}, t=${t}`);
+    
+    if (p === '1' && t === '1' && isWhite) {
+      const fallback = FALLBACK_TOKEN_URLS['cat soldier_white_1_1_vigilance'];
+      if (fallback) {
+        debug(2, `[tokens] Using Cat Soldier with vigilance fallback for Brimaz`);
+        return fallback;
+      }
+    }
+  }
   
   // Check for fallback soldier tokens based on characteristics
   if (nameLower === 'soldier' || nameLower.includes('soldier')) {
