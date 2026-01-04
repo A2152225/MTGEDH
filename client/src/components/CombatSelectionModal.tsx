@@ -313,19 +313,22 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
     if ((c as any).isGroupedTokens && (c as any).tokenCount && (c as any).groupedTokenIds) {
       const tokenCount = (c as any).tokenCount as number;
       const groupedIds = (c as any).groupedTokenIds as string[];
+      const groupId = c.id; // The group's ID (e.g., "group_xxx")
       
       // Create virtual creatures for each token in the group
       const existing = map.get(key);
       if (existing) {
         // Add virtual creature references for each token in the group
         for (let i = 0; i < tokenCount; i++) {
+          // Use actual ID from groupedIds if available, otherwise create a unique fallback
+          const actualId = i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
           const virtualCreature = {
             ...c,
-            id: groupedIds[i] || `${c.id}_${i}`,
+            id: actualId,
             isGroupedTokens: false, // Not grouped anymore at UI level
             tokenCount: undefined,
             groupedTokenIds: undefined,
-            _virtualFromGroup: c.id, // Track which group this came from
+            _virtualFromGroup: groupId, // Track which group this came from
             _virtualIndex: i,
           } as BattlefieldPermanent;
           existing.creatures.push(virtualCreature);
@@ -333,13 +336,15 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
       } else {
         const virtualCreatures: BattlefieldPermanent[] = [];
         for (let i = 0; i < tokenCount; i++) {
+          // Use actual ID from groupedIds if available, otherwise create a unique fallback
+          const actualId = i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
           const virtualCreature = {
             ...c,
-            id: groupedIds[i] || `${c.id}_${i}`,
+            id: actualId,
             isGroupedTokens: false,
             tokenCount: undefined,
             groupedTokenIds: undefined,
-            _virtualFromGroup: c.id,
+            _virtualFromGroup: groupId,
             _virtualIndex: i,
           } as BattlefieldPermanent;
           virtualCreatures.push(virtualCreature);

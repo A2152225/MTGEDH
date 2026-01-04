@@ -827,31 +827,80 @@ function normalizeViewForEmit(rawView: any, game: any) {
           if (!perm) continue;
           
           // Only group tokens that are simple and identical
+          // Tokens with any of the following are NOT groupable (they're unique):
+          const hasEquipment = perm.attachedEquipment?.length > 0 || perm.isEquipped;
+          const hasAuras = perm.attachments?.length > 0;
+          const isAttachedToSomething = !!perm.attachedTo;
+          const hasDamage = (perm.damageTaken || 0) > 0 || (perm.damageMarked || 0) > 0;
+          const isInCombat = perm.isBlocking || perm.isAttacking || perm.blocking?.length > 0;
+          const hasTempMods = perm.tempPTMod || perm.temporaryProtection?.length > 0;
+          
           const isGroupableToken = 
             perm.isToken === true &&
-            !perm.damageTaken && // No damage taken
-            !perm.attachedEquipment?.length && // No equipment
-            !perm.attachments?.length && // No auras
-            !perm.attachedTo && // Not attached to anything
-            !perm.isBlocking && // Not blocking
-            !perm.isAttacking && // Not attacking
-            !perm.tempPTMod && // No temporary P/T mods
-            !perm.temporaryProtection?.length; // No temporary protection
+            !hasEquipment &&      // No equipment attached
+            !hasAuras &&          // No auras/enchantments attached
+            !isAttachedToSomething && // Not attached to anything
+            !hasDamage &&         // No damage taken
+            !isInCombat &&        // Not in combat
+            !hasTempMods;         // No temporary modifications
           
           if (isGroupableToken) {
-            // Create a grouping key based on relevant properties
+            // Create a deterministic grouping key based on relevant properties
+            // Using manual string construction for reliability (JSON.stringify ordering is not guaranteed)
             const card = perm.card || {};
-            const key = JSON.stringify({
-              controller: perm.controller,
-              name: card.name || '',
-              power: perm.effectivePower ?? perm.basePower ?? card.power ?? 0,
-              toughness: perm.effectiveToughness ?? perm.baseToughness ?? card.toughness ?? 0,
-              tapped: !!perm.tapped,
-              summoningSickness: !!perm.summoningSickness,
-              counters: perm.counters || {},
-              grantedAbilities: perm.grantedAbilities || [],
-              colors: card.colors || [],
-            });
+            const countersStr = Object.entries(perm.counters || {})
+              .filter(([, v]) => (v as number) > 0)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([k, v]) => `${k}:${v}`)
+              .join(',');
+            
+            // Granted abilities (from equipment, auras, anthem effects, etc.)
+            const grantedAbilitiesStr = (perm.grantedAbilities || [])
+              .slice()
+              .sort()
+              .join('|');
+            
+            // Static/inherent abilities from the token's oracle text (flying, lifelink, etc.)
+            // These are abilities the token was created with
+            const oracleText = (card.oracle_text || '').toLowerCase();
+            const staticAbilities: string[] = [];
+            
+            // Detect common keyword abilities from oracle text
+            const keywordPatterns = [
+              'flying', 'first strike', 'double strike', 'deathtouch', 'lifelink',
+              'vigilance', 'trample', 'haste', 'hexproof', 'indestructible',
+              'menace', 'reach', 'defender', 'flash', 'shroud', 'protection',
+              'infect', 'wither', 'persist', 'undying', 'annihilator',
+              'intimidate', 'skulk', 'prowess', 'afflict', 'afterlife',
+            ];
+            for (const keyword of keywordPatterns) {
+              if (oracleText.includes(keyword)) {
+                staticAbilities.push(keyword);
+              }
+            }
+            
+            // Also check for special token abilities like "This creature's power and toughness are each equal to..."
+            // These create tokens with variable P/T based on game state
+            if (oracleText.includes('power and toughness are each equal to')) {
+              staticAbilities.push('variable_pt');
+            }
+            
+            const staticAbilitiesStr = staticAbilities.sort().join('|');
+            const colorsStr = (card.colors || []).slice().sort().join('');
+            
+            // Build deterministic key with all grouping-relevant properties
+            const key = [
+              `ctrl:${perm.controller}`,
+              `name:${card.name || ''}`,
+              `p:${perm.effectivePower ?? perm.basePower ?? card.power ?? 0}`,
+              `t:${perm.effectiveToughness ?? perm.baseToughness ?? card.toughness ?? 0}`,
+              `tap:${perm.tapped ? 1 : 0}`,
+              `sick:${perm.summoningSickness ? 1 : 0}`,
+              `cnt:${countersStr}`,
+              `grantedAbil:${grantedAbilitiesStr}`,
+              `staticAbil:${staticAbilitiesStr}`,
+              `col:${colorsStr}`,
+            ].join('|');
             
             const existing = tokenGroups.get(key);
             if (existing) {
@@ -862,7 +911,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
               tokenGroups.set(key, { prototype: perm, ids: [perm.id] });
             }
           } else {
-            // Keep non-groupable permanents as-is
+            // Keep non-groupable permanents as-is (includes equipped/enchanted tokens)
             nonTokenPermanents.push(perm);
           }
         }
