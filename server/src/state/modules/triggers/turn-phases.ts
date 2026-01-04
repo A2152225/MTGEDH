@@ -10,10 +10,12 @@
  * 3. Combat Phase: Beginning of Combat, Declare Attackers, Declare Blockers, Combat Damage, End of Combat
  * 4. Post-combat Main Phase
  * 5. Ending Phase: End Step, Cleanup Step
+ * 
+ * This module uses dynamic regex-based detection instead of card-specific tables
+ * to ensure it works with any card automatically.
  */
 
 import type { GameContext } from "../../context.js";
-import { KNOWN_END_STEP_TRIGGERS } from "./card-data-tables.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -68,71 +70,91 @@ export interface DoesntUntapEffect {
 
 /**
  * Detect end step triggers from a card's oracle text
+ * Uses dynamic regex-based detection to work with any card
  */
 export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger[] {
   const triggers: EndStepTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
-  const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
-  // Check known cards first
-  let foundInKnownCards = false;
-  for (const [knownName, info] of Object.entries(KNOWN_END_STEP_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        triggerType: 'end_step_resource',
-        description: info.effect,
-        effect: info.effect,
-        mandatory: info.mandatory,
-        requiresChoice: info.requiresChoice,
-        affectsAllPlayers: info.affectsAllPlayers,
-        triggersOnOpponentEndStep: (info as any).triggersOnOpponentEndStep,
-      });
-      foundInKnownCards = true;
-      break; // Only match once in known cards
-    }
+  // Pattern for "each opponent's end step" (Keeper of the Accord style)
+  const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
+  if (opponentEndStepMatch) {
+    const effect = opponentEndStepMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect: effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      triggersOnOpponentEndStep: true,
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: detectAffectsAllPlayers(effect),
+    });
+    return triggers; // Don't match other patterns if this matched
   }
   
-  // Generic detection: "At the beginning of each end step" or "At the beginning of your end step"
-  // Skip generic detection if we already found this card in known cards to prevent duplicates
-  if (!foundInKnownCards) {
-    // Pattern for "each opponent's end step" (Keeper of the Accord style)
-    const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
-    if (opponentEndStepMatch) {
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        triggerType: 'end_step_effect',
-        description: opponentEndStepMatch[1].trim(),
-        effect: opponentEndStepMatch[1].trim(),
-        mandatory: !opponentEndStepMatch[1].toLowerCase().includes('you may'),
-        triggersOnOpponentEndStep: true,
-      });
-    }
-    
-    // Pattern for regular end step triggers
-    const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+)/i);
-    if (endStepMatch && !opponentEndStepMatch) {
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        triggerType: 'end_step_effect',
-        description: endStepMatch[1].trim(),
-        effect: endStepMatch[1].trim(),
-        mandatory: true,
-      });
-    }
+  // Pattern for regular end step triggers: "At the beginning of your/each end step"
+  const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+(?:\.[^.]+)*)/i);
+  if (endStepMatch) {
+    const effect = endStepMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect: effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: detectAffectsAllPlayers(effect),
+    });
   }
   
   return triggers;
+}
+
+/**
+ * Detect if an effect requires player choice based on oracle text patterns
+ */
+function detectRequiresChoice(effectText: string): boolean {
+  const lowerEffect = effectText.toLowerCase();
+  
+  // Patterns that indicate player choice is required
+  const choicePatterns = [
+    /each player may/i,                    // Kynaios style
+    /you may/i,                            // Optional effects
+    /choose (?:one|two|a|an)/i,            // Modal choices
+    /target/i,                             // Targeting requires selection
+    /search your library/i,                // Search requires selection
+    /put .* onto the battlefield/i,        // Often requires selection
+    /return .* from .* to/i,               // Return effects often need selection
+  ];
+  
+  return choicePatterns.some(pattern => pattern.test(lowerEffect));
+}
+
+/**
+ * Detect if an effect affects all players based on oracle text patterns
+ */
+function detectAffectsAllPlayers(effectText: string): boolean {
+  const lowerEffect = effectText.toLowerCase();
+  
+  // Patterns that indicate all players are affected
+  const allPlayersPatterns = [
+    /each player/i,                        // "Each player may..."
+    /each opponent/i,                      // "Each opponent..."
+    /all players/i,                        // "All players..."
+    /every player/i,                       // "Every player..."
+    /each other player/i,                  // "Each other player..."
+  ];
+  
+  return allPlayersPatterns.some(pattern => pattern.test(lowerEffect));
 }
 
 /**
