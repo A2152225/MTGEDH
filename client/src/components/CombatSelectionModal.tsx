@@ -861,7 +861,7 @@ export function CombatSelectionModal({
               <div style={{ color: '#666', padding: 12, textAlign: 'center' }}>
                 No untapped creatures available to attack
               </div>
-            ) : availableForAttack.length > 50 ? (
+            ) : availableForAttack.length > 15 ? (
               /* Grouped view for many creatures */
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
                 {creatureGroups.map(group => {
@@ -1313,7 +1313,7 @@ export function CombatSelectionModal({
                 <div style={{ color: '#666', padding: 12, textAlign: 'center' }}>
                   No untapped creatures available to block
                 </div>
-              ) : availableForBlock.length > 20 ? (
+              ) : availableForBlock.length > 15 ? (
                 /* Grouped view for many creatures (tokens) */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {blockerGroups.map(group => {

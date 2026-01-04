@@ -342,7 +342,8 @@ function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?:
         'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
         'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
       };
-      const threshold = wordToNumber[thresholdStr] ?? parseInt(thresholdStr, 10);
+      const parsedInt = parseInt(thresholdStr, 10);
+      const threshold = wordToNumber[thresholdStr] ?? (isNaN(parsedInt) ? 5 : parsedInt);
       
       // Calculate devotion from permanents controlled by the same player
       // Use the passed battlefield parameter if available, otherwise use permanent.controllerBattlefield

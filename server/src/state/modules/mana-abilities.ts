@@ -1764,11 +1764,16 @@ export function getThroneOfEldraineManaTaps(
     return null;
   }
   
-  // Convert color name to symbol
+  // Convert color name to symbol - validate against known colors
   const colorToSymbol: Record<string, string> = {
-    'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'
+    'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G',
+    'w': 'W', 'u': 'U', 'b': 'B', 'r': 'R', 'g': 'G'
   };
-  const colorSymbol = colorToSymbol[chosenColor.toLowerCase()] || chosenColor.toUpperCase().charAt(0);
+  const colorSymbol = colorToSymbol[chosenColor.toLowerCase()];
+  if (!colorSymbol) {
+    debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: Invalid chosen color '${chosenColor}'`);
+    return null;
+  }
   
   // Determine the amount of mana
   let amount = 4; // Default for Throne of Eldraine
@@ -1778,7 +1783,8 @@ export function getThroneOfEldraineManaTaps(
       'six': 6, 'seven': 7, 'eight': 8
     };
     const amountStr = chosenColorMatch[1].toLowerCase();
-    amount = wordToNumber[amountStr] || parseInt(amountStr, 10) || 4;
+    const parsedInt = parseInt(amountStr, 10);
+    amount = wordToNumber[amountStr] || (isNaN(parsedInt) ? 4 : parsedInt);
   }
   
   // Determine restriction
