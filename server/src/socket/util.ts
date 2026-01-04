@@ -806,6 +806,165 @@ function normalizeViewForEmit(rawView: any, game: any) {
       debugWarn(1, "Failed to apply static abilities to battlefield:", e);
     }
 
+    // ========================================================================
+    // TOKEN GROUPING OPTIMIZATION
+    // Group identical tokens to reduce network payload for games with many tokens.
+    // Tokens are grouped if they share: name, controller, power, toughness, tap state,
+    // colors, counter state, and no unique modifiers (like individual damage marks).
+    // The client receives grouped tokens with a 'tokenCount' field.
+    // 
+    // The 10% threshold (MIN_GROUPING_REDUCTION_RATIO = 0.9) ensures we only apply
+    // grouping when it provides meaningful network savings. Small reductions aren't
+    // worth the additional client-side processing complexity.
+    // ========================================================================
+    const MIN_GROUPING_REDUCTION_RATIO = 0.9; // Only apply if reduced to 90% or less of original
+    try {
+      if (view.battlefield && Array.isArray(view.battlefield)) {
+        const tokenGroups = new Map<string, { prototype: any; ids: string[] }>();
+        const nonTokenPermanents: any[] = [];
+        
+        for (const perm of view.battlefield) {
+          if (!perm) continue;
+          
+          // Only group tokens that are simple and identical
+          // Tokens with any of the following are NOT groupable (they're unique):
+          const hasEquipment = perm.attachedEquipment?.length > 0 || perm.isEquipped;
+          const hasAuras = perm.attachments?.length > 0;
+          const isAttachedToSomething = !!perm.attachedTo;
+          const hasDamage = (perm.damageTaken || 0) > 0 || (perm.damageMarked || 0) > 0;
+          const isInCombat = perm.isBlocking || perm.isAttacking || perm.blocking?.length > 0;
+          
+          // Check for ANY temporary modifications that would make this token unique:
+          // - modifiers: Array of P/T modifiers from Giant Growth, battle cry, anthems, etc.
+          // - temporaryEffects: Array of temporary effects like "exile if dies this turn"
+          // - tempPTMod: Legacy field for some temporary P/T changes
+          // - temporaryProtection: Array of temporary protection effects (e.g., Brave the Elements)
+          const hasModifiers = perm.modifiers?.length > 0;
+          const hasTemporaryEffects = perm.temporaryEffects?.length > 0;
+          const hasTempPTMod = !!perm.tempPTMod;
+          const hasTemporaryProtection = perm.temporaryProtection?.length > 0;
+          const hasTempMods = hasModifiers || hasTemporaryEffects || hasTempPTMod || hasTemporaryProtection;
+          
+          const isGroupableToken = 
+            perm.isToken === true &&
+            !hasEquipment &&      // No equipment attached
+            !hasAuras &&          // No auras/enchantments attached
+            !isAttachedToSomething && // Not attached to anything
+            !hasDamage &&         // No damage taken
+            !isInCombat &&        // Not in combat
+            !hasTempMods;         // No temporary modifications (Giant Growth, etc.)
+          
+          if (isGroupableToken) {
+            // Create a deterministic grouping key based on relevant properties
+            // Using manual string construction for reliability (JSON.stringify ordering is not guaranteed)
+            const card = perm.card || {};
+            const countersStr = Object.entries(perm.counters || {})
+              .filter(([, v]) => (v as number) > 0)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([k, v]) => `${k}:${v}`)
+              .join(',');
+            
+            // Granted abilities (from equipment, auras, anthem effects, etc.)
+            const grantedAbilitiesStr = (perm.grantedAbilities || [])
+              .slice()
+              .sort()
+              .join('|');
+            
+            // Static/inherent abilities from the token's oracle text (flying, lifelink, etc.)
+            // These are abilities the token was created with
+            const oracleText = (card.oracle_text || '').toLowerCase();
+            const staticAbilities: string[] = [];
+            
+            // Detect common keyword abilities from oracle text
+            const keywordPatterns = [
+              'flying', 'first strike', 'double strike', 'deathtouch', 'lifelink',
+              'vigilance', 'trample', 'haste', 'hexproof', 'indestructible',
+              'menace', 'reach', 'defender', 'flash', 'shroud', 'protection',
+              'infect', 'wither', 'persist', 'undying', 'annihilator',
+              'intimidate', 'skulk', 'prowess', 'afflict', 'afterlife',
+            ];
+            for (const keyword of keywordPatterns) {
+              if (oracleText.includes(keyword)) {
+                staticAbilities.push(keyword);
+              }
+            }
+            
+            // Also check for special token abilities like "This creature's power and toughness are each equal to..."
+            // These create tokens with variable P/T based on game state
+            if (oracleText.includes('power and toughness are each equal to')) {
+              staticAbilities.push('variable_pt');
+            }
+            
+            const staticAbilitiesStr = staticAbilities.sort().join('|');
+            const colorsStr = (card.colors || []).slice().sort().join('');
+            
+            // Build deterministic key with all grouping-relevant properties
+            const key = [
+              `ctrl:${perm.controller}`,
+              `name:${card.name || ''}`,
+              `p:${perm.effectivePower ?? perm.basePower ?? card.power ?? 0}`,
+              `t:${perm.effectiveToughness ?? perm.baseToughness ?? card.toughness ?? 0}`,
+              `tap:${perm.tapped ? 1 : 0}`,
+              `sick:${perm.summoningSickness ? 1 : 0}`,
+              `cnt:${countersStr}`,
+              `grantedAbil:${grantedAbilitiesStr}`,
+              `staticAbil:${staticAbilitiesStr}`,
+              `col:${colorsStr}`,
+            ].join('|');
+            
+            const existing = tokenGroups.get(key);
+            if (existing) {
+              // Add to existing group
+              existing.ids.push(perm.id);
+            } else {
+              // Create new group with this token as prototype
+              tokenGroups.set(key, { prototype: perm, ids: [perm.id] });
+            }
+          } else {
+            // Keep non-groupable permanents as-is (includes equipped/enchanted tokens)
+            nonTokenPermanents.push(perm);
+          }
+        }
+        
+        // Build the optimized battlefield array
+        const optimizedBattlefield = [...nonTokenPermanents];
+        
+        for (const [, group] of tokenGroups) {
+          if (group.ids.length === 1) {
+            // Single token - keep as-is
+            optimizedBattlefield.push(group.prototype);
+          } else {
+            // Multiple identical tokens - create grouped entry
+            const groupedToken = {
+              ...group.prototype,
+              // Add grouping metadata
+              tokenCount: group.ids.length,
+              groupedTokenIds: group.ids,
+              isGroupedTokens: true,
+              // The ID represents the group (client uses groupedTokenIds for individual operations)
+              id: `group_${group.ids[0]}`, // Use first ID as group identifier
+              originalId: group.ids[0], // Keep track of first real ID
+            };
+            optimizedBattlefield.push(groupedToken);
+          }
+        }
+        
+        // Only apply optimization if we actually reduced the count significantly
+        const originalCount = view.battlefield.length;
+        const optimizedCount = optimizedBattlefield.length;
+        
+        if (optimizedCount < originalCount * MIN_GROUPING_REDUCTION_RATIO) {
+          view.battlefield = optimizedBattlefield;
+          view.tokenGroupingApplied = true;
+          view.originalBattlefieldCount = originalCount;
+          debug(2, `[TokenOptimization] Reduced battlefield from ${originalCount} to ${optimizedCount} entries (${Math.round((1 - optimizedCount/originalCount) * 100)}% reduction)`);
+        }
+      }
+    } catch (e) {
+      // Non-fatal - if grouping fails, we just send the full battlefield
+      debugWarn(1, "Token grouping optimization failed:", e);
+    }
+
     // Augment battlefield permanents with mana production amounts for special abilities
     // This allows the payment picker to show the correct amount (e.g., "7x{G}" for Priest of Titania)
     try {

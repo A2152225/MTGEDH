@@ -1354,6 +1354,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
     
     case ResolutionStepType.COLOR_CHOICE:
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('spellId' in step) fields.spellId = (step as any).spellId;
       if ('colors' in step) fields.colors = (step as any).colors;
       break;
     
@@ -4142,10 +4143,57 @@ async function handleColorChoiceResponse(
   }
   
   const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const spellId = (step as any).spellId;
   const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
   
-  // Find the permanent on the battlefield
+  // Check if this is a spell color choice (instant/sorcery on stack)
+  // vs a permanent ETB color choice
   const state = game.state || {};
+  
+  if (spellId) {
+    // This is a spell on the stack that needs color choice (e.g., Brave the Elements)
+    const stack = state.stack || [];
+    const spellOnStack = stack.find((s: any) => s.id === spellId || s.cardId === spellId);
+    
+    if (spellOnStack) {
+      // Store chosen color on the spell
+      spellOnStack.chosenColor = colorLower;
+      
+      debug(2, `[Resolution] Spell color choice: ${cardName} -> ${colorLower}, will re-resolve`);
+      
+      // Append event for replay
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "colorChoice", {
+          playerId: pid,
+          spellId: spellId,
+          cardName: cardName,
+          color: colorLower,
+        });
+      } catch (e) {
+        debugWarn(1, "[Resolution] Failed to persist spell color choice event:", e);
+      }
+      
+      // Send chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} chose ${selection} for ${cardName}.`,
+        ts: Date.now(),
+      });
+      
+      // Bump sequence before re-resolving
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+      
+      // Now the spell has its chosen color - the stack processing will continue
+      // The spell resolution will be retried by the main game loop
+      return;
+    }
+  }
+  
+  // Default case: permanent ETB color choice
   const battlefield = state.battlefield || [];
   const permanent = battlefield.find((p: any) => p.id === permanentId);
   

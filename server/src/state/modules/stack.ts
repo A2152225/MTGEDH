@@ -5437,6 +5437,100 @@ export function resolveTopOfStack(ctx: GameContext) {
     const oracleText = effectiveCard.oracle_text || '';
     const oracleTextLower = oracleText.toLowerCase();
     const spellSpec = categorizeSpell(effectiveCard.name || '', oracleText);
+    const gameId = (ctx as any).gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    
+    // ========================================================================
+    // COLOR CHOICE FOR INSTANTS/SORCERIES
+    // Spells like "Brave the Elements", "Absolute Grace", etc. that say
+    // "Choose a color." require player input before resolving their effects.
+    // Pattern: "Choose a color" at the beginning of the oracle text
+    // ========================================================================
+    const spellColorChoicePattern = /^choose a colou?r\b/i;
+    const hasColorChoiceSpell = spellColorChoicePattern.test(oracleTextLower.trim());
+    
+    // Check if spell already has a chosen color (from stack item)
+    const stackItem = state.stack?.find((s: any) => s.id === card?.id);
+    const existingChosenColor = (card as any)?.chosenColor || (stackItem as any)?.chosenColor;
+    
+    if (hasColorChoiceSpell && !existingChosenColor && !isReplaying) {
+      // This spell needs a color choice before it can resolve
+      // Add to resolution queue and return (spell stays on stack until color is chosen)
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, adding resolution step`);
+      
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.COLOR_CHOICE,
+        playerId: controller as PlayerID,
+        description: `Choose a color for ${effectiveCard.name}`,
+        mandatory: true,
+        sourceId: card?.id || effectiveCard.id,
+        sourceName: effectiveCard.name || 'Spell',
+        sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+        colors: ['white', 'blue', 'black', 'red', 'green'],
+        spellId: card?.id, // Mark this as a spell color choice (not permanent ETB)
+        oracleText: oracleText, // Include oracle text for effect application later
+      });
+      
+      // Don't continue with resolution - wait for color choice
+      // The spell stays on the stack and will be re-processed after color is chosen
+      return;
+    }
+    
+    // If spell has color choice and color is chosen, apply the effect
+    if (hasColorChoiceSpell && existingChosenColor) {
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} resolving with chosen color: ${existingChosenColor}`);
+      
+      // Handle "Choose a color. [Creatures/permanents] you control gain protection from the chosen color until end of turn."
+      // Pattern examples:
+      // - Brave the Elements: "Choose a color. White creatures you control gain protection from the chosen color until end of turn."
+      // - Akroma's Blessing: "Choose a color. Creatures you control gain protection from the chosen color until end of turn."
+      // - Absolute Grace/Law variants
+      const protectionPattern = /(?:(\w+)\s+)?creatures?\s+(?:you control\s+)?(?:gains?|have)\s+protection from the chosen colou?r\s+(?:until end of turn)?/i;
+      const protectionMatch = oracleTextLower.match(protectionPattern);
+      
+      if (protectionMatch) {
+        const restrictionColor = protectionMatch[1]?.toLowerCase(); // e.g., "white" for Brave the Elements
+        
+        // Apply protection from chosen color to creatures you control
+        const battlefield = state.battlefield || [];
+        let affectedCount = 0;
+        
+        for (const perm of battlefield) {
+          if (!perm || perm.controller !== controller) continue;
+          
+          const permTypeLine = ((perm as any).card?.type_line || '').toLowerCase();
+          if (!permTypeLine.includes('creature')) continue;
+          
+          // Check if creature matches the restriction (e.g., "white creatures")
+          if (restrictionColor) {
+            const permColors = ((perm as any).card?.colors || []) as string[];
+            const colorMap: Record<string, string> = {
+              white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G'
+            };
+            const requiredColorCode = colorMap[restrictionColor];
+            if (!permColors.includes(requiredColorCode)) continue;
+          }
+          
+          // Grant protection from chosen color until end of turn
+          (perm as any).temporaryProtection = (perm as any).temporaryProtection || [];
+          const protectionEntry = {
+            from: existingChosenColor,
+            untilEndOfTurn: true,
+            source: effectiveCard.name,
+            grantedBy: card?.id,
+          };
+          (perm as any).temporaryProtection.push(protectionEntry);
+          
+          // Also add to grantedAbilities for display
+          (perm as any).grantedAbilities = (perm as any).grantedAbilities || [];
+          (perm as any).grantedAbilities.push(`Protection from ${existingChosenColor} (until end of turn)`);
+          
+          affectedCount++;
+        }
+        
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} granted protection from ${existingChosenColor} to ${affectedCount} creature(s)`);
+      }
+    }
     
     // IMPORTANT: Capture target permanent info BEFORE destruction/exile for effects that need it
     // This MUST be done before any effects are executed as the target will be removed

@@ -150,12 +150,25 @@ export function TokenGroups(props: {
       // Also group by tapped status for visual clarity
       key += `|tapped:${tapped ? 'y' : 'n'}`;
 
-      const g = map.get(key) || { 
-        key, name, countersSig, ptSig: pt, attached, ids: [], token: t, 
-        imageUrl, tapped, summoningSick 
-      };
-      g.ids.push(t.id);
-      map.set(key, g);
+      // Handle server-side grouped tokens (optimization for games with many tokens)
+      // If this is a grouped token, expand its IDs into the group
+      if ((t as any).isGroupedTokens && (t as any).tokenCount && (t as any).groupedTokenIds) {
+        const groupedIds = (t as any).groupedTokenIds as string[];
+        const g = map.get(key) || { 
+          key, name, countersSig, ptSig: pt, attached, ids: [], token: t, 
+          imageUrl, tapped, summoningSick 
+        };
+        // Add all grouped token IDs
+        g.ids.push(...groupedIds);
+        map.set(key, g);
+      } else {
+        const g = map.get(key) || { 
+          key, name, countersSig, ptSig: pt, attached, ids: [], token: t, 
+          imageUrl, tapped, summoningSick 
+        };
+        g.ids.push(t.id);
+        map.set(key, g);
+      }
     }
     return Array.from(map.values());
   }, [tokens, groupMode, attachedToSet]);

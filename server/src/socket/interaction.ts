@@ -5588,7 +5588,27 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Also check oracle text for "activate only if" patterns dynamically
-    const activateOnlyIfMatch = oracleText.match(/activate only if you attacked with (\w+) or more creatures this turn/i);
+    // IMPORTANT: Check the specific ability text (abilityText) for the condition,
+    // as the card may have multiple abilities and only some have restrictions.
+    // For Minas Tirith:
+    // - Ability 0: "{T}: Add {W}" - no restriction
+    // - Ability 1: "{1}{W}, {T}: Draw a card. Activate only if you attacked with two or more creatures this turn."
+    // The condition check should match against the full oracle text for ability index, or the specific ability text
+    let abilityHasCondition = false;
+    let abilityConditionText = '';
+    
+    // First, check if we're activating a specific ability that has the condition
+    if (abilityIndex >= 0 && abilities.length > abilityIndex) {
+      // Get the full ability text including any conditions following it in oracle text
+      // Since the parsing might not capture the full line, look for the ability cost pattern in oracle text
+      const costRegex = new RegExp(`${abilities[abilityIndex].cost.replace(/[{}]/g, '\\$&').replace(/[[\]\\^$.|?*+()]/g, '\\$&')}[^\\n]+`, 'i');
+      const fullAbilityMatch = oracleText.match(costRegex);
+      abilityConditionText = fullAbilityMatch ? fullAbilityMatch[0] : abilityText;
+    } else {
+      abilityConditionText = oracleText;
+    }
+    
+    const activateOnlyIfMatch = abilityConditionText.match(/activate only if you attacked with (\w+) or more creatures this turn/i);
     if (activateOnlyIfMatch && !utilityLandAbility?.activationCondition) {
       const requiredCount = activateOnlyIfMatch[1] === 'two' ? 2 : 
                            activateOnlyIfMatch[1] === 'three' ? 3 : 
@@ -5601,6 +5621,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
+      abilityHasCondition = true;
+    }
+    
+    // Log successful activation condition check for debugging
+    if (abilityHasCondition || (utilityLandAbility?.activationCondition === 'attacked_with_two_or_more')) {
+      const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
+      debug(2, `[activateBattlefieldAbility] ${cardName} activation condition met: attacked with ${creaturesAttacked} creatures this turn`);
     }
     
     // Check if sacrifice is required and we need to prompt for selection

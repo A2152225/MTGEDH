@@ -2316,7 +2316,45 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       const typeLine = (cardInHand.type_line || "").toLowerCase();
-      if (typeLine.includes("land")) {
+      const layout = (cardInHand.layout || "").toLowerCase();
+      const cardFaces = cardInHand.card_faces;
+      
+      // ========================================================================
+      // TRANSFORM CARD HANDLING (Rule 712)
+      // Transform cards can only be cast by their front face. The back face 
+      // (marked with "(Transforms from [Name])") cannot be cast from hand.
+      // Common examples:
+      // - Thousand Moons Smithy // Barracks of the Thousand (Artifact that transforms into Land)
+      // - Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun (Enchantment that transforms into Land)
+      // - Westvale Abbey // Ormendahl, Profane Prince (Land that transforms into Creature)
+      // ========================================================================
+      if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {
+        // For transform cards, check if attempting to cast the back face
+        if (faceIndex === 1) {
+          // Explicitly requesting back face - not allowed
+          socket.emit("error", { 
+            code: "TRANSFORM_BACK_FACE", 
+            message: `${cardFaces[1]?.name || "This card"} is a transform back face and cannot be cast from hand. Cast the front face (${cardFaces[0]?.name || "the card"}) instead.` 
+          });
+          return;
+        }
+        
+        // Check if the front face is a land (then it's playLand, not cast)
+        const frontFaceTypeLine = (cardFaces[0]?.type_line || "").toLowerCase();
+        if (frontFaceTypeLine.includes("land")) {
+          socket.emit("error", { 
+            code: "CANNOT_CAST_LAND", 
+            message: `${cardFaces[0]?.name || "This card"} is a land and cannot be cast as a spell. Use "Play Land" instead.` 
+          });
+          return;
+        }
+        
+        // For transform cards, always use the front face for casting
+        debug(2, `[requestCastSpell] Transform card ${cardInHand.name}: Using front face ${cardFaces[0]?.name}`);
+      }
+      
+      // Standard land check (for non-transform cards)
+      if (typeLine.includes("land") && layout !== 'transform') {
         socket.emit("error", { code: "CANNOT_CAST_LAND", message: "Lands cannot be cast as spells." });
         return;
       }
@@ -2325,9 +2363,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       let oracleText = (cardInHand.oracle_text || "").toLowerCase();
       let manaCost = cardInHand.mana_cost || "";
       let cardName = cardInHand.name || "Card";
+      let faceTypeLine = typeLine;
       
-      // Handle split/modal cards
-      const cardFaces = cardInHand.card_faces;
+      // Handle split/modal/transform cards
       if (faceIndex !== undefined && Array.isArray(cardFaces)) {
         // Validate faceIndex bounds
         if (faceIndex < 0 || faceIndex >= cardFaces.length) {
@@ -2342,13 +2380,25 @@ export function registerGameActions(io: Server, socket: Socket) {
           oracleText = (face.oracle_text || "").toLowerCase();
           manaCost = face.mana_cost || manaCost;
           cardName = face.name || cardName;
+          faceTypeLine = (face.type_line || "").toLowerCase();
+        }
+      } else if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {
+        // For transform cards without explicit faceIndex, use front face (index 0)
+        const frontFace = cardFaces[0];
+        if (frontFace) {
+          oracleText = (frontFace.oracle_text || "").toLowerCase();
+          manaCost = frontFace.mana_cost || manaCost;
+          cardName = frontFace.name || cardName;
+          faceTypeLine = (frontFace.type_line || "").toLowerCase();
         }
       }
 
       // Check if this spell requires targets
-      const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
+      // Use faceTypeLine for transform/split cards, fallback to typeLine for regular cards
+      const effectiveTypeLine = faceTypeLine || typeLine;
+      const isInstantOrSorcery = effectiveTypeLine.includes("instant") || effectiveTypeLine.includes("sorcery");
       // An Aura is an enchantment with "Aura" in the type line AND "Enchant" at the start of its oracle text
-      const isAura = typeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
+      const isAura = effectiveTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
       const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
       const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
       
