@@ -7114,8 +7114,10 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Check for Rebound keyword (dynamically detect from oracle text)
       // Rebound: "If this spell was cast from your hand, exile it as it resolves. 
       // At the beginning of your next upkeep, you may cast this card from exile without paying its mana cost."
+      // Important: Spells cast from rebound don't rebound again (they go to graveyard)
       const hasRebound = /\brebound\b/i.test(oracleText);
       const wasCastFromHand = (item as any).castFromHand === true || (item as any).source === 'hand';
+      const wasCastFromRebound = (item as any).castFromRebound === true;
       
       if (layout === 'adventure' && wasAdventure) {
         // Adventure spells go to exile instead of graveyard (Rule 715.3d)
@@ -7129,9 +7131,10 @@ export function resolveTopOfStack(ctx: GameContext) {
         z.exileCount = (z.exile as any[]).length;
         
         debug(2, `[resolveTopOfStack] Adventure spell ${effectiveCard.name || 'unnamed'} resolved and exiled for ${controller}`);
-      } else if (hasRebound && wasCastFromHand) {
+      } else if (hasRebound && wasCastFromHand && !wasCastFromRebound) {
         // Rebound: Exile the spell instead of putting it in graveyard
         // Mark it for casting at the beginning of next upkeep
+        // Note: Spells cast from rebound don't rebound again
         z.exile = z.exile || [];
         (z.exile as any[]).push({ 
           ...card, 

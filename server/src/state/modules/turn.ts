@@ -2923,7 +2923,7 @@ export function nextStep(ctx: GameContext) {
             const reboundCards = playerZone.exile.filter((c: any) => 
               c.reboundPending && 
               c.reboundController === turnPlayer &&
-              c.reboundTurn !== undefined &&
+              typeof c.reboundTurn === 'number' &&  // Ensure reboundTurn is a valid number
               c.reboundTurn < currentTurn  // Only trigger on the next turn, not same turn
             );
             
