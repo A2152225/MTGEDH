@@ -2916,6 +2916,57 @@ export function nextStep(ctx: GameContext) {
             }
           }
           
+          // THIRD: Process rebound spells - "At the beginning of your next upkeep, you may cast this card from exile"
+          // Check for cards in exile with reboundPending flag that were cast on a previous turn
+          const currentTurn = (ctx as any).state.turnNumber || 1;
+          if (playerZone && playerZone.exile) {
+            const reboundCards = playerZone.exile.filter((c: any) => 
+              c.reboundPending && 
+              c.reboundController === turnPlayer &&
+              typeof c.reboundTurn === 'number' &&  // Ensure reboundTurn is a valid number
+              c.reboundTurn < currentTurn  // Only trigger on the next turn, not same turn
+            );
+            
+            for (const card of reboundCards) {
+              debug(2, `${ts()} [nextStep] Rebound: Found ${card.name} ready to cast from exile`);
+              
+              // Create a triggered ability for the rebound - player may cast it
+              const reboundTriggerId = uid("rebound_trigger");
+              const reboundTrigger = {
+                id: reboundTriggerId,
+                type: 'triggered_ability',
+                controller: turnPlayer,
+                source: card.id,
+                sourceName: card.name,
+                description: `You may cast ${card.name} from exile without paying its mana cost.`,
+                triggerType: 'rebound',
+                mandatory: false, // "you may cast"
+                reboundCardId: card.id, // Track which card this is for
+                card: card, // Include card data for display
+              };
+              
+              (ctx as any).state.stack = (ctx as any).state.stack || [];
+              (ctx as any).state.stack.push(reboundTrigger);
+              
+              // Mark the card as having triggered (so it doesn't trigger again)
+              // The card will be moved to graveyard when the trigger resolves (whether cast or declined)
+              card.reboundTriggered = true;
+              
+              // Emit chat message
+              if ((ctx as any).io && (ctx as any).gameId) {
+                (ctx as any).io.to((ctx as any).gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId: (ctx as any).gameId,
+                  from: "system",
+                  message: `🔄 Rebound: ${card.name}'s rebound trigger!`,
+                  ts: Date.now(),
+                });
+              }
+              
+              debug(2, `${ts()} [nextStep] Rebound: Added trigger for ${card.name} to stack`);
+            }
+          }
+          
           const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
           pushTriggersToStack(upkeepTriggers, 'upkeep', 'upkeep');
         }

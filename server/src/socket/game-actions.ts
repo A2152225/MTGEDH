@@ -4007,6 +4007,9 @@ export function registerGameActions(io: Server, socket: Socket) {
               // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
               // Note: faceIndex is not available in this fallback path
               castAsAdventure: removedCard.layout === 'adventure' ? false : undefined,
+              // Track source zone for rebound and other "cast from hand" effects
+              castFromHand: true,
+              source: 'hand',
             };
             
             if (typeof game.pushStack === 'function') {
@@ -4899,6 +4902,22 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       debug(2, `[resolveAllTriggers] Batch resolving ${stack.length} triggers for ${playerId}`);
 
+      // Track which sources we're resolving for client count updates
+      const resolvedSources: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }> = new Map();
+      for (const item of stack) {
+        const sourceKey = (item as any).source || (item as any).sourceId || (item as any).sourceName;
+        const sourceName = (item as any).sourceName || 'Unknown';
+        const effect = (item as any).description || '';
+        const imageUrl = (item as any).card?.image_uris?.small;
+        
+        const existing = resolvedSources.get(sourceKey);
+        if (existing) {
+          existing.count++;
+        } else {
+          resolvedSources.set(sourceKey, { sourceName, count: 1, effect, imageUrl });
+        }
+      }
+
       // Resolve all triggers in sequence (top to bottom)
       let resolvedCount = 0;
       while (state.stack && state.stack.length > 0) {
@@ -4922,6 +4941,18 @@ export function registerGameActions(io: Server, socket: Socket) {
         from: "system",
         message: `${getPlayerName(game, playerId)} resolved ${resolvedCount} triggered abilities.`,
         ts: Date.now(),
+      });
+
+      // Emit summary of resolved sources so client can update auto-resolve counts
+      const resolvedSourcesArray = Array.from(resolvedSources.entries()).map(([key, value]) => ({
+        sourceKey: key,
+        ...value,
+      }));
+      socket.emit("triggersResolved", {
+        gameId,
+        playerId,
+        totalCount: resolvedCount,
+        sources: resolvedSourcesArray,
       });
 
       // After batch resolution, priority goes back to the active player

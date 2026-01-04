@@ -1192,6 +1192,46 @@ function executeTriggerEffect(
   // ===== SPECIAL HANDLERS =====
   // These need to be checked before general pattern matching
   
+  // ===== REBOUND TRIGGER HANDLING =====
+  // When a rebound trigger resolves, create a modal choice for the player
+  // The player may cast the spell from exile without paying its mana cost
+  const triggerTypeFromTrigger = (triggerItem as any).triggerType;
+  if (triggerTypeFromTrigger === 'rebound') {
+    const reboundCardId = (triggerItem as any).reboundCardId;
+    const reboundCard = (triggerItem as any).card;
+    const gameId = (ctx as any).gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Rebound: skipping resolution steps during replay`);
+      return;
+    }
+    
+    // Create a resolution step for the player to choose whether to cast
+    const stepConfig = {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controller,
+      description: `Rebound: You may cast ${sourceName} from exile without paying its mana cost.`,
+      mandatory: false,
+      sourceId: reboundCardId,
+      sourceName: sourceName,
+      sourceImage: reboundCard?.image_uris?.small || reboundCard?.image_uris?.normal,
+      reboundCard: reboundCard,
+      reboundCardId: reboundCardId,
+      options: [
+        { id: 'cast', label: `Cast ${sourceName}` },
+        { id: 'decline', label: 'Decline (goes to graveyard)' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+    };
+    
+    ResolutionQueueManager.addStep(gameId, stepConfig);
+    
+    debug(2, `[executeTriggerEffect] Rebound: Created choice step for ${sourceName}`);
+    return;
+  }
+  
   // Handle Elixir of Immortality - "You gain 5 life. Shuffle this artifact and your graveyard into their owner's library."
   if (sourceName.toLowerCase().includes('elixir of immortality') ||
       (desc.includes('shuffle') && desc.includes('graveyard') && desc.includes('into') && desc.includes('library'))) {
@@ -6146,6 +6186,90 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // ===== DYNAMIC TOKEN CREATION: "Create X tokens for each creature you control" pattern =====
+    // This dynamically handles cards like Nomads' Assembly, Increasing Devotion (second cast), etc.
+    // Pattern: "Create a/X [type] token(s) for each creature you control"
+    // Examples:
+    //   - Nomads' Assembly: "Create a 1/1 white Kor Soldier creature token for each creature you control."
+    //   - March of the Multitudes (convoke part): "Create X 1/1 white Soldier creature tokens with lifelink."
+    const tokenForEachCreaturePattern = /create\s+(?:a|an|(\d+))\s+(\d+)\/(\d+)\s+(\w+)(?:\s+(\w+))?\s+(?:(\w+)\s+)?creature\s+tokens?\s+(?:with\s+[\w\s]+\s+)?for\s+each\s+creature\s+you\s+control/i;
+    const tokenForEachMatch = oracleTextLower.match(tokenForEachCreaturePattern);
+    
+    if (tokenForEachMatch) {
+      const battlefield = state.battlefield || [];
+      
+      // Count creatures controlled by the caster
+      let creatureCount = 0;
+      for (const perm of battlefield) {
+        if (!perm) continue;
+        if (perm.controller !== controller) continue;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('creature')) {
+          creatureCount++;
+        }
+      }
+      
+      // Parse token stats from the match
+      const tokenQuantity = tokenForEachMatch[1] ? parseInt(tokenForEachMatch[1], 10) : 1;
+      const tokenPower = parseInt(tokenForEachMatch[2], 10);
+      const tokenToughness = parseInt(tokenForEachMatch[3], 10);
+      const tokenColor = tokenForEachMatch[4]?.toLowerCase() || 'white';
+      const tokenSubtype1 = tokenForEachMatch[5] || '';
+      const tokenSubtype2 = tokenForEachMatch[6] || '';
+      const tokenType = tokenSubtype2 || tokenSubtype1 || 'Soldier';
+      
+      // Map color name to color code
+      const colorNameToCode: Record<string, string> = {
+        'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G', 'colorless': ''
+      };
+      const colorCode = colorNameToCode[tokenColor] || 'W';
+      const colors = colorCode ? [colorCode] : [];
+      
+      const tokensPerCreature = tokenQuantity;
+      const totalBaseTokens = creatureCount * tokensPerCreature;
+      
+      // Apply token doublers
+      const totalTokens = totalBaseTokens * getTokenDoublerMultiplier(controller, state);
+      
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Creating ${totalTokens} ${tokenPower}/${tokenToughness} ${tokenColor} ${tokenType} tokens for ${controller} (${creatureCount} creatures × ${tokensPerCreature} tokens × doublers)`);
+      
+      // Create tokens
+      for (let i = 0; i < totalTokens; i++) {
+        const tokenId = uid("token");
+        const typeLine = `Token Creature — ${tokenType}`;
+        const imageUrls = getTokenImageUrls(tokenType, tokenPower, tokenToughness, colors);
+        
+        const token = {
+          id: tokenId,
+          controller,
+          owner: controller,
+          tapped: false,
+          counters: {},
+          basePower: tokenPower,
+          baseToughness: tokenToughness,
+          summoningSickness: true,
+          isToken: true,
+          card: {
+            id: tokenId,
+            name: tokenType,
+            type_line: typeLine,
+            power: String(tokenPower),
+            toughness: String(tokenToughness),
+            zone: 'battlefield',
+            colors,
+            image_uris: imageUrls,
+          },
+        };
+        
+        state.battlefield.push(token as any);
+        
+        // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+        triggerETBEffectsForToken(ctx, token, controller);
+      }
+      
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Created ${totalTokens} ${tokenType} tokens for ${controller}`);
+    }
+    
     // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, Kodama's Reach, Cultivate, etc.)
     // These need to trigger a library search prompt for the player
     const tutorInfo = detectTutorSpell(oracleText);
@@ -6979,13 +7103,21 @@ export function resolveTopOfStack(ctx: GameContext) {
       return; // Skip normal graveyard movement
     }
     
-    // Move spell to graveyard or exile (for adventure) after resolution
+    // Move spell to graveyard or exile (for adventure/rebound) after resolution
     const zones = ctx.state.zones || {};
     const z = zones[controller];
     if (z) {
       // Check if this is an adventure spell (layout === 'adventure' and was cast as adventure)
       const layout = (card as any).layout;
       const wasAdventure = (item as any).castAsAdventure === true;
+      
+      // Check for Rebound keyword (dynamically detect from oracle text)
+      // Rebound: "If this spell was cast from your hand, exile it as it resolves. 
+      // At the beginning of your next upkeep, you may cast this card from exile without paying its mana cost."
+      // Important: Spells cast from rebound don't rebound again (they go to graveyard)
+      const hasRebound = /\brebound\b/i.test(oracleText);
+      const wasCastFromHand = (item as any).castFromHand === true || (item as any).source === 'hand';
+      const wasCastFromRebound = (item as any).castFromRebound === true;
       
       if (layout === 'adventure' && wasAdventure) {
         // Adventure spells go to exile instead of graveyard (Rule 715.3d)
@@ -6999,6 +7131,21 @@ export function resolveTopOfStack(ctx: GameContext) {
         z.exileCount = (z.exile as any[]).length;
         
         debug(2, `[resolveTopOfStack] Adventure spell ${effectiveCard.name || 'unnamed'} resolved and exiled for ${controller}`);
+      } else if (hasRebound && wasCastFromHand && !wasCastFromRebound) {
+        // Rebound: Exile the spell instead of putting it in graveyard
+        // Mark it for casting at the beginning of next upkeep
+        // Note: Spells cast from rebound don't rebound again
+        z.exile = z.exile || [];
+        (z.exile as any[]).push({ 
+          ...card, 
+          zone: "exile",
+          reboundPending: true, // Mark for rebound
+          reboundController: controller, // Who will cast it
+          reboundTurn: (state as any).turnNumber || 1, // Track which turn it was cast
+        });
+        z.exileCount = (z.exile as any[]).length;
+        
+        debug(2, `[resolveTopOfStack] Rebound spell ${effectiveCard.name || 'unnamed'} exiled for ${controller} - will trigger at beginning of next upkeep`);
       } else {
         // Regular instant/sorcery - goes to graveyard
         z.graveyard = z.graveyard || [];

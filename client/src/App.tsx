@@ -1523,6 +1523,33 @@ export function App() {
     };
   }, [safeView?.id, ignoredTriggerSources]);
 
+  // Listen for batch trigger resolution summary to update auto-resolve counts
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id && payload.playerId === you) {
+        // Update counts for each resolved source that we have in ignoredTriggerSources
+        setIgnoredTriggerSources(prev => {
+          const next = new Map(prev);
+          for (const source of (payload.sources || [])) {
+            const existing = next.get(source.sourceKey);
+            if (existing) {
+              // Increment count by number resolved
+              next.set(source.sourceKey, {
+                ...existing,
+                count: existing.count + source.count,
+              });
+            }
+          }
+          return next;
+        });
+      }
+    };
+    socket.on("triggersResolved", handler);
+    return () => {
+      socket.off("triggersResolved", handler);
+    };
+  }, [safeView?.id, you]);
+
   // Deck validation result listener
   React.useEffect(() => {
     const handler = (payload: any) => {
