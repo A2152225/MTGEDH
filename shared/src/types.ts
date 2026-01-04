@@ -270,6 +270,11 @@ export interface BattlefieldPermanent {
     mustAttackEachCombat?: boolean;
     cantAttackOwner?: boolean;
   };
+  // Token grouping optimization - when many identical tokens exist, server groups them
+  isGroupedTokens?: boolean;        // True if this represents multiple identical tokens
+  tokenCount?: number;              // Number of tokens in this group (only if isGroupedTokens)
+  groupedTokenIds?: string[];       // Original IDs of all tokens in this group
+  originalId?: string;              // First token's ID (for consistent group identification)
 }
 
 /**

@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
-import { ResolutionQueueManager, ResolutionStepStatus } from "../state/resolution/index.js";
+import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { ResolutionStepType } from "../state/resolution/types.js";
 
 /**

@@ -308,19 +308,68 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
     // Create a key based on name and P/T for grouping
     const key = `${name}|${pt}|${isToken ? 'token' : 'card'}`;
     
-    const existing = map.get(key);
-    if (existing) {
-      existing.creatures.push(c);
+    // Handle server-side grouped tokens (optimization for games with many tokens)
+    // If this is a grouped token, we need to expand it into virtual creatures
+    if ((c as any).isGroupedTokens && (c as any).tokenCount && (c as any).groupedTokenIds) {
+      const tokenCount = (c as any).tokenCount as number;
+      const groupedIds = (c as any).groupedTokenIds as string[];
+      
+      // Create virtual creatures for each token in the group
+      const existing = map.get(key);
+      if (existing) {
+        // Add virtual creature references for each token in the group
+        for (let i = 0; i < tokenCount; i++) {
+          const virtualCreature = {
+            ...c,
+            id: groupedIds[i] || `${c.id}_${i}`,
+            isGroupedTokens: false, // Not grouped anymore at UI level
+            tokenCount: undefined,
+            groupedTokenIds: undefined,
+            _virtualFromGroup: c.id, // Track which group this came from
+            _virtualIndex: i,
+          } as BattlefieldPermanent;
+          existing.creatures.push(virtualCreature);
+        }
+      } else {
+        const virtualCreatures: BattlefieldPermanent[] = [];
+        for (let i = 0; i < tokenCount; i++) {
+          const virtualCreature = {
+            ...c,
+            id: groupedIds[i] || `${c.id}_${i}`,
+            isGroupedTokens: false,
+            tokenCount: undefined,
+            groupedTokenIds: undefined,
+            _virtualFromGroup: c.id,
+            _virtualIndex: i,
+          } as BattlefieldPermanent;
+          virtualCreatures.push(virtualCreature);
+        }
+        map.set(key, {
+          key,
+          name,
+          pt,
+          creatures: virtualCreatures,
+          isToken,
+          imageUrl,
+          dangers,
+        });
+      }
     } else {
-      map.set(key, {
-        key,
-        name,
-        pt,
-        creatures: [c],
-        isToken,
-        imageUrl,
-        dangers,
-      });
+      // Normal creature - add to group as before
+      const existing = map.get(key);
+      if (existing) {
+        existing.creatures.push(c);
+      } else {
+        map.set(key, {
+          key,
+          name,
+          pt,
+          creatures: [c],
+          isToken,
+          imageUrl,
+          dangers,
+        });
+      }
     }
   }
   

@@ -2330,9 +2330,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       // ========================================================================
       if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {
         // For transform cards, check if attempting to cast the back face
-        // Back faces have "(Transforms from [Name])" in their oracle text
-        const backFaceOracle = (cardFaces[1]?.oracle_text || "").toLowerCase();
-        
         if (faceIndex === 1) {
           // Explicitly requesting back face - not allowed
           socket.emit("error", { 
