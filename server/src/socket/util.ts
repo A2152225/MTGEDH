@@ -964,8 +964,10 @@ function normalizeViewForEmit(rawView: any, game: any) {
         const originalCount = view.battlefield.length;
         const optimizedCount = optimizedBattlefield.length;
         
-        // Always apply if there are grouped tokens (so badges are shown)
-        // Also apply if we reduced significantly for performance
+        // IMPORTANT: Always apply grouping when there are grouped tokens, even if the
+        // total count reduction is minimal. This ensures the client receives tokenCount
+        // and isGroupedTokens properties for UI badge display (e.g., "24x" token count).
+        // Without this, the badge wouldn't appear if only a few tokens are grouped.
         if (hasGroupedTokens || optimizedCount < originalCount * MIN_GROUPING_REDUCTION_RATIO) {
           view.battlefield = optimizedBattlefield;
           view.tokenGroupingApplied = true;
