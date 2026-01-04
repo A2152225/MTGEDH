@@ -19,6 +19,175 @@ import {
 } from "./card-data-tables.js";
 import type { BeginningOfCombatTrigger, EndOfCombatTrigger } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
+import { permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
+
+// ============================================================================
+// Trigger Doubling (Roaming Throne, Isshin, Teysa Karlov, etc.)
+// ============================================================================
+
+/**
+ * Interface for trigger doubler permanents
+ */
+interface TriggerDoubler {
+  permanentId: string;
+  cardName: string;
+  controller: string;
+  creatureTypeFilter?: string;  // For Roaming Throne - chosen creature type
+  triggerTypeFilter?: 'attack' | 'etb' | 'death' | 'any';  // What kinds of triggers are doubled
+  affectsOthersOnly?: boolean;  // Roaming Throne: "another creature you control"
+}
+
+/**
+ * Detect trigger doublers on the battlefield
+ * Uses regex-based oracle text parsing for scalability
+ * 
+ * Handles cards like:
+ * - Roaming Throne: "If a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time"
+ * - Isshin, Two Heavens as One: "If a creature attacking causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time"
+ * - Teysa Karlov: "If a creature dying causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time"
+ * - Panharmonicon: "If an artifact or creature entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time"
+ */
+export function detectTriggerDoublers(
+  battlefield: any[],
+  controllerId: string
+): TriggerDoubler[] {
+  const doublers: TriggerDoubler[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== controllerId) continue;
+    
+    const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+    const cardName = perm.card?.name || 'Unknown';
+    
+    // Skip if doesn't have trigger doubling text
+    if (!oracleText.includes('triggers an additional time') && 
+        !oracleText.includes('trigger an additional time')) {
+      continue;
+    }
+    
+    // Roaming Throne pattern: "If a triggered ability of another creature you control of the chosen type triggers"
+    // Oracle: "If a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time."
+    const roamingThronePattern = /if a triggered ability of another creature you control of the chosen type triggers/i;
+    if (roamingThronePattern.test(oracleText)) {
+      const chosenType = (perm as any).chosenCreatureType;
+      if (chosenType) {
+        doublers.push({
+          permanentId: perm.id,
+          cardName,
+          controller: perm.controller,
+          creatureTypeFilter: chosenType,
+          triggerTypeFilter: 'any',
+          affectsOthersOnly: true,  // "another creature"
+        });
+        debug(2, `[detectTriggerDoublers] Found Roaming Throne effect for type '${chosenType}' from ${cardName}`);
+      }
+      continue;
+    }
+    
+    // Isshin pattern: "If a creature attacking causes a triggered ability"
+    const isshinPattern = /if a creature attacking causes a triggered ability .* to trigger.*triggers? an additional time/i;
+    if (isshinPattern.test(oracleText)) {
+      doublers.push({
+        permanentId: perm.id,
+        cardName,
+        controller: perm.controller,
+        triggerTypeFilter: 'attack',
+      });
+      debug(2, `[detectTriggerDoublers] Found Isshin-style attack trigger doubler from ${cardName}`);
+      continue;
+    }
+    
+    // Teysa pattern: "If a creature dying causes a triggered ability"
+    const teysaPattern = /if a creature dying causes a triggered ability .* to trigger.*triggers? an additional time/i;
+    if (teysaPattern.test(oracleText)) {
+      doublers.push({
+        permanentId: perm.id,
+        cardName,
+        controller: perm.controller,
+        triggerTypeFilter: 'death',
+      });
+      debug(2, `[detectTriggerDoublers] Found Teysa-style death trigger doubler from ${cardName}`);
+      continue;
+    }
+    
+    // Panharmonicon pattern: "If an artifact or creature entering the battlefield causes"
+    const panharmoniconPattern = /if (?:an? )?(?:artifact|creature|permanent)(?: or (?:artifact|creature))? entering (?:the battlefield )?causes a triggered ability .* to trigger.*triggers? an additional time/i;
+    if (panharmoniconPattern.test(oracleText)) {
+      doublers.push({
+        permanentId: perm.id,
+        cardName,
+        controller: perm.controller,
+        triggerTypeFilter: 'etb',
+      });
+      debug(2, `[detectTriggerDoublers] Found Panharmonicon-style ETB trigger doubler from ${cardName}`);
+      continue;
+    }
+    
+    // Generic pattern - any trigger doubling we haven't categorized
+    debug(2, `[detectTriggerDoublers] Found generic trigger doubler from ${cardName}, not yet categorized`);
+  }
+  
+  return doublers;
+}
+
+/**
+ * Apply trigger doublers to a list of triggers
+ * Returns the modified trigger list with doubled triggers added
+ * 
+ * @param triggers - Original triggers list
+ * @param doublers - Active trigger doublers
+ * @param triggerType - The type of trigger event ('attack', 'etb', 'death', etc.)
+ * @param sourcePermanent - The permanent whose trigger is firing (for creature type checks)
+ */
+export function applyTriggerDoublers(
+  triggers: CombatTriggeredAbility[],
+  doublers: TriggerDoubler[],
+  triggerType: 'attack' | 'etb' | 'death' | 'any',
+  sourcePermanent?: any
+): CombatTriggeredAbility[] {
+  if (doublers.length === 0 || triggers.length === 0) {
+    return triggers;
+  }
+  
+  const result: CombatTriggeredAbility[] = [];
+  
+  for (const trigger of triggers) {
+    // Always add the original trigger
+    result.push(trigger);
+    
+    // Check each doubler to see if it applies
+    for (const doubler of doublers) {
+      // Check trigger type filter
+      if (doubler.triggerTypeFilter && 
+          doubler.triggerTypeFilter !== 'any' && 
+          doubler.triggerTypeFilter !== triggerType) {
+        continue;
+      }
+      
+      // Check if this doubler affects "another creature" (not itself)
+      if (doubler.affectsOthersOnly && trigger.permanentId === doubler.permanentId) {
+        continue;
+      }
+      
+      // Check creature type filter
+      if (doubler.creatureTypeFilter && sourcePermanent) {
+        if (!permanentHasCreatureType(sourcePermanent, doubler.creatureTypeFilter)) {
+          continue;
+        }
+      }
+      
+      // This doubler applies - add a copy of the trigger
+      const copiedTrigger: CombatTriggeredAbility = {
+        ...trigger,
+        description: `${trigger.description} (doubled by ${doubler.cardName})`,
+      };
+      result.push(copiedTrigger);
+      debug(2, `[applyTriggerDoublers] Doubled trigger '${trigger.description}' from ${trigger.cardName} due to ${doubler.cardName}`);
+    }
+  }
+  
+  return result;
+}
 
 // ============================================================================
 // Local Type Definitions (compatible with types.ts but with additional fields)
@@ -472,6 +641,28 @@ export function getAttackTriggersForCreatures(
         }
       }
     }
+  }
+  
+  // ===== Apply trigger doublers (Roaming Throne, Isshin, etc.) =====
+  // Check for trigger doublers controlled by the attacking player
+  const doublers = detectTriggerDoublers(battlefield, attackingPlayer);
+  
+  if (doublers.length > 0) {
+    debug(2, `[getAttackTriggersForCreatures] Found ${doublers.length} trigger doubler(s)`);
+    
+    // For each attacking creature, apply doublers to its triggers
+    const doubledTriggers: CombatTriggeredAbility[] = [];
+    
+    for (const trigger of triggers) {
+      // Find the source permanent for creature type checks
+      const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+      
+      // Apply doublers with attack trigger type
+      const resultTriggers = applyTriggerDoublers([trigger], doublers, 'attack', sourcePerm);
+      doubledTriggers.push(...resultTriggers);
+    }
+    
+    return doubledTriggers;
   }
   
   return triggers;

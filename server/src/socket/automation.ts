@@ -885,10 +885,20 @@ async function processActivateAbility(
     }
     
     // Check if it's a mana ability (doesn't use stack)
+    // MTG Rule 605.1a - A mana ability is an activated ability that could add mana to a player's mana pool,
+    // is not a loyalty ability, and doesn't target.
+    // Pattern: {T}: Add {X} or {T}: Add [mana words]
     const card = (perm as any).card;
     const cardName = (card?.name || '').toLowerCase();
     const oracleText = (card?.oracle_text || '').toLowerCase();
-    const isManaAbility = oracleText.includes('add') && oracleText.includes('{t}:');
+    
+    // Use more precise mana ability detection matching ai.ts
+    const manaProductionPattern = /\{t\}:\s*add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
+    const hasTargets = /target/i.test(oracleText);
+    // Only check the specific ability text that starts with {T}:, not the whole oracle text
+    const tapAbilityMatch = oracleText.match(/\{t\}:[^.]+/i);
+    const abilityText = tapAbilityMatch ? tapAbilityMatch[0] : '';
+    const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
     
     // Import Crystal abilities dynamically to check
     const { getCrystalAbility } = await import("../state/modules/triggers/crystal-abilities.js");

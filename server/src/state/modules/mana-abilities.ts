@@ -1728,4 +1728,104 @@ export function getCreatureCountManaAmount(
   return null;
 }
 
+/**
+ * Get Throne of Eldraine mana ability info
+ * 
+ * Throne of Eldraine: "{T}: Add four mana of the chosen color. 
+ * Spend this mana only to cast monocolored spells of that color."
+ * 
+ * Also handles the second ability: "{3}, {T}: Draw two cards. 
+ * Spend only mana of the chosen color to activate this ability."
+ */
+export function getThroneOfEldraineManaTaps(
+  permanent: any,
+  gameState: any,
+  playerId: string
+): { produces: string; amount: number; restriction?: string } | null {
+  const cardName = (permanent?.card?.name || "").toLowerCase();
+  const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
+  
+  // Check for Throne of Eldraine or similar pattern
+  const isThroneOfEldraine = cardName.includes("throne of eldraine");
+  
+  // Also detect generic pattern: "{T}: Add four mana of the chosen color"
+  // Regex for: add N mana of the chosen color
+  const chosenColorManaPattern = /\{t\}:\s*add\s+(one|two|three|four|five|six|seven|eight|\d+)\s+mana\s+of\s+the\s+chosen\s+color/i;
+  const chosenColorMatch = oracleText.match(chosenColorManaPattern);
+  
+  if (!isThroneOfEldraine && !chosenColorMatch) {
+    return null;
+  }
+  
+  // Get the chosen color from the permanent
+  const chosenColor = (permanent as any).chosenColor;
+  if (!chosenColor) {
+    debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: No chosen color set`);
+    return null;
+  }
+  
+  // Convert color name to symbol - validate against known colors
+  const colorToSymbol: Record<string, string> = {
+    'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G',
+    'w': 'W', 'u': 'U', 'b': 'B', 'r': 'R', 'g': 'G'
+  };
+  const colorSymbol = colorToSymbol[chosenColor.toLowerCase()];
+  if (!colorSymbol) {
+    debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: Invalid chosen color '${chosenColor}'`);
+    return null;
+  }
+  
+  // Determine the amount of mana
+  let amount = 4; // Default for Throne of Eldraine
+  if (chosenColorMatch) {
+    const wordToNumber: Record<string, number> = {
+      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+      'six': 6, 'seven': 7, 'eight': 8
+    };
+    const amountStr = chosenColorMatch[1].toLowerCase();
+    const parsedInt = parseInt(amountStr, 10);
+    amount = wordToNumber[amountStr] || (isNaN(parsedInt) ? 4 : parsedInt);
+  }
+  
+  // Determine restriction
+  let restriction: string | undefined;
+  if (oracleText.includes("monocolored spells of that color")) {
+    restriction = `monocolored_${chosenColor.toLowerCase()}`;
+  } else if (oracleText.includes("spend this mana only to cast")) {
+    restriction = `restricted_${chosenColor.toLowerCase()}`;
+  }
+  
+  debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: Produces ${amount}x ${colorSymbol} (restriction: ${restriction || 'none'})`);
+  
+  return {
+    produces: colorSymbol,
+    amount,
+    restriction
+  };
+}
+
+/**
+ * Check if a card requires color choice on ETB for mana-related effects
+ * Extends the existing requiresColorChoice with mana-specific cards
+ */
+export function requiresManaColorChoice(card: any): { required: boolean; reason: string } {
+  if (!card) return { required: false, reason: "" };
+  
+  const name = (card.name || "").toLowerCase();
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Throne of Eldraine - "As Throne of Eldraine enters, choose a color"
+  if (name.includes("throne of eldraine")) {
+    return { required: true, reason: "Choose a color for Throne of Eldraine's mana ability" };
+  }
+  
+  // Generic detection: "add N mana of the chosen color"
+  // Combined with "as ~ enters" (not "when" - that's triggered ability)
+  if (oracleText.includes("mana of the chosen color") && 
+      oracleText.includes("as") && oracleText.includes("enters")) {
+    return { required: true, reason: "Choose a color for mana ability" };
+  }
+  
+  return { required: false, reason: "" };
+}
 
