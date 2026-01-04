@@ -929,18 +929,27 @@ function normalizeViewForEmit(rawView: any, game: any) {
         // Build the optimized battlefield array
         const optimizedBattlefield = [...nonTokenPermanents];
         
+        // Track whether any tokens were actually grouped
+        let hasGroupedTokens = false;
+        
         for (const [, group] of tokenGroups) {
           if (group.ids.length === 1) {
-            // Single token - keep as-is
-            optimizedBattlefield.push(group.prototype);
+            // Single token - keep as-is but still mark it as a token for consistency
+            const singleToken = {
+              ...group.prototype,
+              isToken: true,
+            };
+            optimizedBattlefield.push(singleToken);
           } else {
             // Multiple identical tokens - create grouped entry
+            hasGroupedTokens = true;
             const groupedToken = {
               ...group.prototype,
               // Add grouping metadata
               tokenCount: group.ids.length,
               groupedTokenIds: group.ids,
               isGroupedTokens: true,
+              isToken: true,
               // The ID represents the group (client uses groupedTokenIds for individual operations)
               id: `group_${group.ids[0]}`, // Use first ID as group identifier
               originalId: group.ids[0], // Keep track of first real ID
@@ -949,15 +958,23 @@ function normalizeViewForEmit(rawView: any, game: any) {
           }
         }
         
-        // Only apply optimization if we actually reduced the count significantly
+        // Apply optimization if:
+        // 1. We have any grouped tokens (for badge display), OR
+        // 2. We reduced the count significantly (for network optimization)
         const originalCount = view.battlefield.length;
         const optimizedCount = optimizedBattlefield.length;
         
-        if (optimizedCount < originalCount * MIN_GROUPING_REDUCTION_RATIO) {
+        // Always apply if there are grouped tokens (so badges are shown)
+        // Also apply if we reduced significantly for performance
+        if (hasGroupedTokens || optimizedCount < originalCount * MIN_GROUPING_REDUCTION_RATIO) {
           view.battlefield = optimizedBattlefield;
           view.tokenGroupingApplied = true;
           view.originalBattlefieldCount = originalCount;
-          debug(2, `[TokenOptimization] Reduced battlefield from ${originalCount} to ${optimizedCount} entries (${Math.round((1 - optimizedCount/originalCount) * 100)}% reduction)`);
+          if (hasGroupedTokens) {
+            debug(2, `[TokenOptimization] Applied grouping: ${originalCount} → ${optimizedCount} entries, has grouped tokens with counts`);
+          } else {
+            debug(2, `[TokenOptimization] Reduced battlefield from ${originalCount} to ${optimizedCount} entries (${Math.round((1 - optimizedCount/originalCount) * 100)}% reduction)`);
+          }
         }
       }
     } catch (e) {
