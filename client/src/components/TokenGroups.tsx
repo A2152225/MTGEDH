@@ -372,18 +372,20 @@ function TokenGroupsContent(props: {
                 </div>
               )}
               
-              {/* Count badge */}
+              {/* Count badge - positioned in upper LEFT corner */}
               <div style={{
                 position: 'absolute',
                 top: 4,
-                right: 4,
-                background: 'rgba(0,0,0,0.8)',
+                left: 4,
+                background: 'linear-gradient(135deg, rgba(147,51,234,0.95), rgba(126,34,206,0.95))',
                 color: '#fff',
                 fontWeight: 700,
                 fontSize: 14,
                 padding: '2px 8px',
                 borderRadius: 12,
-                border: '1px solid rgba(255,255,255,0.2)',
+                border: '2px solid rgba(255,255,255,0.4)',
+                boxShadow: '0 2px 8px rgba(147,51,234,0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
+                zIndex: 10,
               }}>
                 {g.ids.length}×
               </div>

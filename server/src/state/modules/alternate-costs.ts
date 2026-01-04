@@ -166,6 +166,12 @@ export function hasPactAlternateCost(card: any): boolean {
  * this spell pays for {1} or one mana of that creature's color.)"
  * 
  * This now checks if convoke can ACTUALLY help pay for the spell, not just if creatures exist.
+ * 
+ * IMPORTANT: Cards that GRANT convoke to other spells (like Wand of the Worldsoul) should NOT
+ * trigger convoke for themselves. We detect this by looking for patterns like:
+ * - "the next spell you cast this turn has convoke"
+ * - "spells you cast have convoke"
+ * These cards don't have convoke themselves - they grant it to OTHER spells.
  */
 export function hasConvokeAlternateCost(
   ctx: GameContext,
@@ -179,6 +185,32 @@ export function hasConvokeAlternateCost(
   
   // Check for convoke keyword
   if (!oracleText.includes("convoke")) {
+    return false;
+  }
+  
+  // CRITICAL: Exclude cards that GRANT convoke to other spells but don't have it themselves
+  // These patterns indicate the card gives convoke to OTHER spells, not itself
+  const grantsConvokePatterns = [
+    /the next spell you cast[^.]*has convoke/i,           // Wand of the Worldsoul
+    /spells you cast[^.]*have convoke/i,                  // General granting pattern
+    /creature spells you cast[^.]*have convoke/i,         // Elven Chorus style
+    /whenever[^.]*cast[^.]*convoke/i,                     // Triggered grant pattern
+    /nontoken creatures you control[^.]*have[^.]*convoke/i, // Creature-based granting
+  ];
+  
+  for (const pattern of grantsConvokePatterns) {
+    if (pattern.test(oracleText)) {
+      // This card grants convoke to other spells, it doesn't have convoke itself
+      return false;
+    }
+  }
+  
+  // Additional check: If the word "convoke" appears but is NOT in the format of a keyword
+  // (i.e., not at the start of a line or after a period), it might be granting convoke
+  // The standard convoke keyword appears as just "Convoke" or "Convoke (reminder text)"
+  const convokeKeywordPattern = /(?:^|\.|\n)\s*convoke(?:\s*\(|$|\s)/i;
+  if (!convokeKeywordPattern.test(oracleText)) {
+    // "convoke" appears but not as a standalone keyword - likely grants to another spell
     return false;
   }
   

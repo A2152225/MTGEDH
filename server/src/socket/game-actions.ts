@@ -1036,6 +1036,11 @@ export function calculateCostReduction(
  * Returns list of creatures that can be tapped for convoke and their contribution
  * 
  * Convoke rule: Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.
+ * 
+ * IMPORTANT: Cards that GRANT convoke to other spells (like Wand of the Worldsoul) should NOT
+ * trigger convoke for themselves. We detect this by looking for patterns like:
+ * - "the next spell you cast this turn has convoke"
+ * - "spells you cast have convoke"
  */
 export function calculateConvokeOptions(
   game: any,
@@ -1066,6 +1071,31 @@ export function calculateConvokeOptions(
 
     // Check if card has convoke
     if (!cardOracleText.includes("convoke")) {
+      return options;
+    }
+
+    // CRITICAL: Exclude cards that GRANT convoke to other spells but don't have it themselves
+    // These patterns indicate the card gives convoke to OTHER spells, not itself
+    const grantsConvokePatterns = [
+      /the next spell you cast[^.]*has convoke/i,           // Wand of the Worldsoul
+      /spells you cast[^.]*have convoke/i,                  // General granting pattern
+      /creature spells you cast[^.]*have convoke/i,         // Elven Chorus style
+      /whenever[^.]*cast[^.]*convoke/i,                     // Triggered grant pattern
+      /nontoken creatures you control[^.]*have[^.]*convoke/i, // Creature-based granting
+    ];
+    
+    for (const pattern of grantsConvokePatterns) {
+      if (pattern.test(cardOracleText)) {
+        // This card grants convoke to other spells, it doesn't have convoke itself
+        return options;
+      }
+    }
+    
+    // Additional check: If the word "convoke" appears but is NOT in the format of a keyword
+    // (i.e., not at the start of a line or after a period), it might be granting convoke
+    const convokeKeywordPattern = /(?:^|\.|\n)\s*convoke(?:\s*\(|$|\s)/i;
+    if (!convokeKeywordPattern.test(cardOracleText)) {
+      // "convoke" appears but not as a standalone keyword - likely grants to another spell
       return options;
     }
 
