@@ -2,6 +2,8 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { ResolutionQueueManager, ResolutionStepStatus } from "../state/resolution/index.js";
+import { ResolutionStepType } from "../state/resolution/types.js";
 
 /**
  * Color choice selection handlers
@@ -10,6 +12,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * - Caged Sun - "As Caged Sun enters the battlefield, choose a color"
  * - Chromatic Lantern variants
  * - Color-specific protection effects
+ * - Brave the Elements - "Choose a color. White creatures you control gain protection..."
  * etc.
  */
 
@@ -170,6 +173,110 @@ export function registerColorChoiceHandlers(io: Server, socket: Socket) {
     const playerId = socket.data.playerId;
     if (!playerId || socket.data.spectator) return;
     
+    // First, check if this is a Resolution Queue step
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const resolutionStep = queue.steps.find(
+      s => s.id === confirmId && s.type === ResolutionStepType.COLOR_CHOICE
+    );
+    
+    if (resolutionStep) {
+      // Handle via Resolution Queue system
+      debug(2, `[colorChoice] Handling via Resolution Queue for ${confirmId}`);
+      
+      // Verify this is the correct player
+      if (resolutionStep.playerId !== playerId) {
+        socket.emit("error", {
+          code: "WRONG_PLAYER",
+          message: "This choice is not for you",
+        });
+        return;
+      }
+      
+      // Complete the resolution step
+      const response = {
+        stepId: confirmId,
+        playerId,
+        selections: [selectedColor],
+        cancelled: false,
+        timestamp: Date.now(),
+      };
+      
+      // Process the step completion through ResolutionQueueManager
+      ResolutionQueueManager.completeStep(gameId, confirmId, response);
+      
+      // Get game and apply the color choice
+      const game = ensureGame(gameId);
+      if (game) {
+        const state = game.state as any || {};
+        const cardName = resolutionStep.sourceName || 'Card';
+        const permanentId = (resolutionStep as any).permanentId || resolutionStep.sourceId;
+        const spellId = (resolutionStep as any).spellId;
+        
+        // Apply color choice to the appropriate object
+        if (spellId) {
+          // Spell on stack - store color choice for when it resolves
+          const stack = state.stack || [];
+          const spell = stack.find((s: any) => s.id === spellId || s.cardId === spellId);
+          if (spell) {
+            (spell as any).chosenColor = selectedColor;
+            debug(2, `[colorChoice] Set chosenColor=${selectedColor} on spell ${spellId}`);
+          }
+        } else if (permanentId) {
+          // Permanent on battlefield
+          const battlefield = state.battlefield || [];
+          const permanent = battlefield.find((p: any) => p?.id === permanentId);
+          if (permanent) {
+            (permanent as any).chosenColor = selectedColor;
+            debug(2, `[colorChoice] Set chosenColor=${selectedColor} on permanent ${permanentId}`);
+          }
+        }
+        
+        // Emit confirmation
+        io.to(gameId).emit("colorChoiceConfirmed", {
+          gameId,
+          confirmId,
+          permanentId,
+          spellId,
+          cardName,
+          selectedColor,
+          playerId,
+        });
+        
+        // Broadcast chat message
+        io.to(gameId).emit("chat", {
+          id: `cc_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} chose ${selectedColor} for ${cardName}.`,
+          ts: Date.now(),
+        });
+        
+        // Persist event
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, "colorChoice", {
+            playerId,
+            permanentId,
+            spellId,
+            cardName,
+            selectedColor,
+          });
+        } catch (e) {
+          debugWarn(1, 'appendEvent(colorChoice) failed:', e);
+        }
+        
+        // Bump sequence
+        if (typeof (game as any).bumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+        
+        // Broadcast updated game state
+        broadcastGame(io, game, gameId);
+      }
+      
+      return;
+    }
+    
+    // Fall back to legacy pending choices system
     const pending = pendingChoices.get(confirmId);
     if (!pending) {
       socket.emit("error", {
