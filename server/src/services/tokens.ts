@@ -552,6 +552,7 @@ export function getTokenImageUrls(
   
   const nameLower = tokenName.toLowerCase();
   const abilitiesLower = abilities?.map(a => a.toLowerCase()) || [];
+  const abilitiesSet = new Set(abilitiesLower); // Use Set for O(1) lookup
   
   debug(2, `[tokens] getTokenImageUrls: name=${tokenName}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}, abilities=${JSON.stringify(abilities)}`);
   
@@ -633,9 +634,9 @@ export function getTokenImageUrls(
           score += 5;
         }
         
-        // Penalty for extra unwanted abilities
+        // Penalty for extra unwanted abilities (use Set for O(1) lookup)
         for (const keyword of tokenKeywords) {
-          if (!abilitiesLower.includes(keyword)) {
+          if (!abilitiesSet.has(keyword)) {
             score -= 1;
           }
         }

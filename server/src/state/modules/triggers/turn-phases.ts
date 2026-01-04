@@ -100,7 +100,8 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
   }
   
   // Pattern for regular end step triggers: "At the beginning of your/each end step"
-  const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+(?:\.[^.]+)*)/i);
+  // Match until the end of the sentence (period followed by space or end of string)
+  const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+\.?)/i);
   if (endStepMatch) {
     const effect = endStepMatch[1].trim();
     triggers.push({
@@ -132,8 +133,8 @@ function detectRequiresChoice(effectText: string): boolean {
     /choose (?:one|two|a|an)/i,            // Modal choices
     /target/i,                             // Targeting requires selection
     /search your library/i,                // Search requires selection
-    /put .* onto the battlefield/i,        // Often requires selection
-    /return .* from .* to/i,               // Return effects often need selection
+    /put a .* card .* onto the battlefield/i,  // Card selection for battlefield
+    /return .* card .* from .* to/i,       // Return effects with card selection
   ];
   
   return choicePatterns.some(pattern => pattern.test(lowerEffect));
