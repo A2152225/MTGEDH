@@ -2028,6 +2028,146 @@ function executeTriggerEffect(
     }
   }
   
+  // ========================================================================
+  // ELSPETH RESPLENDENT +1 PATTERN
+  // "Put a +1/+1 counter and a counter from among flying, first strike, lifelink, or vigilance on it."
+  // This requires a choice modal for the keyword counter type
+  // ========================================================================
+  const counterFromAmongMatch = desc.match(/\+1\/\+1 counter and a counter from among ([^.]+) on it/i);
+  if (counterFromAmongMatch) {
+    const gameId = (ctx as any).gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    const targets = (triggerItem as any).targets || [];
+    
+    // Parse the counter options from the text (e.g., "flying, first strike, lifelink, or vigilance")
+    const counterOptionsText = counterFromAmongMatch[1];
+    const counterOptions = counterOptionsText
+      .replace(/,?\s*or\s+/g, ', ')  // Replace "or" with comma
+      .split(/,\s*/)
+      .map((opt: string) => opt.trim())
+      .filter((opt: string) => opt.length > 0);
+    
+    debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Counter options: ${JSON.stringify(counterOptions)}, targets: ${JSON.stringify(targets)}`);
+    
+    if (targets.length === 0) {
+      // "up to one target creature" with 0 targets chosen - nothing happens
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: No targets selected, effect fizzles`);
+      return;
+    }
+    
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Skipping resolution step during replay`);
+      return;
+    }
+    
+    // Find the target creature
+    const battlefield = state.battlefield || [];
+    const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+    const targetCreature = battlefield.find((p: any) => p.id === targetId);
+    
+    if (!targetCreature) {
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Target creature ${targetId} not found`);
+      return;
+    }
+    
+    // Create a resolution step for the counter choice
+    if (gameId !== 'unknown') {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.MODAL_CHOICE,
+        playerId: controller,
+        description: `${sourceName}: Choose a counter type to put on ${targetCreature.card?.name || 'the creature'}`,
+        mandatory: true,
+        sourceName: sourceName,
+        sourceImage: triggerItem?.card?.image_uris?.small || triggerItem?.card?.image_uris?.normal,
+        promptTitle: 'Choose Counter Type',
+        promptDescription: `Put a +1/+1 counter and which keyword counter on ${targetCreature.card?.name || 'the creature'}?`,
+        options: counterOptions.map((opt: string) => ({
+          id: opt.toLowerCase().replace(/\s+/g, '_'),
+          label: opt.charAt(0).toUpperCase() + opt.slice(1),
+        })),
+        minSelections: 1,
+        maxSelections: 1,
+        // Store data for resolution handler
+        elspethCounterData: {
+          targetCreatureId: targetId,
+          targetCreatureName: targetCreature.card?.name,
+          counterOptions,
+        },
+      });
+      
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Created counter choice modal for ${targetCreature.card?.name}`);
+    } else {
+      // Fallback: just add +1/+1 and first option if no gameId
+      targetCreature.counters = targetCreature.counters || {};
+      targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 1;
+      if (counterOptions.length > 0) {
+        const defaultCounter = counterOptions[0].toLowerCase();
+        targetCreature.counters[defaultCounter] = (targetCreature.counters[defaultCounter] || 0) + 1;
+      }
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Fallback - added counters to ${targetCreature.card?.name}`);
+    }
+    
+    return;
+  }
+  
+  // ========================================================================
+  // TWO +1/+1 COUNTERS ON TARGET CREATURE (Archangel Elspeth -2)
+  // "Put two +1/+1 counters on target creature. It becomes an Angel in addition to its other types and gains flying."
+  // ========================================================================
+  const twoCountersMatch = desc.match(/put two \+1\/\+1 counters on (?:target creature|it)/i);
+  if (twoCountersMatch && (triggerItem as any).targets?.length > 0) {
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+    const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+    const targetCreature = battlefield.find((p: any) => p.id === targetId);
+    
+    if (targetCreature) {
+      // Add two +1/+1 counters
+      targetCreature.counters = targetCreature.counters || {};
+      targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 2;
+      
+      // Check if it becomes an Angel and gains flying
+      if (desc.includes('becomes an angel') || desc.includes('angel in addition')) {
+        // Add Angel type
+        const currentTypeLine = targetCreature.card?.type_line || '';
+        if (!currentTypeLine.toLowerCase().includes('angel')) {
+          targetCreature.card = targetCreature.card || {};
+          // Parse type line: "Creature — Human Soldier" -> "Creature — Human Soldier Angel"
+          if (currentTypeLine.includes('—')) {
+            targetCreature.card.type_line = currentTypeLine + ' Angel';
+          } else {
+            targetCreature.card.type_line = currentTypeLine + ' — Angel';
+          }
+        }
+        
+        // Grant flying (add to oracle text or keywords)
+        const currentOracle = targetCreature.card?.oracle_text || '';
+        if (!currentOracle.toLowerCase().includes('flying')) {
+          targetCreature.card.oracle_text = currentOracle ? `Flying\n${currentOracle}` : 'Flying';
+        }
+        targetCreature.card.keywords = targetCreature.card.keywords || [];
+        if (!targetCreature.card.keywords.includes('Flying')) {
+          targetCreature.card.keywords.push('Flying');
+        }
+        
+        // Mark that this creature has been modified
+        targetCreature.grantedAbilities = targetCreature.grantedAbilities || [];
+        if (!targetCreature.grantedAbilities.includes('flying')) {
+          targetCreature.grantedAbilities.push('flying');
+        }
+        targetCreature.addedTypes = targetCreature.addedTypes || [];
+        if (!targetCreature.addedTypes.includes('Angel')) {
+          targetCreature.addedTypes.push('Angel');
+        }
+        
+        debug(2, `[executeTriggerEffect] Archangel Elspeth -2: Added 2 +1/+1 counters, Angel type, and Flying to ${targetCreature.card?.name}`);
+      } else {
+        debug(2, `[executeTriggerEffect] Put two +1/+1 counters on ${targetCreature.card?.name}`);
+      }
+    }
+    return;
+  }
+
   // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)
   if (desc.includes('+1/+1 counter') && desc.includes('each creature you control')) {
     const battlefield = state.battlefield || [];

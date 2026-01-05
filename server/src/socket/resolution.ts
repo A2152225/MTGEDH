@@ -6239,6 +6239,83 @@ async function handleModalChoiceResponse(
     return;
   }
   
+  // ========================================================================
+  // ELSPETH RESPLENDENT +1 COUNTER CHOICE
+  // Handle "Put a +1/+1 counter and a counter from among flying, first strike, lifelink, or vigilance on it."
+  // ========================================================================
+  const elspethCounterData = (modalStep as any).elspethCounterData;
+  if (elspethCounterData) {
+    const { targetCreatureId, targetCreatureName } = elspethCounterData;
+    
+    // Get the chosen counter type
+    let chosenCounter: string | null = null;
+    if (typeof selections === 'string') {
+      chosenCounter = selections;
+    } else if (Array.isArray(selections) && selections.length > 0) {
+      chosenCounter = selections[0];
+    }
+    
+    if (!chosenCounter || chosenCounter === 'decline') {
+      debug(2, `[Resolution] Elspeth Resplendent +1: No counter chosen`);
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      return;
+    }
+    
+    // Find the target creature
+    const battlefield = game.state?.battlefield || [];
+    const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+    
+    if (!targetCreature) {
+      debug(2, `[Resolution] Elspeth Resplendent +1: Target creature ${targetCreatureId} no longer on battlefield`);
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      return;
+    }
+    
+    // Add +1/+1 counter
+    targetCreature.counters = targetCreature.counters || {};
+    targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 1;
+    
+    // Add the chosen keyword counter (normalize to lowercase)
+    // Convert the choice id back to readable format: "first_strike" -> "first strike"
+    const counterName = chosenCounter.replace(/_/g, ' ');
+    targetCreature.counters[counterName] = (targetCreature.counters[counterName] || 0) + 1;
+    
+    // Also grant the ability via grantedAbilities for immediate effect
+    targetCreature.grantedAbilities = targetCreature.grantedAbilities || [];
+    if (!targetCreature.grantedAbilities.includes(counterName)) {
+      targetCreature.grantedAbilities.push(counterName);
+    }
+    
+    // Update keywords array on the card
+    targetCreature.card = targetCreature.card || {};
+    targetCreature.card.keywords = targetCreature.card.keywords || [];
+    const keywordCapitalized = counterName.split(' ').map((word: string) => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+    if (!targetCreature.card.keywords.includes(keywordCapitalized)) {
+      targetCreature.card.keywords.push(keywordCapitalized);
+    }
+    
+    debug(2, `[Resolution] Elspeth Resplendent +1: Added +1/+1 and ${counterName} counters to ${targetCreature.card?.name || targetCreatureId}`);
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `Elspeth Resplendent puts a +1/+1 counter and a ${counterName} counter on ${targetCreature.card?.name || 'creature'}.`,
+      ts: Date.now(),
+    });
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    return;
+  }
+  
   // Generic modal choice handling (fallback for other modal choices)
   debug(2, `[Resolution] Generic modal choice: ${step.description}, selected: ${selectedId || 'none'}`);
   

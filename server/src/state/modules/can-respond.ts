@@ -2317,11 +2317,14 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
                                   (loyaltyString ? parseInt(String(loyaltyString), 10) : 0);
           
           // Check if any loyalty ability can be activated
-          // Pattern: [+N]:, [-N]:, [0]:
-          const loyaltyPattern = /\[([+-]?)(\d+|X)\]:\s*/gi;
+          // Pattern: +N:, -N:, 0: (Scryfall format WITHOUT brackets)
+          // Also handles Unicode minus/dash characters: − (U+2212), – (en dash), — (em dash)
+          const loyaltyPattern = /^([+−–—-]?)(\d+|X):\s*/gim;
           let match;
           while ((match = loyaltyPattern.exec(oracleText)) !== null) {
-            const sign = match[1];
+            // Normalize sign: Unicode minus signs to standard minus
+            const rawSign = match[1];
+            const sign = rawSign.replace(/[−–—]/g, '-');
             const cost = match[2];
             
             if (sign === '+' || sign === '' || cost === '0') {
