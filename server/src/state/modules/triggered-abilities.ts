@@ -6061,15 +6061,20 @@ export function parsePlaneswalkerAbilities(card: any, permanent: any): Planeswal
     }
   }
   
-  // Parse loyalty abilities: [+N], [-N], [0], [-X], [+X]
-  // Pattern handles both numeric costs and X costs
-  // Examples: [+2]: Effect, [-3]: Effect, [0]: Effect, [-X]: Effect
-  const loyaltyPattern = /\[([+-]?(?:\d+|X))\]:\s*([^[]+?)(?=\s*\[[+-]?(?:\d+|X)\]:|$)/gi;
+  // Parse loyalty abilities: +N:, -N:, 0:, -X:, +X: (Scryfall format WITHOUT brackets)
+  // Pattern handles both numeric costs and X costs, and various dash characters
+  // The Unicode minus sign (−, U+2212) is commonly used in Scryfall data
+  // Examples: +2: Effect, −3: Effect, 0: Effect, −X: Effect
+  // Note: Scryfall oracle text uses newlines to separate abilities, so we match from start of line
+  const loyaltyPattern = /^([+−–—-]?\d+|[+−–—-]?X):\s*(.+)$/gim;
   let match;
   
   while ((match = loyaltyPattern.exec(oracleText)) !== null) {
-    const costString = match[1];
+    const rawCostString = match[1];
     const effect = match[2].trim();
+    
+    // Normalize the cost string by replacing Unicode minus/dash characters with standard minus
+    const costString = rawCostString.replace(/[−–—]/g, '-');
     const isVariableCost = costString.toUpperCase().includes('X');
     
     // Parse the cost value

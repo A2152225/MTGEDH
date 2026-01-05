@@ -3785,10 +3785,13 @@ async function handleLibrarySearchResponse(
   const pid = response.playerId;
   const selections = response.selections as string[]; // Array of card IDs selected
   
+  // Get split assignments from response (for Cultivate/Kodama's Reach effects)
+  const splitAssignments = response.splitAssignments;
+  
   const searchStep = step as any;
   const availableCards = searchStep.availableCards || [];
   const nonSelectableCards = searchStep.nonSelectableCards || [];
-  const destination = searchStep.destination || 'hand';
+  let destination = searchStep.destination || 'hand';
   const remainderDestination = searchStep.remainderDestination || 'shuffle';
   const remainderRandomOrder = searchStep.remainderRandomOrder !== false; // default true
   const shuffleAfter = searchStep.shuffleAfter !== false; // default true
@@ -3797,7 +3800,10 @@ async function handleLibrarySearchResponse(
   const sourceName = step.sourceName || 'Library Search';
   const lifeLoss = (searchStep as any).lifeLoss;
   
-  debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}`);
+  // Check if this is a split destination effect (Cultivate, Kodama's Reach)
+  const isSplitDestination = searchStep.splitDestination || destination === 'split';
+  
+  debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}, isSplit=${isSplitDestination}`);
   
   // Validate selections if any
   const selectedIds = Array.isArray(selections) ? selections : [];
@@ -3837,8 +3843,34 @@ async function handleLibrarySearchResponse(
   // For destination=top with shuffleAfter, place selected after shuffling remainder
   const deferTopPlacement = destination === 'top' && shuffleAfter;
   
-  // Process selected cards based on destination
-  if (!deferTopPlacement) {
+  // ========================================================================
+  // SPLIT DESTINATION HANDLING (Cultivate, Kodama's Reach)
+  // One card goes to battlefield (tapped), the other goes to hand
+  // ========================================================================
+  if (isSplitDestination && splitAssignments) {
+    const { toBattlefield: battlefieldIds, toHand: handIds } = splitAssignments;
+    
+    // Process cards going to battlefield
+    for (const cardId of battlefieldIds || []) {
+      const card = selectedCards.find(c => c && c.id === cardId);
+      if (card) {
+        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield (split destination)`);
+      }
+    }
+    
+    // Process cards going to hand
+    for (const cardId of handIds || []) {
+      const card = selectedCards.find(c => c && c.id === cardId);
+      if (card) {
+        z.hand = z.hand || [];
+        z.hand.push({ ...card, zone: 'hand' });
+        z.handCount = z.hand.length;
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand (split destination)`);
+      }
+    }
+  } else if (!deferTopPlacement) {
+    // Process selected cards based on single destination
     for (const card of selectedCards) {
       if (!card) continue;
       
@@ -6236,6 +6268,95 @@ async function handleModalChoiceResponse(
       game.bumpSeq();
     }
     
+    return;
+  }
+  
+  // ========================================================================
+  // ELSPETH RESPLENDENT +1 COUNTER CHOICE
+  // Handle "Put a +1/+1 counter and a counter from among flying, first strike, lifelink, or vigilance on it."
+  // ========================================================================
+  const elspethCounterData = (modalStep as any).elspethCounterData;
+  if (elspethCounterData) {
+    const { targetCreatureId, targetCreatureName } = elspethCounterData;
+    
+    // Get the chosen counter type
+    let chosenCounter: string | null = null;
+    if (typeof selections === 'string') {
+      chosenCounter = selections;
+    } else if (Array.isArray(selections) && selections.length > 0) {
+      chosenCounter = selections[0];
+    }
+    
+    if (!chosenCounter || chosenCounter === 'decline') {
+      debug(2, `[Resolution] Elspeth Resplendent +1: No counter chosen`);
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      return;
+    }
+    
+    // Find the target creature
+    const battlefield = game.state?.battlefield || [];
+    const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+    
+    if (!targetCreature) {
+      debug(2, `[Resolution] Elspeth Resplendent +1: Target creature ${targetCreatureId} no longer on battlefield`);
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      return;
+    }
+    
+    // Add +1/+1 counter
+    targetCreature.counters = targetCreature.counters || {};
+    targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 1;
+    
+    // Map the choice ID back to the original counter name using counterOptions
+    // The ID was created by: opt.toLowerCase().replace(/\s+/g, '_')
+    // So we need to find the matching option from the original list
+    const counterOptions = elspethCounterData.counterOptions || [];
+    let counterName = chosenCounter.replace(/_/g, ' '); // Default: simple underscore-to-space
+    
+    // Try to find exact match in original options (more robust)
+    for (const opt of counterOptions) {
+      const optId = opt.toLowerCase().replace(/\s+/g, '_');
+      if (optId === chosenCounter) {
+        counterName = opt.toLowerCase();
+        break;
+      }
+    }
+    
+    targetCreature.counters[counterName] = (targetCreature.counters[counterName] || 0) + 1;
+    
+    // Also grant the ability via grantedAbilities for immediate effect
+    targetCreature.grantedAbilities = targetCreature.grantedAbilities || [];
+    if (!targetCreature.grantedAbilities.includes(counterName)) {
+      targetCreature.grantedAbilities.push(counterName);
+    }
+    
+    // Update keywords array on the card
+    targetCreature.card = targetCreature.card || {};
+    targetCreature.card.keywords = targetCreature.card.keywords || [];
+    const keywordCapitalized = counterName.split(' ').map((word: string) => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+    if (!targetCreature.card.keywords.includes(keywordCapitalized)) {
+      targetCreature.card.keywords.push(keywordCapitalized);
+    }
+    
+    debug(2, `[Resolution] Elspeth Resplendent +1: Added +1/+1 and ${counterName} counters to ${targetCreature.card?.name || targetCreatureId}`);
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `Elspeth Resplendent puts a +1/+1 counter and a ${counterName} counter on ${targetCreature.card?.name || 'creature'}.`,
+      ts: Date.now(),
+    });
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
     return;
   }
   

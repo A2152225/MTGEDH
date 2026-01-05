@@ -4268,6 +4268,9 @@ export function App() {
         stepId: (librarySearchData as any).stepId,
         selections: selectedCardIds,
         cancelled: false,
+        // Include split assignments for Cultivate/Kodama's Reach effects
+        splitAssignments,
+        moveTo,
       });
     } else {
       // Legacy handler for backward compatibility

@@ -778,6 +778,15 @@ function isManaAbility(oracleText: string, effectPart: string): boolean {
 }
 
 /**
+ * Check if an ability has "Activate only during your turn" restriction
+ * Examples: Humble Defector, Sundial of the Infinite
+ * @returns true if the ability has this restriction
+ */
+function hasActivateOnlyDuringYourTurnRestriction(oracleText: string): boolean {
+  return /activate (?:this ability )?only during your turn/i.test(oracleText);
+}
+
+/**
  * Check if a permanent has an activated ability that can be activated
  * and requires priority (excludes mana abilities per Rule 605)
  */
@@ -849,6 +858,12 @@ function hasActivatableAbility(
     // Per MTG Rule 605.3a, mana abilities can be activated whenever needed for payment
     if (isManaAbility(oracleText, effect)) {
       return false; // Mana abilities don't prevent auto-pass
+    }
+    
+    // Check for "Activate only during your turn" restriction (e.g., Humble Defector)
+    const isTurnPlayer = (state as any).turnPlayer === playerId;
+    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && !isTurnPlayer) {
+      return false; // Can only be activated during player's turn
     }
     
     // Check for mana costs BEFORE tap symbol (e.g., "{2}{R}, {T}:")
@@ -945,6 +960,12 @@ function hasActivatableAbility(
     // Pattern: "Activate only as a sorcery" or "Activate only any time you could cast a sorcery"
     if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
       continue; // Skip sorcery-speed ability
+    }
+    
+    // Skip "Activate only during your turn" abilities if it's not our turn
+    // Pattern: "Activate only during your turn" (e.g., Humble Defector)
+    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && !((state as any).turnPlayer === playerId)) {
+      continue; // Skip - can only be activated during player's turn
     }
     
     // Parse the cost
@@ -2317,11 +2338,14 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
                                   (loyaltyString ? parseInt(String(loyaltyString), 10) : 0);
           
           // Check if any loyalty ability can be activated
-          // Pattern: [+N]:, [-N]:, [0]:
-          const loyaltyPattern = /\[([+-]?)(\d+|X)\]:\s*/gi;
+          // Pattern: +N:, -N:, 0: (Scryfall format WITHOUT brackets)
+          // Also handles Unicode minus/dash characters: − (U+2212), – (en dash), — (em dash)
+          const loyaltyPattern = /^([+−–—-]?)(\d+|X):\s*/gim;
           let match;
           while ((match = loyaltyPattern.exec(oracleText)) !== null) {
-            const sign = match[1];
+            // Normalize sign: Unicode minus signs to standard minus
+            const rawSign = match[1];
+            const sign = rawSign.replace(/[−–—]/g, '-');
             const cost = match[2];
             
             if (sign === '+' || sign === '' || cost === '0') {

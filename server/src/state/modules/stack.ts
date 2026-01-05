@@ -65,6 +65,62 @@ const IRREGULAR_PLURALS: Record<string, string> = {
 };
 
 /**
+ * Convert number words to numeric values.
+ * Handles common patterns in MTG oracle text.
+ */
+const WORD_TO_NUMBER: Record<string, number> = {
+  'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+  'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+};
+
+/**
+ * Parse a number from a word or numeric string.
+ * @param word The word or number string to parse
+ * @param defaultValue Value to return if parsing fails (default: 1)
+ */
+function parseNumberWord(word: string | undefined, defaultValue: number = 1): number {
+  if (!word) return defaultValue;
+  const lower = word.toLowerCase();
+  if (WORD_TO_NUMBER[lower] !== undefined) {
+    return WORD_TO_NUMBER[lower];
+  }
+  const num = parseInt(lower, 10);
+  return isNaN(num) ? defaultValue : num;
+}
+
+/**
+ * Add a creature type to a permanent's type line.
+ * Handles the parsing and formatting of the type line correctly.
+ * @param creature The creature permanent to modify
+ * @param typeToAdd The creature type to add (e.g., "Angel", "Zombie")
+ */
+function addCreatureType(creature: any, typeToAdd: string): void {
+  if (!creature?.card) {
+    creature.card = creature.card || {};
+  }
+  const currentTypeLine = creature.card.type_line || '';
+  const typeToAddLower = typeToAdd.toLowerCase();
+  
+  // Check if type already exists
+  if (currentTypeLine.toLowerCase().includes(typeToAddLower)) {
+    return;
+  }
+  
+  // Format: "Creature — Human Soldier" -> "Creature — Human Soldier Angel"
+  if (currentTypeLine.includes('—')) {
+    creature.card.type_line = currentTypeLine + ' ' + typeToAdd;
+  } else {
+    creature.card.type_line = currentTypeLine + ' — ' + typeToAdd;
+  }
+  
+  // Track added types
+  creature.addedTypes = creature.addedTypes || [];
+  if (!creature.addedTypes.includes(typeToAdd)) {
+    creature.addedTypes.push(typeToAdd);
+  }
+}
+
+/**
  * Detect "enters with counters" patterns from a card's oracle text.
  * Handles patterns like:
  * - "~ enters the battlefield with N +1/+1 counter(s) on it"
@@ -1959,6 +2015,17 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "[Source] deals X damage to each opponent" (Chandra, common planeswalker pattern)
+  const dealsToEachOpponentMatch = desc.match(/deals? (\d+) damage to each opponent/i);
+  if (dealsToEachOpponentMatch) {
+    const damage = parseInt(dealsToEachOpponentMatch[1], 10);
+    for (const opp of opponents) {
+      modifyLife(opp.id, -damage);
+      debug(2, `[executeTriggerEffect] ${sourceName} deals ${damage} damage to ${opp.id}`);
+    }
+    return;
+  }
+  
   // Pattern: "Target player loses X life, you gain X life" (Blood Artist)
   const targetLosesYouGainMatch = desc.match(/target player loses (\d+) life.*you gain (\d+) life/i);
   if (targetLosesYouGainMatch) {
@@ -2028,6 +2095,134 @@ function executeTriggerEffect(
     }
   }
   
+  // ========================================================================
+  // ELSPETH RESPLENDENT +1 PATTERN
+  // "Put a +1/+1 counter and a counter from among flying, first strike, lifelink, or vigilance on it."
+  // This requires a choice modal for the keyword counter type
+  // ========================================================================
+  const counterFromAmongMatch = desc.match(/\+1\/\+1 counter and a counter from among ([^.]+) on it/i);
+  if (counterFromAmongMatch) {
+    const gameId = (ctx as any).gameId || 'unknown';
+    const isReplaying = !!(ctx as any).isReplaying;
+    const targets = (triggerItem as any).targets || [];
+    
+    // Parse the counter options from the text (e.g., "flying, first strike, lifelink, or vigilance")
+    const counterOptionsText = counterFromAmongMatch[1];
+    const counterOptions = counterOptionsText
+      .replace(/,?\s*or\s+/g, ', ')  // Replace "or" with comma
+      .split(/,\s*/)
+      .map((opt: string) => opt.trim())
+      .filter((opt: string) => opt.length > 0);
+    
+    debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Counter options: ${JSON.stringify(counterOptions)}, targets: ${JSON.stringify(targets)}`);
+    
+    if (targets.length === 0) {
+      // "up to one target creature" with 0 targets chosen - nothing happens
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: No targets selected, effect fizzles`);
+      return;
+    }
+    
+    if (isReplaying) {
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Skipping resolution step during replay`);
+      return;
+    }
+    
+    // Find the target creature
+    const battlefield = state.battlefield || [];
+    const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+    const targetCreature = battlefield.find((p: any) => p.id === targetId);
+    
+    if (!targetCreature) {
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Target creature ${targetId} not found`);
+      return;
+    }
+    
+    // Create a resolution step for the counter choice
+    if (gameId !== 'unknown') {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.MODAL_CHOICE,
+        playerId: controller,
+        description: `${sourceName}: Choose a counter type to put on ${targetCreature.card?.name || 'the creature'}`,
+        mandatory: true,
+        sourceName: sourceName,
+        sourceImage: triggerItem?.card?.image_uris?.small || triggerItem?.card?.image_uris?.normal,
+        promptTitle: 'Choose Counter Type',
+        promptDescription: `Put a +1/+1 counter and which keyword counter on ${targetCreature.card?.name || 'the creature'}?`,
+        options: counterOptions.map((opt: string) => ({
+          id: opt.toLowerCase().replace(/\s+/g, '_'),
+          label: opt.charAt(0).toUpperCase() + opt.slice(1),
+        })),
+        minSelections: 1,
+        maxSelections: 1,
+        // Store data for resolution handler
+        elspethCounterData: {
+          targetCreatureId: targetId,
+          targetCreatureName: targetCreature.card?.name,
+          counterOptions,
+        },
+      });
+      
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Created counter choice modal for ${targetCreature.card?.name}`);
+    } else {
+      // Fallback: just add +1/+1 and first option if no gameId
+      targetCreature.counters = targetCreature.counters || {};
+      targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 1;
+      if (counterOptions.length > 0) {
+        const defaultCounter = counterOptions[0].toLowerCase();
+        targetCreature.counters[defaultCounter] = (targetCreature.counters[defaultCounter] || 0) + 1;
+      }
+      debug(2, `[executeTriggerEffect] Elspeth Resplendent +1: Fallback - added counters to ${targetCreature.card?.name}`);
+    }
+    
+    return;
+  }
+  
+  // ========================================================================
+  // TWO +1/+1 COUNTERS ON TARGET CREATURE (Archangel Elspeth -2)
+  // "Put two +1/+1 counters on target creature. It becomes an Angel in addition to its other types and gains flying."
+  // ========================================================================
+  const twoCountersMatch = desc.match(/put two \+1\/\+1 counters on (?:target creature|it)/i);
+  if (twoCountersMatch && (triggerItem as any).targets?.length > 0) {
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+    const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+    const targetCreature = battlefield.find((p: any) => p.id === targetId);
+    
+    if (targetCreature) {
+      // Add two +1/+1 counters
+      targetCreature.counters = targetCreature.counters || {};
+      targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 2;
+      
+      // Check if it becomes an Angel and gains flying (case-insensitive)
+      const descLower = desc.toLowerCase();
+      if (descLower.includes('becomes an angel') || descLower.includes('angel in addition')) {
+        // Add Angel type using shared utility
+        addCreatureType(targetCreature, 'Angel');
+        
+        // Grant flying (add to oracle text or keywords)
+        const currentOracle = targetCreature.card?.oracle_text || '';
+        if (!currentOracle.toLowerCase().includes('flying')) {
+          targetCreature.card.oracle_text = currentOracle ? `Flying\n${currentOracle}` : 'Flying';
+        }
+        targetCreature.card.keywords = targetCreature.card.keywords || [];
+        if (!targetCreature.card.keywords.includes('Flying')) {
+          targetCreature.card.keywords.push('Flying');
+        }
+        
+        // Mark that this creature has been modified
+        targetCreature.grantedAbilities = targetCreature.grantedAbilities || [];
+        if (!targetCreature.grantedAbilities.includes('flying')) {
+          targetCreature.grantedAbilities.push('flying');
+        }
+        
+        debug(2, `[executeTriggerEffect] Archangel Elspeth -2: Added 2 +1/+1 counters, Angel type, and Flying to ${targetCreature.card?.name}`);
+      } else {
+        debug(2, `[executeTriggerEffect] Put two +1/+1 counters on ${targetCreature.card?.name}`);
+      }
+    }
+    return;
+  }
+
   // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)
   if (desc.includes('+1/+1 counter') && desc.includes('each creature you control')) {
     const battlefield = state.battlefield || [];
@@ -3079,10 +3274,40 @@ function executeTriggerEffect(
     return;
   }
   
+  // ========================================================================
+  // PUT +1/+1 COUNTER(S) ON TARGET CREATURE(S)
+  // Common planeswalker ability pattern
+  // Patterns:
+  // - "Put a +1/+1 counter on up to one target creature"
+  // - "Put a +1/+1 counter on each of up to two target creatures"
+  // - "Put X +1/+1 counters on target creature"
+  // ========================================================================
+  const putCounterOnTargetMatch = desc.match(/put (?:a|an|one|two|three|four|five|(\d+)) \+1\/\+1 counters? on (?:up to (?:one|two|three|\d+) )?(?:target|each of up to \w+ target) creatures?/i);
+  if (putCounterOnTargetMatch && (triggerItem as any).targets?.length > 0) {
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+    
+    // Parse counter count using shared utility
+    const countMatch = desc.match(/put (a|an|one|two|three|four|five|\d+) \+1\/\+1/i);
+    const counterCount = parseNumberWord(countMatch?.[1], 1);
+    
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((p: any) => p.id === targetId);
+      
+      if (targetCreature) {
+        targetCreature.counters = targetCreature.counters || {};
+        targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + counterCount;
+        debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${targetCreature.card?.name || targetId}`);
+      }
+    }
+    return;
+  }
+  
   // Pattern: "put a +1/+1 counter on ~" or "put a +1/+1 counter on it"
-  const putCounterOnSelfMatch = desc.match(/put (?:a|an|(\d+)) \+1\/\+1 counters? on (?:~|it|this creature)/i);
+  const putCounterOnSelfMatch = desc.match(/put (a|an|\d+) \+1\/\+1 counters? on (?:~|it|this creature)/i);
   if (putCounterOnSelfMatch) {
-    const counterCount = putCounterOnSelfMatch[1] ? parseInt(putCounterOnSelfMatch[1], 10) : 1;
+    const counterCount = parseNumberWord(putCounterOnSelfMatch[1], 1);
     const sourceId = triggerItem.source || triggerItem.permanentId;
     
     if (sourceId) {
@@ -3091,6 +3316,57 @@ function executeTriggerEffect(
         perm.counters = perm.counters || {};
         perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
         debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+  
+  // ========================================================================
+  // TARGET CREATURE GETS +X/+Y UNTIL END OF TURN
+  // Common planeswalker pattern: "Target creature gets +X/+Y until end of turn"
+  // Also handles: "Target creature gets +X/+Y and gains [ability] until end of turn"
+  // ========================================================================
+  const creatureGetsMatch = desc.match(/target creature gets ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+))? until end of turn/i);
+  if (creatureGetsMatch && (triggerItem as any).targets?.length > 0) {
+    const powerMod = parseInt(creatureGetsMatch[1], 10);
+    const toughnessMod = parseInt(creatureGetsMatch[2], 10);
+    const gainedAbilities = creatureGetsMatch[3] ? creatureGetsMatch[3].trim() : null;
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+    
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((p: any) => p.id === targetId);
+      
+      if (targetCreature) {
+        // Apply temporary P/T modification
+        targetCreature.temporaryPTMods = targetCreature.temporaryPTMods || [];
+        targetCreature.temporaryPTMods.push({
+          power: powerMod,
+          toughness: toughnessMod,
+          source: sourceName,
+          expiresAt: 'end_of_turn',
+          turnApplied: state.turnNumber || 0,
+        });
+        
+        // Apply granted abilities until end of turn
+        if (gainedAbilities) {
+          targetCreature.temporaryAbilities = targetCreature.temporaryAbilities || [];
+          const abilities = gainedAbilities.split(/,\s*(?:and\s*)?/).map((a: string) => a.trim().toLowerCase());
+          for (const ability of abilities) {
+            if (ability) {
+              targetCreature.temporaryAbilities.push({
+                ability,
+                source: sourceName,
+                expiresAt: 'end_of_turn',
+                turnApplied: state.turnNumber || 0,
+              });
+            }
+          }
+          debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} and gains ${gainedAbilities} until end of turn`);
+        } else {
+          debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} until end of turn`);
+        }
       }
     }
     return;
