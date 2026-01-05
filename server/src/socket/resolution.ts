@@ -1918,6 +1918,91 @@ function handleTargetSelectionResponse(
     return;
   }
   
+  // Handle begin_combat_target_buff for triggers like Heidegger
+  if (action === 'begin_combat_target_buff') {
+    const targetId = selections[0];
+    const battlefield = game.state?.battlefield || [];
+    const targetPerm = battlefield.find((p: any) => p.id === targetId);
+    
+    if (targetPerm) {
+      const effectDescription = (step as any).effectDescription || '';
+      const targetName = targetPerm.card?.name || 'Creature';
+      const sourceName = step.sourceName || 'Trigger';
+      
+      // Parse the effect - look for +X/+0 or +X/+X patterns
+      // Common patterns: "gets +X/+0 until end of turn" where X is based on something
+      const lowerEffect = effectDescription.toLowerCase();
+      
+      // Check for "where X is the number of Soldiers/creatures/etc." pattern
+      const xCountMatch = lowerEffect.match(/gets \+x\/\+(\d+).*where x is (?:the number of )?(\w+)/i);
+      
+      if (xCountMatch) {
+        const toughnessBonus = parseInt(xCountMatch[1], 10) || 0;
+        const countType = xCountMatch[2].toLowerCase();
+        
+        // Count the relevant permanents
+        let xValue = 0;
+        for (const perm of battlefield) {
+          if (perm.controller !== pid) continue;
+          const typeLine = (perm.card?.type_line || '').toLowerCase();
+          
+          if (countType === 'soldiers' || countType === 'soldier') {
+            if (typeLine.includes('soldier')) xValue++;
+          } else if (countType === 'creatures' || countType === 'creature') {
+            if (typeLine.includes('creature')) xValue++;
+          } else {
+            // Generic type check
+            if (typeLine.includes(countType)) xValue++;
+          }
+        }
+        
+        // Apply the buff as a temporary effect
+        targetPerm.grantedAbilities = targetPerm.grantedAbilities || [];
+        targetPerm.grantedAbilities.push(`+${xValue}/+${toughnessBonus} until end of turn`);
+        
+        // Store temporary P/T modification
+        targetPerm.temporaryPTMods = targetPerm.temporaryPTMods || [];
+        targetPerm.temporaryPTMods.push({ power: xValue, toughness: toughnessBonus, until: 'end_of_turn' });
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${sourceName}: ${targetName} gets +${xValue}/+${toughnessBonus} until end of turn.`,
+          ts: Date.now(),
+        });
+        
+        debug(2, `[Resolution] Begin combat target buff: ${targetName} gets +${xValue}/+${toughnessBonus} (X=${xValue} ${countType})`);
+      } else {
+        // Try to parse a simple +X/+Y pattern
+        const simpleBuffMatch = lowerEffect.match(/gets \+(\d+)\/\+(\d+)/i);
+        if (simpleBuffMatch) {
+          const powerBonus = parseInt(simpleBuffMatch[1], 10);
+          const toughnessBonus = parseInt(simpleBuffMatch[2], 10);
+          
+          targetPerm.grantedAbilities = targetPerm.grantedAbilities || [];
+          targetPerm.grantedAbilities.push(`+${powerBonus}/+${toughnessBonus} until end of turn`);
+          
+          targetPerm.temporaryPTMods = targetPerm.temporaryPTMods || [];
+          targetPerm.temporaryPTMods.push({ power: powerBonus, toughness: toughnessBonus, until: 'end_of_turn' });
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${sourceName}: ${targetName} gets +${powerBonus}/+${toughnessBonus} until end of turn.`,
+            ts: Date.now(),
+          });
+          
+          debug(2, `[Resolution] Begin combat target buff: ${targetName} gets +${powerBonus}/+${toughnessBonus}`);
+        }
+      }
+    }
+    
+    broadcastGame(io, game, gameId);
+    return;
+  }
+  
   // Handle SOLDIER Military Program counter placement selection
   if ((step as any).soldierProgramCounters) {
     const battlefield = game.state?.battlefield || [];

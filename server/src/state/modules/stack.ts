@@ -2940,11 +2940,24 @@ function executeTriggerEffect(
     for (const opp of opponents) {
       state.pendingMill[opp.id] = (state.pendingMill[opp.id] || 0) + millCount;
       
-      // Actually mill the cards by moving from library to graveyard
-      const oppZones = (ctx as any).zones?.[opp.id] || state.zones?.[opp.id];
-      if (oppZones?.library && Array.isArray(oppZones.library)) {
-        for (let i = 0; i < millCount && oppZones.library.length > 0; i++) {
-          const milledCard = oppZones.library.shift();
+      // Get library from ctx.libraries Map (authoritative source) or fallback to zones
+      const ctxLibraries = (ctx as any).libraries as Map<string, any[]> | undefined;
+      let oppLib: any[] | undefined;
+      if (ctxLibraries && typeof ctxLibraries.get === 'function') {
+        oppLib = ctxLibraries.get(opp.id);
+      }
+      
+      // Get opponent zones for graveyard
+      const zones = state.zones || {};
+      const oppZones = zones[opp.id] = zones[opp.id] || { 
+        hand: [], handCount: 0, libraryCount: 0, 
+        graveyard: [], graveyardCount: 0 
+      };
+      
+      // Mill cards from library to graveyard
+      if (oppLib && Array.isArray(oppLib)) {
+        for (let i = 0; i < millCount && oppLib.length > 0; i++) {
+          const milledCard = oppLib.shift();
           if (milledCard) {
             oppZones.graveyard = oppZones.graveyard || [];
             milledCard.zone = 'graveyard';
@@ -2952,9 +2965,15 @@ function executeTriggerEffect(
             debug(2, `[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
           }
         }
+        // Update library in Map
+        if (ctxLibraries && typeof ctxLibraries.set === 'function') {
+          ctxLibraries.set(opp.id, oppLib);
+        }
         // Update library count and graveyard count
-        oppZones.libraryCount = oppZones.library.length;
+        oppZones.libraryCount = oppLib.length;
         oppZones.graveyardCount = (oppZones.graveyard || []).length;
+      } else {
+        debug(2, `[executeTriggerEffect] No library found for opponent ${opp.id}`);
       }
     }
     return;
@@ -4575,6 +4594,64 @@ export function resolveTopOfStack(ctx: GameContext) {
         return;
       } else {
         debugWarn(2, `[resolveTopOfStack] Hideaway trigger: permanent ${permanentId} not found on battlefield`);
+      }
+    }
+
+    // ========================================================================
+    // BEGINNING OF COMBAT TARGETING TRIGGERS (e.g., Heidegger, Shinra Executive)
+    // Handles triggers like "At the beginning of combat on your turn, target creature you control gets +X/+0"
+    // ========================================================================
+    if (triggerType === 'begin_combat') {
+      const effectText = description || (item as any).effect || '';
+      const lowerEffect = effectText.toLowerCase();
+      
+      // Check if this trigger targets a creature you control
+      if (lowerEffect.includes('target creature you control') || 
+          lowerEffect.includes('target creature')) {
+        const gameId = (ctx as any).gameId || 'unknown';
+        const isReplaying = !!(ctx as any).isReplaying;
+        const battlefield = state.battlefield || [];
+        
+        if (!isReplaying) {
+          // Get valid creature targets
+          const validTargets = battlefield
+            .filter((p: any) => {
+              const tl = (p.card?.type_line || '').toLowerCase();
+              const isCreature = tl.includes('creature');
+              // Check if it must be controlled by the trigger controller
+              const controlledOnly = lowerEffect.includes('you control');
+              return isCreature && (!controlledOnly || p.controller === triggerController);
+            })
+            .map((p: any) => ({
+              id: p.id,
+              label: p.card?.name || 'Creature',
+              description: p.card?.type_line,
+              image: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+          
+          if (validTargets.length > 0) {
+            // Store the effect description for resolution
+            const effectDescription = effectText;
+            
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: triggerController as PlayerID,
+              description: `${sourceName}: Choose target creature`,
+              mandatory: true,
+              sourceId,
+              sourceName,
+              validTargets,
+              targetTypes: ['creature'],
+              minTargets: 1,
+              maxTargets: 1,
+              action: 'begin_combat_target_buff',
+              effectDescription, // Pass the effect text for resolution
+            } as any);
+            
+            debug(2, `[resolveTopOfStack] Begin combat trigger ${sourceName} requires target creature selection`);
+            return; // Wait for target selection
+          }
+        }
       }
     }
 
