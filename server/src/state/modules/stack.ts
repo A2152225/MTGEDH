@@ -1959,6 +1959,17 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "[Source] deals X damage to each opponent" (Chandra, common planeswalker pattern)
+  const dealsToEachOpponentMatch = desc.match(/deals? (\d+) damage to each opponent/i);
+  if (dealsToEachOpponentMatch) {
+    const damage = parseInt(dealsToEachOpponentMatch[1], 10);
+    for (const opp of opponents) {
+      modifyLife(opp.id, -damage);
+      debug(2, `[executeTriggerEffect] ${sourceName} deals ${damage} damage to ${opp.id}`);
+    }
+    return;
+  }
+  
   // Pattern: "Target player loses X life, you gain X life" (Blood Artist)
   const targetLosesYouGainMatch = desc.match(/target player loses (\d+) life.*you gain (\d+) life/i);
   if (targetLosesYouGainMatch) {
@@ -3220,6 +3231,38 @@ function executeTriggerEffect(
     return;
   }
   
+  // ========================================================================
+  // PUT +1/+1 COUNTER(S) ON TARGET CREATURE(S)
+  // Common planeswalker ability pattern
+  // Patterns:
+  // - "Put a +1/+1 counter on up to one target creature"
+  // - "Put a +1/+1 counter on each of up to two target creatures"
+  // - "Put X +1/+1 counters on target creature"
+  // ========================================================================
+  const putCounterOnTargetMatch = desc.match(/put (?:a|an|one|two|three|four|five|(\d+)) \+1\/\+1 counters? on (?:up to (?:one|two|three|\d+) )?(?:target|each of up to \w+ target) creatures?/i);
+  if (putCounterOnTargetMatch && (triggerItem as any).targets?.length > 0) {
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+    
+    // Parse counter count
+    const countMatch = desc.match(/put (?:a|an|one|two|three|four|five|(\d+)) \+1\/\+1/i);
+    const countWord = countMatch?.[0]?.match(/(a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+    const wordToCount: Record<string, number> = { 'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
+    const counterCount = wordToCount[countWord] || (countMatch?.[1] ? parseInt(countMatch[1], 10) : 1);
+    
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((p: any) => p.id === targetId);
+      
+      if (targetCreature) {
+        targetCreature.counters = targetCreature.counters || {};
+        targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + counterCount;
+        debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${targetCreature.card?.name || targetId}`);
+      }
+    }
+    return;
+  }
+  
   // Pattern: "put a +1/+1 counter on ~" or "put a +1/+1 counter on it"
   const putCounterOnSelfMatch = desc.match(/put (?:a|an|(\d+)) \+1\/\+1 counters? on (?:~|it|this creature)/i);
   if (putCounterOnSelfMatch) {
@@ -3232,6 +3275,57 @@ function executeTriggerEffect(
         perm.counters = perm.counters || {};
         perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
         debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+  
+  // ========================================================================
+  // TARGET CREATURE GETS +X/+Y UNTIL END OF TURN
+  // Common planeswalker pattern: "Target creature gets +X/+Y until end of turn"
+  // Also handles: "Target creature gets +X/+Y and gains [ability] until end of turn"
+  // ========================================================================
+  const creatureGetsMatch = desc.match(/target creature gets ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+))? until end of turn/i);
+  if (creatureGetsMatch && (triggerItem as any).targets?.length > 0) {
+    const powerMod = parseInt(creatureGetsMatch[1], 10);
+    const toughnessMod = parseInt(creatureGetsMatch[2], 10);
+    const gainedAbilities = creatureGetsMatch[3] ? creatureGetsMatch[3].trim() : null;
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+    
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((p: any) => p.id === targetId);
+      
+      if (targetCreature) {
+        // Apply temporary P/T modification
+        targetCreature.temporaryPTMods = targetCreature.temporaryPTMods || [];
+        targetCreature.temporaryPTMods.push({
+          power: powerMod,
+          toughness: toughnessMod,
+          source: sourceName,
+          expiresAt: 'end_of_turn',
+          turnApplied: state.turnNumber || 0,
+        });
+        
+        // Apply granted abilities until end of turn
+        if (gainedAbilities) {
+          targetCreature.temporaryAbilities = targetCreature.temporaryAbilities || [];
+          const abilities = gainedAbilities.split(/,\s*(?:and\s*)?/).map((a: string) => a.trim().toLowerCase());
+          for (const ability of abilities) {
+            if (ability) {
+              targetCreature.temporaryAbilities.push({
+                ability,
+                source: sourceName,
+                expiresAt: 'end_of_turn',
+                turnApplied: state.turnNumber || 0,
+              });
+            }
+          }
+          debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} and gains ${gainedAbilities} until end of turn`);
+        } else {
+          debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} until end of turn`);
+        }
       }
     }
     return;
