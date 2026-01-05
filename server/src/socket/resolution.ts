@@ -3785,10 +3785,13 @@ async function handleLibrarySearchResponse(
   const pid = response.playerId;
   const selections = response.selections as string[]; // Array of card IDs selected
   
+  // Get split assignments from response (for Cultivate/Kodama's Reach effects)
+  const splitAssignments = (response as any).splitAssignments as { toBattlefield: string[]; toHand: string[] } | undefined;
+  
   const searchStep = step as any;
   const availableCards = searchStep.availableCards || [];
   const nonSelectableCards = searchStep.nonSelectableCards || [];
-  const destination = searchStep.destination || 'hand';
+  let destination = searchStep.destination || 'hand';
   const remainderDestination = searchStep.remainderDestination || 'shuffle';
   const remainderRandomOrder = searchStep.remainderRandomOrder !== false; // default true
   const shuffleAfter = searchStep.shuffleAfter !== false; // default true
@@ -3797,7 +3800,10 @@ async function handleLibrarySearchResponse(
   const sourceName = step.sourceName || 'Library Search';
   const lifeLoss = (searchStep as any).lifeLoss;
   
-  debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}`);
+  // Check if this is a split destination effect (Cultivate, Kodama's Reach)
+  const isSplitDestination = searchStep.splitDestination || destination === 'split';
+  
+  debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}, isSplit=${isSplitDestination}`);
   
   // Validate selections if any
   const selectedIds = Array.isArray(selections) ? selections : [];
@@ -3837,8 +3843,34 @@ async function handleLibrarySearchResponse(
   // For destination=top with shuffleAfter, place selected after shuffling remainder
   const deferTopPlacement = destination === 'top' && shuffleAfter;
   
-  // Process selected cards based on destination
-  if (!deferTopPlacement) {
+  // ========================================================================
+  // SPLIT DESTINATION HANDLING (Cultivate, Kodama's Reach)
+  // One card goes to battlefield (tapped), the other goes to hand
+  // ========================================================================
+  if (isSplitDestination && splitAssignments) {
+    const { toBattlefield: battlefieldIds, toHand: handIds } = splitAssignments;
+    
+    // Process cards going to battlefield
+    for (const cardId of battlefieldIds || []) {
+      const card = selectedCards.find(c => c && c.id === cardId);
+      if (card) {
+        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield (split destination)`);
+      }
+    }
+    
+    // Process cards going to hand
+    for (const cardId of handIds || []) {
+      const card = selectedCards.find(c => c && c.id === cardId);
+      if (card) {
+        z.hand = z.hand || [];
+        z.hand.push({ ...card, zone: 'hand' });
+        z.handCount = z.hand.length;
+        debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand (split destination)`);
+      }
+    }
+  } else if (!deferTopPlacement) {
+    // Process selected cards based on single destination
     for (const card of selectedCards) {
       if (!card) continue;
       

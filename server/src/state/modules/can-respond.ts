@@ -851,6 +851,12 @@ function hasActivatableAbility(
       return false; // Mana abilities don't prevent auto-pass
     }
     
+    // Check for "Activate only during your turn" restriction (e.g., Humble Defector)
+    const isTurnPlayer = (state as any).turnPlayer === playerId;
+    if (/activate (?:this ability )?only during your turn/i.test(oracleText) && !isTurnPlayer) {
+      return false; // Can only be activated during player's turn
+    }
+    
     // Check for mana costs BEFORE tap symbol (e.g., "{2}{R}, {T}:")
     if (costsBeforeTap) {
       const manaCostMatch = costsBeforeTap.match(/\{[^}]+\}/g);
@@ -945,6 +951,13 @@ function hasActivatableAbility(
     // Pattern: "Activate only as a sorcery" or "Activate only any time you could cast a sorcery"
     if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
       continue; // Skip sorcery-speed ability
+    }
+    
+    // Skip "Activate only during your turn" abilities if it's not our turn
+    // Pattern: "Activate only during your turn" (e.g., Humble Defector)
+    const isTurnPlayer = (state as any).turnPlayer === playerId;
+    if (/activate (?:this ability )?only during your turn/i.test(oracleText) && !isTurnPlayer) {
+      continue; // Skip - can only be activated during player's turn
     }
     
     // Parse the cost
