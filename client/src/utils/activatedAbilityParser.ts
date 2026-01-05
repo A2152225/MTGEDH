@@ -1069,9 +1069,12 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
     const cost = genericMatch[1].trim();
     const effect = genericMatch[2].trim();
     
-    // Skip if we already have this ability parsed (by checking similar effect text)
+    // Skip if we already have this ability parsed (by checking if same cost and effect exist)
+    // We compare the first part of the effect text (up to 30 chars) to catch variations in wording
+    // This threshold balances between avoiding duplicates and not missing genuinely different abilities
+    const effectPrefix = effect.toLowerCase().slice(0, Math.min(30, effect.length));
     const alreadyParsed = abilities.some(a => 
-      a.effect.toLowerCase().includes(effect.toLowerCase().slice(0, 30)) ||
+      a.effect.toLowerCase().startsWith(effectPrefix) ||
       (a.cost.toLowerCase() === cost.toLowerCase() && a.isManaAbility)
     );
     if (alreadyParsed) continue;

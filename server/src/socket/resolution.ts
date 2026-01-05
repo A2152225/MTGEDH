@@ -1940,19 +1940,20 @@ function handleTargetSelectionResponse(
         const toughnessBonus = parseInt(xCountMatch[1], 10) || 0;
         const countType = xCountMatch[2].toLowerCase();
         
-        // Count the relevant permanents
+        // Count the relevant permanents using word boundary regex for accurate matching
         let xValue = 0;
+        const typePattern = new RegExp(`\\b${countType}s?\\b`, 'i'); // Match singular and plural
         for (const perm of battlefield) {
           if (perm.controller !== pid) continue;
           const typeLine = (perm.card?.type_line || '').toLowerCase();
           
           if (countType === 'soldiers' || countType === 'soldier') {
-            if (typeLine.includes('soldier')) xValue++;
+            if (typePattern.test(typeLine)) xValue++;
           } else if (countType === 'creatures' || countType === 'creature') {
             if (typeLine.includes('creature')) xValue++;
           } else {
-            // Generic type check
-            if (typeLine.includes(countType)) xValue++;
+            // Generic type check with word boundary
+            if (typePattern.test(typeLine)) xValue++;
           }
         }
         

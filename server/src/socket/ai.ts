@@ -3921,9 +3921,11 @@ async function executeAIActivateAbility(
                             /(put it onto the battlefield|put it.*onto the battlefield)/i.test(abilityText);
         
         if (isFetchLand) {
-          // Check if the ability requires sacrifice (most fetchlands do)
-          const requiresSacrifice = /sacrifice\s+(?:~|this|it)/i.test(abilityText) || 
-                                    /sacrifice\s+(?:windswept|flooded|polluted|bloodstained|wooded|marsh|scalding|verdant|arid|misty|evolving|terramorphic|fabled|prismatic)/i.test(card.name?.toLowerCase() || '');
+          // Check if the ability requires sacrifice using generic pattern detection
+          // This handles all fetchlands including future ones by checking oracle text
+          // Pattern: "sacrifice ~" or "sacrifice this" or "sacrifice it" in cost section (before colon)
+          const costSection = abilityText.split(':')[0] || '';
+          const requiresSacrifice = /sacrifice\s+(?:~|this|it|this land|this permanent)/i.test(costSection);
           
           // Check if ability costs life
           const lifeCostMatch = abilityText.match(/pay\s+(\d+)\s+life/i);

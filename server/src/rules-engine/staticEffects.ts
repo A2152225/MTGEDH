@@ -420,11 +420,21 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       const countWord = conditionalIndestructibleMatch[1].toLowerCase();
       const requiredType = conditionalIndestructibleMatch[2].toLowerCase();
       
-      // Convert word to number
+      // Convert word to number (common number words for MTG card text)
       const countMap: Record<string, number> = {
-        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'a': 1, 'an': 1
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+        'a': 1, 'an': 1
       };
-      const requiredCount = countMap[countWord] || parseInt(countWord, 10) || 2;
+      // Try number word first, then numeric parsing, log warning if neither works
+      const parsedFromWord = countMap[countWord];
+      const parsedFromInt = parseInt(countWord, 10);
+      const requiredCount = parsedFromWord ?? (isNaN(parsedFromInt) ? undefined : parsedFromInt);
+      
+      if (requiredCount === undefined) {
+        // Skip this effect if we couldn't parse the count - better than silent wrong behavior
+        continue;
+      }
       
       // Count other permanents of the required type controlled by this player
       let typeCount = 0;
