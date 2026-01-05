@@ -42,6 +42,8 @@ export interface ContinuousEffectResult {
   playerShroud: Set<PlayerID>;
   /** Type additions from global effects like Enchanted Evening */
   typeAdditions: Map<string, string[]>;
+  /** Abilities granted to ALL permanents (not just creatures) - for Avacyn, etc. */
+  permanentAbilities: Map<string, Set<string>>;
 }
 
 // ============================================================================
@@ -194,9 +196,14 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
   const perPermanent = new Map<string, EffectAggregate>();
   const playerHexproof = new Set<PlayerID>();
   const playerShroud = new Set<PlayerID>();
+  const permanentAbilities = new Map<string, Set<string>>();
 
-  // Initialize aggregates
+  // Initialize aggregates for creatures and all permanents
   for (const perm of state.battlefield) {
+    // Initialize ability tracking for ALL permanents (for Avacyn, etc.)
+    permanentAbilities.set(perm.id, new Set());
+    
+    // Initialize creature-specific tracking
     if (isCreature(perm)) {
       perPermanent.set(perm.id, { pDelta: 0, tDelta: 0, abilities: new Set() });
     }
@@ -341,6 +348,105 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
               const agg = perPermanent.get(perm.id)!;
               for (const a of abilities) agg.abilities.add(a);
             }
+          }
+        }
+      }
+    }
+
+    // ============================================
+    // ALL PERMANENTS ABILITY GRANTS (Avacyn, etc.)
+    // ============================================
+    // Pattern: "Other permanents you control have <abilities>" (Avacyn, Angel of Hope)
+    // This grants abilities to ALL permanents (not just creatures), excluding the source
+    const otherPermsHaveMatch = oracle.match(/other permanents you control have ([^.]+)/);
+    if (otherPermsHaveMatch) {
+      const abilities = parseAbilities(otherPermsHaveMatch[1]);
+      if (abilities.length) {
+        for (const perm of state.battlefield) {
+          // "other" means exclude the source permanent itself
+          if (perm.controller === controller && perm.id !== source.id) {
+            // Add to permanentAbilities map for ALL permanents
+            const permAbilities = permanentAbilities.get(perm.id);
+            if (permAbilities) {
+              for (const a of abilities) permAbilities.add(a);
+            }
+            // Also add to creature-specific tracking if applicable
+            if (isCreature(perm)) {
+              const agg = perPermanent.get(perm.id);
+              if (agg) {
+                for (const a of abilities) agg.abilities.add(a);
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Pattern: "Permanents you control have <abilities>" (without "other")
+    // This grants abilities to ALL permanents including the source
+    if (!otherPermsHaveMatch) {
+      const permsHaveMatch = oracle.match(/permanents you control have ([^.]+)/);
+      if (permsHaveMatch && !oracle.includes('other permanents')) {
+        const abilities = parseAbilities(permsHaveMatch[1]);
+        if (abilities.length) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller) {
+              // Add to permanentAbilities map for ALL permanents
+              const permAbilities = permanentAbilities.get(perm.id);
+              if (permAbilities) {
+                for (const a of abilities) permAbilities.add(a);
+              }
+              // Also add to creature-specific tracking if applicable
+              if (isCreature(perm)) {
+                const agg = perPermanent.get(perm.id);
+                if (agg) {
+                  for (const a of abilities) agg.abilities.add(a);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // ============================================
+    // CONDITIONAL INDESTRUCTIBLE (Svyelun, etc.)
+    // ============================================
+    // Pattern: "[Card] has indestructible as long as you control at least X other [TYPE]"
+    // Examples: 
+    // - Svyelun of Sea and Sky: "Svyelun has indestructible as long as you control at least two other Merfolk."
+    const conditionalIndestructibleMatch = oracle.match(/has indestructible as long as you control at least (\w+) other (\w+)/i);
+    if (conditionalIndestructibleMatch) {
+      const countWord = conditionalIndestructibleMatch[1].toLowerCase();
+      const requiredType = conditionalIndestructibleMatch[2].toLowerCase();
+      
+      // Convert word to number
+      const countMap: Record<string, number> = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'a': 1, 'an': 1
+      };
+      const requiredCount = countMap[countWord] || parseInt(countWord, 10) || 2;
+      
+      // Count other permanents of the required type controlled by this player
+      let typeCount = 0;
+      for (const perm of state.battlefield) {
+        if (perm.controller === controller && perm.id !== source.id) {
+          const tl = ((perm.card as any)?.type_line || '').toLowerCase();
+          if (tl.includes(requiredType)) {
+            typeCount++;
+          }
+        }
+      }
+      
+      // If condition is met, grant indestructible to the source
+      if (typeCount >= requiredCount) {
+        const permAbilities = permanentAbilities.get(source.id);
+        if (permAbilities) {
+          permAbilities.add('indestructible');
+        }
+        if (isCreature(source)) {
+          const agg = perPermanent.get(source.id);
+          if (agg) {
+            agg.abilities.add('indestructible');
           }
         }
       }
@@ -526,5 +632,5 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     }
   }
 
-  return { perPermanent, playerHexproof, playerShroud, typeAdditions };
+  return { perPermanent, playerHexproof, playerShroud, typeAdditions, permanentAbilities };
 }
