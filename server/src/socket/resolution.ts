@@ -6279,9 +6279,21 @@ async function handleModalChoiceResponse(
     targetCreature.counters = targetCreature.counters || {};
     targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 1;
     
-    // Add the chosen keyword counter (normalize to lowercase)
-    // Convert the choice id back to readable format: "first_strike" -> "first strike"
-    const counterName = chosenCounter.replace(/_/g, ' ');
+    // Map the choice ID back to the original counter name using counterOptions
+    // The ID was created by: opt.toLowerCase().replace(/\s+/g, '_')
+    // So we need to find the matching option from the original list
+    const counterOptions = elspethCounterData.counterOptions || [];
+    let counterName = chosenCounter.replace(/_/g, ' '); // Default: simple underscore-to-space
+    
+    // Try to find exact match in original options (more robust)
+    for (const opt of counterOptions) {
+      const optId = opt.toLowerCase().replace(/\s+/g, '_');
+      if (optId === chosenCounter) {
+        counterName = opt.toLowerCase();
+        break;
+      }
+    }
+    
     targetCreature.counters[counterName] = (targetCreature.counters[counterName] || 0) + 1;
     
     // Also grant the ability via grantedAbilities for immediate effect

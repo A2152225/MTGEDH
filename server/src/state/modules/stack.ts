@@ -2126,8 +2126,9 @@ function executeTriggerEffect(
       targetCreature.counters = targetCreature.counters || {};
       targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 2;
       
-      // Check if it becomes an Angel and gains flying
-      if (desc.includes('becomes an angel') || desc.includes('angel in addition')) {
+      // Check if it becomes an Angel and gains flying (case-insensitive)
+      const descLower = desc.toLowerCase();
+      if (descLower.includes('becomes an angel') || descLower.includes('angel in addition')) {
         // Add Angel type
         const currentTypeLine = targetCreature.card?.type_line || '';
         if (!currentTypeLine.toLowerCase().includes('angel')) {
