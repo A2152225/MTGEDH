@@ -818,6 +818,15 @@ export function triggerETBEffectsForToken(
           continue; // Skip - this trigger only fires for nontoken creatures
         }
         
+        // Check if this trigger requires the entering creature to be controlled by the trigger's controller
+        // (e.g., Aura Shards: "Whenever a creature you control enters")
+        if ((trigger as any).controlledOnly) {
+          const triggerController = perm.controller || controller;
+          if (controller !== triggerController) {
+            continue; // Skip - entering creature is not controlled by trigger's controller
+          }
+        }
+        
         // Check if this trigger requires a specific creature type (e.g., Marwyn for Elves)
         // Extract creature type from trigger description like "Whenever another Elf enters"
         // Pattern captures multi-word types like "Artifact Creature" or "Cat Soldier"
@@ -962,6 +971,15 @@ export function triggerETBEffectsForPermanent(
         // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
         if ((trigger as any).nontokenOnly && isToken) {
           continue;
+        }
+        
+        // Check if this trigger requires the entering creature to be controlled by the trigger's controller
+        // (e.g., Aura Shards: "Whenever a creature you control enters")
+        if ((trigger as any).controlledOnly) {
+          const triggerController = perm.controller || controller;
+          if (controller !== triggerController) {
+            continue; // Skip - entering creature is not controlled by trigger's controller
+          }
         }
         
         // Check if this trigger requires a specific creature type (e.g., Marwyn for Elves)
@@ -7008,15 +7026,21 @@ export function resolveTopOfStack(ctx: GameContext) {
             name: c.name,
             type_line: c.type_line,
             oracle_text: c.oracle_text,
+            image_uris: c.image_uris,  // Include full image_uris object for battlefield placement
             imageUrl: c.image_uris?.normal || c.image_uris?.small,
             mana_cost: c.mana_cost,
             cmc: c.cmc,
+            power: c.power,
+            toughness: c.toughness,
+            loyalty: c.loyalty,
+            colors: c.colors,
           })),
           nonSelectableCards: notEligible.map((c: any) => ({
             id: c.id,
             name: c.name,
             type_line: c.type_line,
             oracle_text: c.oracle_text,
+            image_uris: c.image_uris,  // Include full image_uris object
             imageUrl: c.image_uris?.normal || c.image_uris?.small,
             mana_cost: c.mana_cost,
             cmc: c.cmc,

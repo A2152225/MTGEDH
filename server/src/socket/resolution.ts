@@ -5208,10 +5208,14 @@ function filterLibraryCards(library: any[], filter: any): any[] {
         name: card.name,
         type_line: card.type_line,
         oracle_text: card.oracle_text,
+        image_uris: card.image_uris,  // Include full image_uris for battlefield placement
         imageUrl: card.image_uris?.normal,
         mana_cost: card.mana_cost,
         cmc: card.cmc,
         colors: card.colors,
+        power: card.power,
+        toughness: card.toughness,
+        loyalty: card.loyalty,
       });
     }
   }
@@ -5371,10 +5375,14 @@ export function processPendingLibrarySearch(io: Server, game: any, gameId: strin
             name: card.name,
             type_line: card.type_line,
             oracle_text: card.oracle_text,
+            image_uris: card.image_uris,  // Include full image_uris for battlefield placement
             imageUrl: card.image_uris?.normal,
             mana_cost: card.mana_cost,
             cmc: card.cmc,
             colors: card.colors,
+            power: card.power,
+            toughness: card.toughness,
+            loyalty: card.loyalty,
           });
         }
       }

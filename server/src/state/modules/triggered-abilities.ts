@@ -516,6 +516,7 @@ export interface TriggeredAbility {
   requiresChoice?: boolean; // For triggers where player must choose
   creatureType?: string; // For "whenever you cast a [type] spell" triggers
   nontokenOnly?: boolean; // For triggers that only fire for nontoken creatures (Guardian Project)
+  controlledOnly?: boolean; // For triggers that only fire when creature you control enters (Aura Shards)
   batched?: boolean; // For triggers that should only fire once per event even if multiple conditions met (Professional Face-Breaker)
   controllerId?: string; // Controller of the permanent with this trigger
   
@@ -1030,6 +1031,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   const creatureETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (creatureETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
     const isNontokenOnly = oracleText.includes('nontoken creature');
+    // Check if this trigger requires the creature to be controlled by the trigger's controller
+    // Pattern: "you control" or "under your control" in the trigger text
+    const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText);
     triggers.push({
       permanentId,
       cardName,
@@ -1038,6 +1042,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       effect: creatureETBMatch[1].trim(),
       mandatory: true,
       nontokenOnly: isNontokenOnly,
+      controlledOnly: hasControlRestriction,  // Flag for creatures that must be yours (e.g., Aura Shards)
     });
   }
   

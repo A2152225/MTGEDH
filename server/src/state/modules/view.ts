@@ -10,6 +10,7 @@ import type {
 import type { GameContext } from "../context.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonusesWithSources, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { computeContinuousEffects } from "../../rules-engine/staticEffects.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -47,12 +48,43 @@ export function viewFor(
   const { state, libraries, commandZone, inactive, poison, experience } = ctx;
   const zones = state.zones || {};
 
+  // Compute continuous effects for ability grants (Avacyn, Svyelun, etc.)
+  const continuousEffects = computeContinuousEffects(state);
+
   const filteredBattlefield = state.battlefield.map((perm: BattlefieldPermanent) => {
     const card = perm.card as any;
     const typeLine = String(card?.type_line || "").toLowerCase();
     const isCreature = /\bcreature\b/.test(typeLine);
     let effectivePower: number | undefined;
     let effectiveToughness: number | undefined;
+    
+    // Collect granted abilities from continuous effects (Avacyn, Svyelun, anthems, etc.)
+    const existingAbilities = Array.isArray((perm as any).grantedAbilities) 
+      ? [...(perm as any).grantedAbilities] 
+      : [];
+    
+    // Add abilities from permanentAbilities (Avacyn for ALL permanents)
+    const permAbilities = continuousEffects.permanentAbilities.get(perm.id);
+    if (permAbilities && permAbilities.size > 0) {
+      for (const ability of permAbilities) {
+        if (!existingAbilities.includes(ability)) {
+          existingAbilities.push(ability);
+        }
+      }
+    }
+    
+    // Add abilities from creature-specific effects
+    if (isCreature) {
+      const creatureEffects = continuousEffects.perPermanent.get(perm.id);
+      if (creatureEffects) {
+        for (const ability of creatureEffects.abilities) {
+          if (!existingAbilities.includes(ability)) {
+            existingAbilities.push(ability);
+          }
+        }
+      }
+    }
+
     if (isCreature) {
       let baseP =
         typeof perm.basePower === "number" ? perm.basePower : parsePT(card?.power);
@@ -132,6 +164,8 @@ export function viewFor(
         : {}),
       ...(isCommander ? { isCommander: true } : {}),
       ...((perm as any).ptSources?.length > 0 ? { ptSources: (perm as any).ptSources } : {}),
+      // Include granted abilities from continuous effects (Avacyn, Svyelun, anthems, etc.)
+      ...(existingAbilities.length > 0 ? { grantedAbilities: existingAbilities } : {}),
     };
   });
 

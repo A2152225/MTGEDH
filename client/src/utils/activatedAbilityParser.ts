@@ -1058,6 +1058,101 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   // Special handling for cards that grant haste for tap abilities
   // This is handled separately in the context, but we note it here for completeness
   
+  // ======== GENERIC ACTIVATED ABILITIES ========
+  // Parse any remaining "cost: effect" patterns that weren't caught by specific parsers
+  // This handles cards like Mite Overseer with token creation abilities
+  // Pattern: {cost}{cost}...: effect text
+  // Must contain at least one mana symbol or "{T}" and have an effect
+  const genericAbilityPattern = /(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*([^.]+(?:\.[^.]*)?)/gi;
+  let genericMatch;
+  while ((genericMatch = genericAbilityPattern.exec(oracleText)) !== null) {
+    const cost = genericMatch[1].trim();
+    const effect = genericMatch[2].trim();
+    
+    // Skip if we already have this ability parsed (by checking similar effect text)
+    const alreadyParsed = abilities.some(a => 
+      a.effect.toLowerCase().includes(effect.toLowerCase().slice(0, 30)) ||
+      (a.cost.toLowerCase() === cost.toLowerCase() && a.isManaAbility)
+    );
+    if (alreadyParsed) continue;
+    
+    // Skip mana abilities (already handled)
+    const effectLower = effect.toLowerCase();
+    if (/^add\s+\{[wubrgc]\}/i.test(effect) || /^add\s+(one|two|three|\d+)\s+mana/i.test(effect)) {
+      continue;
+    }
+    
+    // Skip if it's a keyword ability definition (not an activated ability)
+    if (/^\([^)]+\)$/.test(effect)) continue;
+    
+    // Parse costs
+    const requiresTap = /\{t\}/i.test(cost);
+    const requiresUntap = /\{q\}/i.test(cost);
+    const manaSymbolsMatch = cost.match(/\{[WUBRGC0-9X\/P]+\}/gi);
+    const manaOnly = manaSymbolsMatch
+      ? manaSymbolsMatch.filter(s => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}').join('')
+      : '';
+    
+    // Parse sacrifice from cost
+    const sacrificeInfo = parseSacrificeCost(cost);
+    
+    // Check for life payment in cost
+    const lifeCostMatch = cost.match(/pay\s+(\d+)\s+life/i);
+    const lifeCost = lifeCostMatch ? parseInt(lifeCostMatch[1], 10) : undefined;
+    
+    // Check for X in cost
+    const hasXCost = /\{x\}/i.test(cost);
+    const xCount = hasXCost ? (cost.match(/\{x\}/gi) || []).length : 0;
+    
+    // Build ability ID based on effect type
+    let abilityType = 'ability';
+    if (effectLower.includes('create') && effectLower.includes('token')) {
+      abilityType = 'token';
+    } else if (effectLower.includes('deal') && effectLower.includes('damage')) {
+      abilityType = 'damage';
+    } else if (effectLower.includes('draw')) {
+      abilityType = 'draw';
+    } else if (effectLower.includes('counter')) {
+      abilityType = 'counter';
+    } else if (effectLower.includes('search')) {
+      abilityType = 'search';
+    }
+    
+    // Create short label
+    let label = `${cost}: ...`;
+    if (effectLower.includes('create') && effectLower.includes('token')) {
+      const tokenMatch = effect.match(/create\s+(?:a\s+)?(\d+\/\d+\s+)?[^.]+\s+token/i);
+      if (tokenMatch) {
+        label = `${cost}: Create token`;
+      }
+    } else if (effect.length <= 50) {
+      label = `${cost}: ${effect}`;
+    }
+    
+    abilities.push({
+      id: `${card.id}-${abilityType}-${abilityIndex++}`,
+      label,
+      description: effect,
+      cost,
+      effect,
+      requiresTap,
+      requiresUntap,
+      requiresSacrifice: sacrificeInfo.requiresSacrifice,
+      sacrificeType: sacrificeInfo.sacrificeType,
+      sacrificeCount: sacrificeInfo.sacrificeCount,
+      mustBeOther: sacrificeInfo.mustBeOther,
+      manaCost: manaOnly || undefined,
+      lifeCost,
+      hasXCost: hasXCost || undefined,
+      xCount: xCount > 0 ? xCount : undefined,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      requiresTarget: effectLower.includes('target'),
+      targetDescription: effectLower.includes('target') ? effect : undefined,
+    });
+  }
+  
   return abilities;
 }
 

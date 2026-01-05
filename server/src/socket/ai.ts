@@ -3921,6 +3921,46 @@ async function executeAIActivateAbility(
                             /(put it onto the battlefield|put it.*onto the battlefield)/i.test(abilityText);
         
         if (isFetchLand) {
+          // Check if the ability requires sacrifice (most fetchlands do)
+          const requiresSacrifice = /sacrifice\s+(?:~|this|it)/i.test(abilityText) || 
+                                    /sacrifice\s+(?:windswept|flooded|polluted|bloodstained|wooded|marsh|scalding|verdant|arid|misty|evolving|terramorphic|fabled|prismatic)/i.test(card.name?.toLowerCase() || '');
+          
+          // Check if ability costs life
+          const lifeCostMatch = abilityText.match(/pay\s+(\d+)\s+life/i);
+          const lifeCost = lifeCostMatch ? parseInt(lifeCostMatch[1], 10) : 0;
+          
+          // Pay the costs BEFORE adding to stack (costs are paid on activation)
+          if (requiresSacrifice) {
+            // Remove the fetchland from battlefield and put it in graveyard
+            const idx = battlefield.findIndex((p: any) => p.id === permanent.id);
+            if (idx !== -1) {
+              const sacrificedLand = battlefield.splice(idx, 1)[0];
+              
+              // Add to graveyard
+              const zones = (game.state as any).zones || {};
+              const playerZone = zones[playerId] || { graveyard: [], graveyardCount: 0 };
+              zones[playerId] = playerZone;
+              playerZone.graveyard = playerZone.graveyard || [];
+              playerZone.graveyard.push({
+                ...sacrificedLand.card,
+                zone: 'graveyard',
+              });
+              playerZone.graveyardCount = playerZone.graveyard.length;
+              (game.state as any).zones = zones;
+              
+              debug(1, '[AI] Sacrificed fetchland as cost:', card.name);
+            }
+          }
+          
+          // Pay life cost if required
+          if (lifeCost > 0) {
+            const startingLife = game.state.startingLife || 40;
+            const currentLife = (game.state as any).life?.[playerId] ?? startingLife;
+            (game.state as any).life = (game.state as any).life || {};
+            (game.state as any).life[playerId] = currentLife - lifeCost;
+            debug(1, `[AI] Paid ${lifeCost} life for fetchland activation`);
+          }
+          
           // Detect what types of lands can be fetched
           let searchDescription = 'a basic land card';
           let landFilter: any = { types: ['land'], subtypes: ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'] };
