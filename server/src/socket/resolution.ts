@@ -3786,7 +3786,7 @@ async function handleLibrarySearchResponse(
   const selections = response.selections as string[]; // Array of card IDs selected
   
   // Get split assignments from response (for Cultivate/Kodama's Reach effects)
-  const splitAssignments = (response as any).splitAssignments as { toBattlefield: string[]; toHand: string[] } | undefined;
+  const splitAssignments = response.splitAssignments;
   
   const searchStep = step as any;
   const availableCards = searchStep.availableCards || [];

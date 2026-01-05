@@ -778,6 +778,15 @@ function isManaAbility(oracleText: string, effectPart: string): boolean {
 }
 
 /**
+ * Check if an ability has "Activate only during your turn" restriction
+ * Examples: Humble Defector, Sundial of the Infinite
+ * @returns true if the ability has this restriction
+ */
+function hasActivateOnlyDuringYourTurnRestriction(oracleText: string): boolean {
+  return /activate (?:this ability )?only during your turn/i.test(oracleText);
+}
+
+/**
  * Check if a permanent has an activated ability that can be activated
  * and requires priority (excludes mana abilities per Rule 605)
  */
@@ -853,7 +862,7 @@ function hasActivatableAbility(
     
     // Check for "Activate only during your turn" restriction (e.g., Humble Defector)
     const isTurnPlayer = (state as any).turnPlayer === playerId;
-    if (/activate (?:this ability )?only during your turn/i.test(oracleText) && !isTurnPlayer) {
+    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && !isTurnPlayer) {
       return false; // Can only be activated during player's turn
     }
     
@@ -955,8 +964,7 @@ function hasActivatableAbility(
     
     // Skip "Activate only during your turn" abilities if it's not our turn
     // Pattern: "Activate only during your turn" (e.g., Humble Defector)
-    const isTurnPlayer = (state as any).turnPlayer === playerId;
-    if (/activate (?:this ability )?only during your turn/i.test(oracleText) && !isTurnPlayer) {
+    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && !((state as any).turnPlayer === playerId)) {
       continue; // Skip - can only be activated during player's turn
     }
     

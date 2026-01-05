@@ -580,6 +580,10 @@ export interface ResolutionStepResponse {
   readonly cancelled: boolean;
   /** Response timestamp */
   readonly timestamp: number;
+  /** Split destination assignments for Cultivate/Kodama's Reach effects */
+  readonly splitAssignments?: { toBattlefield: string[]; toHand: string[] };
+  /** Move destination for library search */
+  readonly moveTo?: string;
 }
 
 /**
