@@ -128,6 +128,7 @@ class MinimalGameAdapter {
   _rngSeed?: number;
   _rng?: () => number;
   _fallbackLibraries?: Record<string, any[]>; // Fallback library storage (not in zones)
+  libraries?: Map<string, any[]>; // Primary library storage (authoritative source)
 
   constructor(id?: string) {
     this.id = id || `g_${randomUUID()}`;
@@ -280,13 +281,35 @@ class MinimalGameAdapter {
       const z = (this.state.zones || {})[playerId];
       if (!z) return;
       z.hand = z.hand || [];
-      const lib = this._fallbackLibraries?.[playerId];
+      
+      // Try to get library from multiple sources:
+      // 1. Primary: libraries Map (authoritative source)
+      // 2. Fallback: _fallbackLibraries object
+      let lib: any[] | undefined;
+      if (this.libraries && typeof this.libraries.get === 'function') {
+        lib = this.libraries.get(playerId);
+      }
+      if (!lib || lib.length === 0) {
+        lib = this._fallbackLibraries?.[playerId];
+      }
+      
+      if (!lib) return;
+      
       while (count-- > 0 && lib && lib.length > 0) {
         const c = lib.shift();
         z.hand.push(c);
       }
       z.handCount = z.hand.length;
       z.libraryCount = lib ? lib.length : 0;
+      
+      // Update the library in both sources
+      if (this.libraries && typeof this.libraries.set === 'function') {
+        this.libraries.set(playerId, lib);
+      }
+      if (this._fallbackLibraries) {
+        this._fallbackLibraries[playerId] = lib;
+      }
+      
       this.bumpSeq();
     } catch (e) {
       /* ignore */

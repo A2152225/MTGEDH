@@ -5914,7 +5914,9 @@ export function App() {
           }
         }}
         onSkip={handleSkipCombat}
-        onCancel={() => setCombatModalOpen(false)}
+        // For blockers mode, don't provide onCancel to prevent accidental closure
+        // The modal can only be closed by confirming or skipping blockers
+        onCancel={combatMode === 'attackers' ? () => setCombatModalOpen(false) : undefined}
       />
 
       {/* Shock Land Choice Modal */}
