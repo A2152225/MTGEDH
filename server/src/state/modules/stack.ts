@@ -65,6 +65,62 @@ const IRREGULAR_PLURALS: Record<string, string> = {
 };
 
 /**
+ * Convert number words to numeric values.
+ * Handles common patterns in MTG oracle text.
+ */
+const WORD_TO_NUMBER: Record<string, number> = {
+  'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+  'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+};
+
+/**
+ * Parse a number from a word or numeric string.
+ * @param word The word or number string to parse
+ * @param defaultValue Value to return if parsing fails (default: 1)
+ */
+function parseNumberWord(word: string | undefined, defaultValue: number = 1): number {
+  if (!word) return defaultValue;
+  const lower = word.toLowerCase();
+  if (WORD_TO_NUMBER[lower] !== undefined) {
+    return WORD_TO_NUMBER[lower];
+  }
+  const num = parseInt(lower, 10);
+  return isNaN(num) ? defaultValue : num;
+}
+
+/**
+ * Add a creature type to a permanent's type line.
+ * Handles the parsing and formatting of the type line correctly.
+ * @param creature The creature permanent to modify
+ * @param typeToAdd The creature type to add (e.g., "Angel", "Zombie")
+ */
+function addCreatureType(creature: any, typeToAdd: string): void {
+  if (!creature?.card) {
+    creature.card = creature.card || {};
+  }
+  const currentTypeLine = creature.card.type_line || '';
+  const typeToAddLower = typeToAdd.toLowerCase();
+  
+  // Check if type already exists
+  if (currentTypeLine.toLowerCase().includes(typeToAddLower)) {
+    return;
+  }
+  
+  // Format: "Creature — Human Soldier" -> "Creature — Human Soldier Angel"
+  if (currentTypeLine.includes('—')) {
+    creature.card.type_line = currentTypeLine + ' ' + typeToAdd;
+  } else {
+    creature.card.type_line = currentTypeLine + ' — ' + typeToAdd;
+  }
+  
+  // Track added types
+  creature.addedTypes = creature.addedTypes || [];
+  if (!creature.addedTypes.includes(typeToAdd)) {
+    creature.addedTypes.push(typeToAdd);
+  }
+}
+
+/**
  * Detect "enters with counters" patterns from a card's oracle text.
  * Handles patterns like:
  * - "~ enters the battlefield with N +1/+1 counter(s) on it"
@@ -2140,17 +2196,8 @@ function executeTriggerEffect(
       // Check if it becomes an Angel and gains flying (case-insensitive)
       const descLower = desc.toLowerCase();
       if (descLower.includes('becomes an angel') || descLower.includes('angel in addition')) {
-        // Add Angel type
-        const currentTypeLine = targetCreature.card?.type_line || '';
-        if (!currentTypeLine.toLowerCase().includes('angel')) {
-          targetCreature.card = targetCreature.card || {};
-          // Parse type line: "Creature — Human Soldier" -> "Creature — Human Soldier Angel"
-          if (currentTypeLine.includes('—')) {
-            targetCreature.card.type_line = currentTypeLine + ' Angel';
-          } else {
-            targetCreature.card.type_line = currentTypeLine + ' — Angel';
-          }
-        }
+        // Add Angel type using shared utility
+        addCreatureType(targetCreature, 'Angel');
         
         // Grant flying (add to oracle text or keywords)
         const currentOracle = targetCreature.card?.oracle_text || '';
@@ -2166,10 +2213,6 @@ function executeTriggerEffect(
         targetCreature.grantedAbilities = targetCreature.grantedAbilities || [];
         if (!targetCreature.grantedAbilities.includes('flying')) {
           targetCreature.grantedAbilities.push('flying');
-        }
-        targetCreature.addedTypes = targetCreature.addedTypes || [];
-        if (!targetCreature.addedTypes.includes('Angel')) {
-          targetCreature.addedTypes.push('Angel');
         }
         
         debug(2, `[executeTriggerEffect] Archangel Elspeth -2: Added 2 +1/+1 counters, Angel type, and Flying to ${targetCreature.card?.name}`);
@@ -3244,11 +3287,9 @@ function executeTriggerEffect(
     const targets = (triggerItem as any).targets || [];
     const battlefield = state.battlefield || [];
     
-    // Parse counter count
-    const countMatch = desc.match(/put (?:a|an|one|two|three|four|five|(\d+)) \+1\/\+1/i);
-    const countWord = countMatch?.[0]?.match(/(a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
-    const wordToCount: Record<string, number> = { 'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
-    const counterCount = wordToCount[countWord] || (countMatch?.[1] ? parseInt(countMatch[1], 10) : 1);
+    // Parse counter count using shared utility
+    const countMatch = desc.match(/put (a|an|one|two|three|four|five|\d+) \+1\/\+1/i);
+    const counterCount = parseNumberWord(countMatch?.[1], 1);
     
     for (const targetRef of targets) {
       const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
@@ -3264,9 +3305,9 @@ function executeTriggerEffect(
   }
   
   // Pattern: "put a +1/+1 counter on ~" or "put a +1/+1 counter on it"
-  const putCounterOnSelfMatch = desc.match(/put (?:a|an|(\d+)) \+1\/\+1 counters? on (?:~|it|this creature)/i);
+  const putCounterOnSelfMatch = desc.match(/put (a|an|\d+) \+1\/\+1 counters? on (?:~|it|this creature)/i);
   if (putCounterOnSelfMatch) {
-    const counterCount = putCounterOnSelfMatch[1] ? parseInt(putCounterOnSelfMatch[1], 10) : 1;
+    const counterCount = parseNumberWord(putCounterOnSelfMatch[1], 1);
     const sourceId = triggerItem.source || triggerItem.permanentId;
     
     if (sourceId) {
