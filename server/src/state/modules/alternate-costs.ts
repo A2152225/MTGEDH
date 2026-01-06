@@ -66,36 +66,45 @@ export interface AlternateCostOption {
 
 /**
  * Pattern matcher for Force of Will style alternate costs
- * "You may pay 1 life and exile a blue card from your hand rather than pay this spell's mana cost"
+ * - Force of Will: "You may pay 1 life and exile a blue card from your hand rather than pay this spell's mana cost"
+ * - Force of Negation: "If it's not your turn, you may exile a blue card from your hand rather than pay this spell's mana cost."
+ * 
+ * Returns details about the alternate cost if available, or null if not.
  */
-export function hasForceOfWillAlternateCost(
+export function getForceOfWillAlternateCost(
   ctx: GameContext,
   playerId: PlayerID,
   card: any
-): boolean {
-  if (!card) return false;
+): { available: boolean; requiresLifePayment: boolean; requiresNotYourTurn: boolean } | null {
+  if (!card) return null;
   
   const { state } = ctx;
   const oracleText = (card.oracle_text || "").toLowerCase();
   const cardName = (card.name || "").toLowerCase();
   
-  // Check for Force of Will pattern in oracle text
+  // Check for Force of Will pattern: exile blue card + pay 1 life
   const hasForceOfWillPattern = 
     oracleText.includes("exile") && 
     oracleText.includes("blue card") && 
-    oracleText.includes("from your hand");
+    oracleText.includes("from your hand") &&
+    oracleText.includes("pay") && 
+    oracleText.includes("life");
   
-  // Check if card name or pattern matches Force of Will
-  if (!cardName.includes("force of will") && !hasForceOfWillPattern) {
-    return false;
+  // Check for Force of Negation pattern: exile blue card, only on opponent's turn
+  const hasForceOfNegationPattern = 
+    oracleText.includes("exile") && 
+    oracleText.includes("blue card") && 
+    oracleText.includes("from your hand") &&
+    oracleText.includes("not your turn");
+  
+  // If neither pattern matches, return null
+  if (!hasForceOfWillPattern && !hasForceOfNegationPattern && 
+      !cardName.includes("force of will") && !cardName.includes("force of negation")) {
+    return null;
   }
   
   const zones = state.zones?.[playerId];
-  if (!zones || !Array.isArray(zones.hand)) return false;
-  
-  // Check if player has 1+ life
-  const currentLife = state.life?.[playerId] ?? 40;
-  if (currentLife < 1) return false;
+  if (!zones || !Array.isArray(zones.hand)) return null;
   
   // Check if player has a blue card in hand (other than this card)
   const hasBlueCard = (zones.hand as any[]).some((c: any) => 
@@ -103,7 +112,41 @@ export function hasForceOfWillAlternateCost(
     Array.isArray(c.colors) && c.colors.includes("U")
   );
   
-  return hasBlueCard;
+  if (!hasBlueCard) return null;
+  
+  // Check timing restriction for Force of Negation
+  const requiresNotYourTurn = hasForceOfNegationPattern || cardName.includes("force of negation");
+  if (requiresNotYourTurn) {
+    const turnPlayerId = (state as any).turnPlayer;
+    if (turnPlayerId === playerId) {
+      // It's their turn - can't use alternate cost
+      return { available: false, requiresLifePayment: false, requiresNotYourTurn: true };
+    }
+  }
+  
+  // Check life requirement for Force of Will (not Force of Negation)
+  const requiresLifePayment = hasForceOfWillPattern || cardName.includes("force of will");
+  if (requiresLifePayment) {
+    const currentLife = state.life?.[playerId] ?? 40;
+    if (currentLife < 1) {
+      return { available: false, requiresLifePayment: true, requiresNotYourTurn: false };
+    }
+  }
+  
+  return { available: true, requiresLifePayment, requiresNotYourTurn };
+}
+
+/**
+ * Pattern matcher for Force of Will style alternate costs
+ * "You may pay 1 life and exile a blue card from your hand rather than pay this spell's mana cost"
+ */
+export function hasForceOfWillAlternateCost(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any
+): boolean {
+  const result = getForceOfWillAlternateCost(ctx, playerId, card);
+  return result?.available ?? false;
 }
 
 /**
