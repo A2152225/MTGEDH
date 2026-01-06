@@ -543,8 +543,11 @@ export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: strin
       card_faces: (c as any).card_faces, 
       layout: (c as any).layout,
       mana_cost: (c as any).mana_cost,
+      cmc: (c as any).cmc,
+      colors: (c as any).colors,
       power: (c as any).power,
       toughness: (c as any).toughness,
+      loyalty: (c as any).loyalty,
       color_identity: (c as any).color_identity,
     }));
   }
@@ -563,8 +566,11 @@ export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: strin
         card_faces: (c as any).card_faces, 
         layout: (c as any).layout,
         mana_cost: (c as any).mana_cost,
+        cmc: (c as any).cmc,
+        colors: (c as any).colors,
         power: (c as any).power,
         toughness: (c as any).toughness,
+        loyalty: (c as any).loyalty,
         color_identity: (c as any).color_identity,
       });
     }
