@@ -230,7 +230,16 @@ export type { BeginningOfCombatTrigger, EndOfCombatTrigger };
 // ============================================================================
 
 /**
- * Detect combat damage triggers from a permanent's abilities
+ * Detect combat damage triggers from a permanent's abilities.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_COMBAT_DAMAGE_TRIGGERS table serves as an
+ * optimization fallback for special handling.
+ * 
+ * Patterns detected:
+ * - "Whenever ~ deals combat damage to a player, [effect]"
+ * - "Whenever one or more creatures you control deal combat damage to a player, [effect]"
+ * - "Whenever ~ deals damage to a player, [effect]" (includes non-combat)
  */
 export function detectCombatDamageTriggers(card: any, permanent: any): CombatTriggeredAbility[] {
   const triggers: CombatTriggeredAbility[] = [];
@@ -239,23 +248,15 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   
-  // Check known cards
-  for (const [knownName, info] of Object.entries(KNOWN_COMBAT_DAMAGE_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      triggers.push({
-        permanentId,
-        cardName,
-        triggerType: 'deals_combat_damage',
-        description: info.effect,
-        effect: info.effect,
-        mandatory: true,
-      });
-    }
-  }
+  // ===== DYNAMIC DETECTION (Primary) =====
   
-  // Generic "whenever ~ deals combat damage to a player" detection
-  const combatDamagePlayerMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+deals\s+combat\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
-  if (combatDamagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage')) {
+  // Escape card name for regex
+  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  // "Whenever ~ deals combat damage to a player" detection
+  const combatDamagePattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNameEscaped})\\s+deals\\s+combat\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i');
+  const combatDamagePlayerMatch = oracleText.match(combatDamagePattern);
+  if (combatDamagePlayerMatch) {
     triggers.push({
       permanentId,
       cardName,
@@ -281,7 +282,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
   }
   
   // "Whenever ~ deals damage to a player" (includes combat and non-combat)
-  const damagePlayerMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+deals\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  const damagePlayerPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNameEscaped})\\s+deals\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i');
+  const damagePlayerMatch = oracleText.match(damagePlayerPattern);
   if (damagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage' || t.triggerType === 'deals_damage')) {
     triggers.push({
       permanentId,
@@ -291,6 +293,22 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       effect: damagePlayerMatch[1].trim(),
       mandatory: true,
     });
+  }
+  
+  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+  // Use the table to handle special cases and provide enhanced metadata
+  // Only add if not already detected dynamically
+  for (const [knownName, info] of Object.entries(KNOWN_COMBAT_DAMAGE_TRIGGERS)) {
+    if (lowerName.includes(knownName) && !triggers.some(t => t.triggerType === 'deals_combat_damage')) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'deals_combat_damage',
+        description: info.effect,
+        effect: info.effect,
+        mandatory: true,
+      });
+    }
   }
   
   return triggers;
@@ -315,7 +333,18 @@ export function getCombatDamageTriggersForCreature(
 // ============================================================================
 
 /**
- * Detect attack triggers from a permanent's abilities
+ * Detect attack triggers from a permanent's abilities.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_ATTACK_TRIGGERS table serves as an optimization
+ * fallback for special handling and enhanced metadata (token creation, etc.).
+ * 
+ * Patterns detected:
+ * - "Whenever ~ attacks, [effect]" (self attack trigger)
+ * - "Whenever a creature you control attacks, [effect]"
+ * - Keyword abilities: Annihilator N, Melee, Myriad, Exalted, Battle Cry, Firebending N
+ * - Token creation patterns with count-based values
+ * - Optional mana payment triggers
  */
 export function detectAttackTriggers(card: any, permanent: any): CombatTriggeredAbility[] {
   const triggers: CombatTriggeredAbility[] = [];
@@ -330,22 +359,9 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
   const grantedText = grantedAbilities.join('\n').toLowerCase();
   
-  // Check known cards
-  for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      triggers.push({
-        permanentId,
-        cardName,
-        triggerType: 'attacks',
-        description: info.effect,
-        effect: info.effect,
-        value: info.value || info.createTokensBasedOnCount || info.createTokens,
-        mandatory: true,
-      });
-    }
-  }
+  // ===== DYNAMIC DETECTION (Primary) =====
   
-  // Annihilator N
+  // Annihilator N (keyword ability)
   const annihilatorMatch = oracleText.match(/annihilator\s+(\d+)/i);
   if (annihilatorMatch) {
     const n = parseInt(annihilatorMatch[1], 10);
@@ -361,8 +377,6 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   }
   
   // Firebending N - Avatar set mechanic
-  // Pattern: "Firebending N" or "firebending N"
-  // Effect: "Whenever this creature attacks, add {R}{R}... (N times). This mana lasts until end of combat."
   // Check both oracle text AND granted abilities (for creatures that "gain firebending N")
   const firebendingMatch = oracleText.match(/firebending\s+(\d+)/i) || grantedText.match(/firebending\s+(\d+)/i);
   if (firebendingMatch) {
@@ -379,7 +393,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Melee
+  // Melee keyword ability
   if (lowerOracle.includes("melee")) {
     triggers.push({
       permanentId,
@@ -390,7 +404,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Myriad
+  // Myriad keyword ability
   if (lowerOracle.includes("myriad")) {
     triggers.push({
       permanentId,
@@ -401,7 +415,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Exalted
+  // Exalted keyword ability
   if (lowerOracle.includes("exalted")) {
     triggers.push({
       permanentId,
@@ -412,8 +426,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Battle Cry - "Whenever this creature attacks, each other attacking creature gets +1/+0 until end of turn."
-  // Rule 702.91a: Battle cry is a triggered ability
+  // Battle Cry keyword ability
   if (lowerOracle.includes("battle cry")) {
     triggers.push({
       permanentId,
@@ -425,8 +438,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Generic "whenever ~ attacks" - also match actual card name (e.g., "Whenever Myrel attacks")
-  // Create a pattern that matches: ~, this creature, or the actual card name
+  // Generic "whenever ~ attacks" - match ~, this creature, or the actual card name
   const cardNamePattern = cardName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '\\s+');
   const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePattern})\\s+attacks,?\\s*([^.]+)`, 'i');
   const attacksMatch = oracleText.match(attacksPattern);
@@ -495,15 +507,44 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
           },
         });
       } else {
-        // Regular attack trigger without special parsing
-        triggers.push({
-          permanentId,
-          cardName,
-          triggerType: 'attacks',
-          description: effectText,
-          effect: effectText,
-          mandatory: true,
-        });
+        // Check for fixed-count token creation
+        // Pattern: "create a X/Y [color] [type] creature token tapped and attacking"
+        const fixedTokenMatch = effectText.match(/create\s+(?:a\s+)?(\d+)\/(\d+)\s+(\w+)\s+([\w\s]+?)\s+(?:creature\s+)?token/i);
+        
+        if (fixedTokenMatch) {
+          const power = parseInt(fixedTokenMatch[1], 10);
+          const toughness = parseInt(fixedTokenMatch[2], 10);
+          const color = fixedTokenMatch[3].toLowerCase();
+          const type = fixedTokenMatch[4].trim();
+          
+          triggers.push({
+            permanentId,
+            cardName,
+            triggerType: 'attacks',
+            description: effectText,
+            effect: effectText,
+            mandatory: true,
+            value: {
+              createTokens: {
+                count: 1,
+                power,
+                toughness,
+                type,
+                color,
+              }
+            },
+          });
+        } else {
+          // Regular attack trigger without special parsing
+          triggers.push({
+            permanentId,
+            cardName,
+            triggerType: 'attacks',
+            description: effectText,
+            effect: effectText,
+            mandatory: true,
+          });
+        }
       }
     }
   }
@@ -534,6 +575,23 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       mandatory: true,
       value: { isJoinForces: true },
     });
+  }
+  
+  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+  // Use the table to handle special cases and provide enhanced metadata
+  // Only add if not already detected dynamically
+  for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
+    if (lowerName.includes(knownName) && !triggers.some(t => t.triggerType === 'attacks')) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'attacks',
+        description: info.effect,
+        effect: info.effect,
+        value: info.value || info.createTokensBasedOnCount || info.createTokens,
+        mandatory: true,
+      });
+    }
   }
   
   return triggers;
@@ -780,19 +838,70 @@ export function getAttachmentCombatDamageTriggers(
 // ============================================================================
 
 /**
- * Detect beginning of combat triggers
+ * Detect beginning of combat triggers.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_BEGINNING_COMBAT_TRIGGERS table serves as an
+ * optimization fallback for special handling.
+ * 
+ * Patterns detected:
+ * - "At the beginning of combat on your turn, [effect]"
+ * - "At the beginning of each combat, [effect]"
  */
 export function detectBeginningOfCombatTriggers(card: any, permanent: any): BeginningOfCombatTrigger[] {
   const triggers: BeginningOfCombatTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
-  // Check known cards
+  // ===== DYNAMIC DETECTION (Primary) =====
+  
+  // "At the beginning of combat on your turn" pattern
+  const beginCombatMatch = oracleText.match(/at the beginning of combat on your turn,?\s*([^.]+)/i);
+  if (beginCombatMatch) {
+    const effectText = beginCombatMatch[1].trim();
+    const requiresChoice = /\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText);
+    const createsToken = /\bcreate\b.*\btoken\b/i.test(effectText);
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+      requiresChoice,
+      createsToken,
+    });
+  }
+  
+  // "At the beginning of each combat" - triggers on all players' combats
+  const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
+  if (eachCombatMatch && !triggers.some(t => t.description.includes(eachCombatMatch[1].trim()))) {
+    const effectText = eachCombatMatch[1].trim();
+    const requiresChoice = /\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText);
+    const createsToken = /\bcreate\b.*\btoken\b/i.test(effectText);
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+      requiresChoice,
+      createsToken,
+    });
+  }
+  
+  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+  // Use the table to handle special cases and provide enhanced metadata
+  // Only add if not already detected dynamically
   for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
+    if (lowerName.includes(knownName) && !triggers.some(t => t.description === info.effect)) {
       triggers.push({
         permanentId,
         cardName,
@@ -801,38 +910,9 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
         effect: info.effect,
         mandatory: true,
         requiresChoice: info.requiresChoice,
+        createsToken: info.createsToken,
       });
     }
-  }
-  
-  // Generic "at the beginning of combat on your turn" detection
-  // ONLY add if not already in known cards list to prevent duplicates
-  const beginCombatMatch = oracleText.match(/at the beginning of combat on your turn,?\s*([^.]+)/i);
-  if (beginCombatMatch && triggers.length === 0) {
-    // No known trigger found, use generic detection
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: beginCombatMatch[1].trim(),
-      effect: beginCombatMatch[1].trim(),
-      mandatory: true,
-    });
-  }
-  
-  // "At the beginning of each combat" - triggers on all players' combats
-  // ONLY add if not already in known cards list to prevent duplicates
-  const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
-  if (eachCombatMatch && triggers.length === 0) {
-    // No known trigger found, use generic detection
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: eachCombatMatch[1].trim(),
-      effect: eachCombatMatch[1].trim(),
-      mandatory: true,
-    });
   }
   
   return triggers;

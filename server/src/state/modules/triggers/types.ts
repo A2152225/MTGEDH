@@ -83,6 +83,7 @@ export interface BeginningOfCombatTrigger {
   effect?: string;
   mandatory: boolean;
   requiresChoice?: boolean;
+  createsToken?: boolean;
 }
 
 // NOTE: EndStepTrigger and DrawStepTrigger have been moved to turn-phases.ts

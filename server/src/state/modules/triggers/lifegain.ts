@@ -239,7 +239,16 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
 };
 
 /**
- * Detect lifegain triggers on the battlefield
+ * Detect lifegain triggers on the battlefield.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_LIFEGAIN_TRIGGERS table serves as an
+ * optimization cache that provides additional metadata (effect type, etc.).
+ * 
+ * Patterns detected:
+ * - "Whenever you gain life, [effect]"
+ * - "Whenever you gain life for the first time, [effect]"
+ * - Counter-based, token creation, card draw, and special effects
  */
 export function detectLifegainTriggers(
   ctx: GameContext,
@@ -268,7 +277,72 @@ export function detectLifegainTriggers(
     const cardName = ((perm.card as any)?.name || '').toLowerCase();
     const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
     
-    // Check known lifegain trigger cards
+    // ===== DYNAMIC DETECTION (Primary) =====
+    // Handle both "whenever you gain life" and "for the first time" patterns
+    const hasStandardLifegainTrigger = oracleText.includes('whenever you gain life');
+    const hasFirstTimeLifegainTrigger = /whenever you gain life.*for the first time|for the first time.*you gain life/i.test(oracleText);
+    const hasLifegainTrigger = hasStandardLifegainTrigger || hasFirstTimeLifegainTrigger;
+    
+    if (hasLifegainTrigger) {
+      // Check if this is a "first time" trigger (once per turn)
+      const isFirstTimeTrigger = hasFirstTimeLifegainTrigger;
+      
+      // Check once-per-turn restriction
+      if (isFirstTimeTrigger) {
+        const triggerId = `${cardName}_${perm.id}`;
+        if (state.lifegainTriggersFiredThisTurn[triggerId]) {
+          continue;
+        }
+      }
+      
+      // Detect effect type from oracle text
+      let effectType: LifegainEffectType = 'custom';
+      let isMayAbility = oracleText.includes('you may');
+      let effect = 'Triggered by lifegain';
+      
+      // Extract the effect text
+      const effectMatch = oracleText.match(/whenever you gain life[^,]*,?\s*([^.]+)/i);
+      if (effectMatch) {
+        effect = effectMatch[1].trim();
+      }
+      
+      // Determine effect type
+      if (oracleText.includes('+1/+1 counter')) {
+        if (oracleText.includes('each creature')) {
+          effectType = 'add_counter_all';
+        } else {
+          effectType = 'add_counter';
+        }
+      } else if (oracleText.includes('draw') && !oracleText.includes('draws cards')) {
+        effectType = 'draw_cards';
+      } else if (oracleText.includes('create') && oracleText.includes('token')) {
+        effectType = 'create_token';
+      } else if (oracleText.includes('convert')) {
+        effectType = 'convert_and_return';
+      } else if (oracleText.includes('scry')) {
+        effectType = 'scry';
+      } else if (oracleText.includes('loses') && oracleText.includes('life')) {
+        // Cards like Vito, Sanguine Bond, Epicure of Blood
+        effectType = 'custom';
+      }
+      
+      triggers.push({
+        permanentId: perm.id,
+        cardName: (perm.card as any)?.name || 'Unknown',
+        controllerId: playerId,
+        effect,
+        effectType,
+        isMayAbility,
+        oncePerTurn: isFirstTimeTrigger,
+        maxArtifactMV: effectType === 'convert_and_return' ? totalLifeGainedThisTurn : undefined,
+      });
+      
+      continue;
+    }
+    
+    // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+    // Use the table to handle special cases and provide enhanced metadata
+    // Only process if not already detected dynamically
     const knownTrigger = KNOWN_LIFEGAIN_TRIGGERS[cardName];
     if (knownTrigger) {
       // Check once-per-turn restriction
@@ -280,9 +354,8 @@ export function detectLifegainTriggers(
       }
       
       // Check minimum life gained threshold (only for end-step triggers)
-      // Note: These are typically checked at end step, not on each lifegain
       if (knownTrigger.requiresMinLifeGained) {
-        // Skip threshold triggers for now - they're checked elsewhere
+        // Skip threshold triggers for now - they're checked at end step
         continue;
       }
       
@@ -295,44 +368,6 @@ export function detectLifegainTriggers(
         isMayAbility: knownTrigger.isMayAbility,
         oncePerTurn: knownTrigger.oncePerTurn,
         maxArtifactMV: knownTrigger.effectType === 'convert_and_return' ? totalLifeGainedThisTurn : undefined,
-      });
-      
-      continue;
-    }
-    
-    // Dynamic detection from oracle text
-    // Handle both "whenever you gain life" and "for the first time" patterns
-    // More specific regex to avoid false positives with "gain life" in other contexts
-    const hasStandardLifegainTrigger = oracleText.includes('whenever you gain life');
-    const hasFirstTimeLifegainTrigger = /whenever you gain life.*for the first time|for the first time.*you gain life/i.test(oracleText);
-    const hasLifegainTrigger = hasStandardLifegainTrigger || hasFirstTimeLifegainTrigger;
-    
-    if (hasLifegainTrigger) {
-      // Check if this is a "first time" trigger (once per turn)
-      const isFirstTimeTrigger = hasFirstTimeLifegainTrigger;
-      
-      // Detect effect type from oracle text
-      let effectType: LifegainEffectType = 'custom';
-      let isMayAbility = oracleText.includes('you may');
-      
-      if (oracleText.includes('+1/+1 counter')) {
-        effectType = oracleText.includes('each creature') ? 'add_counter_all' : 'add_counter';
-      } else if (oracleText.includes('draw')) {
-        effectType = 'draw_cards';
-      } else if (oracleText.includes('create') && oracleText.includes('token')) {
-        effectType = 'create_token';
-      } else if (oracleText.includes('convert')) {
-        effectType = 'convert_and_return';
-      }
-      
-      triggers.push({
-        permanentId: perm.id,
-        cardName: (perm.card as any)?.name || 'Unknown',
-        controllerId: playerId,
-        effect: 'Triggered by lifegain',
-        effectType,
-        isMayAbility,
-        oncePerTurn: isFirstTimeTrigger,
       });
     }
   }
