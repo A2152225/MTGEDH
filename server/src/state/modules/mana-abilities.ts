@@ -122,6 +122,7 @@ export interface ManaAbility {
   id: string;
   cost: string; // Usually "{T}" for tap, can include additional costs like "{T}, Pay 1 life"
   produces: string[]; // Colors that can be produced: ['W','U','B','R','G'] or ['any']
+  amount?: number; // Amount of mana produced per color (default 1). E.g., Sol Ring produces 2 colorless, so amount=2
   producesAllAtOnce?: boolean; // True for lands like Rakdos Carnarium that produce {B}{R} (both, not choice)
   isGranted?: boolean; // True if granted by another permanent
   grantedBy?: string; // ID of permanent granting this ability
@@ -554,10 +555,10 @@ export function getManaAbilitiesForPermanent(
   if (isLand) {
     // ========================================================================
     // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
-    // Pattern: "{T}: Add {X}{Y}" where X and Y are different colored mana symbols
+    // Pattern: "{T}: Add {X}{Y}..." where X, Y are mana symbols (same or different)
     // These lands produce BOTH colors at once (not a choice)
     // ========================================================================
-    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+(\{[wubrgc]\}\{[wubrgc]\})/i);
+    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
     if (multiManaMatch) {
       const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
       const colors: string[] = [];
@@ -568,7 +569,7 @@ export function getManaAbilitiesForPermanent(
         }
       }
       // Check if this produces multiple different colors (like {B}{R})
-      // vs. the same color twice (like {C}{C})
+      // vs. the same color multiple times (like {C}{C})
       if (colors.length > 1) {
         // Multi-color producer like Rakdos Carnarium - produces both at once
         abilities.push({ 
@@ -578,9 +579,15 @@ export function getManaAbilitiesForPermanent(
           producesAllAtOnce: true // Both colors are added, not a choice
         });
         hasExplicitChoicePattern = true;
-      } else if (colors.length === 1 && manaSymbols.length === 2) {
-        // Same color twice (like Sol Ring {C}{C}) - handled elsewhere
-        // This case is handled by the fixed multi-mana pattern
+      } else if (colors.length === 1) {
+        // Same color multiple times - produces N of the same color
+        abilities.push({ 
+          id: 'native_multi_same', 
+          cost: '{T}', 
+          produces: colors,
+          amount: manaSymbols.length // Produces N mana of this color
+        });
+        hasExplicitChoicePattern = true;
       }
     }
     
@@ -861,25 +868,66 @@ export function getManaAbilitiesForPermanent(
       oracleText.includes("for each");
     
     if (!hasScalingManaAbility) {
-      // Check for each colored mana - simple fixed-amount abilities only
-      if (oracleText.match(/\{t\}:\s*add\s+\{w\}/i)) {
-        abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
+      // ========================================================================
+      // Check for multi-mana producers FIRST (Sol Ring {C}{C}, Thran Dynamo {C}{C}{C}, etc.)
+      // Pattern: "{T}: Add {X}{Y}..." where X, Y, Z... are mana symbols (same or different)
+      // This handles artifacts that produce 2+ fixed mana of specified types.
+      // Note: Variable mana (devotion, creature count) is handled by hasScalingManaAbility check above.
+      // ========================================================================
+      const nonLandMultiManaMatch = oracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
+      let handledAsMultiMana = false;
+      if (nonLandMultiManaMatch) {
+        const manaSymbols = nonLandMultiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
+        const colors: string[] = [];
+        for (const sym of manaSymbols) {
+          const color = sym.replace(/[{}]/g, '').toUpperCase();
+          if (!colors.includes(color)) {
+            colors.push(color);
+          }
+        }
+        if (colors.length > 1) {
+          // Multi-color producer (e.g., Simic Signet {G}{U}) - produces different colors at once
+          abilities.push({ 
+            id: 'native_multi', 
+            cost: '{T}', 
+            produces: colors,
+            producesAllAtOnce: true
+          });
+          handledAsMultiMana = true;
+        } else if (colors.length === 1) {
+          // Same color multiple times (e.g., Sol Ring {C}{C}) - produces N of the same color
+          abilities.push({ 
+            id: 'native_multi_same', 
+            cost: '{T}', 
+            produces: colors,
+            amount: manaSymbols.length // Produces N mana of this color
+          });
+          handledAsMultiMana = true;
+        }
       }
-      if (oracleText.match(/\{t\}:\s*add\s+\{u\}/i)) {
-        abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
-      }
-      if (oracleText.match(/\{t\}:\s*add\s+\{b\}/i)) {
-        abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
-      }
-      if (oracleText.match(/\{t\}:\s*add\s+\{r\}/i)) {
-        abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
-      }
-      if (oracleText.match(/\{t\}:\s*add\s+\{g\}/i)) {
-        abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
-      }
-      // Check for colorless mana
-      if (oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
-        abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
+      
+      // Only check single-color patterns if we didn't already handle as multi-mana
+      if (!handledAsMultiMana) {
+        // Check for each colored mana - simple fixed-amount abilities only
+        if (oracleText.match(/\{t\}:\s*add\s+\{w\}/i)) {
+          abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
+        }
+        if (oracleText.match(/\{t\}:\s*add\s+\{u\}/i)) {
+          abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
+        }
+        if (oracleText.match(/\{t\}:\s*add\s+\{b\}/i)) {
+          abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
+        }
+        if (oracleText.match(/\{t\}:\s*add\s+\{r\}/i)) {
+          abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
+        }
+        if (oracleText.match(/\{t\}:\s*add\s+\{g\}/i)) {
+          abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
+        }
+        // Check for colorless mana
+        if (oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
+          abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
+        }
       }
       // Check for "any color" mana (Birds of Paradise, Arcane Signet, etc.) - but not variable amounts
       if (oracleText.match(/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {

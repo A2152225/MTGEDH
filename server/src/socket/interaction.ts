@@ -2608,7 +2608,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const poolKey = colorToPoolKey[manaColor] || 'colorless';
             
             // Calculate base amount with multiplier
-            const baseAmount = 1;
+            // Use ability.amount if specified (e.g., Sol Ring produces 2), default to 1
+            const baseAmount = ability.amount ?? 1;
             let totalAmount = baseAmount * effectiveMultiplier;
             
             // ========================================================================
@@ -2637,6 +2638,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               message += ` for ${totalAmount} {${manaColor}} mana (×${effectiveMultiplier}).`;
             } else if (extraMana.length > 0) {
               message += ` for ${totalAmount} {${manaColor}} mana (+${extraMana.reduce((a, e) => a + e.amount, 0)} extra).`;
+            } else if (baseAmount > 1) {
+              message += ` for ${baseAmount} {${manaColor}} mana.`;
             } else {
               message += ` for {${manaColor}} mana.`;
             }
@@ -5506,46 +5509,65 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           arr.findIndex(x => x.id === t.id) === i
         );
         
-        // Store pending ability activation info
-        const pendingAbilityId = `pw_${permanentId}_${Date.now()}`;
-        (game as any).pendingPlaneswalkerAbility = (game as any).pendingPlaneswalkerAbility || {};
-        (game as any).pendingPlaneswalkerAbility[pendingAbilityId] = {
-          playerId: pid,
-          permanentId,
-          cardName,
-          ability,
-          abilityIndex,
-          loyaltyCost,
-          currentLoyalty,
-          targetReqs,
-        };
-        
-        // Emit target selection request (same event as spell casting uses)
-        socket.emit("targetSelectionRequest", {
-          gameId,
-          effectId: pendingAbilityId,
-          source: {
-            name: cardName,
-            imageUrl: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
-          },
-          title: `Choose ${targetReqs.targetDescription} for ${cardName}`,
-          description: ability.text,
-          targets: uniqueTargets.map(t => ({
-            id: t.id,
-            type: t.kind === 'player' ? 'player' : 'permanent',
-            name: t.name,
-            displayName: t.name,
-            imageUrl: t.imageUrl,
-            controller: t.controller,
-            life: (t as any).life,
-            isOpponent: t.isOpponent,
-          })),
-          minTargets: targetReqs.minTargets,
-          maxTargets: targetReqs.maxTargets,
-        });
-        
-        debug(2, `[planeswalker] Requesting target selection for ${cardName} ability: ${targetReqs.targetDescription}`);
-        return; // Wait for target selection
+        // ========================================================================
+        // Handle "up to X" abilities with no valid targets
+        // If minTargets is 0 (e.g., "up to one target creature") and there are no
+        // valid targets, proceed with the ability without target selection.
+        // This prevents the game from hanging when abilities like Ajani Steadfast's
+        // +1 are activated with no creatures on the battlefield.
+        // ========================================================================
+        if (uniqueTargets.length === 0 && targetReqs.minTargets === 0) {
+          debug(2, `[planeswalker] ${cardName} ability has no valid targets but minTargets=0, proceeding without targets`);
+          // Fall through to execute the ability without targets
+        } else if (uniqueTargets.length < targetReqs.minTargets) {
+          // Not enough valid targets and targeting is mandatory
+          socket.emit("error", {
+            code: "NO_VALID_TARGETS",
+            message: `${cardName}'s ability requires at least ${targetReqs.minTargets} target(s) but only ${uniqueTargets.length} are available.`,
+          });
+          return;
+        } else {
+          // Store pending ability activation info
+          const pendingAbilityId = `pw_${permanentId}_${Date.now()}`;
+          (game as any).pendingPlaneswalkerAbility = (game as any).pendingPlaneswalkerAbility || {};
+          (game as any).pendingPlaneswalkerAbility[pendingAbilityId] = {
+            playerId: pid,
+            permanentId,
+            cardName,
+            ability,
+            abilityIndex,
+            loyaltyCost,
+            currentLoyalty,
+            targetReqs,
+          };
+          
+          // Emit target selection request (same event as spell casting uses)
+          socket.emit("targetSelectionRequest", {
+            gameId,
+            effectId: pendingAbilityId,
+            source: {
+              name: cardName,
+              imageUrl: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+            },
+            title: `Choose ${targetReqs.targetDescription} for ${cardName}`,
+            description: ability.text,
+            targets: uniqueTargets.map(t => ({
+              id: t.id,
+              type: t.kind === 'player' ? 'player' : 'permanent',
+              name: t.name,
+              displayName: t.name,
+              imageUrl: t.imageUrl,
+              controller: t.controller,
+              life: (t as any).life,
+              isOpponent: t.isOpponent,
+            })),
+            minTargets: targetReqs.minTargets,
+            maxTargets: targetReqs.maxTargets,
+          });
+          
+          debug(2, `[planeswalker] Requesting target selection for ${cardName} ability: ${targetReqs.targetDescription}`);
+          return; // Wait for target selection
+        }
       }
       
       // Enqueue activation in the resolution queue for unified handling/ordering
