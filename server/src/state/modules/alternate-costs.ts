@@ -91,11 +91,12 @@ export function getForceOfWillAlternateCost(
     oracleText.includes("life");
   
   // Check for Force of Negation pattern: exile blue card, only on opponent's turn
+  // Use more specific regex pattern to avoid false positives
   const hasForceOfNegationPattern = 
     oracleText.includes("exile") && 
     oracleText.includes("blue card") && 
     oracleText.includes("from your hand") &&
-    oracleText.includes("not your turn");
+    /if it's not your turn/i.test(oracleText);
   
   // If neither pattern matches, return null
   if (!hasForceOfWillPattern && !hasForceOfNegationPattern && 

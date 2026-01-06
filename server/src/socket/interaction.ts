@@ -20,7 +20,7 @@ import {
   detectManaModifiers
 } from "../state/modules/mana-abilities";
 import { canPayManaCost } from "../state/modules/mana-check.js";
-import { exchangePermanentOracleText } from "../state/utils";
+import { exchangePermanentOracleText, parseWordNumber } from "../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
@@ -568,12 +568,8 @@ function parseAbilityCost(oracleText: string): {
   // Use \w+ instead of [a-z]+ to properly capture creature types
   const tapCreaturesMatch = text.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control/i);
   if (tapCreaturesMatch) {
-    const countStr = tapCreaturesMatch[1].toLowerCase();
-    const countMap: Record<string, number> = {
-      "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-      "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
-    };
-    result.tapCount = countMap[countStr] || parseInt(countStr, 10) || 1;
+    const countStr = tapCreaturesMatch[1];
+    result.tapCount = parseWordNumber(countStr, 1);
     result.tapCreatureType = tapCreaturesMatch[2];
   }
   
@@ -1661,13 +1657,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Pattern: "Tap X untapped [Type] you control: Return this card from your graveyard to your hand"
       const tapCreatureCostMatch = oracleText.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control:\s*return\s+(?:this card|~|it)\s+from\s+(?:your\s+)?graveyard/i);
       if (tapCreatureCostMatch) {
-        const countStr = tapCreatureCostMatch[1].toLowerCase();
+        const countStr = tapCreatureCostMatch[1];
         const creatureType = tapCreatureCostMatch[2].toLowerCase();
-        const countMap: Record<string, number> = {
-          "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-          "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
-        };
-        const tapCount = countMap[countStr] || parseInt(countStr, 10) || 1;
+        const tapCount = parseWordNumber(countStr, 1);
         
         // Find untapped creatures of the required type
         const untappedCreatures = findUntappedPermanentsWithCreatureType(
@@ -2124,12 +2116,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    const countStr = tapCreatureCostMatch[1].toLowerCase();
-    const countMap: Record<string, number> = {
-      "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-      "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
-    };
-    const requiredCount = countMap[countStr] || parseInt(countStr, 10) || 1;
+    const countStr = tapCreatureCostMatch[1];
+    const requiredCount = parseWordNumber(countStr, 1);
     
     // Verify the correct number of creatures were selected
     if (!creatureIds || creatureIds.length !== requiredCount) {

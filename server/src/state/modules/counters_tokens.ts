@@ -1,7 +1,7 @@
 import type { PlayerID } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
-import { uid, parsePT } from "../utils";
+import { uid, parsePT, parseWordNumber } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
@@ -1088,15 +1088,10 @@ export function updateGodCreatureStatus(ctx: GameContext): void {
     
     const color1 = devotionMatch[1].toLowerCase();
     const color2 = devotionMatch[2]?.toLowerCase();
-    const thresholdStr = devotionMatch[3].toLowerCase();
+    const thresholdStr = devotionMatch[3];
     
-    // Convert word numbers to digits
-    const wordToNumber: Record<string, number> = {
-      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
-    };
-    const parsedInt = parseInt(thresholdStr, 10);
-    const threshold = wordToNumber[thresholdStr] ?? (isNaN(parsedInt) ? 5 : parsedInt);
+    // Use shared utility for word-to-number conversion
+    const threshold = parseWordNumber(thresholdStr, 5);
     
     // Map color words to mana symbols
     const colorToSymbol: Record<string, string> = {
