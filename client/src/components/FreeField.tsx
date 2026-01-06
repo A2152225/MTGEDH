@@ -799,7 +799,7 @@ export function FreeField(props: {
 
             {/* Granted abilities badges with reminder text tooltips */}
             {/* Position adjusts when targeted indicator is shown to avoid overlap */}
-            {Array.isArray(abilities) && abilities.length > 0 && (
+            {Array.isArray(abilities) && abilities.length > 0 ? (
               <div style={{ 
                 position: 'absolute', 
                 top: isTargeted ? Math.round(24 * scale) : Math.round(4 * scale), 
@@ -854,7 +854,7 @@ export function FreeField(props: {
                   </span>
                 )}
               </div>
-            )}
+            ) : null}
 
             {/* Temporary Effects Badge - shows when card has temporary effects applied */}
             {hasTemporaryEffects && (
