@@ -3534,44 +3534,28 @@ function executeTriggerEffect(
         const sourceCard = triggerItem.card;
         const linkedEffect = sourceCard ? detectLinkedExileEffect(sourceCard) : null;
         
-        // Move to exile (tokens cease to exist)
-        const permIndex = state.battlefield.indexOf(targetPerm);
-        if (permIndex !== -1) {
-          const exiledPermanentId = targetPerm.id;
-          state.battlefield.splice(permIndex, 1);
+        // Use movePermanentToExile to properly handle commander replacement effects
+        // Import and use the function from counters_tokens
+        try {
+          movePermanentToExile(ctx, targetPerm);
           
-          // Tokens cease to exist when they leave the battlefield
-          if (targetPerm.isToken || targetPerm.card?.isToken) {
-            debug(2, `[executeTriggerEffect] ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
-          } else {
-            // Add to exile zone
-            const ownerZones = state.zones?.[targetPerm.owner];
-            if (ownerZones) {
-              ownerZones.exile = ownerZones.exile || [];
-              targetPerm.card.zone = 'exile';
-              ownerZones.exile.push(targetPerm.card);
-              ownerZones.exileCount = (ownerZones.exile || []).length;
-            }
-            
-            // If this is a linked exile effect, register the link
-            if (linkedEffect?.hasLinkedExile) {
-              const sourceId = triggerItem.sourceId || triggerItem.permanentId;
-              registerLinkedExile(
-                ctx,
-                sourceId,
-                sourceName,
-                targetPerm.card,
-                targetPerm.owner,
-                targetPerm.controller
-              );
-              debug(2, `[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
-            } else {
-              debug(2, `[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
-            }
+          // If this is a linked exile effect, register the link
+          if (linkedEffect?.hasLinkedExile && targetPerm.card && !targetPerm.isToken && !targetPerm.card?.isToken) {
+            const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+            registerLinkedExile(
+              ctx,
+              sourceId,
+              sourceName,
+              targetPerm.card,
+              targetPerm.owner,
+              targetPerm.controller
+            );
+            debug(2, `[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
+          } else if (!targetPerm.isToken && !targetPerm.card?.isToken) {
+            debug(2, `[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
           }
-          
-          // Process linked exile returns for the removed permanent (in case it was an Oblivion Ring)
-          processLinkedExileReturns(ctx, exiledPermanentId);
+        } catch (err) {
+          debugWarn(1, `[executeTriggerEffect] Error calling movePermanentToExile:`, err);
         }
       }
     }

@@ -1657,6 +1657,54 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Parse the oracle text to determine the destination and mana cost
       const oracleText = (card.oracle_text || "").toLowerCase();
       
+      // Check for creature tap costs (Summon the School style: "Tap four untapped Merfolk you control:")
+      // Pattern: "Tap X untapped [Type] you control: Return this card from your graveyard to your hand"
+      const tapCreatureCostMatch = oracleText.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control:\s*return\s+(?:this card|~|it)\s+from\s+(?:your\s+)?graveyard/i);
+      if (tapCreatureCostMatch) {
+        const countStr = tapCreatureCostMatch[1].toLowerCase();
+        const creatureType = tapCreatureCostMatch[2].toLowerCase();
+        const countMap: Record<string, number> = {
+          "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+          "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+        };
+        const tapCount = countMap[countStr] || parseInt(countStr, 10) || 1;
+        
+        // Find untapped creatures of the required type
+        const untappedCreatures = findUntappedPermanentsWithCreatureType(
+          game.state.battlefield || [],
+          pid,
+          creatureType
+        );
+        
+        if (untappedCreatures.length < tapCount) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_CREATURES",
+            message: `Need ${tapCount} untapped ${creatureType}(s), but you only have ${untappedCreatures.length}.`,
+          });
+          return;
+        }
+        
+        // Request player to select which creatures to tap
+        socket.emit("tapCreaturesRequest", {
+          gameId,
+          cardId,
+          cardName,
+          abilityId,
+          creatureType,
+          requiredCount: tapCount,
+          availableCreatures: untappedCreatures.map((c: any) => ({
+            id: c.id,
+            name: c.card?.name || 'Unknown',
+            type_line: c.card?.type_line || '',
+            image_uris: c.card?.image_uris,
+          })),
+          message: `Tap ${tapCount} untapped ${creatureType}${tapCount > 1 ? 's' : ''} to return ${cardName} to hand.`,
+        });
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      
       // Parse mana cost from oracle text for graveyard abilities
       // Pattern: "{3}{R}{R}: Return this card from your graveyard to your hand"
       const graveyardAbilityMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*return\s+(?:this|~|(?:this card|it))\s+from\s+(?:your\s+)?graveyard\s+to\s+(?:your\s+)?hand/i);
@@ -2041,6 +2089,109 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
     }
+    
+    broadcastGame(io, game, gameId);
+  });
+  
+  // Handle tap creatures response (for graveyard abilities like Summon the School)
+  socket.on("tapCreaturesResponse", ({ gameId, cardId, abilityId, creatureIds }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+    
+    const game = ensureGame(gameId);
+    const zones = (game.state as any)?.zones?.[pid];
+    
+    if (!zones || !Array.isArray(zones.graveyard)) {
+      socket.emit("error", { code: "NO_ZONES", message: "Zones not found" });
+      return;
+    }
+    
+    // Find the card in graveyard
+    const cardIndex = zones.graveyard.findIndex((c: any) => c.id === cardId);
+    if (cardIndex === -1) {
+      socket.emit("error", { code: "CARD_NOT_IN_GRAVEYARD", message: "Card not found in graveyard" });
+      return;
+    }
+    
+    const card = zones.graveyard[cardIndex];
+    const cardName = card.name || "Unknown Card";
+    const oracleText = (card.oracle_text || "").toLowerCase();
+    
+    // Verify this card has a tap creatures cost
+    const tapCreatureCostMatch = oracleText.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control:\s*return\s+(?:this card|~|it)\s+from\s+(?:your\s+)?graveyard/i);
+    if (!tapCreatureCostMatch) {
+      socket.emit("error", { code: "INVALID_ABILITY", message: "This card doesn't have a tap creatures cost" });
+      return;
+    }
+    
+    const countStr = tapCreatureCostMatch[1].toLowerCase();
+    const countMap: Record<string, number> = {
+      "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+      "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+    };
+    const requiredCount = countMap[countStr] || parseInt(countStr, 10) || 1;
+    
+    // Verify the correct number of creatures were selected
+    if (!creatureIds || creatureIds.length !== requiredCount) {
+      socket.emit("error", {
+        code: "WRONG_CREATURE_COUNT",
+        message: `Need to tap exactly ${requiredCount} creature(s), but ${creatureIds?.length || 0} were selected.`,
+      });
+      return;
+    }
+    
+    // Tap the selected creatures
+    const battlefield = game.state.battlefield || [];
+    const tappedCreatureNames: string[] = [];
+    
+    for (const creatureId of creatureIds) {
+      const creature = battlefield.find((p: any) => p.id === creatureId && p.controller === pid);
+      if (!creature) {
+        socket.emit("error", {
+          code: "CREATURE_NOT_FOUND",
+          message: `Creature ${creatureId} not found or not controlled by you.`,
+        });
+        return;
+      }
+      
+      if ((creature as any).tapped) {
+        socket.emit("error", {
+          code: "CREATURE_ALREADY_TAPPED",
+          message: `${creature.card?.name || 'Creature'} is already tapped.`,
+        });
+        return;
+      }
+      
+      (creature as any).tapped = true;
+      tappedCreatureNames.push(creature.card?.name || 'Creature');
+    }
+    
+    // Remove card from graveyard and add to hand
+    zones.graveyard.splice(cardIndex, 1);
+    zones.graveyardCount = zones.graveyard.length;
+    zones.hand = zones.hand || [];
+    zones.hand.push({ ...card, zone: "hand" });
+    zones.handCount = zones.hand.length;
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
+      playerId: pid,
+      cardId,
+      abilityId: "tap-creatures-return",
+      tappedCreatureIds: creatureIds,
+      destination: "hand",
+    });
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} tapped ${tappedCreatureNames.join(', ')} to return ${cardName} from graveyard to hand.`,
+      ts: Date.now(),
+    });
     
     broadcastGame(io, game, gameId);
   });
