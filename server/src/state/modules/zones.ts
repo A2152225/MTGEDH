@@ -67,12 +67,14 @@ export function importDeckResolved(
     oracle_text: c.oracle_text,
     image_uris: c.image_uris,
     mana_cost: (c as any).mana_cost,
+    cmc: (c as any).cmc, // Converted mana cost - needed for cost calculations
     power: (c as any).power,
     toughness: (c as any).toughness,
     loyalty: (c as any).loyalty, // Planeswalker starting loyalty - CRITICAL for planeswalkers
     card_faces: (c as any).card_faces,
     layout: (c as any).layout,
     color_identity: (c as any).color_identity,
+    colors: (c as any).colors, // Card colors - needed for color detection
     zone: "library",
   }));
   

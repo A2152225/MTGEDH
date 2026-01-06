@@ -3023,11 +3023,11 @@ async function handleActivatedAbilityResponse(
       
       case 'group_draw': {
         // Execute group draw effect
-        const { detectGroupDrawEffect } = await import("../state/modules/triggered-abilities.js");
-        const groupDrawEffect = detectGroupDrawEffect(card, perm);
+        // Use the groupDrawEffect from abilityData (passed when ability was added to queue)
+        const groupDrawEffect = abilityData?.groupDrawEffect;
         
         if (!groupDrawEffect) {
-          debugWarn(1, `[Resolution] Group draw effect not detected for ${cardName}`);
+          debugWarn(1, `[Resolution] Group draw effect not found in abilityData for ${cardName}`);
           break;
         }
         
