@@ -1,6 +1,6 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue } from "../utils.js";
+import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus } from "./game-state-effects.js";
 import { 
   detectKeywords, 
@@ -645,6 +645,15 @@ function enqueueLibrarySearchStep(
   }));
   
   // Apply filter to get available cards that match criteria
+  // Build a game state context for calculating variable P/T
+  const gameStateForCDA = {
+    battlefield: (ctx as any).state?.battlefield || [],
+    zones: (ctx as any).state?.zones || {},
+    players: (ctx as any).state?.players || [],
+    life: (ctx as any).state?.life || {},
+    manaPool: (ctx as any).state?.manaPool || {},
+  };
+  
   const availableCards = allCards.filter((card: any) => {
     let matches = true;
     
@@ -661,27 +670,49 @@ function enqueueLibrarySearchStep(
     }
     
     // Check max power (e.g., "power 2 or less" - Imperial Recruiter)
-    // Only applies to creatures with defined numeric power
+    // Handle both numeric and variable (*) power via CDA calculation
     if (matches && typeof filter.maxPower === 'number') {
       if (card.power !== undefined && card.power !== null) {
-        const powerNum = parseInt(String(card.power), 10);
+        const powerStr = String(card.power);
+        const powerNum = parseInt(powerStr, 10);
         if (!isNaN(powerNum)) {
+          // Standard numeric power
           matches = powerNum <= filter.maxPower;
+        } else if (powerStr.includes('*')) {
+          // Variable power - calculate via CDA
+          // Set owner/controller for CDA calculation
+          const cardWithOwner = { ...card, owner: controller, controller: controller };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.power <= filter.maxPower;
+          }
+          // If CDA returns undefined, allow the card (can't determine)
         }
-        // If power is non-numeric (like "*"), don't filter it out
+        // Other non-numeric formats: allow the card
       }
       // If power is undefined (non-creature), don't filter based on power
     }
     
     // Check max toughness (e.g., "toughness 2 or less" - Recruiter of the Guard)
-    // Only applies to creatures with defined numeric toughness
+    // Handle both numeric and variable (*) toughness via CDA calculation
     if (matches && typeof filter.maxToughness === 'number') {
       if (card.toughness !== undefined && card.toughness !== null) {
-        const toughnessNum = parseInt(String(card.toughness), 10);
+        const toughnessStr = String(card.toughness);
+        const toughnessNum = parseInt(toughnessStr, 10);
         if (!isNaN(toughnessNum)) {
+          // Standard numeric toughness
           matches = toughnessNum <= filter.maxToughness;
+        } else if (toughnessStr.includes('*')) {
+          // Variable toughness - calculate via CDA
+          // Set owner/controller for CDA calculation
+          const cardWithOwner = { ...card, owner: controller, controller: controller };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.toughness <= filter.maxToughness;
+          }
+          // If CDA returns undefined, allow the card (can't determine)
         }
-        // If toughness is non-numeric (like "*"), don't filter it out
+        // Other non-numeric formats: allow the card
       }
       // If toughness is undefined (non-creature), don't filter based on toughness
     }

@@ -14,7 +14,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
-import { parsePT, uid } from "../state/utils.js";
+import { parsePT, uid, calculateVariablePT } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB } from "./ai.js";
 import { appendEvent } from "../db/index.js";
@@ -5283,10 +5283,23 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
 
 /**
  * Helper function to filter library cards based on search criteria
+ * @param library - Array of library cards to filter
+ * @param filter - Search criteria filter
+ * @param gameState - Optional game state context for calculating variable P/T (CDA)
+ * @param controllerId - Optional controller ID for CDA calculation context
  */
-function filterLibraryCards(library: any[], filter: any): any[] {
+function filterLibraryCards(library: any[], filter: any, gameState?: any, controllerId?: string): any[] {
   const availableCards: any[] = [];
   const searchCriteria = filter || {};
+  
+  // Build game state context for CDA calculations
+  const gameStateForCDA = gameState ? {
+    battlefield: gameState.battlefield || [],
+    zones: gameState.zones || {},
+    players: gameState.players || [],
+    life: gameState.life || {},
+    manaPool: gameState.manaPool || {},
+  } : undefined;
   
   for (const card of library) {
     let matches = true;
@@ -5321,27 +5334,47 @@ function filterLibraryCards(library: any[], filter: any): any[] {
     }
     
     // Check power (e.g., "creature with power 2 or less" - Imperial Recruiter)
-    // Only applies to creatures with defined numeric power
+    // Handle both numeric and variable (*) power via CDA calculation
     if (matches && typeof searchCriteria.maxPower === 'number') {
       if (card.power !== undefined && card.power !== null) {
-        const powerNum = parseInt(String(card.power), 10);
+        const powerStr = String(card.power);
+        const powerNum = parseInt(powerStr, 10);
         if (!isNaN(powerNum)) {
+          // Standard numeric power
           matches = powerNum <= searchCriteria.maxPower;
+        } else if (powerStr.includes('*') && gameStateForCDA) {
+          // Variable power - calculate via CDA
+          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.power <= searchCriteria.maxPower;
+          }
+          // If CDA returns undefined, allow the card (can't determine)
         }
-        // If power is non-numeric (like "*"), don't filter it out
+        // Other non-numeric formats without game state: allow the card
       }
       // If power is undefined (non-creature), don't filter based on power
     }
     
     // Check toughness (e.g., "creature with toughness 2 or less" - Recruiter of the Guard)
-    // Only applies to creatures with defined numeric toughness
+    // Handle both numeric and variable (*) toughness via CDA calculation
     if (matches && typeof searchCriteria.maxToughness === 'number') {
       if (card.toughness !== undefined && card.toughness !== null) {
-        const toughnessNum = parseInt(String(card.toughness), 10);
+        const toughnessStr = String(card.toughness);
+        const toughnessNum = parseInt(toughnessStr, 10);
         if (!isNaN(toughnessNum)) {
+          // Standard numeric toughness
           matches = toughnessNum <= searchCriteria.maxToughness;
+        } else if (toughnessStr.includes('*') && gameStateForCDA) {
+          // Variable toughness - calculate via CDA
+          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.toughness <= searchCriteria.maxToughness;
+          }
+          // If CDA returns undefined, allow the card (can't determine)
         }
-        // If toughness is non-numeric (like "*"), don't filter it out
+        // Other non-numeric formats without game state: allow the card
       }
       // If toughness is undefined (non-creature), don't filter based on toughness
     }
@@ -5415,8 +5448,9 @@ function createLibrarySearchStep(
     return;
   }
   
-  // Filter cards based on search criteria
-  const availableCards = filterLibraryCards(lib, filter);
+  // Filter cards based on search criteria, passing game state for CDA calculations
+  const gameState = game.state || game;
+  const availableCards = filterLibraryCards(lib, filter, gameState, playerId);
   
   debug(2, `[createLibrarySearchStep] Creating library search for player ${playerId}, ${availableCards.length} matching cards`);
   
