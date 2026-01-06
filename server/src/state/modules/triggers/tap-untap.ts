@@ -12,6 +12,7 @@
 
 import type { GameContext } from "../../context.js";
 import { KNOWN_UNTAP_TRIGGERS } from "./card-data-tables.js";
+import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 // Re-export detectDoesntUntapEffects from turn-phases for backwards compatibility
@@ -55,7 +56,16 @@ export interface TapTrigger {
 // ============================================================================
 
 /**
- * Detect untap triggers from permanents on the battlefield
+ * Detect untap triggers from permanents on the battlefield.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_UNTAP_TRIGGERS table serves as an
+ * optimization fallback for special handling.
+ * 
+ * Patterns detected:
+ * - "Whenever ~ attacks, untap all lands you control"
+ * - "Whenever ~ deals combat damage to a player, untap all lands/creatures you control"
+ * - "Whenever enchanted/equipped creature attacks, untap..."
  */
 export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   const triggers: UntapTrigger[] = [];
@@ -65,23 +75,15 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
-  // Check known untap trigger cards
-  for (const [knownName, info] of Object.entries(KNOWN_UNTAP_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        triggerOn: info.triggerOn,
-        untapType: info.untapType,
-        effect: info.effect,
-      });
-    }
-  }
+  // Use shared utility function for regex escaping (make lowercase for case-insensitive match)
+  const cardNameEscaped = escapeCardNameForRegex(cardName).toLowerCase();
   
-  // Generic detection: "Whenever enchanted creature attacks, untap all lands you control"
-  const attackUntapLandsMatch = oracleText.match(/whenever (?:enchanted creature|equipped creature|~) attacks,?\s*(?:[^.]*)?untap all lands you control/i);
-  if (attackUntapLandsMatch && !triggers.some(t => t.triggerOn === 'attack' && t.untapType === 'lands')) {
+  // ===== DYNAMIC DETECTION (Primary) =====
+  
+  // "Whenever [creature] attacks, untap all lands you control"
+  const attackUntapLandsPattern = new RegExp(`whenever (?:enchanted creature|equipped creature|~|${cardNameEscaped}) attacks,?\\s*(?:[^.]*)?untap all lands you control`, 'i');
+  const attackUntapLandsMatch = oracleText.match(attackUntapLandsPattern);
+  if (attackUntapLandsMatch) {
     triggers.push({
       permanentId,
       cardName,
@@ -92,9 +94,24 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
     });
   }
   
-  // Generic detection: "Whenever ~ deals combat damage to a player, untap all lands you control"
-  const combatDamageUntapMatch = oracleText.match(/whenever (?:~|enchanted creature|equipped creature) deals combat damage to (?:a player|an opponent),?\s*(?:[^.]*)?untap all lands you control/i);
-  if (combatDamageUntapMatch && !triggers.some(t => t.triggerOn === 'combat_damage' && t.untapType === 'lands')) {
+  // "Whenever [creature] attacks, untap all creatures you control"
+  const attackUntapCreaturesPattern = new RegExp(`whenever (?:enchanted creature|equipped creature|~|${cardNameEscaped}) attacks,?\\s*(?:[^.]*)?untap all creatures you control`, 'i');
+  const attackUntapCreaturesMatch = oracleText.match(attackUntapCreaturesPattern);
+  if (attackUntapCreaturesMatch && !triggers.some(t => t.triggerOn === 'attack' && t.untapType === 'creatures')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'attack',
+      untapType: 'creatures',
+      effect: 'Untap all creatures you control',
+    });
+  }
+  
+  // "Whenever [creature] deals combat damage to a player, untap all lands you control"
+  const combatDamageUntapLandsPattern = new RegExp(`whenever (?:~|enchanted creature|equipped creature|${cardNameEscaped}) deals combat damage to (?:a player|an opponent),?\\s*(?:[^.]*)?untap all lands you control`, 'i');
+  const combatDamageUntapLandsMatch = oracleText.match(combatDamageUntapLandsPattern);
+  if (combatDamageUntapLandsMatch && !triggers.some(t => t.triggerOn === 'combat_damage' && t.untapType === 'lands')) {
     triggers.push({
       permanentId,
       cardName,
@@ -103,6 +120,50 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
       untapType: 'lands',
       effect: 'Untap all lands you control',
     });
+  }
+  
+  // "Whenever [creature] deals combat damage to a player, untap all creatures you control"
+  const combatDamageUntapCreaturesPattern = new RegExp(`whenever (?:~|enchanted creature|equipped creature|${cardNameEscaped}) deals combat damage to (?:a player|an opponent),?\\s*(?:[^.]*)?untap all creatures you control`, 'i');
+  const combatDamageUntapCreaturesMatch = oracleText.match(combatDamageUntapCreaturesPattern);
+  if (combatDamageUntapCreaturesMatch && !triggers.some(t => t.triggerOn === 'combat_damage' && t.untapType === 'creatures')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'combat_damage',
+      untapType: 'creatures',
+      effect: 'Untap all creatures you control',
+    });
+  }
+  
+  // "Whenever [creature] deals damage to a player, untap all lands you control" (any damage, not just combat)
+  const damageUntapLandsPattern = new RegExp(`whenever (?:~|enchanted creature|equipped creature|${cardNameEscaped}) deals damage to (?:a player|an opponent),?\\s*(?:[^.]*)?untap all lands you control`, 'i');
+  const damageUntapLandsMatch = oracleText.match(damageUntapLandsPattern);
+  if (damageUntapLandsMatch && !triggers.some(t => t.triggerOn === 'damage_to_player' && t.untapType === 'lands')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'damage_to_player',
+      untapType: 'lands',
+      effect: 'Untap all lands you control',
+    });
+  }
+  
+  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+  // Use the table to handle special cases not caught by dynamic patterns
+  // Only add if not already detected dynamically
+  for (const [knownName, info] of Object.entries(KNOWN_UNTAP_TRIGGERS)) {
+    if (lowerName.includes(knownName) && !triggers.some(t => t.triggerOn === info.triggerOn && t.untapType === info.untapType)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerOn: info.triggerOn,
+        untapType: info.untapType,
+        effect: info.effect,
+      });
+    }
   }
   
   return triggers;

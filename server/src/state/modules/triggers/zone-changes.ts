@@ -17,6 +17,7 @@ import {
   KNOWN_DEATH_TRIGGERS,
   KNOWN_ETB_TRIGGERS,
 } from "./card-data-tables.js";
+import { escapeCardNameForRegex } from "./types.js";
 
 // ============================================================================
 // Type Definitions
@@ -58,6 +59,8 @@ export interface DeathTriggerResult {
   targets?: string[];
   requiresSacrificeSelection?: boolean;
   sacrificeFrom?: string;
+  returnsUnderControl?: boolean;  // For Grave Betrayal-style effects
+  dyingCreatureCard?: any;        // Card data of dying creature for reanimation effects
 }
 
 // ============================================================================
@@ -111,7 +114,19 @@ const KNOWN_ETB_SACRIFICE_UNLESS: Record<string, {
 // ============================================================================
 
 /**
- * Detect death triggers from a permanent's abilities
+ * Detect death triggers from a permanent's abilities.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_DEATH_TRIGGERS table serves as an optimization
+ * cache for frequently-used cards and provides additional metadata.
+ * 
+ * Patterns detected:
+ * - "When ~ dies, [effect]" - self death trigger
+ * - "Whenever a creature you control dies, [effect]" - controlled creature death
+ * - "Whenever a creature dies, [effect]" - any creature death
+ * - "Whenever a creature an opponent controls dies, [effect]" - opponent creature death
+ * - "Undying" keyword
+ * - "Persist" keyword
  */
 export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
@@ -122,22 +137,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   const permanentId = permanent?.id || "";
   const counters = permanent?.counters || {};
   
-  // Check known cards
-  for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      const triggerType = info.triggerOn === 'controlled' ? 'creature_dies' 
-        : info.triggerOn === 'any' ? 'any_creature_dies' 
-        : 'dies';
-      triggers.push({
-        permanentId,
-        cardName,
-        triggerType,
-        description: info.effect,
-        effect: info.effect,
-        mandatory: true,
-      });
-    }
-  }
+  // ===== DYNAMIC DETECTION (Primary) =====
   
   // Undying - if no +1/+1 counter, return with one
   if (lowerOracle.includes("undying")) {
@@ -167,8 +167,11 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     }
   }
   
-  // Generic "when ~ dies" triggers
-  const diesMatch = oracleText.match(/when(?:ever)?\s+(?:~|this creature)\s+dies,?\s*([^.]+)/i);
+  // Generic "when ~ dies" or "when this creature dies" triggers
+  // Use shared utility function for regex escaping
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
+  const selfDiesPattern = new RegExp(`when(?:ever)?\\s+(?:~|this creature|${cardNameEscaped})\\s+dies,?\\s*([^.]+)`, 'i');
+  const diesMatch = oracleText.match(selfDiesPattern);
   if (diesMatch && !triggers.some(t => t.triggerType === 'dies')) {
     triggers.push({
       permanentId,
@@ -180,9 +183,12 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     });
   }
   
-  // "Whenever a creature you control dies"
-  const controlledDiesMatch = oracleText.match(/whenever a creature you control dies,?\s*([^.]+)/i);
+  // "Whenever a creature you control dies" - also handles "nontoken creature"
+  // Check specifically for the nontoken keyword in the death trigger context
+  const controlledDiesMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature you control dies,?\s*([^.]+)/i);
   if (controlledDiesMatch && !triggers.some(t => t.triggerType === 'creature_dies')) {
+    // Use more specific check - look for the exact pattern being matched
+    const nontokenMatch = oracleText.match(/whenever (?:a|another) nontoken creature you control dies/i);
     triggers.push({
       permanentId,
       cardName,
@@ -190,12 +196,18 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       description: controlledDiesMatch[1].trim(),
       effect: controlledDiesMatch[1].trim(),
       mandatory: true,
+      nontokenOnly: !!nontokenMatch,
     });
   }
   
-  // "Whenever a creature dies"
-  const anyDiesMatch = oracleText.match(/whenever a creature dies,?\s*([^.]+)/i);
-  if (anyDiesMatch && !triggers.some(t => t.triggerType === 'any_creature_dies')) {
+  // "Whenever a creature dies" (any creature)
+  // Make sure we don't match "whenever a creature you control dies" or "whenever a creature an opponent controls dies"
+  const anyDiesMatch = oracleText.match(/whenever (?:a|another) creature dies,?\s*([^.]+)/i);
+  if (anyDiesMatch && 
+      !lowerOracle.includes('creature you control dies') && 
+      !lowerOracle.includes('creature an opponent controls dies') &&
+      !lowerOracle.includes("creature you don't control dies") &&
+      !triggers.some(t => t.triggerType === 'any_creature_dies')) {
     triggers.push({
       permanentId,
       cardName,
@@ -204,6 +216,46 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       effect: anyDiesMatch[1].trim(),
       mandatory: true,
     });
+  }
+  
+  // "Whenever a creature an opponent controls dies" or "Whenever a creature you don't control dies"
+  const opponentDiesMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature (?:an opponent controls|you don't control) dies,?\s*([^.]+)/i);
+  if (opponentDiesMatch && !triggers.some(t => t.triggerType === 'opponent_creature_dies')) {
+    // Use specific check for nontoken in the opponent creature dies context
+    const opponentNontokenMatch = oracleText.match(/whenever (?:a|another) nontoken creature (?:an opponent controls|you don't control) dies/i);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_creature_dies',
+      description: opponentDiesMatch[1].trim(),
+      effect: opponentDiesMatch[1].trim(),
+      mandatory: true,
+      nontokenOnly: !!opponentNontokenMatch,
+    });
+  }
+  
+  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+  // Use the table to provide enhanced metadata for known cards
+  // Only add if not already detected dynamically
+  for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
+    if (lowerName.includes(knownName)) {
+      const triggerType = info.triggerOn === 'controlled' ? 'creature_dies' 
+        : info.triggerOn === 'any' ? 'any_creature_dies' 
+        : info.triggerOn === 'opponent' ? 'opponent_creature_dies'
+        : 'dies';
+      
+      // Only add if not already detected by dynamic pattern
+      if (!triggers.some(t => t.triggerType === triggerType)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          triggerType,
+          description: info.effect,
+          effect: info.effect,
+          mandatory: true,
+        });
+      }
+    }
   }
   
   return triggers;
@@ -274,7 +326,11 @@ export function processUndyingPersist(
 }
 
 /**
- * Find all death triggers that should fire when a creature dies
+ * Find all death triggers that should fire when a creature dies.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_DEATH_TRIGGERS table serves as an optimization
+ * fallback for special handling.
  */
 export function getDeathTriggers(
   ctx: GameContext,
@@ -299,43 +355,15 @@ export function getDeathTriggers(
     const oracleText = (card.oracle_text || '').toLowerCase();
     const permanentController = permanent.controller;
     
-    // Check known death trigger cards
-    for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
-      if (cardName.includes(knownName)) {
-        let shouldTrigger = false;
-        
-        switch (info.triggerOn) {
-          case 'controlled':
-            shouldTrigger = dyingCreatureController === permanentController;
-            break;
-          case 'any':
-            shouldTrigger = true;
-            break;
-          case 'own':
-            shouldTrigger = false;
-            break;
-        }
-        
-        if (shouldTrigger) {
-          const requiresSacrifice = info.effect.toLowerCase().includes('sacrifice');
-          
-          results.push({
-            source: {
-              permanentId: permanent.id,
-              cardName: card.name,
-              controllerId: permanentController,
-            },
-            effect: info.effect,
-            requiresSacrificeSelection: requiresSacrifice,
-          });
-        }
-      }
-    }
+    // ===== DYNAMIC DETECTION (Primary) =====
     
-    // Generic detection: "Whenever a creature you control dies"
-    if (oracleText.includes('whenever a creature you control dies') && 
+    // "Whenever a creature you control dies" or "Whenever another creature you control dies"
+    if ((oracleText.includes('whenever a creature you control dies') ||
+         oracleText.includes('whenever another creature you control dies') ||
+         oracleText.includes('whenever a nontoken creature you control dies') ||
+         oracleText.includes('whenever another nontoken creature you control dies')) && 
         dyingCreatureController === permanentController) {
-      const effectMatch = oracleText.match(/whenever a creature you control dies,?\s*([^.]+)/i);
+      const effectMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature you control dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
         const effect = effectMatch[1].trim();
         results.push({
@@ -350,9 +378,11 @@ export function getDeathTriggers(
       }
     }
     
-    // Generic detection: "Whenever a creature dies"
-    if (oracleText.includes('whenever a creature dies') && 
-        !oracleText.includes('whenever a creature you control dies')) {
+    // "Whenever a creature dies" (any creature, not specific to controller)
+    else if (oracleText.includes('whenever a creature dies') && 
+        !oracleText.includes('whenever a creature you control dies') &&
+        !oracleText.includes("whenever a creature you don't control dies") &&
+        !oracleText.includes("whenever a creature an opponent controls dies")) {
       const effectMatch = oracleText.match(/whenever a creature dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
         const effect = effectMatch[1].trim();
@@ -365,6 +395,70 @@ export function getDeathTriggers(
           effect,
           requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
         });
+      }
+    }
+    
+    // "Whenever a creature you don't control dies" or "Whenever a creature an opponent controls dies"
+    else if ((oracleText.includes("whenever a creature you don't control dies") ||
+         oracleText.includes("whenever a creature an opponent controls dies")) &&
+        dyingCreatureController !== permanentController) {
+      const effectMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature (?:you don't control|an opponent controls) dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        const returnsUnderControl = effect.toLowerCase().includes('return') && 
+                                    effect.toLowerCase().includes('under your control');
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+          returnsUnderControl,
+          dyingCreatureCard: dyingCreature?.card,
+        });
+      }
+    }
+    
+    // ===== KNOWN CARDS TABLE (Fallback/Enhancement) =====
+    // Use the table to handle special cases not caught by dynamic patterns
+    for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
+      if (cardName.includes(knownName) && !results.some(r => r.source.permanentId === permanent.id)) {
+        let shouldTrigger = false;
+        
+        switch (info.triggerOn) {
+          case 'controlled':
+            shouldTrigger = dyingCreatureController === permanentController;
+            break;
+          case 'any':
+            shouldTrigger = true;
+            break;
+          case 'own':
+            shouldTrigger = false;
+            break;
+          case 'opponent':
+            shouldTrigger = dyingCreatureController !== permanentController;
+            break;
+        }
+        
+        if (shouldTrigger) {
+          const requiresSacrifice = info.effect.toLowerCase().includes('sacrifice');
+          const returnsUnderControl = info.effect.toLowerCase().includes('return') && 
+                                      info.effect.toLowerCase().includes('under your control');
+          
+          results.push({
+            source: {
+              permanentId: permanent.id,
+              cardName: card.name,
+              controllerId: permanentController,
+            },
+            effect: info.effect,
+            requiresSacrificeSelection: requiresSacrifice,
+            returnsUnderControl,
+            dyingCreatureCard: returnsUnderControl ? dyingCreature?.card : undefined,
+          });
+        }
       }
     }
   }
@@ -390,7 +484,18 @@ export function getPlayersWhoMustSacrifice(
 // ============================================================================
 
 /**
- * Detect ETB triggers from a card
+ * Detect ETB triggers from a card.
+ * 
+ * DYNAMIC-FIRST PATTERN: Uses regex-based oracle text parsing as the primary
+ * detection mechanism. The KNOWN_ETB_TRIGGERS table serves as an optimization
+ * cache that provides additional metadata (searchFilter, searchDestination, etc.).
+ * 
+ * Patterns detected:
+ * - "When ~ enters the battlefield, [effect]" or "When ~ enters, [effect]" (self ETB)
+ * - "Whenever a creature enters the battlefield under your control, [effect]"
+ * - "Whenever another permanent enters the battlefield, [effect]"
+ * - Various type-specific patterns (artifact, enchantment, equipment)
+ * - Special mechanics: Living Weapon, Job Select, modal choices
  */
 export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
@@ -400,49 +505,14 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   
-  // Check known ETB trigger cards first
-  for (const [knownName, info] of Object.entries(KNOWN_ETB_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      let triggerType: string;
-      switch (info.triggerOn) {
-        case 'another_permanent':
-          triggerType = 'another_permanent_etb';
-          break;
-        case 'any_permanent':
-          triggerType = 'permanent_etb';
-          break;
-        case 'creature':
-          triggerType = 'creature_etb';
-          break;
-        default:
-          triggerType = 'etb';
-      }
-      
-      const trigger: TriggeredAbility = {
-        permanentId,
-        cardName,
-        triggerType,
-        description: info.effect,
-        effect: info.effect,
-        millAmount: info.millAmount,
-        mandatory: true,
-      };
-      
-      if (info.searchFilter) {
-        (trigger as any).searchFilter = info.searchFilter;
-        (trigger as any).searchDestination = info.searchDestination || 'hand';
-        (trigger as any).searchEntersTapped = info.searchEntersTapped || false;
-      }
-      
-      triggers.push(trigger);
-    }
-  }
+  // ===== DYNAMIC DETECTION (Primary) =====
   
-  // "When ~ enters the battlefield" pattern
-  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // "When ~ enters the battlefield" or "When ~ enters" pattern (self ETB)
+  // Use shared utility function for regex escaping
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
   const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
-  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
+  if (etbMatch) {
     const effectText = etbMatch[1].trim();
     
     // Check for "sacrifice ~ unless you pay" pattern
@@ -458,7 +528,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         mandatory: true,
         requiresChoice: true,
       });
-    } else {
+    } else if (!triggers.some(t => t.triggerType === 'etb')) {
       const trigger: TriggeredAbility = {
         permanentId,
         cardName,
@@ -469,7 +539,6 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       };
       
       // Check if this trigger requires targeting
-      // Patterns: "target player", "target opponent", "target creature", etc.
       if (/\btarget\s+(?:player|opponent|creature|permanent|land|artifact|enchantment)/i.test(effectText)) {
         (trigger as any).requiresTarget = true;
         
@@ -484,6 +553,19 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         
         // Store the full effect for later execution
         (trigger as any).targetEffect = effectText;
+      }
+      
+      // Detect library search effects (dynamic detection from oracle text)
+      const searchMatch = effectText.match(/search your library for (?:a|an|up to (?:one|two|three))?\s*(?:basic\s+)?(\w+)?\s*(?:or\s+(\w+)\s*)?card/i);
+      if (searchMatch) {
+        const searchTypes: string[] = [];
+        if (searchMatch[1]) searchTypes.push(searchMatch[1].toLowerCase());
+        if (searchMatch[2]) searchTypes.push(searchMatch[2].toLowerCase());
+        
+        (trigger as any).searchFilter = { types: searchTypes.length > 0 ? searchTypes : undefined };
+        (trigger as any).searchDestination = effectText.includes('onto the battlefield') ? 'battlefield' : 
+                                              effectText.includes('on top of your library') ? 'top' : 'hand';
+        (trigger as any).searchEntersTapped = effectText.includes('tapped');
       }
       
       triggers.push(trigger);
@@ -700,6 +782,58 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         colors: ['B'],
       },
     } as any);
+  }
+  
+  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+  // Use the table to provide enhanced metadata for known cards (searchFilter, etc.)
+  // Only add if not already detected dynamically
+  for (const [knownName, info] of Object.entries(KNOWN_ETB_TRIGGERS)) {
+    if (lowerName.includes(knownName)) {
+      let triggerType: string;
+      switch (info.triggerOn) {
+        case 'another_permanent':
+          triggerType = 'another_permanent_etb';
+          break;
+        case 'any_permanent':
+          triggerType = 'permanent_etb';
+          break;
+        case 'creature':
+          triggerType = 'creature_etb';
+          break;
+        default:
+          triggerType = 'etb';
+      }
+      
+      // Only add if not already detected by dynamic pattern
+      if (!triggers.some(t => t.triggerType === triggerType)) {
+        const trigger: TriggeredAbility = {
+          permanentId,
+          cardName,
+          triggerType,
+          description: info.effect,
+          effect: info.effect,
+          millAmount: info.millAmount,
+          mandatory: true,
+        };
+        
+        // Add enhanced metadata from table
+        if (info.searchFilter) {
+          (trigger as any).searchFilter = info.searchFilter;
+          (trigger as any).searchDestination = info.searchDestination || 'hand';
+          (trigger as any).searchEntersTapped = info.searchEntersTapped || false;
+        }
+        
+        triggers.push(trigger);
+      } else if (info.searchFilter) {
+        // Enhance dynamically detected trigger with table metadata
+        const existingTrigger = triggers.find(t => t.triggerType === triggerType);
+        if (existingTrigger && !(existingTrigger as any).searchFilter) {
+          (existingTrigger as any).searchFilter = info.searchFilter;
+          (existingTrigger as any).searchDestination = info.searchDestination || 'hand';
+          (existingTrigger as any).searchEntersTapped = info.searchEntersTapped || false;
+        }
+      }
+    }
   }
   
   return triggers;
