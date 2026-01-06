@@ -5321,15 +5321,29 @@ function filterLibraryCards(library: any[], filter: any): any[] {
     }
     
     // Check power (e.g., "creature with power 2 or less" - Imperial Recruiter)
+    // Only applies to creatures with defined numeric power
     if (matches && typeof searchCriteria.maxPower === 'number') {
-      const power = parseInt(String(card.power || '0'), 10);
-      matches = !isNaN(power) && power <= searchCriteria.maxPower;
+      if (card.power !== undefined && card.power !== null) {
+        const powerNum = parseInt(String(card.power), 10);
+        if (!isNaN(powerNum)) {
+          matches = powerNum <= searchCriteria.maxPower;
+        }
+        // If power is non-numeric (like "*"), don't filter it out
+      }
+      // If power is undefined (non-creature), don't filter based on power
     }
     
     // Check toughness (e.g., "creature with toughness 2 or less" - Recruiter of the Guard)
+    // Only applies to creatures with defined numeric toughness
     if (matches && typeof searchCriteria.maxToughness === 'number') {
-      const toughness = parseInt(String(card.toughness || '0'), 10);
-      matches = !isNaN(toughness) && toughness <= searchCriteria.maxToughness;
+      if (card.toughness !== undefined && card.toughness !== null) {
+        const toughnessNum = parseInt(String(card.toughness), 10);
+        if (!isNaN(toughnessNum)) {
+          matches = toughnessNum <= searchCriteria.maxToughness;
+        }
+        // If toughness is non-numeric (like "*"), don't filter it out
+      }
+      // If toughness is undefined (non-creature), don't filter based on toughness
     }
     
     // Check minimum CMC (e.g., "mana value 6 or greater" - Fierce Empath)

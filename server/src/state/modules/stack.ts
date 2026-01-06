@@ -661,15 +661,29 @@ function enqueueLibrarySearchStep(
     }
     
     // Check max power (e.g., "power 2 or less" - Imperial Recruiter)
+    // Only applies to creatures with defined numeric power
     if (matches && typeof filter.maxPower === 'number') {
-      const power = parseInt(String(card.power || '0'), 10);
-      matches = !isNaN(power) && power <= filter.maxPower;
+      if (card.power !== undefined && card.power !== null) {
+        const powerNum = parseInt(String(card.power), 10);
+        if (!isNaN(powerNum)) {
+          matches = powerNum <= filter.maxPower;
+        }
+        // If power is non-numeric (like "*"), don't filter it out
+      }
+      // If power is undefined (non-creature), don't filter based on power
     }
     
     // Check max toughness (e.g., "toughness 2 or less" - Recruiter of the Guard)
+    // Only applies to creatures with defined numeric toughness
     if (matches && typeof filter.maxToughness === 'number') {
-      const toughness = parseInt(String(card.toughness || '0'), 10);
-      matches = !isNaN(toughness) && toughness <= filter.maxToughness;
+      if (card.toughness !== undefined && card.toughness !== null) {
+        const toughnessNum = parseInt(String(card.toughness), 10);
+        if (!isNaN(toughnessNum)) {
+          matches = toughnessNum <= filter.maxToughness;
+        }
+        // If toughness is non-numeric (like "*"), don't filter it out
+      }
+      // If toughness is undefined (non-creature), don't filter based on toughness
     }
     
     // Check max CMC
@@ -2759,10 +2773,14 @@ function executeTriggerEffect(
           name: card.name,
           type_line: card.type_line,
           oracle_text: card.oracle_text,
+          image_uris: card.image_uris,  // Include full image_uris object
           imageUrl: card.image_uris?.normal,
           mana_cost: card.mana_cost,
           cmc: card.cmc,
           colors: card.colors,
+          power: card.power,
+          toughness: card.toughness,
+          loyalty: card.loyalty,
         });
       }
     }
