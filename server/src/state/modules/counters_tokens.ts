@@ -1,7 +1,7 @@
 import type { PlayerID } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
-import { uid, parsePT } from "../utils";
+import { uid, parsePT, parseWordNumber } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
@@ -1082,12 +1082,16 @@ export function updateGodCreatureStatus(ctx: GameContext): void {
     if (!typeLine.includes('god') || !typeLine.includes('creature')) continue;
     
     // Check for devotion requirement pattern
-    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+)/i);
+    // Support both digit and word numbers (five, six, seven, etc.)
+    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
     if (!devotionMatch) continue;
     
     const color1 = devotionMatch[1].toLowerCase();
     const color2 = devotionMatch[2]?.toLowerCase();
-    const threshold = parseInt(devotionMatch[3], 10);
+    const thresholdStr = devotionMatch[3];
+    
+    // Use shared utility for word-to-number conversion
+    const threshold = parseWordNumber(thresholdStr, 5);
     
     // Map color words to mana symbols
     const colorToSymbol: Record<string, string> = {

@@ -1,6 +1,6 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue } from "../utils.js";
+import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus } from "./game-state-effects.js";
 import { 
   detectKeywords, 
@@ -39,7 +39,7 @@ import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
-import { runSBA, applyCounterModifications, movePermanentToGraveyard } from "./counters_tokens.js";
+import { runSBA, applyCounterModifications, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -629,7 +629,8 @@ function enqueueLibrarySearchStep(
     lifeLoss,
   } = options;
 
-  const availableCards = lib.map((card: any) => ({
+  // Map all library cards with full data
+  const allCards = lib.map((card: any) => ({
     id: card.id,
     name: card.name,
     type_line: card.type_line,
@@ -642,6 +643,92 @@ function enqueueLibrarySearchStep(
     toughness: (card as any).toughness,
     loyalty: (card as any).loyalty,
   }));
+  
+  // Apply filter to get available cards that match criteria
+  // Build a game state context for calculating variable P/T
+  const gameStateForCDA = {
+    battlefield: (ctx as any).state?.battlefield || [],
+    zones: (ctx as any).state?.zones || {},
+    players: (ctx as any).state?.players || [],
+    life: (ctx as any).state?.life || {},
+    manaPool: (ctx as any).state?.manaPool || {},
+  };
+  
+  const availableCards = allCards.filter((card: any) => {
+    let matches = true;
+    
+    // Check types
+    if (filter.types && filter.types.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = filter.types.some((type: string) => typeLine.includes(type.toLowerCase()));
+    }
+    
+    // Check subtypes
+    if (matches && filter.subtypes && filter.subtypes.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = filter.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
+    }
+    
+    // Check max power (e.g., "power 2 or less" - Imperial Recruiter)
+    // Handle both numeric and variable (*) power via CDA calculation
+    if (matches && typeof filter.maxPower === 'number') {
+      if (card.power !== undefined && card.power !== null) {
+        const powerStr = String(card.power);
+        const powerNum = parseInt(powerStr, 10);
+        if (!isNaN(powerNum)) {
+          // Standard numeric power
+          matches = powerNum <= filter.maxPower;
+        } else if (powerStr.includes('*')) {
+          // Variable power - calculate via CDA
+          // Set owner/controller for CDA calculation
+          const cardWithOwner = { ...card, owner: controller, controller: controller };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.power <= filter.maxPower;
+          }
+          // If CDA returns undefined, allow the card (can't determine)
+        }
+        // Other non-numeric formats: allow the card
+      }
+      // If power is undefined (non-creature), don't filter based on power
+    }
+    
+    // Check max toughness (e.g., "toughness 2 or less" - Recruiter of the Guard)
+    // Handle both numeric and variable (*) toughness via CDA calculation
+    if (matches && typeof filter.maxToughness === 'number') {
+      if (card.toughness !== undefined && card.toughness !== null) {
+        const toughnessStr = String(card.toughness);
+        const toughnessNum = parseInt(toughnessStr, 10);
+        if (!isNaN(toughnessNum)) {
+          // Standard numeric toughness
+          matches = toughnessNum <= filter.maxToughness;
+        } else if (toughnessStr.includes('*')) {
+          // Variable toughness - calculate via CDA
+          // Set owner/controller for CDA calculation
+          const cardWithOwner = { ...card, owner: controller, controller: controller };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.toughness <= filter.maxToughness;
+          }
+          // If CDA returns undefined, allow the card (can't determine)
+        }
+        // Other non-numeric formats: allow the card
+      }
+      // If toughness is undefined (non-creature), don't filter based on toughness
+    }
+    
+    // Check max CMC
+    if (matches && typeof filter.maxCmc === 'number') {
+      matches = (card.cmc || 0) <= filter.maxCmc;
+    }
+    
+    // Check min CMC (e.g., "mana value 6 or greater" - Fierce Empath)
+    if (matches && typeof filter.minCmc === 'number') {
+      matches = (card.cmc || 0) >= filter.minCmc;
+    }
+    
+    return matches;
+  });
 
   ResolutionQueueManager.addStep(gameId, {
     type: ResolutionStepType.LIBRARY_SEARCH,
@@ -2717,10 +2804,14 @@ function executeTriggerEffect(
           name: card.name,
           type_line: card.type_line,
           oracle_text: card.oracle_text,
+          image_uris: card.image_uris,  // Include full image_uris object
           imageUrl: card.image_uris?.normal,
           mana_cost: card.mana_cost,
           cmc: card.cmc,
           colors: card.colors,
+          power: card.power,
+          toughness: card.toughness,
+          loyalty: card.loyalty,
         });
       }
     }
@@ -3534,44 +3625,28 @@ function executeTriggerEffect(
         const sourceCard = triggerItem.card;
         const linkedEffect = sourceCard ? detectLinkedExileEffect(sourceCard) : null;
         
-        // Move to exile (tokens cease to exist)
-        const permIndex = state.battlefield.indexOf(targetPerm);
-        if (permIndex !== -1) {
-          const exiledPermanentId = targetPerm.id;
-          state.battlefield.splice(permIndex, 1);
+        // Use movePermanentToExile to properly handle commander replacement effects
+        // Import and use the function from counters_tokens
+        try {
+          movePermanentToExile(ctx, targetPerm);
           
-          // Tokens cease to exist when they leave the battlefield
-          if (targetPerm.isToken || targetPerm.card?.isToken) {
-            debug(2, `[executeTriggerEffect] ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
-          } else {
-            // Add to exile zone
-            const ownerZones = state.zones?.[targetPerm.owner];
-            if (ownerZones) {
-              ownerZones.exile = ownerZones.exile || [];
-              targetPerm.card.zone = 'exile';
-              ownerZones.exile.push(targetPerm.card);
-              ownerZones.exileCount = (ownerZones.exile || []).length;
-            }
-            
-            // If this is a linked exile effect, register the link
-            if (linkedEffect?.hasLinkedExile) {
-              const sourceId = triggerItem.sourceId || triggerItem.permanentId;
-              registerLinkedExile(
-                ctx,
-                sourceId,
-                sourceName,
-                targetPerm.card,
-                targetPerm.owner,
-                targetPerm.controller
-              );
-              debug(2, `[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
-            } else {
-              debug(2, `[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
-            }
+          // If this is a linked exile effect, register the link
+          if (linkedEffect?.hasLinkedExile && targetPerm.card && !targetPerm.isToken && !targetPerm.card?.isToken) {
+            const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+            registerLinkedExile(
+              ctx,
+              sourceId,
+              sourceName,
+              targetPerm.card,
+              targetPerm.owner,
+              targetPerm.controller
+            );
+            debug(2, `[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
+          } else if (!targetPerm.isToken && !targetPerm.card?.isToken) {
+            debug(2, `[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
           }
-          
-          // Process linked exile returns for the removed permanent (in case it was an Oblivion Ring)
-          processLinkedExileReturns(ctx, exiledPermanentId);
+        } catch (err) {
+          debugWarn(1, `[executeTriggerEffect] Error calling movePermanentToExile:`, err);
         }
       }
     }
@@ -5694,11 +5769,21 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
+            // "Whenever another permanent enters under your control" - Altar of the Brood, etc.
+            // The trigger only fires for permanents that share the same controller as the trigger source
+            const triggerController = perm.controller;
+            if (triggerController !== controller) {
+              continue; // Skip - this trigger only fires for YOUR permanents entering
+            }
             // Check color restriction if any (e.g., "white or black creature")
             if ((trigger as any).colorRestriction) {
               if (!matchesColorRestriction((trigger as any).colorRestriction, (card as any).colors || [])) {
                 continue; // Skip - entering creature doesn't match color restriction
               }
+            }
+            // Check if it's creature-only (e.g., "another creature you control enters")
+            if ((trigger as any).creatureOnly && !isCreature) {
+              continue; // Skip - this trigger only fires for creatures
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'permanent_etb') {
@@ -8149,11 +8234,13 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
     // Elspeth, Sun's Champion / Elspeth, Storm Slayer: "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
     // Mondrak, Glory Dominus: Same effect
     // Primal Vigor: Affects all players but still doubles tokens
+    // Adrix and Nev, Twincasters: "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
     if (permName.includes('anointed procession') ||
         permName.includes('parallel lives') ||
         permName.includes('doubling season') ||
         permName.includes('mondrak, glory dominus') ||
         permName.includes('primal vigor') ||
+        permName.includes('adrix and nev') ||
         (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
         (permOracle.includes('twice that many') && permOracle.includes('token'))) {
       multiplier *= 2;

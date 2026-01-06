@@ -321,8 +321,9 @@ export function evaluateConditionalLandETB(
   const text = (oracleText || '').toLowerCase();
   
   // BFZ Tango/Battle lands (Cinder Glade, Canopy Vista, etc.)
-  // "enters the battlefield tapped unless you control two or more basic lands"
-  const battleLandMatch = text.match(/enters the battlefield tapped unless you control two or more basic lands/i);
+  // Old template: "enters the battlefield tapped unless you control two or more basic lands"
+  // New template: "This land enters tapped unless you control two or more basic lands"
+  const battleLandMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control two or more basic lands/i);
   if (battleLandMatch) {
     // Use the provided basicLandCount if available, otherwise use fallback
     // NOTE: Using controlledLandTypes.length as fallback is INCORRECT for dual lands
@@ -355,8 +356,9 @@ export function evaluateConditionalLandETB(
   }
   
   // Slow lands (Stormcarved Coast, Haunted Ridge, etc.)
-  // "enters the battlefield tapped unless you control two or more other lands"
-  const slowLandMatch = text.match(/enters the battlefield tapped unless you control two or more other lands/i);
+  // Old template: "enters the battlefield tapped unless you control two or more other lands"
+  // New template: "This land enters tapped unless you control two or more other lands"
+  const slowLandMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control two or more other lands/i);
   if (slowLandMatch) {
     const shouldTap = controlledLandCount < 2;
     return {
@@ -383,8 +385,9 @@ export function evaluateConditionalLandETB(
   }
   
   // Fast lands (Blooming Marsh, Botanical Sanctum, etc.)
-  // "enters the battlefield tapped unless you control two or fewer other lands"
-  const fastLandMatch = text.match(/enters the battlefield tapped unless you control two or fewer other lands/i);
+  // Old template: "enters the battlefield tapped unless you control two or fewer other lands"
+  // New template: "This land enters tapped unless you control two or fewer other lands"
+  const fastLandMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control two or fewer other lands/i);
   if (fastLandMatch) {
     const shouldTap = controlledLandCount > 2;
     return {

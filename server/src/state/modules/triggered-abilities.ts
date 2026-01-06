@@ -2320,13 +2320,15 @@ export function detectETBUntapEffects(card: any, permanent: any): ETBUntapEffect
   }
   
   // "Whenever a creature enters the battlefield under your control, untap" patterns
-  if (oracleText.includes('whenever a creature enters the battlefield under your control') && 
+  // Supports both old "enters the battlefield" and new Bloomburrow "enters" templates
+  if ((oracleText.includes('whenever a creature enters the battlefield under your control') ||
+       oracleText.includes('whenever a creature enters under your control')) && 
       oracleText.includes('untap')) {
     effects.push({
       permanentId,
       cardName,
       controllerId,
-      description: "Whenever a creature enters the battlefield under your control, untap target creature",
+      description: "Whenever a creature enters under your control, untap target creature",
       untapType: 'controller_creatures',
       triggerCondition: 'creature_etb',
     });
@@ -2766,8 +2768,11 @@ export function getSpellCastTriggers(
   const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
   const isCreatureSpell = spellTypeLine.includes('creature');
   const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+  // Check if this is a Kindred/Tribal spell (e.g., "Kindred Sorcery — Merfolk")
+  const isKindredOrTribal = spellTypeLine.includes('kindred') || spellTypeLine.includes('tribal');
   
   // Extract creature types from the spell (for tribal triggers)
+  // This works for both creature spells and Kindred/Tribal spells
   const spellCreatureTypes = extractCreatureTypes(spellTypeLine);
   
   for (const permanent of battlefield) {
@@ -2794,9 +2799,19 @@ export function getSpellCastTriggers(
           break;
         case 'tribal_type':
           // Check if the spell has the tribal type
+          // This includes:
+          // 1. Creature spells with the subtype (e.g., "Creature — Merfolk Wizard")
+          // 2. Kindred/Tribal spells with the subtype (e.g., "Kindred Sorcery — Merfolk")
+          // 3. Any spell with the type in its type line
           if (trigger.tribalType) {
-            shouldTrigger = spellCreatureTypes.includes(trigger.tribalType.toLowerCase()) ||
-                           spellTypeLine.includes(trigger.tribalType.toLowerCase());
+            const tribalTypeLower = trigger.tribalType.toLowerCase();
+            shouldTrigger = spellCreatureTypes.includes(tribalTypeLower) ||
+                           spellTypeLine.includes(tribalTypeLower);
+            
+            // Debug log for troubleshooting
+            if (shouldTrigger) {
+              debug(2, `[getSpellCastTriggers] Tribal trigger fired: ${trigger.cardName} for ${tribalTypeLower} spell`);
+            }
           }
           break;
       }
@@ -3225,9 +3240,10 @@ export function checkETBAutoSacrifice(card: any, permanent: any): {
     }
   }
   
-  // Generic pattern: "When ~ enters the battlefield, sacrifice it unless"
+  // Generic pattern: "When ~ enters the battlefield, sacrifice it unless" or "When ~ enters, sacrifice it unless"
+  // Supports both old "enters the battlefield" and new Bloomburrow "enters" templates
   const sacrificeUnlessMatch = oracleText.match(
-    /when (?:~|this creature) enters the battlefield,?\s*sacrifice (?:~|it) unless ([^.]+)/i
+    /when (?:~|this creature) enters(?: the battlefield)?,?\s*sacrifice (?:~|it) unless ([^.]+)/i
   );
   if (sacrificeUnlessMatch) {
     // Check if the condition is met (e.g., "unless it escaped")
@@ -5217,9 +5233,10 @@ export function detectConditionalETBTapped(card: any): ConditionalETBTapped | nu
   // Dynamic detection from oracle text
   const oracleText = (card?.oracle_text || "").toLowerCase();
   
-  // Pattern: "enters the battlefield tapped unless you control a [land type]"
+  // Pattern: "enters the battlefield tapped unless you control a [land type]" or "enters tapped unless..."
+  // Supports both old "enters the battlefield tapped" and new Bloomburrow "enters tapped" templates
   const unlessControlMatch = oracleText.match(
-    /enters the battlefield tapped unless you control (?:a|an) (\w+)(?: or (?:a|an) (\w+))?/i
+    /(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) (\w+)(?: or (?:a|an) (\w+))?/i
   );
   
   if (unlessControlMatch) {

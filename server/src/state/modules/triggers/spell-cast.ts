@@ -379,6 +379,31 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     });
   }
   
+  // Reflections of Littjara / "chosen type" spell copy pattern
+  // "Whenever you cast a spell of the chosen type, copy that spell"
+  // The chosen type is stored on the permanent as chosenCreatureType
+  const chosenType = (permanent as any)?.chosenCreatureType;
+  if (chosenType && lowerOracle.includes('whenever you cast a spell of the chosen type')) {
+    const effectMatch = oracleText.match(/whenever you cast a spell of the chosen type,?\s*([^.]+)/i);
+    if (effectMatch) {
+      const effect = effectMatch[1].trim();
+      const copiesSpell = effect.toLowerCase().includes('copy that spell') || effect.toLowerCase().includes('copy it');
+      
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: `Whenever you cast a ${chosenType} spell, ${effect}`,
+        effect,
+        spellCondition: 'tribal_type',
+        tribalType: chosenType,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        // Mark that this trigger copies spells for special handling
+        ...((copiesSpell && { copiesSpell: true }) as any),
+      });
+    }
+  }
+  
   return triggers;
 }
 

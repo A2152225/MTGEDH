@@ -6,6 +6,39 @@ export function uid(prefix = "id"): string {
 }
 
 /**
+ * Word-to-number mapping for parsing oracle text.
+ * Used for devotion thresholds, tap counts, and other numeric references.
+ */
+export const WORD_TO_NUMBER: Record<string, number> = {
+  'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+  'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+  'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+  'a': 1, 'an': 1,
+};
+
+/**
+ * Convert a word or digit string to a number.
+ * Handles both digit strings ("5") and word numbers ("five").
+ * 
+ * @param str - The string to parse
+ * @param defaultValue - Value to return if parsing fails (default: 1)
+ * @returns The parsed number
+ */
+export function parseWordNumber(str: string | undefined, defaultValue: number = 1): number {
+  if (!str) return defaultValue;
+  const lowerStr = str.toLowerCase().trim();
+  
+  // Try word-to-number mapping first
+  if (WORD_TO_NUMBER[lowerStr] !== undefined) {
+    return WORD_TO_NUMBER[lowerStr];
+  }
+  
+  // Try parsing as digit
+  const parsed = parseInt(lowerStr, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
  * Validate if a player can pay a specific amount of life.
  * Rule 119.4: A player can't pay more life than they have.
  * 

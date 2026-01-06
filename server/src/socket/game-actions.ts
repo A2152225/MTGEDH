@@ -4228,6 +4228,41 @@ export function registerGameActions(io: Server, socket: Socket) {
               debug(2, `[castSpellFromHand] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${newLoyalty}`);
             }
           }
+          
+          // Tap/Untap target permanent effect (Merrow Reejerey, Stonybrook Schoolmaster, etc.)
+          // These are "may" abilities that require target selection - push to stack for targeting
+          if (trigger.requiresTarget && 
+              (effectLower.includes('tap or untap target') || 
+               effectLower.includes('untap target') ||
+               effectLower.includes('tap target'))) {
+            // Push to stack for target selection
+            game.state.stack = game.state.stack || [];
+            const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            
+            game.state.stack.push({
+              id: triggerId,
+              type: 'triggered_ability',
+              controller: playerId,
+              source: trigger.permanentId,
+              sourceName: trigger.cardName,
+              description: trigger.description,
+              triggerType: 'cast_creature_type',
+              effect: trigger.effect,
+              mandatory: trigger.mandatory,
+              requiresTarget: true,
+              targetType: trigger.targetType || 'permanent',
+            } as any);
+            
+            debug(2, `[castSpellFromHand] Pushed ${trigger.cardName} trigger to stack for target selection`);
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${trigger.cardName} triggers: ${getPlayerName(game, playerId)} may tap or untap target permanent.`,
+              ts: Date.now(),
+            });
+          }
         }
       } catch (err) {
         debugWarn(1, '[castSpellFromHand] Failed to process spell-cast triggers:', err);
@@ -9834,7 +9869,7 @@ export function registerGameActions(io: Server, socket: Socket) {
    * Request available alternate costs for casting a spell
    * Returns all available options including mutate, WUBRG (Jodah/Fist of Suns), Omniscience, etc.
    */
-  socket.on("requestAlternateCosts", ({ gameId, cardId, castFromZone }: {
+  socket.on("requestAlternateCosts", async ({ gameId, cardId, castFromZone }: {
     gameId: string;
     cardId: string;
     castFromZone?: string;
@@ -10001,6 +10036,38 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
         }
       }
+      
+      // Check for Force of Will / Force of Negation alternate cost
+      // These allow you to exile a blue card from hand instead of paying mana
+      const { getForceOfWillAlternateCost } = await import("../state/modules/alternate-costs.js");
+      const forceAltCost = getForceOfWillAlternateCost(
+        { state: game.state, bumpSeq: () => {}, rng: Math.random } as any,
+        playerId,
+        card
+      );
+      if (forceAltCost?.available) {
+        const costDescription = forceAltCost.requiresLifePayment
+          ? 'Exile a blue card from your hand and pay 1 life'
+          : 'Exile a blue card from your hand';
+        const cardNameLower = (card.name || '').toLowerCase();
+        const costName = cardNameLower.includes('force of negation') 
+          ? 'Force of Negation - Free Cast'
+          : cardNameLower.includes('force of will')
+            ? 'Force of Will - Alternate Cost'
+            : 'Exile Blue Card';
+        
+        options.push({
+          id: 'force_of_will',
+          name: costName,
+          description: costDescription,
+          manaCost: undefined, // No mana cost
+          costType: 'force_of_will',
+          additionalEffects: forceAltCost.requiresLifePayment 
+            ? ['Pay 1 life', 'Exile a blue card from hand']
+            : ['Exile a blue card from hand'],
+          requiresAdditionalInput: true, // Need to select which blue card to exile
+        });
+      }
 
       // Send available options
       socket.emit("alternateCostsResponse", {
@@ -10061,6 +10128,44 @@ export function registerGameActions(io: Server, socket: Socket) {
       } else if (selectedCostId === 'overload') {
         // Overload - emit with overload flag
         socket.emit("proceedWithOverloadCast", { gameId, cardId, castFromZone });
+      } else if (selectedCostId === 'force_of_will') {
+        // Force of Will / Force of Negation alternate cost
+        // Need to select which blue card to exile
+        const zones = (game.state as any)?.zones?.[playerId];
+        const card = zones?.hand?.find((c: any) => c.id === cardId);
+        if (!zones || !card) {
+          socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in hand" });
+          return;
+        }
+        
+        // Find blue cards that can be exiled (not the card itself)
+        const blueCards = (zones.hand as any[]).filter((c: any) => 
+          c && c.id !== cardId && Array.isArray(c.colors) && c.colors.includes("U")
+        );
+        
+        if (blueCards.length === 0) {
+          socket.emit("error", { code: "NO_BLUE_CARD", message: "No blue card to exile" });
+          return;
+        }
+        
+        // Determine if life payment is required (Force of Will vs Force of Negation)
+        const oracleText = (card.oracle_text || '').toLowerCase();
+        const requiresLifePayment = oracleText.includes('pay') && oracleText.includes('life');
+        
+        // Emit request to select blue card to exile
+        socket.emit("selectBlueCardToExile", {
+          gameId,
+          cardId,
+          cardName: card.name,
+          blueCards: blueCards.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            image_uris: c.image_uris,
+            type_line: c.type_line,
+          })),
+          requiresLifePayment,
+          castFromZone,
+        });
       } else {
         // Unknown cost type
         socket.emit("error", { code: "UNKNOWN_COST", message: "Unknown alternate cost type" });

@@ -3889,18 +3889,68 @@ async function executeAIActivateAbility(
       // Mana abilities produce mana and don't target
       // Patterns matched:
       //   - {W}, {U}, {B}, {R}, {G}, {C} (specific mana symbols)
+      //   - {R} or {W} (choice of colors, like Talismans)
       //   - "add one mana", "add two mana", "add X mana"
       //   - "mana of any color", "any color", "mana in any combination"
       //   - Must NOT contain "target" (targeting abilities can't be mana abilities)
-      const manaProductionPattern = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
+      const manaProductionPattern = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
       const hasTargets = /target/i.test(abilityText);
       const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
       
       if (isManaAbility) {
         // Mana abilities resolve immediately - don't put on stack
         // The mana will be added to the mana pool by the game engine
-        // For now, we just log that the AI tapped for mana
         debug(1, '[AI] Tapped for mana ability (resolves immediately, not on stack):', card.name);
+        
+        // Handle special lands that create tokens for opponents (Forbidden Orchard)
+        const cardNameLower = (card.name || '').toLowerCase();
+        if (cardNameLower === 'forbidden orchard') {
+          // Get opponents
+          const players = game.state?.players || [];
+          const opponents = players.filter((p: any) => p?.id != null && p.id !== playerId && !p.hasLost);
+          
+          if (opponents.length > 0) {
+            // AI auto-selects a random opponent for the token
+            const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+            const targetOpponentId = randomOpponent.id;
+            
+            // Create 1/1 colorless Spirit token for the target opponent
+            const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            game.state.battlefield = game.state.battlefield || [];
+            const spiritToken = {
+              id: tokenId,
+              controller: targetOpponentId,
+              owner: targetOpponentId,
+              tapped: false,
+              summoningSickness: true,
+              counters: {},
+              card: {
+                id: tokenId,
+                name: 'Spirit',
+                type_line: 'Token Creature — Spirit',
+                oracle_text: '',
+                mana_cost: '',
+                cmc: 0,
+                colors: [],
+              },
+              basePower: 1,
+              baseToughness: 1,
+              isToken: true,
+            };
+            game.state.battlefield.push(spiritToken);
+            
+            debug(2, `[AI] Forbidden Orchard: created Spirit token for ${targetOpponentId}`);
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `Forbidden Orchard: ${getPlayerName(game, targetOpponentId)} creates a 1/1 colorless Spirit token.`,
+              ts: Date.now(),
+            });
+          }
+        }
+        
         // Mana abilities don't pass priority - they resolve instantly
         // Continue AI turn after instant resolution
         setTimeout(() => {
