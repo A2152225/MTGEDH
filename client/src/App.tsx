@@ -1664,6 +1664,23 @@ export function App() {
       convokeOptions?: { permanentId: string; name: string; colors: string[] }[];
     }) => {
       if (payload.gameId === safeView?.id) {
+        // Transform payload types to match state type
+        const transformedCostReduction = payload.costReduction ? {
+          generic: payload.costReduction.reduce((sum, r) => sum + r.amount, 0),
+          colors: {},
+          messages: payload.costReduction.map(r => r.source),
+        } : undefined;
+        
+        const transformedConvokeOptions = payload.convokeOptions ? {
+          availableCreatures: payload.convokeOptions.map(c => ({
+            id: c.permanentId,
+            name: c.name,
+            colors: c.colors,
+            canTapFor: c.colors, // Assume creatures can tap for their colors
+          })),
+          messages: [],
+        } : undefined;
+        
         // Store the pending targets and effectId so we can include them when casting
         setSpellToCast({
           cardId: payload.cardId,
@@ -1671,8 +1688,8 @@ export function App() {
           manaCost: payload.manaCost,
           targets: payload.targets,
           effectId: payload.effectId,
-          costReduction: payload.costReduction,
-          convokeOptions: payload.convokeOptions,
+          costReduction: transformedCostReduction,
+          convokeOptions: transformedConvokeOptions,
         });
         setCastSpellModalOpen(true);
       }
@@ -5624,7 +5641,7 @@ export function App() {
         }}
         action='tap' // Reuse tap UI but it's for fight selection
         targetFilter={{
-          types: fightTargetModalData?.targetFilter?.types || ['creature'],
+          types: (fightTargetModalData?.targetFilter?.types || ['creature']) as ('creature' | 'land' | 'artifact' | 'enchantment' | 'planeswalker' | 'permanent')[],
           controller: fightTargetModalData?.targetFilter?.controller || 'any',
           tapStatus: 'any', // Fight can target tapped or untapped creatures
           excludeSource: fightTargetModalData?.targetFilter?.excludeSource !== false,
@@ -6384,7 +6401,7 @@ export function App() {
               pendingId: abilitySacrificeData.pendingId,
               sacrificeTargetId: selectedIds[0], // For backward compatibility
               sacrificeTargetIds: selectedIds, // New field for multiple sacrifices
-            });
+            } as any); // Type assertion for backward compatibility with new field
             setAbilitySacrificeModalOpen(false);
             setAbilitySacrificeData(null);
           }
