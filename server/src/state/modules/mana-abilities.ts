@@ -555,10 +555,10 @@ export function getManaAbilitiesForPermanent(
   if (isLand) {
     // ========================================================================
     // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
-    // Pattern: "{T}: Add {X}{Y}" where X and Y are different colored mana symbols
+    // Pattern: "{T}: Add {X}{Y}..." where X, Y are mana symbols (same or different)
     // These lands produce BOTH colors at once (not a choice)
     // ========================================================================
-    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+(\{[wubrgc]\}\{[wubrgc]\})/i);
+    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
     if (multiManaMatch) {
       const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
       const colors: string[] = [];
@@ -569,7 +569,7 @@ export function getManaAbilitiesForPermanent(
         }
       }
       // Check if this produces multiple different colors (like {B}{R})
-      // vs. the same color twice (like {C}{C})
+      // vs. the same color multiple times (like {C}{C})
       if (colors.length > 1) {
         // Multi-color producer like Rakdos Carnarium - produces both at once
         abilities.push({ 
@@ -579,13 +579,13 @@ export function getManaAbilitiesForPermanent(
           producesAllAtOnce: true // Both colors are added, not a choice
         });
         hasExplicitChoicePattern = true;
-      } else if (colors.length === 1 && manaSymbols.length === 2) {
-        // Same color twice (like Sol Ring {C}{C}) - produces 2 of the same color
+      } else if (colors.length === 1) {
+        // Same color multiple times - produces N of the same color
         abilities.push({ 
-          id: 'native_double', 
+          id: 'native_multi_same', 
           cost: '{T}', 
           produces: colors,
-          amount: 2 // Produces 2 mana of this color
+          amount: manaSymbols.length // Produces N mana of this color
         });
         hasExplicitChoicePattern = true;
       }
@@ -870,9 +870,11 @@ export function getManaAbilitiesForPermanent(
     if (!hasScalingManaAbility) {
       // ========================================================================
       // Check for multi-mana producers FIRST (Sol Ring {C}{C}, Hedron Archive, etc.)
-      // Pattern: "{T}: Add {X}{Y}" where X and Y are mana symbols (same or different)
+      // Pattern: "{T}: Add {X}{Y}..." where X, Y are mana symbols (same or different)
+      // This handles artifacts that produce exactly 2 mana of specified types.
+      // Note: Cards producing 3+ mana typically use different text patterns.
       // ========================================================================
-      const nonLandMultiManaMatch = oracleText.match(/\{t\}:\s*add\s+(\{[wubrgc]\}\{[wubrgc]\})/i);
+      const nonLandMultiManaMatch = oracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
       let handledAsMultiMana = false;
       if (nonLandMultiManaMatch) {
         const manaSymbols = nonLandMultiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
@@ -884,7 +886,7 @@ export function getManaAbilitiesForPermanent(
           }
         }
         if (colors.length > 1) {
-          // Multi-color producer - produces both at once (e.g., Mind Stone doesn't have this)
+          // Multi-color producer (e.g., Simic Signet {G}{U}) - produces different colors at once
           abilities.push({ 
             id: 'native_multi', 
             cost: '{T}', 
@@ -892,13 +894,13 @@ export function getManaAbilitiesForPermanent(
             producesAllAtOnce: true
           });
           handledAsMultiMana = true;
-        } else if (colors.length === 1 && manaSymbols.length === 2) {
-          // Same color twice (like Sol Ring {C}{C}) - produces 2 of the same color
+        } else if (colors.length === 1) {
+          // Same color multiple times (e.g., Sol Ring {C}{C}) - produces N of the same color
           abilities.push({ 
-            id: 'native_double', 
+            id: 'native_multi_same', 
             cost: '{T}', 
             produces: colors,
-            amount: 2 // Produces 2 mana of this color
+            amount: manaSymbols.length // Produces N mana of this color
           });
           handledAsMultiMana = true;
         }
