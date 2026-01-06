@@ -869,10 +869,10 @@ export function getManaAbilitiesForPermanent(
     
     if (!hasScalingManaAbility) {
       // ========================================================================
-      // Check for multi-mana producers FIRST (Sol Ring {C}{C}, Hedron Archive, etc.)
-      // Pattern: "{T}: Add {X}{Y}..." where X, Y are mana symbols (same or different)
-      // This handles artifacts that produce exactly 2 mana of specified types.
-      // Note: Cards producing 3+ mana typically use different text patterns.
+      // Check for multi-mana producers FIRST (Sol Ring {C}{C}, Thran Dynamo {C}{C}{C}, etc.)
+      // Pattern: "{T}: Add {X}{Y}..." where X, Y, Z... are mana symbols (same or different)
+      // This handles artifacts that produce 2+ fixed mana of specified types.
+      // Note: Variable mana (devotion, creature count) is handled by hasScalingManaAbility check above.
       // ========================================================================
       const nonLandMultiManaMatch = oracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
       let handledAsMultiMana = false;
