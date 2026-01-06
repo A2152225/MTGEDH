@@ -252,13 +252,14 @@ export function executeSearchLibrary(
   // Update player zones
   const updatedPlayers = state.players.map(p =>
     p.id === action.playerId
-      ? { ...p, library, hand, battlefield, graveyard }
+      ? { ...p, library, hand, graveyard }  // Don't add battlefield to player
       : p
   );
   
   const nextState: GameState = {
     ...state,
     players: updatedPlayers,
+    battlefield,  // Update centralized battlefield
   };
   
   context.emit({

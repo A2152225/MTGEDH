@@ -140,17 +140,19 @@ describe('Turn Actions', () => {
       players: [
         {
           id: 'player1',
-          battlefield: [
-            { id: 'perm1', tapped: true, card: { name: 'Forest' } },
-            { id: 'perm2', tapped: true, card: { name: 'Mountain' } },
-          ],
         },
+      ],
+      // Use centralized battlefield
+      battlefield: [
+        { id: 'perm1', controller: 'player1', tapped: true, card: { name: 'Forest' } },
+        { id: 'perm2', controller: 'player1', tapped: true, card: { name: 'Mountain' } },
       ],
     } as any;
 
     const result = executeUntapStep(state, 'player1');
-    const player = result.state.players.find(p => p.id === 'player1');
-    expect(player?.battlefield?.every((p: any) => !p.tapped)).toBe(true);
+    // Check centralized battlefield - all player1's permanents should be untapped
+    const player1Permanents = result.state.battlefield?.filter((p: any) => p.controller === 'player1');
+    expect(player1Permanents?.every((p: any) => !p.tapped)).toBe(true);
   });
 
   it('should draw a card', () => {
@@ -178,17 +180,19 @@ describe('Turn Actions', () => {
       players: [
         {
           id: 'player1',
-          battlefield: [
-            { id: 'perm1', counters: { damage: 3 }, card: { name: 'Creature' } },
-          ],
           hand: [],
         },
+      ],
+      // Use centralized battlefield
+      battlefield: [
+        { id: 'perm1', controller: 'player1', counters: { damage: 3 }, card: { name: 'Creature' } },
       ],
     } as any;
 
     const result = executeCleanupStep(state, 'player1');
-    const player = result.state.players.find(p => p.id === 'player1');
-    expect(player?.battlefield?.[0].counters?.damage).toBe(0);
+    // Check centralized battlefield
+    const perm = result.state.battlefield?.find((p: any) => p.id === 'perm1');
+    expect(perm?.counters?.damage).toBe(0);
   });
 });
 

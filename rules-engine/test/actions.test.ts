@@ -46,10 +46,6 @@ function createMockGameState(): GameState {
           { id: 'card3', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
         ],
         hand: [],
-        battlefield: [
-          { id: 'perm1', controller: 'player1', owner: 'player1', tapped: false, card: { name: 'Evolving Wilds', type_line: 'Land' } },
-          { id: 'perm2', controller: 'player1', owner: 'player1', tapped: false, card: { name: 'Mountain', type_line: 'Basic Land — Mountain' } },
-        ],
         graveyard: [],
         manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
       },
@@ -60,9 +56,6 @@ function createMockGameState(): GameState {
         life: 40,
         library: [],
         hand: [],
-        battlefield: [
-          { id: 'perm3', controller: 'player2', owner: 'player2', tapped: false, card: { name: 'Plains', type_line: 'Basic Land — Plains' } },
-        ],
         graveyard: [],
         manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
       },
@@ -72,7 +65,12 @@ function createMockGameState(): GameState {
     turnPlayer: 'player1',
     priority: 'player1',
     stack: [],
-    battlefield: [],
+    // Centralized battlefield (current architecture)
+    battlefield: [
+      { id: 'perm1', controller: 'player1', owner: 'player1', tapped: false, card: { name: 'Evolving Wilds', type_line: 'Land' } },
+      { id: 'perm2', controller: 'player1', owner: 'player1', tapped: false, card: { name: 'Mountain', type_line: 'Basic Land — Mountain' } },
+      { id: 'perm3', controller: 'player2', owner: 'player2', tapped: false, card: { name: 'Plains', type_line: 'Basic Land — Plains' } },
+    ],
     commandZone: {},
     phase: 'precombatMain',
     step: 'main',
@@ -139,8 +137,9 @@ describe('Sacrifice Action', () => {
     const result = executeSacrifice('test-game', action, context);
     
     expect(result.next).toBeDefined();
+    // Check centralized battlefield (current architecture)
+    expect(result.next.battlefield?.length).toBe(2); // 3 permanents - 1 sacrificed = 2
     const player = result.next.players.find(p => p.id === 'player1');
-    expect(player?.battlefield?.length).toBe(1); // One permanent removed
     expect(player?.graveyard?.length).toBe(1); // Added to graveyard
     expect(result.log).toContain('Sacrificed Evolving Wilds');
   });
@@ -207,8 +206,9 @@ describe('Search Library Action', () => {
     
     const result = executeSearchLibrary('test-game', action, context);
     
+    // Check centralized battlefield (3 original + 1 new = 4)
+    expect(result.next.battlefield?.length).toBe(4);
     const player = result.next.players.find(p => p.id === 'player1');
-    expect(player?.battlefield?.length).toBe(3); // Two original + one new
     expect(player?.library?.length).toBe(2);
   });
 
@@ -224,8 +224,8 @@ describe('Search Library Action', () => {
     
     const result = executeSearchLibrary('test-game', action, context);
     
-    const player = result.next.players.find(p => p.id === 'player1');
-    const newPermanent = player?.battlefield?.find((p: any) => p.card?.name === 'Forest');
+    // Check centralized battlefield for the new permanent
+    const newPermanent = result.next.battlefield?.find((p: any) => p.card?.name === 'Forest');
     expect(newPermanent?.tapped).toBe(true);
   });
 
@@ -264,15 +264,15 @@ describe('Combat Actions', () => {
 
   beforeEach(() => {
     gameState = createMockGameState();
-    // Add creatures for combat testing
-    (gameState.players[0] as any).battlefield.push({
+    // Add creatures for combat testing to centralized battlefield
+    gameState.battlefield.push({
       id: 'creature1',
       controller: 'player1',
       owner: 'player1',
       tapped: false,
       card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
     });
-    (gameState.players[1] as any).battlefield.push({
+    gameState.battlefield.push({
       id: 'creature2',
       controller: 'player2',
       owner: 'player2',
@@ -381,7 +381,11 @@ describe('Fetchland Action', () => {
   });
 
   it('should reject already tapped fetchland', () => {
-    (gameState.players[0] as any).battlefield[0].tapped = true;
+    // Set the fetchland to tapped in centralized battlefield
+    const fetchland = gameState.battlefield.find(p => p.id === 'perm1');
+    if (fetchland) {
+      (fetchland as any).tapped = true;
+    }
     
     const action = {
       type: 'activateFetchland' as const,
@@ -408,11 +412,11 @@ describe('Fetchland Action', () => {
     
     const player = result.next.players.find(p => p.id === 'player1');
     
-    // Evolving Wilds should be sacrificed
-    expect(player?.battlefield?.some((p: any) => p.id === 'perm1')).toBe(false);
+    // Evolving Wilds should be sacrificed from centralized battlefield
+    expect(result.next.battlefield?.some((p: any) => p.id === 'perm1')).toBe(false);
     
-    // Should have a new land on battlefield
-    expect(player?.battlefield?.some((p: any) => p.card?.name === 'Forest')).toBe(true);
+    // Should have a new land on centralized battlefield (3 original - 1 sacrificed + 1 new = 3)
+    expect(result.next.battlefield?.some((p: any) => p.card?.name === 'Forest')).toBe(true);
     
     // Evolving Wilds should be in graveyard (was sacrificed)
     expect(player?.graveyard?.length).toBe(1);
@@ -769,15 +773,15 @@ describe('Combat Validation Helpers', () => {
         players: [
           {
             id: 'player1',
-            battlefield: [
-              { id: 'c1', controller: 'player1', tapped: false, card: { type_line: 'Creature — Bear', oracle_text: '' } },
-              { id: 'c2', controller: 'player1', tapped: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
-              { id: 'e1', controller: 'player1', tapped: false, card: { type_line: 'Enchantment', oracle_text: '' } },
-              { id: 'c3', controller: 'player1', tapped: false, card: { type_line: 'Creature — Wall', oracle_text: 'Defender' } },
-            ],
           },
         ],
-        battlefield: [],
+        // Use centralized battlefield
+        battlefield: [
+          { id: 'c1', controller: 'player1', tapped: false, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+          { id: 'c2', controller: 'player1', tapped: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+          { id: 'e1', controller: 'player1', tapped: false, card: { type_line: 'Enchantment', oracle_text: '' } },
+          { id: 'c3', controller: 'player1', tapped: false, card: { type_line: 'Creature — Wall', oracle_text: 'Defender' } },
+        ],
       } as unknown as GameState;
 
       const attackers = getLegalAttackers(gameState, 'player1');
@@ -789,13 +793,13 @@ describe('Combat Validation Helpers', () => {
         players: [
           {
             id: 'player1',
-            battlefield: [
-              { id: 'c1', controller: 'player1', tapped: false, summoningSickness: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
-              { id: 'c2', controller: 'player1', tapped: false, summoningSickness: true, card: { type_line: 'Creature — Goblin', oracle_text: 'Haste' } },
-            ],
           },
         ],
-        battlefield: [],
+        // Use centralized battlefield
+        battlefield: [
+          { id: 'c1', controller: 'player1', tapped: false, summoningSickness: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+          { id: 'c2', controller: 'player1', tapped: false, summoningSickness: true, card: { type_line: 'Creature — Goblin', oracle_text: 'Haste' } },
+        ],
       } as unknown as GameState;
 
       const attackers = getLegalAttackers(gameState, 'player1');
@@ -809,14 +813,14 @@ describe('Combat Validation Helpers', () => {
         players: [
           {
             id: 'player1',
-            battlefield: [
-              { id: 'c1', controller: 'player1', tapped: false, card: { type_line: 'Creature — Bear', oracle_text: '' } },
-              { id: 'c2', controller: 'player1', tapped: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
-              { id: 'e1', controller: 'player1', tapped: false, card: { type_line: 'Enchantment', oracle_text: '' } },
-            ],
           },
         ],
-        battlefield: [],
+        // Use centralized battlefield
+        battlefield: [
+          { id: 'c1', controller: 'player1', tapped: false, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+          { id: 'c2', controller: 'player1', tapped: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+          { id: 'e1', controller: 'player1', tapped: false, card: { type_line: 'Enchantment', oracle_text: '' } },
+        ],
       } as unknown as GameState;
 
       const blockers = getLegalBlockers(gameState, 'player1');
@@ -864,7 +868,8 @@ describe('Combat Validation in Actions', () => {
   });
 
   it('should reject attacking with an enchantment (Cryptolith Rite case)', () => {
-    (gameState.players[0] as any).battlefield.push({
+    // Add to centralized battlefield
+    gameState.battlefield.push({
       id: 'enchantment1',
       controller: 'player1',
       owner: 'player1',
@@ -884,7 +889,8 @@ describe('Combat Validation in Actions', () => {
   });
 
   it('should reject attacking with a creature that has summoning sickness', () => {
-    (gameState.players[0] as any).battlefield.push({
+    // Add to centralized battlefield
+    gameState.battlefield.push({
       id: 'creature1',
       controller: 'player1',
       owner: 'player1',
@@ -905,7 +911,8 @@ describe('Combat Validation in Actions', () => {
   });
 
   it('should allow attacking with a creature with haste even with summoning sickness', () => {
-    (gameState.players[0] as any).battlefield.push({
+    // Add to centralized battlefield
+    gameState.battlefield.push({
       id: 'creature1',
       controller: 'player1',
       owner: 'player1',
@@ -933,7 +940,8 @@ describe('Combat Validation in Actions', () => {
       blockers: [],
     };
 
-    (gameState.players[1] as any).battlefield.push({
+    // Add to centralized battlefield
+    gameState.battlefield.push({
       id: 'artifact1',
       controller: 'player2',
       owner: 'player2',
