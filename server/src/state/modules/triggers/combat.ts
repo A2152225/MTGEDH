@@ -18,6 +18,7 @@ import {
   KNOWN_BEGINNING_COMBAT_TRIGGERS,
 } from "./card-data-tables.js";
 import type { BeginningOfCombatTrigger, EndOfCombatTrigger } from "./types.js";
+import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
 
@@ -250,8 +251,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
   
   // ===== DYNAMIC DETECTION (Primary) =====
   
-  // Escape card name for regex
-  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use shared utility function for regex escaping
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
   
   // "Whenever ~ deals combat damage to a player" detection
   const combatDamagePattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNameEscaped})\\s+deals\\s+combat\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i');
@@ -439,8 +440,9 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   }
   
   // Generic "whenever ~ attacks" - match ~, this creature, or the actual card name
-  const cardNamePattern = cardName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '\\s+');
-  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePattern})\\s+attacks,?\\s*([^.]+)`, 'i');
+  // Use consistent regex escaping approach
+  const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
+  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePatternEscaped})\\s+attacks,?\\s*([^.]+)`, 'i');
   const attacksMatch = oracleText.match(attacksPattern);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
@@ -899,9 +901,9 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
   
   // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
   // Use the table to handle special cases and provide enhanced metadata
-  // Only add if not already detected dynamically
+  // Only add if not already detected dynamically (check by permanentId, not description)
   for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
-    if (lowerName.includes(knownName) && !triggers.some(t => t.description === info.effect)) {
+    if (lowerName.includes(knownName) && !triggers.some(t => t.permanentId === permanentId)) {
       triggers.push({
         permanentId,
         cardName,
@@ -1161,8 +1163,9 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
   }
   
   // Generic "whenever ~ blocks" detection
-  const cardNamePattern = cardName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '\\s+');
-  const blocksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePattern})\\s+blocks(?:\\s+a\\s+creature)?,?\\s*([^.]+)`, 'i');
+  // Use consistent regex escaping approach
+  const blockCardNamePattern = escapeCardNameForRegex(cardName);
+  const blocksPattern = new RegExp(`whenever\\s+(?:~|this creature|${blockCardNamePattern})\\s+blocks(?:\\s+a\\s+creature)?,?\\s*([^.]+)`, 'i');
   const blocksMatch = oracleText.match(blocksPattern);
   
   if (blocksMatch && !triggers.some(t => t.permanentId === permanentId)) {

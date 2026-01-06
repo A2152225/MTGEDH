@@ -17,6 +17,7 @@ import {
   KNOWN_DEATH_TRIGGERS,
   KNOWN_ETB_TRIGGERS,
 } from "./card-data-tables.js";
+import { escapeCardNameForRegex } from "./types.js";
 
 // ============================================================================
 // Type Definitions
@@ -167,8 +168,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   }
   
   // Generic "when ~ dies" or "when this creature dies" triggers
-  // Escape the card name for regex use (handles special characters like commas, apostrophes)
-  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use shared utility function for regex escaping
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
   const selfDiesPattern = new RegExp(`when(?:ever)?\\s+(?:~|this creature|${cardNameEscaped})\\s+dies,?\\s*([^.]+)`, 'i');
   const diesMatch = oracleText.match(selfDiesPattern);
   if (diesMatch && !triggers.some(t => t.triggerType === 'dies')) {
@@ -183,8 +184,11 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   }
   
   // "Whenever a creature you control dies" - also handles "nontoken creature"
+  // Check specifically for the nontoken keyword in the death trigger context
   const controlledDiesMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature you control dies,?\s*([^.]+)/i);
   if (controlledDiesMatch && !triggers.some(t => t.triggerType === 'creature_dies')) {
+    // Use more specific check - look for the exact pattern being matched
+    const nontokenMatch = oracleText.match(/whenever (?:a|another) nontoken creature you control dies/i);
     triggers.push({
       permanentId,
       cardName,
@@ -192,7 +196,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       description: controlledDiesMatch[1].trim(),
       effect: controlledDiesMatch[1].trim(),
       mandatory: true,
-      nontokenOnly: lowerOracle.includes('nontoken creature you control dies'),
+      nontokenOnly: !!nontokenMatch,
     });
   }
   
@@ -217,6 +221,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   // "Whenever a creature an opponent controls dies" or "Whenever a creature you don't control dies"
   const opponentDiesMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature (?:an opponent controls|you don't control) dies,?\s*([^.]+)/i);
   if (opponentDiesMatch && !triggers.some(t => t.triggerType === 'opponent_creature_dies')) {
+    // Use specific check for nontoken in the opponent creature dies context
+    const opponentNontokenMatch = oracleText.match(/whenever (?:a|another) nontoken creature (?:an opponent controls|you don't control) dies/i);
     triggers.push({
       permanentId,
       cardName,
@@ -224,7 +230,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       description: opponentDiesMatch[1].trim(),
       effect: opponentDiesMatch[1].trim(),
       mandatory: true,
-      nontokenOnly: lowerOracle.includes('nontoken creature'),
+      nontokenOnly: !!opponentNontokenMatch,
     });
   }
   
@@ -502,7 +508,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // ===== DYNAMIC DETECTION (Primary) =====
   
   // "When ~ enters the battlefield" or "When ~ enters" pattern (self ETB)
-  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use shared utility function for regex escaping
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
   const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch) {

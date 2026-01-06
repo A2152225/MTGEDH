@@ -313,7 +313,8 @@ export function detectLifegainTriggers(
         } else {
           effectType = 'add_counter';
         }
-      } else if (oracleText.includes('draw') && !oracleText.includes('draws cards')) {
+      } else if (/\bdraw(?:s)?\s+(?:a\s+)?card/i.test(oracleText)) {
+        // Match patterns: "draw a card", "draws a card", "draw card"
         effectType = 'draw_cards';
       } else if (oracleText.includes('create') && oracleText.includes('token')) {
         effectType = 'create_token';

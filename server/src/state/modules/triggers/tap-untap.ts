@@ -12,6 +12,7 @@
 
 import type { GameContext } from "../../context.js";
 import { KNOWN_UNTAP_TRIGGERS } from "./card-data-tables.js";
+import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 // Re-export detectDoesntUntapEffects from turn-phases for backwards compatibility
@@ -74,8 +75,8 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
-  // Escape card name for regex
-  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').toLowerCase();
+  // Use shared utility function for regex escaping (make lowercase for case-insensitive match)
+  const cardNameEscaped = escapeCardNameForRegex(cardName).toLowerCase();
   
   // ===== DYNAMIC DETECTION (Primary) =====
   

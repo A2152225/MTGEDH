@@ -50,6 +50,7 @@ import {
   KNOWN_END_STEP_TRIGGERS,
   KNOWN_PRECOMBAT_MAIN_TRIGGERS,
 } from "./triggers/card-data-tables.js";
+import { escapeCardNameForRegex } from "./triggers/types.js";
 
 // Re-export from modularized submodules
 export { calculateDevotion, getDevotionManaAmount } from "./triggers/devotion.js";
@@ -691,8 +692,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   }
   
   // Generic "when ~ dies" or "when this creature dies" triggers
-  // Escape the card name for regex use
-  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use shared utility function for regex escaping
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
   const selfDiesPattern = new RegExp(`when(?:ever)?\\s+(?:~|this creature|${cardNameEscaped})\\s+dies,?\\s*([^.]+)`, 'i');
   const diesMatch = oracleText.match(selfDiesPattern);
   if (diesMatch && !triggers.some(t => t.triggerType === 'dies')) {
@@ -1003,9 +1004,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // "When ~ enters the battlefield" or "When [CARDNAME] enters the battlefield"
   // The ~ is used in some oracle text, but the actual card name is also used
   // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
-  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use shared utility function for regex escaping
+  const etbCardNameEscaped = escapeCardNameForRegex(cardName);
   // Combine static alternatives with dynamic card name
-  const etbAlternatives = [...ETB_STATIC_ALTERNATIVES, cardNameEscaped];
+  const etbAlternatives = [...ETB_STATIC_ALTERNATIVES, etbCardNameEscaped];
   const etbPattern = new RegExp(`when\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {

@@ -9,6 +9,21 @@ import type { GameContext } from "../../context.js";
 // Re-export GameContext for convenience
 export type { GameContext };
 
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Escape a card name for use in a regex pattern.
+ * Handles special characters like commas, apostrophes, and regex metacharacters.
+ * 
+ * @param cardName The card name to escape
+ * @returns The escaped card name safe for regex use
+ */
+export function escapeCardNameForRegex(cardName: string): string {
+  return cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Trigger timing - when the trigger should fire
  */
