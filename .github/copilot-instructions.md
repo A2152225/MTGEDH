@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-**MTGEDH** is a web-based platform for playing Magic: The Gathering online with up to 8 players. TypeScript monorepo with 4 workspaces: server (Node.js + Express + Socket.IO), client (React), shared (types), rules-engine (MTG rules automation). SQLite database, 132+ test files (2353 tests, 17 known failures). Node.js 18+, npm 9+.
+**MTGEDH** is a web-based platform for playing Magic: The Gathering online with up to 8 players. TypeScript monorepo with 4 workspaces: server (Node.js + Express + Socket.IO), client (React), shared (types), rules-engine (MTG rules automation). SQLite database, 132+ test files (2353 tests, all passing). Node.js 18+, npm 9+.
 
 ## Critical Build & Validation Commands
 
@@ -23,9 +23,8 @@ npm run typecheck --workspace=server|client|shared|rules-engine
 
 ### Testing
 ```bash
-npm test  # ~10s: Server/client=typecheck, rules-engine=vitest (2353 tests)
+npm test  # ~10s: Server/client=typecheck, rules-engine=vitest (2353 tests, all passing)
 ```
-**17 pre-existing test failures** (actions.test.ts, gameAutomation.test.ts) - NOT your responsibility.
 
 ### Development
 ```bash
@@ -70,7 +69,15 @@ npm run dev  # Starts server (port 3001) + client (port 3000), auto-reloads
 3. Make minimal, surgical changes
 4. Test: `npm run dev` → browser at `http://localhost:3000`
 5. Build: `npm run build`
-6. Test: `npm test` (expect 17 pre-existing failures)
+6. Test: `npm test` (all tests should pass)
+
+### Implementing Card-Specific Features (CRITICAL)
+**ALWAYS verify oracle text via Scryfall API** when working with specific cards:
+```bash
+# Fetch current oracle text (handles Bloomburrow template updates from 2024)
+curl "https://api.scryfall.com/cards/named?exact=Elspeth%20Resplendent"
+```
+Oracle text changed significantly in 2024 due to Bloomburrow updates. Always fetch current text to ensure accurate implementation.
 
 ### Adding Player Interactions (CRITICAL)
 **ALWAYS use Resolution Queue** (see `/server/src/state/resolution/README.md`):
@@ -107,13 +114,13 @@ Set in `.env`: `DEBUG_STATE=1` or `2`
 
 ## Common Issues & Solutions
 
-1. **17 Test Failures:** Pre-existing in actions.test.ts, gameAutomation.test.ts - NOT your fault
-2. **npm run lint fails:** No lint configured, use `npm run typecheck` instead
-3. **Port in use:** Change PORT in `.env` or kill process: `lsof -i :3001 && kill -9 <PID>`
-4. **Database errors:** Delete `data/mtgedh.sqlite`, restart (auto-recreates)
-5. **WebSocket issues:** Ensure both client/server running via `npm run dev`
-6. **TypeScript errors:** Check imports use `.js` extension, run `npm run typecheck --workspace=<name>`
-7. **Client not updating:** Hard refresh (Ctrl+Shift+R), check Vite HMR, restart dev server
+1. **npm run lint fails:** No lint configured, use `npm run typecheck` instead
+2. **Port in use:** Change PORT in `.env` or kill process: `lsof -i :3001 && kill -9 <PID>`
+3. **Database errors:** Delete `data/mtgedh.sqlite`, restart (auto-recreates)
+4. **WebSocket issues:** Ensure both client/server running via `npm run dev`
+5. **TypeScript errors:** Check imports use `.js` extension, run `npm run typecheck --workspace=<name>`
+6. **Client not updating:** Hard refresh (Ctrl+Shift+R), check Vite HMR, restart dev server
+7. **Centralized battlefield:** Game state uses `state.battlefield` (centralized), not `player.battlefield`
 
 ## Production Deployment
 
