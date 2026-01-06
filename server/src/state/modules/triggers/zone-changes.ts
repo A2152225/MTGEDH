@@ -739,13 +739,15 @@ export function detectETBUntapEffects(card: any, permanent: any): ETBUntapEffect
   }
   
   // "Whenever a creature enters the battlefield under your control, untap" patterns
-  if (oracleText.includes('whenever a creature enters the battlefield under your control') && 
+  // Supports both old "enters the battlefield" and new Bloomburrow "enters" templates
+  if ((oracleText.includes('whenever a creature enters the battlefield under your control') ||
+       oracleText.includes('whenever a creature enters under your control')) && 
       oracleText.includes('untap')) {
     effects.push({
       permanentId,
       cardName,
       controllerId,
-      description: "Whenever a creature enters the battlefield under your control, untap target creature",
+      description: "Whenever a creature enters under your control, untap target creature",
       untapType: 'controller_creatures',
       triggerCondition: 'creature_etb',
     });
@@ -892,9 +894,10 @@ export function checkETBAutoSacrifice(card: any, permanent: any): {
     }
   }
   
-  // Generic pattern: "When ~ enters the battlefield, sacrifice it unless"
+  // Generic pattern: "When ~ enters the battlefield, sacrifice it unless" or "When ~ enters, sacrifice it unless"
+  // Supports both old "enters the battlefield" and new Bloomburrow "enters" templates
   const sacrificeUnlessMatch = oracleText.match(
-    /when (?:~|this creature) enters the battlefield,?\s*sacrifice (?:~|it) unless ([^.]+)/i
+    /when (?:~|this creature) enters(?: the battlefield)?,?\s*sacrifice (?:~|it) unless ([^.]+)/i
   );
   if (sacrificeUnlessMatch) {
     const condition = sacrificeUnlessMatch[1].toLowerCase();

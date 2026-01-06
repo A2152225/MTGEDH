@@ -5694,11 +5694,21 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
+            // "Whenever another permanent enters under your control" - Altar of the Brood, etc.
+            // The trigger only fires for permanents that share the same controller as the trigger source
+            const triggerController = perm.controller;
+            if (triggerController !== controller) {
+              continue; // Skip - this trigger only fires for YOUR permanents entering
+            }
             // Check color restriction if any (e.g., "white or black creature")
             if ((trigger as any).colorRestriction) {
               if (!matchesColorRestriction((trigger as any).colorRestriction, (card as any).colors || [])) {
                 continue; // Skip - entering creature doesn't match color restriction
               }
+            }
+            // Check if it's creature-only (e.g., "another creature you control enters")
+            if ((trigger as any).creatureOnly && !isCreature) {
+              continue; // Skip - this trigger only fires for creatures
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'permanent_etb') {
@@ -8149,11 +8159,13 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
     // Elspeth, Sun's Champion / Elspeth, Storm Slayer: "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
     // Mondrak, Glory Dominus: Same effect
     // Primal Vigor: Affects all players but still doubles tokens
+    // Adrix and Nev, Twincasters: "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
     if (permName.includes('anointed procession') ||
         permName.includes('parallel lives') ||
         permName.includes('doubling season') ||
         permName.includes('mondrak, glory dominus') ||
         permName.includes('primal vigor') ||
+        permName.includes('adrix and nev') ||
         (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
         (permOracle.includes('twice that many') && permOracle.includes('token'))) {
       multiplier *= 2;

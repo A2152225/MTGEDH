@@ -4228,6 +4228,41 @@ export function registerGameActions(io: Server, socket: Socket) {
               debug(2, `[castSpellFromHand] ${trigger.cardName}: Added ${trigger.addsLoyaltyCounters} loyalty counter(s), now at ${newLoyalty}`);
             }
           }
+          
+          // Tap/Untap target permanent effect (Merrow Reejerey, Stonybrook Schoolmaster, etc.)
+          // These are "may" abilities that require target selection - push to stack for targeting
+          if (trigger.requiresTarget && 
+              (effectLower.includes('tap or untap target') || 
+               effectLower.includes('untap target') ||
+               effectLower.includes('tap target'))) {
+            // Push to stack for target selection
+            game.state.stack = game.state.stack || [];
+            const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            
+            game.state.stack.push({
+              id: triggerId,
+              type: 'triggered_ability',
+              controller: playerId,
+              source: trigger.permanentId,
+              sourceName: trigger.cardName,
+              description: trigger.description,
+              triggerType: 'cast_creature_type',
+              effect: trigger.effect,
+              mandatory: trigger.mandatory,
+              requiresTarget: true,
+              targetType: trigger.targetType || 'permanent',
+            } as any);
+            
+            debug(2, `[castSpellFromHand] Pushed ${trigger.cardName} trigger to stack for target selection`);
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${trigger.cardName} triggers: ${getPlayerName(game, playerId)} may tap or untap target permanent.`,
+              ts: Date.now(),
+            });
+          }
         }
       } catch (err) {
         debugWarn(1, '[castSpellFromHand] Failed to process spell-cast triggers:', err);
