@@ -3889,10 +3889,11 @@ async function executeAIActivateAbility(
       // Mana abilities produce mana and don't target
       // Patterns matched:
       //   - {W}, {U}, {B}, {R}, {G}, {C} (specific mana symbols)
+      //   - {R} or {W} (choice of colors, like Talismans)
       //   - "add one mana", "add two mana", "add X mana"
       //   - "mana of any color", "any color", "mana in any combination"
       //   - Must NOT contain "target" (targeting abilities can't be mana abilities)
-      const manaProductionPattern = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
+      const manaProductionPattern = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
       const hasTargets = /target/i.test(abilityText);
       const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
       

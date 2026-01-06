@@ -893,7 +893,8 @@ async function processActivateAbility(
     const oracleText = (card?.oracle_text || '').toLowerCase();
     
     // Use more precise mana ability detection matching ai.ts
-    const manaProductionPattern = /\{t\}:\s*add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
+    // Includes "{R} or {W}" pattern for Talismans and similar cards
+    const manaProductionPattern = /\{t\}:\s*add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
     const hasTargets = /target/i.test(oracleText);
     // Only check the specific ability text that starts with {T}:, not the whole oracle text
     const tapAbilityMatch = oracleText.match(/\{t\}:[^.]+/i);

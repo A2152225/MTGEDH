@@ -5935,13 +5935,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - Doesn't target
     // 
     // Pattern matches:
-    // - "Add {W}", "Add {G}{G}", etc. (specific mana symbols including {C} for colorless)
+    // - "Add {W}", "Add {G}{G}", "Add {R} or {W}", etc. (specific mana symbols including {C} for colorless)
     // - "Add one mana", "Add two mana", etc.
     // - "Add mana of any color", "Add any color"
     // - "Add X mana" (variable mana)
     // - "Add an amount of {G}" (Karametra's Acolyte, etc.)
     // - "Add X mana in any combination" (Selvala, Nykthos, etc.)
-    const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
+    // Note: Also matches Talisman pattern: "{T}: Add {R} or {W}. This artifact deals 1 damage to you."
+    const isManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
                           !/target/i.test(abilityText);
     
     if (!isManaAbility) {
