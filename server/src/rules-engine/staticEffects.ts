@@ -605,6 +605,46 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
     }
+    
+    // Handle "chosen type" effects (Morophon, Reflections of Littjara, etc.)
+    // Pattern: "Other creatures you control of the chosen type get +X/+Y"
+    // The chosen type is stored on the permanent as chosenCreatureType
+    const chosenType = (source as any).chosenCreatureType;
+    if (chosenType) {
+      const oracle = ((source.card as any)?.oracle_text || '').toLowerCase();
+      
+      // Morophon pattern: "Other creatures you control of the chosen type get +1/+1"
+      const chosenTypeBuffMatch = oracle.match(/other creatures you control of the chosen type get\s+(\+\d+\s*\/\s*\+\d+)/i);
+      if (chosenTypeBuffMatch) {
+        const buff = parseBuffSegment(chosenTypeBuffMatch[1]);
+        if (buff) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller && 
+                isCreature(perm) && 
+                perm.id !== source.id && 
+                hasCreatureType(perm, chosenType)) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+            }
+          }
+        }
+      }
+      
+      // Generic "chosen type" ability grants: "Creatures you control of the chosen type have [ABILITY]"
+      const chosenTypeAbilitiesMatch = oracle.match(/creatures you control of the chosen type have\s+([^.]+)/i);
+      if (chosenTypeAbilitiesMatch) {
+        const abilities = parseAbilities(chosenTypeAbilitiesMatch[1]);
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller && 
+              isCreature(perm) && 
+              hasCreatureType(perm, chosenType)) {
+            const agg = perPermanent.get(perm.id)!;
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
   }
 
   // Detect global type-changing effects like Enchanted Evening and Mycosynth Lattice

@@ -1082,12 +1082,21 @@ export function updateGodCreatureStatus(ctx: GameContext): void {
     if (!typeLine.includes('god') || !typeLine.includes('creature')) continue;
     
     // Check for devotion requirement pattern
-    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+)/i);
+    // Support both digit and word numbers (five, six, seven, etc.)
+    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
     if (!devotionMatch) continue;
     
     const color1 = devotionMatch[1].toLowerCase();
     const color2 = devotionMatch[2]?.toLowerCase();
-    const threshold = parseInt(devotionMatch[3], 10);
+    const thresholdStr = devotionMatch[3].toLowerCase();
+    
+    // Convert word numbers to digits
+    const wordToNumber: Record<string, number> = {
+      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+    };
+    const parsedInt = parseInt(thresholdStr, 10);
+    const threshold = wordToNumber[thresholdStr] ?? (isNaN(parsedInt) ? 5 : parsedInt);
     
     // Map color words to mana symbols
     const colorToSymbol: Record<string, string> = {
