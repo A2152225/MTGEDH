@@ -5320,6 +5320,23 @@ function filterLibraryCards(library: any[], filter: any): any[] {
       matches = (card.cmc || 0) <= searchCriteria.maxManaValue;
     }
     
+    // Check power (e.g., "creature with power 2 or less" - Imperial Recruiter)
+    if (matches && typeof searchCriteria.maxPower === 'number') {
+      const power = parseInt(String(card.power || '0'), 10);
+      matches = !isNaN(power) && power <= searchCriteria.maxPower;
+    }
+    
+    // Check toughness (e.g., "creature with toughness 2 or less" - Recruiter of the Guard)
+    if (matches && typeof searchCriteria.maxToughness === 'number') {
+      const toughness = parseInt(String(card.toughness || '0'), 10);
+      matches = !isNaN(toughness) && toughness <= searchCriteria.maxToughness;
+    }
+    
+    // Check minimum CMC (e.g., "mana value 6 or greater" - Fierce Empath)
+    if (matches && typeof searchCriteria.minCmc === 'number') {
+      matches = (card.cmc || 0) >= searchCriteria.minCmc;
+    }
+    
     if (matches) {
       availableCards.push({
         id: card.id,

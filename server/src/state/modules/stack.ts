@@ -629,7 +629,8 @@ function enqueueLibrarySearchStep(
     lifeLoss,
   } = options;
 
-  const availableCards = lib.map((card: any) => ({
+  // Map all library cards with full data
+  const allCards = lib.map((card: any) => ({
     id: card.id,
     name: card.name,
     type_line: card.type_line,
@@ -642,6 +643,47 @@ function enqueueLibrarySearchStep(
     toughness: (card as any).toughness,
     loyalty: (card as any).loyalty,
   }));
+  
+  // Apply filter to get available cards that match criteria
+  const availableCards = allCards.filter((card: any) => {
+    let matches = true;
+    
+    // Check types
+    if (filter.types && filter.types.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = filter.types.some((type: string) => typeLine.includes(type.toLowerCase()));
+    }
+    
+    // Check subtypes
+    if (matches && filter.subtypes && filter.subtypes.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = filter.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
+    }
+    
+    // Check max power (e.g., "power 2 or less" - Imperial Recruiter)
+    if (matches && typeof filter.maxPower === 'number') {
+      const power = parseInt(String(card.power || '0'), 10);
+      matches = !isNaN(power) && power <= filter.maxPower;
+    }
+    
+    // Check max toughness (e.g., "toughness 2 or less" - Recruiter of the Guard)
+    if (matches && typeof filter.maxToughness === 'number') {
+      const toughness = parseInt(String(card.toughness || '0'), 10);
+      matches = !isNaN(toughness) && toughness <= filter.maxToughness;
+    }
+    
+    // Check max CMC
+    if (matches && typeof filter.maxCmc === 'number') {
+      matches = (card.cmc || 0) <= filter.maxCmc;
+    }
+    
+    // Check min CMC (e.g., "mana value 6 or greater" - Fierce Empath)
+    if (matches && typeof filter.minCmc === 'number') {
+      matches = (card.cmc || 0) >= filter.minCmc;
+    }
+    
+    return matches;
+  });
 
   ResolutionQueueManager.addStep(gameId, {
     type: ResolutionStepType.LIBRARY_SEARCH,
