@@ -1353,51 +1353,6 @@ function executeTriggerEffect(
   // ===== SPECIAL HANDLERS =====
   // These need to be checked before general pattern matching
   
-  // ===== ETB LIBRARY SEARCH HANDLING =====
-  // Handle ETB triggers that search the library (e.g., Recruiter of the Guard, Wood Elves)
-  // These triggers have searchFilter attached from KNOWN_ETB_TRIGGERS in card-data-tables.ts
-  const searchFilter = (triggerItem as any).searchFilter;
-  if (searchFilter) {
-    const searchDestination = (triggerItem as any).searchDestination || 'hand';
-    const entersTapped = (triggerItem as any).searchEntersTapped || false;
-    const gameId = (ctx as any).gameId || 'unknown';
-    
-    debug(2, `[executeTriggerEffect] ${sourceName} ETB search trigger: filter=${JSON.stringify(searchFilter)}, destination=${searchDestination}`);
-    
-    // Build search description from filter
-    let searchCriteria = 'a card';
-    if (searchFilter.types && searchFilter.types.length > 0) {
-      searchCriteria = searchFilter.types.join(' or ');
-    }
-    if (searchFilter.subtypes && searchFilter.subtypes.length > 0) {
-      if (searchCriteria !== 'a card') searchCriteria += ' - ';
-      searchCriteria += searchFilter.subtypes.join(' or ');
-    }
-    if (searchFilter.maxPower !== undefined) {
-      searchCriteria += ` with power ${searchFilter.maxPower} or less`;
-    }
-    if (searchFilter.maxToughness !== undefined) {
-      searchCriteria += ` with toughness ${searchFilter.maxToughness} or less`;
-    }
-    
-    enqueueLibrarySearchStep(ctx, controller, {
-      searchFor: searchCriteria,
-      description: `${sourceName}: Search your library for ${searchCriteria}`,
-      destination: searchDestination,
-      entersTapped,
-      optional: false,
-      source: sourceName,
-      shuffleAfter: true,
-      filter: searchFilter,
-      maxSelections: 1,
-      minSelections: 1,
-      reveal: true,
-    });
-    
-    debug(2, `[executeTriggerEffect] ${sourceName}: Created library search step for ${controller}`);
-    return; // Early return, effect is fully handled
-  }
-  
   // ===== REBOUND TRIGGER HANDLING =====
   // When a rebound trigger resolves, create a modal choice for the player
   // The player may cast the spell from exile without paying its mana cost
