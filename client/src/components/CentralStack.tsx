@@ -47,30 +47,50 @@ export function CentralStack({
   
   // Helper to find a permanent's card data by ID for hover preview
   const findTargetCard = (targetId: string): KnownCardRef | undefined => {
-    if (!battlefield) return undefined;
-    const perm = battlefield.find(p => p.id === targetId);
-    return perm?.card as KnownCardRef | undefined;
+    // First check battlefield
+    if (battlefield) {
+      const perm = battlefield.find(p => p.id === targetId);
+      if (perm?.card) return perm.card as KnownCardRef;
+    }
+    // Then check stack (for countering spells targeting other spells)
+    const stackItem = stack.find(s => s.id === targetId);
+    if (stackItem?.card) return stackItem.card as KnownCardRef;
+    return undefined;
   };
   
-  // Helper to find permanent name from battlefield (fallback when targetDetails.name is missing)
+  // Helper to find target name from either battlefield or stack
   const findPermanentName = (targetId: string): { name: string; controllerName?: string } | undefined => {
-    if (!battlefield) return undefined;
-    const perm = battlefield.find(p => p.id === targetId);
-    if (!perm) return undefined;
-    
-    // Try to get name from card or card_faces
-    let name = (perm.card as KnownCardRef)?.name;
-    if (!name) {
-      const faces = (perm.card as any)?.card_faces;
-      if (faces && faces[0]?.name) {
-        name = faces[0].name;
+    // Check battlefield first
+    if (battlefield) {
+      const perm = battlefield.find(p => p.id === targetId);
+      if (perm) {
+        // Try to get name from card or card_faces
+        let name = (perm.card as KnownCardRef)?.name;
+        if (!name) {
+          const faces = (perm.card as any)?.card_faces;
+          if (faces && faces[0]?.name) {
+            name = faces[0].name;
+          }
+        }
+        if (name) {
+          const controllerName = perm.controller ? getPlayerName(perm.controller) : undefined;
+          return { name, controllerName };
+        }
       }
     }
-    if (!name) return undefined;
     
-    // Get controller name
-    const controllerName = perm.controller ? getPlayerName(perm.controller) : undefined;
-    return { name, controllerName };
+    // Check stack for spell targets (e.g., countering a spell on the stack)
+    const stackItem = stack.find(s => s.id === targetId);
+    if (stackItem) {
+      const kc = stackItem.card as KnownCardRef | undefined;
+      const name = kc?.name || (stackItem as any).sourceName;
+      if (name) {
+        const controllerName = stackItem.controller ? getPlayerName(stackItem.controller) : undefined;
+        return { name, controllerName };
+      }
+    }
+    
+    return undefined;
   };
   
   // Helper to format target display with controller info
