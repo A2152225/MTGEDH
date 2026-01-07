@@ -3408,10 +3408,19 @@ function executeTriggerEffect(
   // Common planeswalker pattern: "Target creature gets +X/+Y until end of turn"
   // Also handles: "Target creature gets +X/+Y and gains [ability] until end of turn"
   // Also handles: "Up to one target creature gets +X/+Y..."
+  // Also handles: "Until end of turn, target creature gets +X/+Y..." (Ajani Steadfast pattern)
   // NOTE: If "up to one" and no targets selected, this pattern won't match (targets.length === 0)
   // which is correct behavior - the ability simply doesn't do anything if no target chosen
+  // 
+  // Regex breakdown:
+  // - (?:until end of turn,?\s*)? - Optional "until end of turn" at start (Ajani pattern)
+  // - (?:up to (?:one|two|...|\d+) )? - Optional "up to N" targeting
+  // - target creatures? gets? - Required targeting phrase
+  // - ([+-]\d+)\/([+-]\d+) - Required P/T modification (captured as groups 1 & 2)
+  // - (?: and gains ([^.]+?))? - Optional ability granting (captured as group 3)
+  // - (?:\.|$| until end of turn) - Must end with period, EOL, or " until end of turn"
   // ========================================================================
-  const creatureGetsMatch = desc.match(/(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+))? until end of turn/i);
+  const creatureGetsMatch = desc.match(/(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+?))?(?:\.|$| until end of turn)/i);
   if (creatureGetsMatch && (triggerItem as any).targets?.length > 0) {
     const powerMod = parseInt(creatureGetsMatch[1], 10);
     const toughnessMod = parseInt(creatureGetsMatch[2], 10);
