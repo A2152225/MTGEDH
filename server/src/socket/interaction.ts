@@ -6962,6 +6962,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Clean up pending
         delete (game as any).pendingPlaneswalkerAbility[effectId];
         
+        // CRITICAL FIX: Also clean up pendingTargets to prevent priority passing loop
+        // When targets are selected, they're stored in pendingTargets[effectId] at line 6724
+        // If not cleaned up here, checkPendingInteractions will block priority passing indefinitely
+        if (game.state.pendingTargets?.[effectId]) {
+          delete game.state.pendingTargets[effectId];
+          debug(2, `[targetSelectionConfirm] Cleaned up pendingTargets[${effectId}] for planeswalker ability`);
+        }
+        
         debug(2, `[targetSelectionConfirm] Planeswalker ability ${cardName} activated with ${targetIds.length} targets`);
       }
     }
