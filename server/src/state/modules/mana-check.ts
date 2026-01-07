@@ -111,6 +111,17 @@ export function getTotalManaFromPool(pool: Record<string, number>): number {
 }
 
 /**
+ * Helper function to apply anyColor reduction after paying costs
+ * @param remainingPool The mana pool with anyColor tracking
+ * @param anyColorUsed Number of anyColor sources used
+ */
+function applyAnyColorReduction(remainingPool: Record<string, number>, anyColorUsed: number): void {
+  if (remainingPool.anyColor && anyColorUsed > 0) {
+    remainingPool.anyColor = Math.max(0, remainingPool.anyColor - anyColorUsed);
+  }
+}
+
+/**
  * Check if a player can pay a mana cost with their current mana pool
  * 
  * @param pool The player's mana pool
@@ -138,6 +149,11 @@ export function canPayManaCost(
   const remainingPool = { ...pool };
   let remainingLife = lifeAvailable;
   
+  // Track how many anyColor sources we've used
+  // When we pay a colored cost, if that color came from an anyColor source,
+  // we need to decrement anyColor
+  let anyColorUsed = 0;
+  
   // First, pay all non-hybrid colored costs
   for (const [color, needed] of Object.entries(parsedCost.colors)) {
     if (needed === 0) continue;
@@ -148,8 +164,21 @@ export function canPayManaCost(
     if (available < needed) {
       return false; // Can't pay this colored requirement
     }
+    
+    // When paying colored costs, track if we're using anyColor sources
+    // If pool.anyColor > 0, then the colored mana might be from anyColor sources
+    // For each colored mana we spend, if anyColor > anyColorUsed, we're using an anyColor source
+    for (let i = 0; i < needed; i++) {
+      if (remainingPool.anyColor && anyColorUsed < remainingPool.anyColor) {
+        anyColorUsed++;
+      }
+    }
+    
     remainingPool[colorKey] -= needed;
   }
+  
+  // Apply anyColor reduction after paying colored costs
+  applyAnyColorReduction(remainingPool, anyColorUsed);
   
   // Then, pay hybrid costs (can use any of the specified colors)
   if (parsedCost.hybrid && parsedCost.hybrid.length > 0) {
@@ -186,17 +215,27 @@ export function canPayManaCost(
             // Pay remainder from any colors (may need to combine multiple)
             if (toPay > 0) {
               for (const colorKey of Object.keys(remainingPool)) {
-                if (colorKey === 'colorless') continue; // Already handled above
+                if (colorKey === 'colorless' || colorKey === 'anyColor') continue; // Skip special keys
                 const available = remainingPool[colorKey as keyof typeof remainingPool];
                 if (available > 0) {
                   const toDeduct = Math.min(available, toPay);
                   remainingPool[colorKey as keyof typeof remainingPool] -= toDeduct;
                   toPay -= toDeduct;
+                  
+                  // Track anyColor usage
+                  if (remainingPool.anyColor) {
+                    const colorUsed = Math.min(toDeduct, remainingPool.anyColor - anyColorUsed);
+                    anyColorUsed += colorUsed;
+                  }
+                  
                   if (toPay === 0) break;
                 }
               }
             }
             if (toPay === 0) {
+              // Apply anyColor reduction for hybrid payment
+              applyAnyColorReduction(remainingPool, anyColorUsed);
+              anyColorUsed = 0; // Reset since we've applied it
               paid = true;
               break;
             }
@@ -215,6 +254,12 @@ export function canPayManaCost(
                 continue;
               }
             }
+            
+            // Track anyColor usage
+            if (remainingPool.anyColor && anyColorUsed < remainingPool.anyColor) {
+              anyColorUsed++;
+            }
+            
             remainingPool[colorKey] -= 1;
             paid = true;
             break;
@@ -226,6 +271,9 @@ export function canPayManaCost(
         return false; // Couldn't pay this hybrid cost
       }
     }
+    
+    // Apply anyColor reduction from hybrid costs
+    applyAnyColorReduction(remainingPool, anyColorUsed);
   }
 
   // Finally, check if we have enough remaining for generic cost
