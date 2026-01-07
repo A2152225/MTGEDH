@@ -223,6 +223,21 @@ export interface BaseResolutionStep {
 }
 
 /**
+ * Context for spell casting target selection
+ * Used to track spell info for payment request after targets are selected
+ */
+export interface SpellCastContext {
+  readonly cardId: string;
+  readonly cardName: string;
+  readonly manaCost: string;
+  readonly playerId: string;
+  readonly effectId: string;
+  readonly oracleText?: string;
+  readonly imageUrl?: string;
+  readonly faceIndex?: number;
+}
+
+/**
  * Target selection resolution step
  */
 export interface TargetSelectionStep extends BaseResolutionStep {
@@ -232,6 +247,8 @@ export interface TargetSelectionStep extends BaseResolutionStep {
   readonly minTargets: number;
   readonly maxTargets: number;
   readonly targetDescription: string;
+  /** Optional context for spell casting target selection */
+  readonly spellCastContext?: SpellCastContext;
 }
 
 /**

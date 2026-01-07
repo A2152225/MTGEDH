@@ -12,6 +12,7 @@ import {
   ResolutionStepType,
   type ResolutionStep,
   type ResolutionStepResponse,
+  type TargetSelectionStep,
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
 import { parsePT, uid, calculateVariablePT } from "../state/utils.js";
@@ -1839,10 +1840,10 @@ function handleTargetSelectionResponse(
   }
   
   // Get target step data for validation
-  const targetStep = step as any;
-  const validTargets = targetStep.validTargets || [];
-  const minTargets = targetStep.minTargets || 0;
-  const maxTargets = targetStep.maxTargets || Infinity;
+  const targetStepData = step as TargetSelectionStep;
+  const validTargets = targetStepData.validTargets || [];
+  const minTargets = targetStepData.minTargets || 0;
+  const maxTargets = targetStepData.maxTargets || Infinity;
   
   // Validate selection count is within bounds
   if (selections.length < minTargets || selections.length > maxTargets) {
@@ -2126,7 +2127,7 @@ function handleTargetSelectionResponse(
   // When a spell requires targets and is being cast via Resolution Queue,
   // we need to request payment after targets are selected (MTG Rule 601.2h)
   // ========================================================================
-  const spellCastContext = (step as any).spellCastContext;
+  const spellCastContext = targetStepData.spellCastContext;
   if (spellCastContext) {
     const { cardId, cardName, manaCost, effectId, oracleText, imageUrl } = spellCastContext;
     

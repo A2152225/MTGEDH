@@ -2562,7 +2562,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             oracleText,
             imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           },
-        } as any);
+        });
         
         debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
         debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets via Resolution Queue) ========`);
@@ -3349,7 +3349,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             oracleText: cardInHand.oracle_text || '',
             imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           },
-        } as any);
+        });
         
         debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for Aura target (enchant ${auraTargetType}) for ${cardInHand.name}`);
         return; // Wait for target selection via Resolution Queue
@@ -3586,7 +3586,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               oracleText,
               imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
             },
-          } as any);
+          });
           
           debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
           return; // Wait for target selection via Resolution Queue
