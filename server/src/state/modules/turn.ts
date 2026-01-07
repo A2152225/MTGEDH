@@ -162,9 +162,13 @@ function checkPendingInteractions(ctx: GameContext): {
     // =========================================================================
     // Check legacy pending* fields (for backward compatibility during migration)
     // Note: These are dynamically added to state and not in the GameState type
+    // NOTE: Many of these are now handled by the Resolution Queue. These legacy
+    // checks remain for backward compatibility but should be deprecated once
+    // all code paths use the Resolution Queue system.
     // =========================================================================
     
     // Check for pending discard selection (cleanup step)
+    // NOTE: May be migrated to Resolution Queue DISCARD_SELECTION step
     if (state.pendingDiscardSelection && Object.keys(state.pendingDiscardSelection).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('discard_selection');
@@ -172,6 +176,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending commander zone choice (destruction/exile)
+    // NOTE: May be migrated to Resolution Queue COMMANDER_ZONE_CHOICE step
     if (state.pendingCommanderZoneChoice && Object.keys(state.pendingCommanderZoneChoice).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('commander_zone_choice');
@@ -179,6 +184,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending trigger ordering (multiple simultaneous triggers)
+    // NOTE: May be migrated to Resolution Queue TRIGGER_ORDER step
     if (state.pendingTriggerOrdering && Object.keys(state.pendingTriggerOrdering).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('trigger_ordering');
@@ -186,6 +192,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending ponder/scry-style effects
+    // NOTE: May be migrated to Resolution Queue PONDER_EFFECT step
     if (state.pendingPonder && Object.keys(state.pendingPonder).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('ponder_effect');
@@ -193,6 +200,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending sacrifice ability confirmation
+    // NOTE: May be migrated to Resolution Queue SACRIFICE_ABILITY step
     if (state.pendingSacrificeAbility && Object.keys(state.pendingSacrificeAbility).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('sacrifice_ability');
@@ -200,13 +208,16 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending Entrapment Maneuver selection
+    // NOTE: May be migrated to Resolution Queue ENTRAPMENT_MANEUVER step
     if (state.pendingEntrapmentManeuver && Object.keys(state.pendingEntrapmentManeuver).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('entrapment_maneuver');
       result.details.pendingEntrapmentManeuver = state.pendingEntrapmentManeuver;
     }
     
-    // Check for pending target selection
+    // DEPRECATED: Target selection now uses Resolution Queue TARGET_SELECTION step
+    // This legacy check remains for backward compatibility with older planeswalker ability flows
+    // and can be removed once all code paths use the Resolution Queue
     if (state.pendingTargets && Object.keys(state.pendingTargets).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('target_selection');
@@ -214,6 +225,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending modal choices (Retreat to Emeria, Abiding Grace, etc.)
+    // NOTE: May be migrated to Resolution Queue MODAL_CHOICE step
     if (state.pendingModalChoice && Object.keys(state.pendingModalChoice).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('modal_choice');
@@ -221,6 +233,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending mana color selection (Cryptolith Rite style)
+    // NOTE: May be migrated to Resolution Queue MANA_COLOR_SELECTION step
     if (state.pendingManaColorSelection && Object.keys(state.pendingManaColorSelection).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('mana_color_selection');
@@ -228,6 +241,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending creature type selection (Maskwood Nexus, etc.)
+    // NOTE: May be migrated to Resolution Queue CREATURE_TYPE_CHOICE step
     if (state.pendingCreatureTypeSelection && Object.keys(state.pendingCreatureTypeSelection).length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('creature_type_selection');
@@ -235,6 +249,7 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // Check for pending flicker returns (end of turn delayed triggers)
+    // NOTE: May be migrated to Resolution Queue FLICKER_RETURNS step
     if (state.pendingFlickerReturns && state.pendingFlickerReturns.length > 0) {
       result.hasPending = true;
       result.pendingTypes.push('flicker_returns');

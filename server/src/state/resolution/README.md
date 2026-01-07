@@ -33,12 +33,16 @@ Central manager that handles adding, completing, and querying steps across all g
 - `JOIN_FORCES` - Queue-based with APNAP ordering
 - `TEMPTING_OFFER` - Queue-based with opponent choices
 - `PONDER_EFFECT` - Legacy handler removed, queue only
+- `TARGET_SELECTION` for spell casting - Now uses Resolution Queue via `requestCastSpell` and `handleCastSpellFromHand`
+  - Legacy `targetSelectionRequest` / `targetSelectionConfirm` still available but deprecated
+  - Client uses `target_selection` step type in `handleResolutionStepPrompt`
 
 ### ⚠️ Needs Migration
 - `pendingTriggerOrdering` - Still has legacy handler
-- `pendingKynaiosChoice` - Still has legacy handler  
+- `pendingKynaiosChoice` - Still has legacy handler (fallback when gameId missing)
 - `pendingEntrapmentManeuver` - Still has legacy handler
 - Color/creature type choices - Using module-level Maps
+- Per-opponent targeting (`perOpponentTargetSelectionRequest`) - Still using legacy flow
 
 ## 📖 How to Add a New Player Choice
 

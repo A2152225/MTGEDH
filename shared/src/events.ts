@@ -310,11 +310,21 @@ export interface ClientToServerEvents {
   librarySearchCancel: (payload: { gameId: GameID }) => void;
 
   // ===== TARGETING EVENTS =====
+  // NOTE: These legacy handlers are deprecated. Spell casting target selection now uses
+  // the Resolution Queue system with TARGET_SELECTION step type and submitResolutionResponse.
+  // These remain for backward compatibility with older planeswalker ability flows and
+  // per-opponent targeting.
   
-  // Confirm target selection
+  /**
+   * @deprecated Use submitResolutionResponse with TARGET_SELECTION step instead.
+   * Legacy handler for confirming target selection.
+   */
   targetSelectionConfirm: (payload: { gameId: GameID; cardId: string; targets: string[]; effectId?: string }) => void;
   
-  // Cancel target selection
+  /**
+   * @deprecated Use cancelResolutionStep instead.
+   * Legacy handler for cancelling target selection.
+   */
   targetSelectionCancel: (payload: { gameId: GameID; cardId: string; effectId?: string }) => void;
 
   // ===== OPENING HAND ACTIONS =====
