@@ -2468,18 +2468,9 @@ function executeTriggerEffect(
     const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId;
     
     if (!gameId || gameId === 'unknown') {
-      debugError(1, `[executeTriggerEffect] Kynaios: CRITICAL - gameId is missing or unknown! ctx.gameId=${(ctx as any).gameId}, ctx.id=${(ctx as any).id}, triggerItem.gameId=${triggerItem?.gameId}`);
-      // Fall back to legacy pending state if resolution queue won't work
-      debug(1, `[executeTriggerEffect] Kynaios: Falling back to legacy pendingKynaiosChoice due to missing gameId`);
-      state.pendingKynaiosChoice = state.pendingKynaiosChoice || {};
-      state.pendingKynaiosChoice[controller] = {
-        active: true,
-        sourceName,
-        sourceController: controller,
-        playersWhoMayPlayLand: players.map((p: any) => p.id),
-        playersWhoPlayedLand: [],
-        playersWhoDeclined: [],
-      };
+      // If gameId is missing, we cannot use the Resolution Queue
+      // This is a critical error that should not happen in normal operation
+      debugError(1, `[executeTriggerEffect] Kynaios: CRITICAL - Cannot process without gameId (ctx.gameId=${(ctx as any).gameId}, ctx.id=${(ctx as any).id}, triggerItem.gameId=${triggerItem?.gameId}). Trigger will not function correctly.`);
       return;
     }
     
