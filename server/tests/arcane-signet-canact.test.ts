@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { canAct } from '../src/state/modules/can-respond';
-import { getAvailableMana, parseManaCost, canPayManaCost } from '../src/state/modules/mana-check';
 import type { GameContext } from '../src/state/context';
 
 /**
@@ -130,16 +129,6 @@ describe('Arcane Signet - canAct Detection After Playing', () => {
       libraries: new Map(),
       rng: () => 0.5,
     };
-
-    // Debug: Check what mana is available
-    const availableMana = getAvailableMana(state, 'player1');
-    console.log('Available mana:', availableMana);
-    
-    // Debug: Check if we can pay for Sakura-Tribe Elder
-    const parsedCost = parseManaCost('{1}{G}');
-    console.log('Parsed cost for {1}{G}:', parsedCost);
-    const canPayCost = canPayManaCost(availableMana, parsedCost);
-    console.log('Can pay cost:', canPayCost);
 
     // canAct should return TRUE because:
     // 1. Player has 2 colorless floating + Arcane Signet (can produce {B} or {G})

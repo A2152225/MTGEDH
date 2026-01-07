@@ -111,6 +111,17 @@ export function getTotalManaFromPool(pool: Record<string, number>): number {
 }
 
 /**
+ * Helper function to apply anyColor reduction after paying costs
+ * @param remainingPool The mana pool with anyColor tracking
+ * @param anyColorUsed Number of anyColor sources used
+ */
+function applyAnyColorReduction(remainingPool: Record<string, number>, anyColorUsed: number): void {
+  if (remainingPool.anyColor && anyColorUsed > 0) {
+    remainingPool.anyColor = Math.max(0, remainingPool.anyColor - anyColorUsed);
+  }
+}
+
+/**
  * Check if a player can pay a mana cost with their current mana pool
  * 
  * @param pool The player's mana pool
@@ -166,10 +177,8 @@ export function canPayManaCost(
     remainingPool[colorKey] -= needed;
   }
   
-  // Decrease anyColor count by the number of anyColor sources we've used
-  if (remainingPool.anyColor) {
-    remainingPool.anyColor = Math.max(0, remainingPool.anyColor - anyColorUsed);
-  }
+  // Apply anyColor reduction after paying colored costs
+  applyAnyColorReduction(remainingPool, anyColorUsed);
   
   // Then, pay hybrid costs (can use any of the specified colors)
   if (parsedCost.hybrid && parsedCost.hybrid.length > 0) {
@@ -224,11 +233,9 @@ export function canPayManaCost(
               }
             }
             if (toPay === 0) {
-              // Decrease anyColor for the hybrid payment
-              if (remainingPool.anyColor) {
-                remainingPool.anyColor = Math.max(0, remainingPool.anyColor - anyColorUsed);
-                anyColorUsed = 0; // Reset since we've applied it
-              }
+              // Apply anyColor reduction for hybrid payment
+              applyAnyColorReduction(remainingPool, anyColorUsed);
+              anyColorUsed = 0; // Reset since we've applied it
               paid = true;
               break;
             }
@@ -266,9 +273,7 @@ export function canPayManaCost(
     }
     
     // Apply anyColor reduction from hybrid costs
-    if (remainingPool.anyColor) {
-      remainingPool.anyColor = Math.max(0, remainingPool.anyColor - anyColorUsed);
-    }
+    applyAnyColorReduction(remainingPool, anyColorUsed);
   }
 
   // Finally, check if we have enough remaining for generic cost
