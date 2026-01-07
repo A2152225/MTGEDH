@@ -3536,25 +3536,54 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             }
             
-            // Emit per-opponent target selection request (still using legacy handler for now)
-            // TODO: Migrate to Resolution Queue
-            socket.emit("perOpponentTargetSelectionRequest", {
-              gameId,
-              cardId,
-              cardName: cardInHand.name,
-              source: cardInHand.name,
-              title: `Choose targets for ${cardInHand.name}`,
-              description: `${oracleText}\n\nSelect up to ${requiredMaxTargets} target(s) for each opponent.`,
-              targetsPerOpponent,
+            // Use Resolution Queue for per-opponent target selection
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: playerId as PlayerID,
+              description: `Choose targets for ${cardInHand.name}`,
+              mandatory: true,
+              sourceId: effectId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              validTargets: validTargetList.map((t: any) => ({
+                id: t.id,
+                label: t.name,
+                description: t.kind,
+                imageUrl: t.imageUrl,
+                controller: t.controller,
+              })),
+              targetTypes: ['spell_target'],
+              minTargets: requiredMinTargets * Object.keys(targetsPerOpponent).length, // Adjusted for per-opponent
+              maxTargets: requiredMaxTargets * Object.keys(targetsPerOpponent).length,
+              targetDescription,
+              perOpponent: true,
+              targetsPerOpponent: Object.fromEntries(
+                Object.entries(targetsPerOpponent).map(([oppId, targets]) => [
+                  oppId,
+                  targets.map((t: any) => ({
+                    id: t.id,
+                    label: t.name,
+                    description: t.kind,
+                    imageUrl: t.imageUrl,
+                  }))
+                ])
+              ),
               opponents: opponents.map((p: any) => ({ id: p.id, name: p.name || p.id })),
               minTargetsPerOpponent: requiredMinTargets,
               maxTargetsPerOpponent: requiredMaxTargets,
-              targetTypes: targetReqs.targetTypes,
-              effectId,
+              spellCastContext: {
+                cardId,
+                cardName: cardInHand.name,
+                manaCost: cardInHand.mana_cost || "",
+                playerId,
+                effectId,
+                oracleText,
+                imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              },
             });
             
-            debug(2, `[castSpellFromHand] Requesting per-opponent targets for ${cardInHand.name} (${opponents.length} opponents, ${requiredMinTargets}-${requiredMaxTargets} targets each)`);
-            return; // Wait for per-opponent target selection
+            debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for per-opponent targets for ${cardInHand.name} (${opponents.length} opponents, ${requiredMinTargets}-${requiredMaxTargets} targets each)`);
+            return; // Wait for target selection via Resolution Queue
           }
           
           // Use Resolution Queue for target selection
@@ -5792,29 +5821,52 @@ export function registerGameActions(io: Server, socket: Socket) {
           const playerTriggers = triggersByController.get(playerId) || [];
           if (playerTriggers.length === 0) continue;
           
-          // If multiple triggers, add to queue for ordering
+          // If multiple triggers, use Resolution Queue for ordering
           if (playerTriggers.length > 1) {
-            (game.state as any).triggerQueue = (game.state as any).triggerQueue || [];
-            
-            for (const trigger of playerTriggers) {
+            const triggerItems = playerTriggers.map((trigger: any) => {
               const triggerId = uid(`${triggerType}_trigger`);
-              (game.state as any).triggerQueue.push({
+              return {
                 id: triggerId,
                 sourceId: trigger.permanentId,
                 sourceName: trigger.cardName,
                 effect: trigger.description || trigger.effect,
-                type: 'order',
-                controllerId: playerId,
                 triggerType: triggerType,
                 mandatory: trigger.mandatory !== false,
+                imageUrl: trigger.imageUrl,
+              };
+            });
+            
+            // Add all triggers to the stack first
+            for (const item of triggerItems) {
+              (game.state as any).stack.push({
+                id: item.id,
+                type: 'triggered_ability',
+                controller: playerId,
+                source: item.sourceId,
+                sourceName: item.sourceName,
+                description: item.effect,
+                triggerType,
+                mandatory: item.mandatory,
+                effect: item.effect,
               });
             }
             
-            (game.state as any).pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering || {};
-            (game.state as any).pendingTriggerOrdering[playerId] = {
-              timing: triggerType,
-              count: playerTriggers.length,
-            };
+            // Add Resolution Queue step for trigger ordering
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TRIGGER_ORDER,
+              playerId: playerId as PlayerID,
+              description: `Choose the order to put ${triggerItems.length} triggered abilities on the stack`,
+              mandatory: true,
+              triggers: triggerItems.map((item: any) => ({
+                id: item.id,
+                sourceName: item.sourceName,
+                effect: item.effect,
+                imageUrl: item.imageUrl,
+              })),
+              requireAll: true,
+            });
+            
+            debug(2, `[skipToPhase] Added TRIGGER_ORDER step for ${playerId} with ${triggerItems.length} triggers`);
           } else {
             // Single trigger - push directly to stack
             const trigger = playerTriggers[0];

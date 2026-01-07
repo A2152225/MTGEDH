@@ -38,7 +38,7 @@ import { calculateAllPTBonuses, parsePT, uid, applyLifeGain } from "../utils.js"
 import { canAct, canRespond } from "./can-respond.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
-import { ResolutionQueueManager } from "../resolution/index.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -196,20 +196,16 @@ function checkPendingInteractions(ctx: GameContext): {
       result.details.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice;
     }
     
-    // Check for pending trigger ordering (multiple simultaneous triggers)
-    // NOTE: Being migrated to Resolution Queue TRIGGER_ORDER step
+    // Clean up deprecated pendingTriggerOrdering (now handled by Resolution Queue TRIGGER_ORDER)
     if (state.pendingTriggerOrdering && Object.keys(state.pendingTriggerOrdering).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('trigger_ordering');
-      result.details.pendingTriggerOrdering = state.pendingTriggerOrdering;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingTriggerOrdering state - cleaning up`);
+      delete state.pendingTriggerOrdering;
     }
     
-    // Check for pending Entrapment Maneuver selection
-    // NOTE: Being migrated to Resolution Queue ENTRAPMENT_MANEUVER step
+    // Clean up deprecated pendingEntrapmentManeuver (now handled by Resolution Queue ENTRAPMENT_MANEUVER)
     if (state.pendingEntrapmentManeuver && Object.keys(state.pendingEntrapmentManeuver).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('entrapment_maneuver');
-      result.details.pendingEntrapmentManeuver = state.pendingEntrapmentManeuver;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingEntrapmentManeuver state - cleaning up`);
+      delete state.pendingEntrapmentManeuver;
     }
     
     // Check for pending modal choices (Retreat to Emeria, Abiding Grace, etc.)
@@ -2802,34 +2798,60 @@ export function nextStep(ctx: GameContext) {
             if (playerTriggers.length > 1) {
               debug(2, `${ts()} [nextStep] Player ${playerId} has ${playerTriggers.length} triggers to order`);
               
-              // Initialize trigger queue if needed
-              (ctx as any).state.triggerQueue = (ctx as any).state.triggerQueue || [];
+              // Get gameId from context for Resolution Queue
+              const gameId = (ctx as any).gameId || (ctx as any).id;
               
-              // Add triggers to the queue with 'order' type
-              // The socket layer will prompt the player to order them
-              for (const trigger of playerTriggers) {
-                const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                (ctx as any).state.triggerQueue.push({
-                  id: triggerId,
-                  sourceId: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  effect: trigger.description || trigger.effect,
-                  type: 'order', // This will show the ordering UI
-                  controllerId: playerId,
-                  triggerType,
-                  mandatory: trigger.mandatory !== false,
-                  imageUrl: trigger.imageUrl,
-                  requiresChoice: trigger.requiresChoice,  // Preserve modal choice flag
+              if (gameId) {
+                // Use Resolution Queue for trigger ordering
+                const triggerItems = playerTriggers.map((trigger: any) => {
+                  const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  return {
+                    id: triggerId,
+                    sourceId: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    effect: trigger.description || trigger.effect,
+                    triggerType,
+                    mandatory: trigger.mandatory !== false,
+                    imageUrl: trigger.imageUrl,
+                    requiresChoice: trigger.requiresChoice,
+                  };
                 });
-                debug(2, `${ts()} [nextStep] 📋 Queued trigger for ordering: ${trigger.cardName}`);
+                
+                // Add all triggers to the stack first (they will be reordered by the player)
+                for (const item of triggerItems) {
+                  (ctx as any).state.stack.push({
+                    id: item.id,
+                    type: 'triggered_ability',
+                    controller: playerId,
+                    source: item.sourceId,
+                    sourceName: item.sourceName,
+                    description: item.effect,
+                    triggerType,
+                    mandatory: item.mandatory,
+                    effect: item.effect,
+                    requiresChoice: item.requiresChoice,
+                  });
+                }
+                
+                // Add Resolution Queue step for trigger ordering
+                ResolutionQueueManager.addStep(gameId, {
+                  type: ResolutionStepType.TRIGGER_ORDER,
+                  playerId: playerId as PlayerID,
+                  description: `Choose the order to put ${triggerItems.length} triggered abilities on the stack`,
+                  mandatory: true,
+                  triggers: triggerItems.map((item: any) => ({
+                    id: item.id,
+                    sourceName: item.sourceName,
+                    effect: item.effect,
+                    imageUrl: item.imageUrl,
+                  })),
+                  requireAll: true, // Player must order all triggers
+                });
+                
+                debug(2, `${ts()} [nextStep] Added TRIGGER_ORDER step for ${playerId} with ${triggerItems.length} triggers`);
+              } else {
+                debugError(1, `${ts()} [nextStep] Cannot create trigger ordering without gameId`);
               }
-              
-              // Store pending ordering request for the socket layer to detect
-              (ctx as any).state.pendingTriggerOrdering = (ctx as any).state.pendingTriggerOrdering || {};
-              (ctx as any).state.pendingTriggerOrdering[playerId] = {
-                timing: triggerType,
-                count: playerTriggers.length,
-              };
             } else {
               // Single trigger - push directly to stack (no ordering needed)
               const trigger = playerTriggers[0];

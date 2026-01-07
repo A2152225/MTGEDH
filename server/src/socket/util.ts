@@ -1526,83 +1526,19 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
 function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const triggerQueue = (game.state as any)?.triggerQueue || [];
-    const pendingTriggerOrdering = (game.state as any)?.pendingTriggerOrdering || {};
     
-    // CRITICAL FIX: If triggerQueue is empty but pendingTriggerOrdering still has entries,
-    // clear the stale pending state to prevent game from being stuck
-    if (triggerQueue.length === 0 && Object.keys(pendingTriggerOrdering).length > 0) {
-      debug(2, `[util] Clearing stale pendingTriggerOrdering - no triggers in queue`);
+    // Clean up deprecated pendingTriggerOrdering state if found
+    // Trigger ordering is now handled by the Resolution Queue system
+    const pendingTriggerOrdering = (game.state as any)?.pendingTriggerOrdering;
+    if (pendingTriggerOrdering && Object.keys(pendingTriggerOrdering).length > 0) {
+      debugWarn(1, `[util] DEPRECATED: Found legacy pendingTriggerOrdering state - cleaning up`);
       delete (game.state as any).pendingTriggerOrdering;
       delete (game.state as any)._triggerOrderingPromptedPlayers;
-      return;
     }
     
-    if (triggerQueue.length === 0) return;
+    // Note: Trigger ordering prompts are now handled by Resolution Queue
+    // This function only cleans up legacy state
     
-    // Track which players have already been prompted for the current trigger set
-    // This prevents re-emitting prompts on every broadcast (which causes infinite loops)
-    const promptedPlayers = (game.state as any)._triggerOrderingPromptedPlayers || new Set<string>();
-    (game.state as any)._triggerOrderingPromptedPlayers = promptedPlayers;
-    
-    // Group triggers by controller
-    const triggersByController = new Map<string, any[]>();
-    for (const trigger of triggerQueue) {
-      const controller = trigger.controllerId || trigger.controller;
-      if (!controller) continue;
-      
-      const existing = triggersByController.get(controller) || [];
-      existing.push(trigger);
-      triggersByController.set(controller, existing);
-    }
-    
-    // Clean up pendingTriggerOrdering for players who no longer have triggers in the queue
-    for (const playerId of Object.keys(pendingTriggerOrdering)) {
-      const playerTriggersInQueue = triggersByController.get(playerId) || [];
-      if (playerTriggersInQueue.length === 0) {
-        debug(2, `[util] Clearing pendingTriggerOrdering for ${playerId} - no triggers in queue`);
-        delete pendingTriggerOrdering[playerId];
-      }
-    }
-    
-    // For each controller with 2+ triggers, emit a prompt to order them
-    // BUT only if we haven't already prompted them for these triggers
-    for (const [playerId, playerTriggers] of triggersByController.entries()) {
-      if (playerTriggers.length >= 2 && playerTriggers.every(t => t.type === 'order')) {
-        // Create a unique key for this set of triggers to avoid re-prompting
-        const triggerIds = playerTriggers.map(t => t.id).sort().join(',');
-        const promptKey = `${playerId}:${triggerIds}`;
-        
-        // Skip if we've already prompted for this exact set of triggers
-        if (promptedPlayers.has(promptKey)) {
-          debug(2, `[util] Skipping trigger ordering prompt for ${playerId} - already prompted`);
-          continue;
-        }
-        
-        debug(2, `[util] Emitting trigger ordering prompt to ${playerId} for ${playerTriggers.length} triggers`);
-        promptedPlayers.add(promptKey);
-        
-        // Emit all the order-type triggers to the player
-        for (const trigger of playerTriggers) {
-          emitToPlayer(io, playerId, "triggerPrompt", {
-            gameId,
-            trigger: {
-              id: trigger.id,
-              sourceId: trigger.sourceId,
-              sourceName: trigger.sourceName,
-              effect: trigger.effect,
-              type: 'order',
-              imageUrl: trigger.imageUrl,
-            },
-          });
-        }
-      } else if (playerTriggers.length === 1) {
-        // Single trigger doesn't need ordering - clear any pending state
-        if (pendingTriggerOrdering[playerId]) {
-          debug(2, `[util] Clearing pendingTriggerOrdering for ${playerId} - only 1 trigger (no ordering needed)`);
-          delete pendingTriggerOrdering[playerId];
-        }
-      }
-    }
   } catch (e) {
     debugWarn(1, '[util] checkAndEmitTriggerOrderingPrompts error:', e);
   }

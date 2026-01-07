@@ -1636,6 +1636,10 @@ async function handleStepResponse(
       handleUpkeepSacrificeResponse(io, game, gameId, step, response);
       break;
     
+    case ResolutionStepType.ENTRAPMENT_MANEUVER:
+      handleEntrapmentManeuverResponse(io, game, gameId, step, response);
+      break;
+    
     // Add more handlers as needed
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
@@ -2593,6 +2597,160 @@ function handleUpkeepSacrificeResponse(
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
   }
+}
+
+/**
+ * Handle Entrapment Maneuver response
+ * Target player must sacrifice an attacking creature they control
+ * The caster creates X 1/1 white Soldier tokens where X is the sacrificed creature's toughness
+ */
+function handleEntrapmentManeuverResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selection = response.selections;
+  
+  // Extract creature ID from selection
+  let creatureId: string | undefined;
+  if (typeof selection === 'string') {
+    creatureId = selection;
+  } else if (Array.isArray(selection) && selection.length > 0) {
+    creatureId = selection[0];
+  } else if (typeof selection === 'object' && selection !== null) {
+    creatureId = (selection as any).creatureId || (selection as any).id;
+  }
+  
+  const stepData = step as any;
+  const sourceName = step.sourceName || 'Entrapment Maneuver';
+  const caster = stepData.caster;
+  const attackingCreatures = stepData.attackingCreatures || [];
+  
+  // Validate the creature is in the valid attacking creatures list
+  const validCreature = attackingCreatures.find((c: any) => c.id === creatureId);
+  if (!validCreature) {
+    debugWarn(1, `[Resolution] Entrapment Maneuver: Invalid creature selection ${creatureId}`);
+    return;
+  }
+  
+  const battlefield = game.state?.battlefield || [];
+  const zones = game.state?.zones || {};
+  
+  // Find the creature on battlefield
+  const creatureIdx = battlefield.findIndex((p: any) => p.id === creatureId);
+  if (creatureIdx === -1) {
+    debugWarn(1, `[Resolution] Entrapment Maneuver: Creature ${creatureId} not found on battlefield`);
+    return;
+  }
+  
+  const creature = battlefield[creatureIdx];
+  const creatureCard = creature.card || {};
+  const creatureName = creatureCard.name || 'Unknown Creature';
+  
+  // Get toughness for token creation
+  let toughness: number;
+  const toughnessStr = String(creature.baseToughness ?? creatureCard.toughness ?? "0");
+  if (toughnessStr === '*' || toughnessStr.toLowerCase() === 'x') {
+    // Variable toughness - try calculateVariablePT first, then fallback to counters
+    const calculated = calculateVariablePT(creatureCard, game.state);
+    if (calculated && calculated.toughness !== undefined) {
+      toughness = calculated.toughness;
+    } else {
+      // Fallback: use counters only
+      const plusCounters = (creature.counters?.['+1/+1']) || 0;
+      const minusCounters = (creature.counters?.['-1/-1']) || 0;
+      toughness = plusCounters - minusCounters;
+    }
+  } else {
+    toughness = parseInt(toughnessStr.replace(/\D.*$/, ''), 10) || 0;
+  }
+  
+  // Apply any toughness modifiers
+  if (creature.tempToughnessMod) {
+    toughness += creature.tempToughnessMod;
+  }
+  
+  // Apply counters
+  const plusCounters = (creature.counters?.['+1/+1']) || 0;
+  const minusCounters = (creature.counters?.['-1/-1']) || 0;
+  toughness += plusCounters - minusCounters;
+  
+  // Ensure toughness is at least 0 for token creation
+  toughness = Math.max(0, toughness);
+  
+  // Sacrifice the creature
+  battlefield.splice(creatureIdx, 1);
+  
+  // Move to owner's graveyard (if not a token)
+  // Tokens cease to exist instead of going to graveyard
+  if (!creature.isToken) {
+    const owner = creature.owner || pid;
+    zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 };
+    zones[owner].graveyard = zones[owner].graveyard || [];
+    zones[owner].graveyard.push({ ...creatureCard, zone: "graveyard" });
+    zones[owner].graveyardCount = zones[owner].graveyard.length;
+  } else {
+    debug(2, `[Resolution] Entrapment Maneuver: Token ${creatureName} ceases to exist (not moved to graveyard)`);
+  }
+  
+  // Create Soldier tokens for the caster equal to the sacrificed creature's toughness
+  if (toughness > 0) {
+    game.state.battlefield = game.state.battlefield || [];
+    
+    for (let i = 0; i < toughness; i++) {
+      const tokenId = uid('soldier_token');
+      game.state.battlefield.push({
+        id: tokenId,
+        controller: caster,
+        owner: caster,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        basePower: 1,
+        baseToughness: 1,
+        card: {
+          id: tokenId,
+          name: "Soldier",
+          type_line: "Token Creature — Soldier",
+          power: "1",
+          toughness: "1",
+          zone: "battlefield",
+        },
+      });
+    }
+    
+    debug(2, `[Resolution] Entrapment Maneuver: Created ${toughness} Soldier token(s) for ${caster}`);
+  }
+  
+  debug(1, `[Resolution] Entrapment Maneuver: ${pid} sacrificed ${creatureName} (toughness ${toughness})`);
+  
+  // Emit chat messages
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, pid)} sacrificed ${creatureName} (toughness ${toughness}) to ${sourceName}.`,
+    ts: Date.now(),
+  });
+  
+  if (toughness > 0) {
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}_tokens`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, caster)} created ${toughness} 1/1 white Soldier creature token${toughness !== 1 ? 's' : ''}.`,
+      ts: Date.now(),
+    });
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+  
+  broadcastGame(io, game, gameId);
 }
 
 /**

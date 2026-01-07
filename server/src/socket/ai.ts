@@ -2344,49 +2344,40 @@ export async function handleAIPriority(
   debug(1, '[AI] AI has priority, proceeding with action');
   
   try {
-    // CRITICAL: Check for pending trigger ordering BEFORE any other action
-    // This prevents the AI from getting stuck in an infinite loop trying to advance
-    // while trigger ordering is pending
+    // Check for Resolution Queue steps that the AI needs to respond to
+    // This handles trigger ordering, Kynaios choices, and other player interactions
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    if (queue && queue.steps.length > 0) {
+      const aiStep = queue.steps.find((s: any) => s.playerId === playerId);
+      if (aiStep) {
+        debug(1, `[AI] AI has pending Resolution Queue step: ${aiStep.type}`);
+        await handleAIResolutionStep(io, gameId, playerId, aiStep);
+        return;
+      }
+    }
+    
+    // Clean up any legacy pending state that shouldn't exist
     const pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering?.[playerId];
     if (pendingTriggerOrdering) {
-      debug(1, '[AI] AI has pending trigger ordering, auto-ordering triggers');
-      await executeAITriggerOrdering(io, gameId, playerId);
-      return; // After ordering triggers, we'll get called again via broadcastGame
+      debugWarn(1, '[AI] Found deprecated pendingTriggerOrdering state - cleaning up');
+      delete (game.state as any).pendingTriggerOrdering[playerId];
+      if (Object.keys((game.state as any).pendingTriggerOrdering || {}).length === 0) {
+        delete (game.state as any).pendingTriggerOrdering;
+      }
     }
     
-    // Also check for triggers in the trigger queue that need ordering
+    // Also check for triggers in the trigger queue that need ordering (legacy cleanup)
     const triggerQueue = (game.state as any).triggerQueue || [];
-    const aiTriggers = triggerQueue.filter((t: any) => 
-      t.controllerId === playerId && t.type === 'order'
-    );
-    if (aiTriggers.length >= 2) {
-      debug(1, `[AI] AI has ${aiTriggers.length} triggers to order in queue`);
-      await executeAITriggerOrdering(io, gameId, playerId);
-      return;
+    if (triggerQueue.length > 0) {
+      debugWarn(1, `[AI] Found deprecated triggerQueue state - cleaning up`);
+      delete (game.state as any).triggerQueue;
     }
     
-    // Check for pending Kynaios and Tiro style choice
-    // AI should automatically make a decision (play land if available, otherwise decline/draw)
+    // Clean up any legacy Kynaios choice state
     const pendingKynaiosChoice = (game.state as any).pendingKynaiosChoice;
     if (pendingKynaiosChoice) {
-      for (const [controllerId, choiceData] of Object.entries(pendingKynaiosChoice)) {
-        const choice = choiceData as any;
-        if (!choice.active) continue;
-        
-        const playersWhoMayPlayLand = choice.playersWhoMayPlayLand || [];
-        const playersWhoPlayedLand = choice.playersWhoPlayedLand || [];
-        const playersWhoDeclined = choice.playersWhoDeclined || [];
-        
-        // Check if AI needs to make a choice
-        if (playersWhoMayPlayLand.includes(playerId) &&
-            !playersWhoPlayedLand.includes(playerId) &&
-            !playersWhoDeclined.includes(playerId)) {
-          
-          debug(1, `[AI] AI ${playerId} has pending Kynaios choice, making decision`);
-          await executeAIKynaiosChoice(io, gameId, playerId, controllerId, choice);
-          return;
-        }
-      }
+      debugWarn(1, '[AI] Found deprecated pendingKynaiosChoice state - cleaning up');
+      delete (game.state as any).pendingKynaiosChoice;
     }
     
     // CRITICAL: Check for stuck pendingSpellCasts that could cause infinite loops
@@ -4413,9 +4404,126 @@ async function executeAIDecision(
 }
 
 /**
+ * Handle AI Resolution Queue step responses
+ * This handles trigger ordering, Kynaios choices, Entrapment Maneuver, and other player interactions
+ */
+async function handleAIResolutionStep(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  step: any
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  debug(1, `[AI] Handling Resolution Queue step: ${step.type}`, { stepId: step.id });
+  
+  try {
+    // Helper to create a properly typed response
+    const createResponse = (selections: any) => ({
+      stepId: step.id,
+      playerId,
+      selections,
+      cancelled: false,
+      timestamp: Date.now(),
+    });
+    
+    switch (step.type) {
+      case 'trigger_order': {
+        // AI auto-orders triggers (defaults to the order they were provided)
+        const triggers = step.triggers || [];
+        const orderedTriggerIds = triggers.map((t: any) => t.id);
+        
+        debug(1, `[AI] Auto-ordering ${orderedTriggerIds.length} triggers`);
+        
+        // Submit the response via Resolution Queue
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(orderedTriggerIds));
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} (AI) puts ${triggers.length} triggered abilities on the stack`,
+          ts: Date.now(),
+        });
+        break;
+      }
+      
+      case 'kynaios_choice': {
+        // AI handles Kynaios and Tiro choice - play a land if available, otherwise decline/draw
+        const isController = step.isController;
+        const landsInHand = step.landsInHand || [];
+        
+        if (landsInHand.length > 0) {
+          // Play the first land
+          const landToPlay = landsInHand[0];
+          ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ choice: 'play_land', landCardId: landToPlay.id }));
+          debug(1, `[AI] Kynaios: Playing land ${landToPlay.name}`);
+        } else if (isController) {
+          // Controller declines
+          ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ choice: 'decline' }));
+          debug(1, `[AI] Kynaios: Declining (controller)`);
+        } else {
+          // Opponent draws a card
+          ResolutionQueueManager.completeStep(gameId, step.id, createResponse({ choice: 'draw_card' }));
+          debug(1, `[AI] Kynaios: Drawing a card (opponent)`);
+        }
+        break;
+      }
+      
+      case 'entrapment_maneuver': {
+        // AI must sacrifice an attacking creature - choose the weakest one
+        const attackingCreatures = step.attackingCreatures || [];
+        if (attackingCreatures.length > 0) {
+          // Sort by toughness (ascending) to sacrifice the weakest creature
+          const sortedCreatures = [...attackingCreatures].sort((a: any, b: any) => {
+            const toughA = parseInt(String(a.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
+            const toughB = parseInt(String(b.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
+            return toughA - toughB;
+          });
+          
+          const creatureToSacrifice = sortedCreatures[0];
+          ResolutionQueueManager.completeStep(gameId, step.id, createResponse(creatureToSacrifice.id));
+          debug(1, `[AI] Entrapment Maneuver: Sacrificing ${creatureToSacrifice.name}`);
+        }
+        break;
+      }
+      
+      case 'target_selection': {
+        // AI auto-selects targets
+        const validTargets = step.validTargets || [];
+        const minTargets = step.minTargets || 0;
+        
+        // Select the minimum required targets (or all if less than min available)
+        const targetsToSelect = validTargets.slice(0, Math.max(minTargets, 1)).map((t: any) => t.id);
+        
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(targetsToSelect));
+        debug(1, `[AI] Target selection: Selected ${targetsToSelect.length} target(s)`);
+        break;
+      }
+      
+      default: {
+        // For unknown step types, try to decline or provide empty response
+        debug(1, `[AI] Unknown Resolution Queue step type: ${step.type}, attempting to skip`);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+      }
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+    
+  } catch (err) {
+    debugError(1, `[AI] Error handling Resolution Queue step: ${step.type}`, err);
+  }
+}
+
+/**
  * Execute AI trigger ordering - automatically order triggers on the stack
- * When an AI player has multiple simultaneous triggers, this function
- * puts them on the stack in a sensible order (defaults to the order they were created)
+ * DEPRECATED: This function is kept for backward compatibility but trigger ordering
+ * is now handled by handleAIResolutionStep via the Resolution Queue.
  */
 async function executeAITriggerOrdering(
   io: Server,

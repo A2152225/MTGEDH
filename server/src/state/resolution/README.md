@@ -37,15 +37,27 @@ Central manager that handles adding, completing, and querying steps across all g
   - Legacy `targetSelectionRequest` / `targetSelectionConfirm` handlers REMOVED
   - Client uses `target_selection` step type in `handleResolutionStepPrompt`
   - Includes auto-unignore functionality for targeted permanents
+  - Per-opponent targeting now uses Resolution Queue (legacy `perOpponentTargetSelectionConfirm` REMOVED)
 - `KYNAIOS_CHOICE` - Full Resolution Queue integration
   - Legacy `kynaiosChoiceResponse` handler REMOVED
   - Legacy `pendingKynaiosChoice` state cleanup added
+- `TRIGGER_ORDER` - Full Resolution Queue integration
+  - Legacy `orderTriggers` handler REMOVED
+  - Legacy `pendingTriggerOrdering` state auto-cleanup added
+  - Uses `handleTriggerOrderResponse` in resolution.ts
+  - AI handles trigger ordering via `handleAIResolutionStep` in ai.ts
+- `ENTRAPMENT_MANEUVER` - Full Resolution Queue integration
+  - Legacy `entrapmentManeuverSelect` handler REMOVED
+  - Legacy `pendingEntrapmentManeuver` state auto-cleanup added
+  - Uses `handleEntrapmentManeuverResponse` in resolution.ts
 
-### ⚠️ Needs Migration (Lower Priority)
-- `pendingTriggerOrdering` - Still has legacy handler (used for simultaneous triggers)
-- `pendingEntrapmentManeuver` - Still has legacy handler
-- Color/creature type choices - Using module-level Maps
-- Per-opponent targeting (`perOpponentTargetSelectionRequest`) - Still using legacy flow
+### 📝 Note on Legacy State Cleanup
+All deprecated `pending*` state fields are automatically cleaned up when found:
+- `pendingTargets` - Cleaned up in `checkPendingInteractions`
+- `pendingKynaiosChoice` - Cleaned up in `checkPendingInteractions`
+- `pendingTriggerOrdering` - Cleaned up in `checkPendingInteractions`, `checkAndEmitTriggerOrderingPrompts`, and AI code
+- `pendingEntrapmentManeuver` - Cleaned up in `checkPendingInteractions`
+- `triggerQueue` - Cleaned up in AI code (no longer used)
 
 ## 📖 How to Add a New Player Choice
 
