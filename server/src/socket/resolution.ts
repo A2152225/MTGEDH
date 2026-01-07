@@ -2065,8 +2065,7 @@ function handleTargetSelectionResponse(
     permanent.counters = permanent.counters || {};
     permanent.counters.loyalty = newLoyalty;
     permanent.loyalty = newLoyalty; // Also update top-level loyalty for client display
-    const currentActivations = permanent.loyaltyActivationsThisTurn || 0;
-    permanent.loyaltyActivationsThisTurn = currentActivations + 1; // Increment counter (supports Chain Veil)
+    // Note: loyaltyActivationsThisTurn already incremented when ability was activated
     
     // Put the loyalty ability on the stack WITH targets
     const stackItem = {

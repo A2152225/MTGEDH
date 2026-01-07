@@ -5387,6 +5387,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Check if planeswalker has already activated maximum abilities this turn
       // (Rule 606.3: Only one loyalty ability per turn per planeswalker, unless modified)
       // Chain Veil and Oath of Teferi allow 2 activations per turn
+      // IMPORTANT: Increment the counter BEFORE checking to prevent race conditions
+      // where clicking twice fast could activate the ability twice
       const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
       const maxActivations = getLoyaltyActivationLimit(game.state, pid);
       
@@ -5398,6 +5400,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
+      
+      // Increment the activation counter immediately to prevent double-activation
+      (permanent as any).loyaltyActivationsThisTurn = activationsThisTurn + 1;
       
       // If this ability requires targets, prompt for target selection
       if (targetReqs.needsTargets) {
@@ -5591,7 +5596,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       (permanent as any).counters = (permanent as any).counters || {};
       (permanent as any).counters.loyalty = newLoyalty;
       (permanent as any).loyalty = newLoyalty; // Also update top-level loyalty for client display
-      (permanent as any).loyaltyActivationsThisTurn = activationsThisTurn + 1; // Increment counter (supports Chain Veil)
+      // Note: loyaltyActivationsThisTurn already incremented earlier to prevent race conditions
       
       // Put the loyalty ability on the stack
       const stackItem = {
