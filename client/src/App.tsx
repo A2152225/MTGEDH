@@ -2842,6 +2842,33 @@ export function App() {
         });
         setCreatureTypeModalOpen(true);
       }
+      // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
+      else if (step.type === 'target_selection') {
+        // Convert resolution queue step to target modal format
+        const validTargets = (step.validTargets || []).map((t: any) => ({
+          id: t.id,
+          kind: t.description || 'permanent',
+          name: t.label || t.name || 'Unknown',
+          imageUrl: t.imageUrl,
+          controller: t.controller,
+          isOpponent: t.isOpponent,
+        }));
+        
+        setTargetModalData({
+          cardId: step.sourceId || '',
+          cardName: step.sourceName || 'Effect',
+          source: step.sourceName || 'Effect',
+          title: step.description || `Choose target`,
+          description: step.targetDescription || '',
+          targets: validTargets,
+          minTargets: step.minTargets || 1,
+          maxTargets: step.maxTargets || 1,
+          effectId: step.sourceId,
+          stepId: step.id,  // Store step ID for resolution response
+          useResolutionQueue: true,  // Flag to indicate this came from Resolution Queue
+        });
+        setTargetModalOpen(true);
+      }
     };
     
     // Also listen for the legacy kynaiosChoice event for backward compatibility
@@ -4326,23 +4353,47 @@ export function App() {
   // Target selection handlers
   const handleTargetConfirm = (selectedTargetIds: string[]) => {
     if (!safeView || !targetModalData) return;
-    socket.emit("targetSelectionConfirm", {
-      gameId: safeView.id,
-      cardId: targetModalData?.cardId || "",
-      targets: selectedTargetIds,
-      effectId: targetModalData?.effectId,
-    });
+    
+    // Check if this came from Resolution Queue
+    if ((targetModalData as any).useResolutionQueue && (targetModalData as any).stepId) {
+      // Use Resolution Queue response system
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId: (targetModalData as any).stepId,
+        selections: selectedTargetIds,
+        cancelled: false,
+      });
+    } else {
+      // Legacy flow using targetSelectionConfirm
+      socket.emit("targetSelectionConfirm", {
+        gameId: safeView.id,
+        cardId: targetModalData?.cardId || "",
+        targets: selectedTargetIds,
+        effectId: targetModalData?.effectId,
+      });
+    }
     setTargetModalOpen(false);
     setTargetModalData(null);
   };
 
   const handleTargetCancel = () => {
     if (!safeView) return;
-    socket.emit("targetSelectionCancel", {
-      gameId: safeView.id,
-      cardId: targetModalData?.cardId || "",
-      effectId: targetModalData?.effectId,
-    });
+    
+    // Check if this came from Resolution Queue
+    if (targetModalData && (targetModalData as any).useResolutionQueue && (targetModalData as any).stepId) {
+      // Use Resolution Queue cancel system
+      socket.emit("cancelResolutionStep", {
+        gameId: safeView.id,
+        stepId: (targetModalData as any).stepId,
+      });
+    } else {
+      // Legacy flow using targetSelectionCancel
+      socket.emit("targetSelectionCancel", {
+        gameId: safeView.id,
+        cardId: targetModalData?.cardId || "",
+        effectId: targetModalData?.effectId,
+      });
+    }
     setTargetModalOpen(false);
     setTargetModalData(null);
   };

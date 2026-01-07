@@ -2121,6 +2121,91 @@ function handleTargetSelectionResponse(
     return;
   }
   
+  // ========================================================================
+  // SPELL CASTING TARGET SELECTION
+  // When a spell requires targets and is being cast via Resolution Queue,
+  // we need to request payment after targets are selected (MTG Rule 601.2h)
+  // ========================================================================
+  const spellCastContext = (step as any).spellCastContext;
+  if (spellCastContext) {
+    const { cardId, cardName, manaCost, effectId, oracleText, imageUrl } = spellCastContext;
+    
+    // Store targets with the pending cast for validation during payment
+    const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+    if (pendingCast) {
+      // Validate selected targets are valid
+      const validTargetIds = pendingCast.validTargetIds || [];
+      const validTargetSet = new Set(validTargetIds);
+      const invalidTargets = selections.filter((t: string) => !validTargetSet.has(t));
+      
+      if (invalidTargets.length > 0) {
+        debugWarn(1, `[Resolution] Invalid targets selected: ${invalidTargets.join(', ')} for ${cardName}`);
+        
+        // Clean up pending spell cast
+        delete (game.state as any).pendingSpellCasts[effectId];
+        
+        // Emit error to player
+        emitToPlayer(io, pid, "error", {
+          code: "INVALID_TARGETS",
+          message: `Invalid targets selected for ${cardName}. The targets don't meet the spell's requirements.`,
+        });
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      
+      // Store targets with the pending cast
+      pendingCast.targets = selections;
+      
+      // Calculate final mana cost, accounting for Strive and other target-based modifiers
+      let finalManaCost = manaCost;
+      let striveCostMessage = '';
+      
+      // Check for Strive additional cost
+      const cardOracleText = pendingCast.card?.oracle_text || oracleText || '';
+      const striveMatch = cardOracleText.match(/\bStrive\s*[—\-]\s*This spell costs\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s+more to cast for each target beyond the first/i);
+      if (striveMatch && selections.length > 1) {
+        const striveCostPer = striveMatch[1].trim();
+        const additionalTargets = selections.length - 1;
+        
+        // Build the additional cost string
+        let additionalCost = '';
+        for (let i = 0; i < additionalTargets; i++) {
+          additionalCost += striveCostPer;
+        }
+        
+        finalManaCost = finalManaCost + additionalCost;
+        striveCostMessage = ` (Strive: +${striveCostPer} × ${additionalTargets} for ${selections.length} targets)`;
+        debug(1, `[Resolution] Strive cost added: base ${manaCost} + ${additionalCost} = ${finalManaCost}`);
+      }
+      
+      // Update the pending cast with the final cost
+      pendingCast.finalManaCost = finalManaCost;
+      
+      // Emit payment required event
+      emitToPlayer(io, pid, "paymentRequired", {
+        gameId,
+        cardId,
+        cardName: cardName + striveCostMessage,
+        manaCost: finalManaCost,
+        effectId,
+        targets: selections,
+        imageUrl,
+      });
+      
+      debug(2, `[Resolution] Spell target selection complete for ${cardName}, requesting payment`);
+    } else {
+      debugWarn(1, `[Resolution] No pending spell cast found for effectId: ${effectId}`);
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+    return;
+  }
+  
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
   
   // Clear legacy pending state if present

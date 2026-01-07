@@ -2527,26 +2527,45 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
         };
 
-        // Request targets FIRST (per MTG Rule 601.2c)
+        // Request targets FIRST (per MTG Rule 601.2c) via Resolution Queue
         const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
         const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
         const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
         
-        socket.emit("targetSelectionRequest", {
-          gameId,
-          cardId,
-          cardName,
-          source: cardName,
-          title: `Choose ${targetDescription} for ${cardName}`,
-          description: oracleText,
-          targets: validTargetList,
+        // Add target selection step to Resolution Queue
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: playerId as PlayerID,
+          description: `Choose ${targetDescription} for ${cardName}`,
+          mandatory: true,
+          sourceId: effectId,
+          sourceName: cardName,
+          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          validTargets: validTargetList.map((t: any) => ({
+            id: t.id,
+            label: t.name,
+            description: t.kind,
+            imageUrl: t.imageUrl,
+          })),
+          targetTypes: [isAura ? 'aura_target' : 'spell_target'],
           minTargets: requiredMinTargets,
           maxTargets: requiredMaxTargets,
-          effectId,
-        });
+          targetDescription,
+          // Store spell casting context for payment request after targets selected
+          spellCastContext: {
+            cardId,
+            cardName,
+            manaCost,
+            playerId,
+            faceIndex,
+            effectId,
+            oracleText,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          },
+        } as any);
         
-        debug(2, `[requestCastSpell] Emitted targetSelectionRequest for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
-        debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
+        debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
+        debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets via Resolution Queue) ========`);
       } else {
         // No targets needed - go directly to payment
         // Calculate cost reduction and convoke options
