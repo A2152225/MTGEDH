@@ -6896,6 +6896,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Also clean up pending targets if stored (legacy system)
     if (effectId && game.state.pendingTargets?.[effectId]) {
       delete game.state.pendingTargets[effectId];
+      debug(2, `[targetSelectionCancel] Cleaned up pendingTargets[${effectId}] (legacy)`);
     }
     
     debug(2, `[targetSelectionCancel] Player ${pid} cancelled target selection for effect ${effectId}`);
