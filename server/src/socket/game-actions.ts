@@ -2527,26 +2527,45 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
         };
 
-        // Request targets FIRST (per MTG Rule 601.2c)
+        // Request targets FIRST (per MTG Rule 601.2c) via Resolution Queue
         const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
         const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
         const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
         
-        socket.emit("targetSelectionRequest", {
-          gameId,
-          cardId,
-          cardName,
-          source: cardName,
-          title: `Choose ${targetDescription} for ${cardName}`,
-          description: oracleText,
-          targets: validTargetList,
+        // Add target selection step to Resolution Queue
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: playerId as PlayerID,
+          description: `Choose ${targetDescription} for ${cardName}`,
+          mandatory: true,
+          sourceId: effectId,
+          sourceName: cardName,
+          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          validTargets: validTargetList.map((t: any) => ({
+            id: t.id,
+            label: t.name,
+            description: t.kind,
+            imageUrl: t.imageUrl,
+          })),
+          targetTypes: [isAura ? 'aura_target' : 'spell_target'],
           minTargets: requiredMinTargets,
           maxTargets: requiredMaxTargets,
-          effectId,
+          targetDescription,
+          // Store spell casting context for payment request after targets selected
+          spellCastContext: {
+            cardId,
+            cardName,
+            manaCost,
+            playerId,
+            faceIndex,
+            effectId,
+            oracleText,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          },
         });
         
-        debug(2, `[requestCastSpell] Emitted targetSelectionRequest for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
-        debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
+        debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
+        debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets via Resolution Queue) ========`);
       } else {
         // No targets needed - go directly to payment
         // Calculate cost reduction and convoke options
@@ -3288,7 +3307,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const effectId = `cast_${cardId}_${Date.now()}`;
         
         // Store pending cast info for after targets are selected (like requestCastSpell does)
-        // This ensures targetSelectionConfirm can find the pending spell and request payment
+        // This ensures target selection response can find the pending spell and request payment
         // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
         // before it can be read during the target > pay workflow (fixes loop issue)
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
@@ -3301,22 +3320,39 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
         };
         
-        // Emit target selection request for Aura
-        socket.emit("targetSelectionRequest", {
-          gameId,
-          cardId,
-          cardName: cardInHand.name,
-          source: cardInHand.name,
-          title: `Choose target for ${cardInHand.name}`,
-          description: `Enchant ${auraTargetType}`,
-          targets: validTargets,
+        // Use Resolution Queue for Aura target selection
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: playerId as PlayerID,
+          description: `Choose target for ${cardInHand.name}`,
+          mandatory: true,
+          sourceId: effectId,
+          sourceName: cardInHand.name,
+          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          validTargets: validTargets.map((t: any) => ({
+            id: t.id,
+            label: t.name,
+            description: t.kind,
+            imageUrl: t.imageUrl,
+          })),
+          targetTypes: ['aura_target'],
           minTargets: 1,
           maxTargets: 1,
-          effectId,
+          targetDescription: `Enchant ${auraTargetType}`,
+          // Store spell casting context for payment request after targets selected
+          spellCastContext: {
+            cardId,
+            cardName: cardInHand.name,
+            manaCost: cardInHand.mana_cost || "",
+            playerId,
+            effectId,
+            oracleText: cardInHand.oracle_text || '',
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          },
         });
         
-        debug(2, `[castSpellFromHand] Requesting Aura target (enchant ${auraTargetType}) for ${cardInHand.name}`);
-        return; // Wait for target selection
+        debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for Aura target (enchant ${auraTargetType}) for ${cardInHand.name}`);
+        return; // Wait for target selection via Resolution Queue
       }
       
       // Handle targeting for instants/sorceries
@@ -3471,7 +3507,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const effectId = `cast_${cardId}_${Date.now()}`;
           
           // Store pending cast info for after targets are selected (like requestCastSpell does)
-          // This ensures targetSelectionConfirm can find the pending spell and request payment
+          // This ensures target selection response can find the pending spell and request payment
           // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
           // before it can be read during the target > pay workflow (fixes loop issue)
           (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
@@ -3500,41 +3536,89 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             }
             
-            // Emit per-opponent target selection request
-            socket.emit("perOpponentTargetSelectionRequest", {
-              gameId,
-              cardId,
-              cardName: cardInHand.name,
-              source: cardInHand.name,
-              title: `Choose targets for ${cardInHand.name}`,
-              description: `${oracleText}\n\nSelect up to ${requiredMaxTargets} target(s) for each opponent.`,
-              targetsPerOpponent,
+            // Use Resolution Queue for per-opponent target selection
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: playerId as PlayerID,
+              description: `Choose targets for ${cardInHand.name}`,
+              mandatory: true,
+              sourceId: effectId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              validTargets: validTargetList.map((t: any) => ({
+                id: t.id,
+                label: t.name,
+                description: t.kind,
+                imageUrl: t.imageUrl,
+                controller: t.controller,
+              })),
+              targetTypes: ['spell_target'],
+              minTargets: requiredMinTargets * Object.keys(targetsPerOpponent).length, // Adjusted for per-opponent
+              maxTargets: requiredMaxTargets * Object.keys(targetsPerOpponent).length,
+              targetDescription,
+              perOpponent: true,
+              targetsPerOpponent: Object.fromEntries(
+                Object.entries(targetsPerOpponent).map(([oppId, targets]) => [
+                  oppId,
+                  targets.map((t: any) => ({
+                    id: t.id,
+                    label: t.name,
+                    description: t.kind,
+                    imageUrl: t.imageUrl,
+                  }))
+                ])
+              ),
               opponents: opponents.map((p: any) => ({ id: p.id, name: p.name || p.id })),
               minTargetsPerOpponent: requiredMinTargets,
               maxTargetsPerOpponent: requiredMaxTargets,
-              targetTypes: targetReqs.targetTypes,
-              effectId,
+              spellCastContext: {
+                cardId,
+                cardName: cardInHand.name,
+                manaCost: cardInHand.mana_cost || "",
+                playerId,
+                effectId,
+                oracleText,
+                imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              },
             });
             
-            debug(2, `[castSpellFromHand] Requesting per-opponent targets for ${cardInHand.name} (${opponents.length} opponents, ${requiredMinTargets}-${requiredMaxTargets} targets each)`);
-            return; // Wait for per-opponent target selection
+            debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for per-opponent targets for ${cardInHand.name} (${opponents.length} opponents, ${requiredMinTargets}-${requiredMaxTargets} targets each)`);
+            return; // Wait for target selection via Resolution Queue
           }
           
-          socket.emit("targetSelectionRequest", {
-            gameId,
-            cardId,
-            cardName: cardInHand.name,
-            source: cardInHand.name,
-            title: `Choose ${targetDescription} for ${cardInHand.name}`,
-            description: oracleText,
-            targets: validTargetList,
+          // Use Resolution Queue for target selection
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: playerId as PlayerID,
+            description: `Choose ${targetDescription} for ${cardInHand.name}`,
+            mandatory: true,
+            sourceId: effectId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            validTargets: validTargetList.map((t: any) => ({
+              id: t.id,
+              label: t.name,
+              description: t.kind,
+              imageUrl: t.imageUrl,
+            })),
+            targetTypes: ['spell_target'],
             minTargets: requiredMinTargets,
             maxTargets: requiredMaxTargets,
-            effectId,
+            targetDescription,
+            // Store spell casting context for payment request after targets selected
+            spellCastContext: {
+              cardId,
+              cardName: cardInHand.name,
+              manaCost: cardInHand.mana_cost || "",
+              playerId,
+              effectId,
+              oracleText,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            },
           });
           
-          debug(2, `[castSpellFromHand] Requesting ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
-          return; // Wait for target selection
+          debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
+          return; // Wait for target selection via Resolution Queue
         } else {
           debug(2, `[handleCastSpellFromHand] Skipping target request - already have ${targets?.length || 0} target(s) or skipInteractivePrompts=${skipInteractivePrompts}`);
         }
@@ -5737,29 +5821,52 @@ export function registerGameActions(io: Server, socket: Socket) {
           const playerTriggers = triggersByController.get(playerId) || [];
           if (playerTriggers.length === 0) continue;
           
-          // If multiple triggers, add to queue for ordering
+          // If multiple triggers, use Resolution Queue for ordering
           if (playerTriggers.length > 1) {
-            (game.state as any).triggerQueue = (game.state as any).triggerQueue || [];
-            
-            for (const trigger of playerTriggers) {
+            const triggerItems = playerTriggers.map((trigger: any) => {
               const triggerId = uid(`${triggerType}_trigger`);
-              (game.state as any).triggerQueue.push({
+              return {
                 id: triggerId,
                 sourceId: trigger.permanentId,
                 sourceName: trigger.cardName,
                 effect: trigger.description || trigger.effect,
-                type: 'order',
-                controllerId: playerId,
                 triggerType: triggerType,
                 mandatory: trigger.mandatory !== false,
+                imageUrl: trigger.imageUrl,
+              };
+            });
+            
+            // Add all triggers to the stack first
+            for (const item of triggerItems) {
+              (game.state as any).stack.push({
+                id: item.id,
+                type: 'triggered_ability',
+                controller: playerId,
+                source: item.sourceId,
+                sourceName: item.sourceName,
+                description: item.effect,
+                triggerType,
+                mandatory: item.mandatory,
+                effect: item.effect,
               });
             }
             
-            (game.state as any).pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering || {};
-            (game.state as any).pendingTriggerOrdering[playerId] = {
-              timing: triggerType,
-              count: playerTriggers.length,
-            };
+            // Add Resolution Queue step for trigger ordering
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TRIGGER_ORDER,
+              playerId: playerId as PlayerID,
+              description: `Choose the order to put ${triggerItems.length} triggered abilities on the stack`,
+              mandatory: true,
+              triggers: triggerItems.map((item: any) => ({
+                id: item.id,
+                sourceName: item.sourceName,
+                effect: item.effect,
+                imageUrl: item.imageUrl,
+              })),
+              requireAll: true,
+            });
+            
+            debug(2, `[skipToPhase] Added TRIGGER_ORDER step for ${playerId} with ${triggerItems.length} triggers`);
           } else {
             // Single trigger - push directly to stack
             const trigger = playerTriggers[0];

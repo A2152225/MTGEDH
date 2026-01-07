@@ -1496,13 +1496,10 @@ export function broadcastGame(
 const AI_REACTION_DELAY_MS = 300;
 
 /**
- * Check for pending Kynaios and Tiro of Meletis style choices
- * and emit prompts to players who haven't made their choice yet.
+ * DEPRECATED: Legacy Kynaios choice prompt checker
  * 
- * Kynaios and Tiro effect:
- * - Controller draws a card (already handled)
- * - Each player may put a land card from their hand onto the battlefield
- * - Each opponent who didn't put a land draws a card
+ * Kynaios and Tiro choices are now handled by the Resolution Queue system.
+ * This function only cleans up any legacy pendingKynaiosChoice state if found.
  */
 function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId: string): void {
   try {
@@ -1512,94 +1509,11 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
     const pendingKynaiosChoice = gameState.pendingKynaiosChoice;
     if (!pendingKynaiosChoice || Object.keys(pendingKynaiosChoice).length === 0) return;
     
-    // Track which players have been prompted for this choice
-    const promptedPlayers = gameState._kynaiosChoicePromptedPlayers || new Set<string>();
-    gameState._kynaiosChoicePromptedPlayers = promptedPlayers;
+    // Legacy state found - clean it up as this should not be used anymore
+    debugWarn(1, `[util] DEPRECATED: Found legacy pendingKynaiosChoice state. This should use Resolution Queue. Cleaning up.`);
+    delete gameState.pendingKynaiosChoice;
+    delete gameState._kynaiosChoicePromptedPlayers;
     
-    for (const [controllerId, choiceData] of Object.entries(pendingKynaiosChoice)) {
-      const choice = choiceData as any;
-      if (!choice.active) continue;
-      
-      const playersWhoMayPlayLand = choice.playersWhoMayPlayLand || [];
-      const playersWhoPlayedLand = choice.playersWhoPlayedLand || [];
-      const playersWhoDeclined = choice.playersWhoDeclined || [];
-      
-      // For each player who may play a land and hasn't decided yet
-      for (const playerId of playersWhoMayPlayLand) {
-        // Skip if already made choice
-        if (playersWhoPlayedLand.includes(playerId) || playersWhoDeclined.includes(playerId)) {
-          continue;
-        }
-        
-        // Create unique prompt key to avoid re-prompting
-        const promptKey = `kynaios_${controllerId}_${playerId}`;
-        if (promptedPlayers.has(promptKey)) {
-          continue;
-        }
-        
-        // Check if this player has any lands in hand
-        const playerZones = gameState.zones?.[playerId];
-        const hand = playerZones?.hand || [];
-        const landsInHand = hand.filter((card: any) => 
-          card && (card.type_line || '').toLowerCase().includes('land')
-        );
-        
-        // Determine if this player is the controller or an opponent
-        const isController = playerId === controllerId;
-        
-        debug(2, `[util] Emitting Kynaios choice prompt to ${playerId} (isController: ${isController}, landsInHand: ${landsInHand.length})`);
-        promptedPlayers.add(promptKey);
-        
-        // Emit the choice prompt to this player
-        emitToPlayer(io, playerId, "kynaiosChoice", {
-          gameId,
-          sourceController: controllerId,
-          sourceName: choice.sourceName || "Kynaios and Tiro of Meletis",
-          isController,
-          canPlayLand: landsInHand.length > 0,
-          landsInHand: landsInHand.map((card: any) => ({
-            id: card.id,
-            name: card.name,
-            imageUrl: card.image_uris?.small || card.image_uris?.normal,
-          })),
-          // Opponents get the choice: play land OR draw a card
-          // Controller just gets the option to play a land (they already drew)
-          options: isController 
-            ? ['play_land', 'decline']
-            : ['play_land', 'draw_card'],
-        });
-      }
-      
-      // Check if all players have made their choice
-      const allDecided = playersWhoMayPlayLand.every((pid: string) => 
-        playersWhoPlayedLand.includes(pid) || playersWhoDeclined.includes(pid)
-      );
-      
-      if (allDecided) {
-        // Execute draws for opponents who didn't play a land
-        const players = gameState.players || [];
-        const opponents = players.filter((p: any) => 
-          p && p.id && p.id !== controllerId && !p.hasLost && !p.eliminated
-        );
-        
-        gameState.pendingDraws = gameState.pendingDraws || {};
-        for (const opp of opponents) {
-          if (!playersWhoPlayedLand.includes(opp.id)) {
-            gameState.pendingDraws[opp.id] = (gameState.pendingDraws[opp.id] || 0) + 1;
-            debug(2, `[util] Kynaios: Opponent ${opp.id} didn't play a land, will draw a card`);
-          }
-        }
-        
-        // Clear the pending choice
-        delete pendingKynaiosChoice[controllerId];
-        delete gameState._kynaiosChoicePromptedPlayers;
-        
-        debug(2, `[util] Kynaios choice complete for controller ${controllerId}`);
-        
-        // Broadcast updated state to process the draws
-        broadcastGame(io, game, gameId);
-      }
-    }
   } catch (e) {
     debugWarn(1, '[util] checkAndEmitKynaiosChoicePrompts error:', e);
   }
@@ -1612,83 +1526,19 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
 function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const triggerQueue = (game.state as any)?.triggerQueue || [];
-    const pendingTriggerOrdering = (game.state as any)?.pendingTriggerOrdering || {};
     
-    // CRITICAL FIX: If triggerQueue is empty but pendingTriggerOrdering still has entries,
-    // clear the stale pending state to prevent game from being stuck
-    if (triggerQueue.length === 0 && Object.keys(pendingTriggerOrdering).length > 0) {
-      debug(2, `[util] Clearing stale pendingTriggerOrdering - no triggers in queue`);
+    // Clean up deprecated pendingTriggerOrdering state if found
+    // Trigger ordering is now handled by the Resolution Queue system
+    const pendingTriggerOrdering = (game.state as any)?.pendingTriggerOrdering;
+    if (pendingTriggerOrdering && Object.keys(pendingTriggerOrdering).length > 0) {
+      debugWarn(1, `[util] DEPRECATED: Found legacy pendingTriggerOrdering state - cleaning up`);
       delete (game.state as any).pendingTriggerOrdering;
       delete (game.state as any)._triggerOrderingPromptedPlayers;
-      return;
     }
     
-    if (triggerQueue.length === 0) return;
+    // Note: Trigger ordering prompts are now handled by Resolution Queue
+    // This function only cleans up legacy state
     
-    // Track which players have already been prompted for the current trigger set
-    // This prevents re-emitting prompts on every broadcast (which causes infinite loops)
-    const promptedPlayers = (game.state as any)._triggerOrderingPromptedPlayers || new Set<string>();
-    (game.state as any)._triggerOrderingPromptedPlayers = promptedPlayers;
-    
-    // Group triggers by controller
-    const triggersByController = new Map<string, any[]>();
-    for (const trigger of triggerQueue) {
-      const controller = trigger.controllerId || trigger.controller;
-      if (!controller) continue;
-      
-      const existing = triggersByController.get(controller) || [];
-      existing.push(trigger);
-      triggersByController.set(controller, existing);
-    }
-    
-    // Clean up pendingTriggerOrdering for players who no longer have triggers in the queue
-    for (const playerId of Object.keys(pendingTriggerOrdering)) {
-      const playerTriggersInQueue = triggersByController.get(playerId) || [];
-      if (playerTriggersInQueue.length === 0) {
-        debug(2, `[util] Clearing pendingTriggerOrdering for ${playerId} - no triggers in queue`);
-        delete pendingTriggerOrdering[playerId];
-      }
-    }
-    
-    // For each controller with 2+ triggers, emit a prompt to order them
-    // BUT only if we haven't already prompted them for these triggers
-    for (const [playerId, playerTriggers] of triggersByController.entries()) {
-      if (playerTriggers.length >= 2 && playerTriggers.every(t => t.type === 'order')) {
-        // Create a unique key for this set of triggers to avoid re-prompting
-        const triggerIds = playerTriggers.map(t => t.id).sort().join(',');
-        const promptKey = `${playerId}:${triggerIds}`;
-        
-        // Skip if we've already prompted for this exact set of triggers
-        if (promptedPlayers.has(promptKey)) {
-          debug(2, `[util] Skipping trigger ordering prompt for ${playerId} - already prompted`);
-          continue;
-        }
-        
-        debug(2, `[util] Emitting trigger ordering prompt to ${playerId} for ${playerTriggers.length} triggers`);
-        promptedPlayers.add(promptKey);
-        
-        // Emit all the order-type triggers to the player
-        for (const trigger of playerTriggers) {
-          emitToPlayer(io, playerId, "triggerPrompt", {
-            gameId,
-            trigger: {
-              id: trigger.id,
-              sourceId: trigger.sourceId,
-              sourceName: trigger.sourceName,
-              effect: trigger.effect,
-              type: 'order',
-              imageUrl: trigger.imageUrl,
-            },
-          });
-        }
-      } else if (playerTriggers.length === 1) {
-        // Single trigger doesn't need ordering - clear any pending state
-        if (pendingTriggerOrdering[playerId]) {
-          debug(2, `[util] Clearing pendingTriggerOrdering for ${playerId} - only 1 trigger (no ordering needed)`);
-          delete pendingTriggerOrdering[playerId];
-        }
-      }
-    }
   } catch (e) {
     debugWarn(1, '[util] checkAndEmitTriggerOrderingPrompts error:', e);
   }

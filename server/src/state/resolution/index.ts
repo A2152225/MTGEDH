@@ -62,6 +62,7 @@ export {
   type PonderEffectStep,
   type ScryStep,
   type CascadeStep,
+  type SpellCastContext,
 } from './types.js';
 
 // Export queue operations

@@ -2468,18 +2468,9 @@ function executeTriggerEffect(
     const gameId = (ctx as any).gameId || (ctx as any).id || triggerItem?.gameId;
     
     if (!gameId || gameId === 'unknown') {
-      debugError(1, `[executeTriggerEffect] Kynaios: CRITICAL - gameId is missing or unknown! ctx.gameId=${(ctx as any).gameId}, ctx.id=${(ctx as any).id}, triggerItem.gameId=${triggerItem?.gameId}`);
-      // Fall back to legacy pending state if resolution queue won't work
-      debug(1, `[executeTriggerEffect] Kynaios: Falling back to legacy pendingKynaiosChoice due to missing gameId`);
-      state.pendingKynaiosChoice = state.pendingKynaiosChoice || {};
-      state.pendingKynaiosChoice[controller] = {
-        active: true,
-        sourceName,
-        sourceController: controller,
-        playersWhoMayPlayLand: players.map((p: any) => p.id),
-        playersWhoPlayedLand: [],
-        playersWhoDeclined: [],
-      };
+      // If gameId is missing, we cannot use the Resolution Queue
+      // This is a critical error that should not happen in normal operation
+      debugError(1, `[executeTriggerEffect] Kynaios: CRITICAL - Cannot process without gameId (ctx.gameId=${(ctx as any).gameId}, ctx.id=${(ctx as any).id}, triggerItem.gameId=${triggerItem?.gameId}). Trigger will not function correctly.`);
       return;
     }
     
@@ -7098,22 +7089,33 @@ export function resolveTopOfStack(ctx: GameContext) {
       );
       
       if (attackingCreatures.length > 0) {
-        // Set up pending sacrifice selection for Entrapment Maneuver
-        // The target player chooses which attacking creature to sacrifice
-        (state as any).pendingEntrapmentManeuver = (state as any).pendingEntrapmentManeuver || {};
-        (state as any).pendingEntrapmentManeuver[targetPlayerId] = {
-          source: effectiveCard.name || 'Entrapment Maneuver',
-          caster: controller,
-          attackingCreatures: attackingCreatures.map((c: any) => ({
-            id: c.id,
-            name: c.card?.name || "Unknown",
-            power: c.card?.power || c.basePower || "0",
-            toughness: c.card?.toughness || c.baseToughness || "0",
-            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
-            typeLine: c.card?.type_line,
-          })),
-        };
-        debug(2, `[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} must sacrifice one of ${attackingCreatures.length} attacking creature(s)`);
+        // Get gameId from context - needed for Resolution Queue
+        const gameId = (ctx as any).gameId || (ctx as any).id;
+        
+        if (gameId) {
+          // Use Resolution Queue for Entrapment Maneuver selection
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.ENTRAPMENT_MANEUVER,
+            playerId: targetPlayerId as PlayerID,
+            description: `You must sacrifice an attacking creature you control.`,
+            mandatory: true,
+            sourceId: item.id,
+            sourceName: effectiveCard.name || 'Entrapment Maneuver',
+            sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+            caster: controller,
+            attackingCreatures: attackingCreatures.map((c: any) => ({
+              id: c.id,
+              name: c.card?.name || "Unknown",
+              power: c.card?.power || c.basePower || "0",
+              toughness: c.card?.toughness || c.baseToughness || "0",
+              imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+              typeLine: c.card?.type_line,
+            })),
+          });
+          debug(2, `[resolveTopOfStack] Entrapment Maneuver: Added Resolution Queue step for ${targetPlayerId} to sacrifice one of ${attackingCreatures.length} attacking creature(s)`);
+        } else {
+          debugError(1, `[resolveTopOfStack] Entrapment Maneuver: Cannot process without gameId - spell effect will be skipped`);
+        }
       } else {
         debug(2, `[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} has no attacking creatures to sacrifice`);
       }
