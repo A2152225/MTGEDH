@@ -2038,6 +2038,89 @@ function handleTargetSelectionResponse(
     return;
   }
   
+  // Handle planeswalker ability target selection
+  // Planeswalker abilities store their data in step.planeswalkerAbility
+  const pwAbility = (step as any).planeswalkerAbility;
+  if (pwAbility) {
+    const { abilityIndex, abilityText, loyaltyCost, currentLoyalty } = pwAbility;
+    const permanentId = step.sourceId;
+    const cardName = step.sourceName;
+    
+    // Find the planeswalker permanent
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p.id === permanentId);
+    
+    if (!permanent) {
+      debugWarn(1, `[Resolution] Planeswalker ${cardName} not found on battlefield`);
+      return;
+    }
+    
+    // Apply loyalty cost and update counters
+    const newLoyalty = currentLoyalty + loyaltyCost;
+    permanent.counters = permanent.counters || {};
+    permanent.counters.loyalty = newLoyalty;
+    permanent.loyalty = newLoyalty; // Also update top-level loyalty for client display
+    const currentActivations = permanent.loyaltyActivationsThisTurn || 0;
+    permanent.loyaltyActivationsThisTurn = currentActivations + 1; // Increment counter (supports Chain Veil)
+    
+    // Put the loyalty ability on the stack WITH targets
+    const stackItem = {
+      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'ability' as const,
+      controller: pid,
+      source: permanentId,
+      sourceName: cardName,
+      description: abilityText,
+      targets: selections,  // Include selected targets
+    };
+    
+    game.state.stack = game.state.stack || [];
+    game.state.stack.push(stackItem);
+    
+    // Emit stack update
+    io.to(gameId).emit("stackUpdate", {
+      gameId,
+      stack: (game.state.stack || []).map((s: any) => ({
+        id: s.id,
+        type: s.type,
+        name: s.sourceName || s.card?.name || 'Ability',
+        controller: s.controller,
+        targets: s.targets,
+        source: s.source,
+        sourceName: s.sourceName,
+        description: s.description,
+      })),
+    });
+    
+    // Record the event for replay/undo
+    appendEvent(gameId, (game as any).seq ?? 0, "activatePlaneswalkerAbility", { 
+      playerId: pid, 
+      permanentId, 
+      abilityIndex, 
+      loyaltyCost,
+      newLoyalty,
+      targets: selections,
+    });
+    
+    const costSign = loyaltyCost >= 0 ? "+" : "";
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s [${costSign}${loyaltyCost}] ability${selections.length > 0 ? ` targeting ${selections.length} target(s)` : ''}. (Loyalty: ${currentLoyalty} → ${newLoyalty})`,
+      ts: Date.now(),
+    });
+    
+    debug(2, `[Resolution] Planeswalker ability ${cardName} activated with ${selections.length} targets`);
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+    return;
+  }
+  
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);
   
   // Clear legacy pending state if present

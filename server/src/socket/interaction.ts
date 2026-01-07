@@ -5527,46 +5527,40 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           });
           return;
         } else {
-          // Store pending ability activation info
-          const pendingAbilityId = `pw_${permanentId}_${Date.now()}`;
-          (game as any).pendingPlaneswalkerAbility = (game as any).pendingPlaneswalkerAbility || {};
-          (game as any).pendingPlaneswalkerAbility[pendingAbilityId] = {
-            playerId: pid,
-            permanentId,
-            cardName,
-            ability,
-            abilityIndex,
-            loyaltyCost,
-            currentLoyalty,
-            targetReqs,
-          };
-          
-          // Emit target selection request (same event as spell casting uses)
-          socket.emit("targetSelectionRequest", {
-            gameId,
-            effectId: pendingAbilityId,
-            source: {
-              name: cardName,
-              imageUrl: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
-            },
-            title: `Choose ${targetReqs.targetDescription} for ${cardName}`,
-            description: ability.text,
-            targets: uniqueTargets.map(t => ({
+          // Use Resolution Queue for target selection (unified system)
+          // This replaces the legacy pendingPlaneswalkerAbility pattern
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: pid as PlayerID,
+            description: `Choose ${targetReqs.targetDescription} for ${cardName}`,
+            mandatory: targetReqs.minTargets > 0,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+            validTargets: uniqueTargets.map(t => ({
               id: t.id,
-              type: t.kind === 'player' ? 'player' : 'permanent',
               name: t.name,
-              displayName: t.name,
-              imageUrl: t.imageUrl,
+              type: t.kind === 'player' ? 'player' : 'permanent',
               controller: t.controller,
+              imageUrl: t.imageUrl,
               life: (t as any).life,
               isOpponent: t.isOpponent,
             })),
+            targetTypes: targetReqs.targetTypes,
             minTargets: targetReqs.minTargets,
             maxTargets: targetReqs.maxTargets,
+            targetDescription: targetReqs.targetDescription,
+            // Store planeswalker-specific data for response handler
+            planeswalkerAbility: {
+              abilityIndex,
+              abilityText: ability.text,
+              loyaltyCost,
+              currentLoyalty,
+            },
           });
           
-          debug(2, `[planeswalker] Requesting target selection for ${cardName} ability: ${targetReqs.targetDescription}`);
-          return; // Wait for target selection
+          debug(2, `[planeswalker] Added TARGET_SELECTION step for ${cardName} ability: ${targetReqs.targetDescription}`);
+          return; // Wait for target selection via resolution queue
         }
       }
       
@@ -6866,106 +6860,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
-    // Check if this is a planeswalker ability that was waiting for targets
-    // effectId format is "pw_${permanentId}_${timestamp}"
-    if (effectId && effectId.startsWith('pw_')) {
-      const pendingAbility = (game as any).pendingPlaneswalkerAbility?.[effectId];
-      
-      if (pendingAbility) {
-        const { playerId, permanentId, cardName, ability, abilityIndex, loyaltyCost, currentLoyalty, targetReqs } = pendingAbility;
-        
-        // Validate targets against min/max
-        // Note: "up to X" abilities have minTargets=0, so 0 targets is valid for them
-        if (targetIds.length < targetReqs.minTargets) {
-          socket.emit("error", {
-            code: "INSUFFICIENT_TARGETS",
-            message: `${cardName} requires at least ${targetReqs.minTargets} target(s).`,
-          });
-          return;
-        }
-        
-        if (targetIds.length > targetReqs.maxTargets) {
-          socket.emit("error", {
-            code: "TOO_MANY_TARGETS",
-            message: `${cardName} can target at most ${targetReqs.maxTargets} target(s).`,
-          });
-          return;
-        }
-        
-        // Find the permanent
-        const permanent = game.state.battlefield?.find((p: any) => p.id === permanentId);
-        if (!permanent) {
-          socket.emit("error", {
-            code: "PERMANENT_NOT_FOUND",
-            message: `${cardName} is no longer on the battlefield.`,
-          });
-          // Clean up pending
-          delete (game as any).pendingPlaneswalkerAbility[effectId];
-          return;
-        }
-        
-        // Apply loyalty cost and update counters
-        const newLoyalty = currentLoyalty + loyaltyCost;
-        (permanent as any).counters = (permanent as any).counters || {};
-        (permanent as any).counters.loyalty = newLoyalty;
-        (permanent as any).loyalty = newLoyalty; // Also update top-level loyalty for client display
-        const currentActivations = (permanent as any).loyaltyActivationsThisTurn || 0;
-        (permanent as any).loyaltyActivationsThisTurn = currentActivations + 1; // Increment counter (supports Chain Veil)
-        
-        // Put the loyalty ability on the stack WITH targets
-        const stackItem = {
-          id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          type: 'ability' as const,
-          controller: playerId,
-          source: permanentId,
-          sourceName: cardName,
-          description: ability.text,
-          targets: targetIds,  // Include selected targets
-        };
-        
-        game.state.stack = game.state.stack || [];
-        game.state.stack.push(stackItem);
-        
-        // Emit stack update
-        io.to(gameId).emit("stackUpdate", {
-          gameId,
-          stack: (game.state.stack || []).map((s: any) => ({
-            id: s.id,
-            type: s.type,
-            name: s.sourceName || s.card?.name || 'Ability',
-            controller: s.controller,
-            targets: s.targets,
-            source: s.source,
-            sourceName: s.sourceName,
-            description: s.description,
-          })),
-        });
-        
-        appendEvent(gameId, (game as any).seq ?? 0, "activatePlaneswalkerAbility", { 
-          playerId, 
-          permanentId, 
-          abilityIndex, 
-          loyaltyCost,
-          newLoyalty,
-          targets: targetIds,
-        });
-        
-        const costSign = loyaltyCost >= 0 ? "+" : "";
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `⚡ ${getPlayerName(game, playerId)} activated ${cardName}'s [${costSign}${loyaltyCost}] ability${targetIds.length > 0 ? ` targeting ${targetIds.length} target(s)` : ''}. (Loyalty: ${currentLoyalty} → ${newLoyalty})`,
-          ts: Date.now(),
-        });
-        
-        // Clean up pending
-        delete (game as any).pendingPlaneswalkerAbility[effectId];
-        
-        debug(2, `[targetSelectionConfirm] Planeswalker ability ${cardName} activated with ${targetIds.length} targets`);
-      }
-    }
-    
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }
@@ -6998,15 +6892,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       debug(2, `[targetSelectionCancel] Cleaned up pending spell cast for effectId: ${effectId}`);
     }
     
-    // Clean up pending planeswalker ability if target selection was cancelled
-    if (effectId && (game as any).pendingPlaneswalkerAbility?.[effectId]) {
-      delete (game as any).pendingPlaneswalkerAbility[effectId];
-      debug(2, `[targetSelectionCancel] Cleaned up pending planeswalker ability for effectId: ${effectId}`);
-    }
-    
-    // Also clean up pending targets if stored
+    // Note: Planeswalker abilities now use Resolution Queue, not legacy pending state
+    // Also clean up pending targets if stored (legacy system)
     if (effectId && game.state.pendingTargets?.[effectId]) {
       delete game.state.pendingTargets[effectId];
+      debug(2, `[targetSelectionCancel] Cleaned up pendingTargets[${effectId}] (legacy)`);
     }
     
     debug(2, `[targetSelectionCancel] Player ${pid} cancelled target selection for effect ${effectId}`);
