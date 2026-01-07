@@ -9,15 +9,15 @@
 
 import { describe, it, expect } from 'vitest';
 
+// Shared regex pattern from stack.ts for testing consistency
+const CREATURE_GETS_PT_PATTERN = /(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+?))?(?:\.|$| until end of turn)/i;
+
 describe('Ajani Steadfast', () => {
   describe('+1 Ability: Grant +1/+1 and abilities to target creature', () => {
     it('should match the oracle text pattern for until end of turn effects', () => {
       const oracleText = "until end of turn, up to one target creature gets +1/+1 and gains first strike, vigilance, and lifelink.";
       
-      // This is the updated regex pattern from stack.ts
-      const pattern = /(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+?))?(?:\.|$| until end of turn)/i;
-      
-      const match = oracleText.match(pattern);
+      const match = oracleText.match(CREATURE_GETS_PT_PATTERN);
       
       expect(match).not.toBeNull();
       expect(match![1]).toBe('+1'); // Power bonus
@@ -28,9 +28,7 @@ describe('Ajani Steadfast', () => {
     it('should also match traditional "gets +X/+Y until end of turn" pattern', () => {
       const traditionalText = "target creature gets +2/+2 until end of turn";
       
-      const pattern = /(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+?))?(?:\.|$| until end of turn)/i;
-      
-      const match = traditionalText.match(pattern);
+      const match = traditionalText.match(CREATURE_GETS_PT_PATTERN);
       
       expect(match).not.toBeNull();
       expect(match![1]).toBe('+2');
@@ -40,9 +38,7 @@ describe('Ajani Steadfast', () => {
     it('should match "up to one" pattern with abilities', () => {
       const upToOneText = "up to one target creature gets +3/+0 and gains trample until end of turn";
       
-      const pattern = /(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+?))?(?:\.|$| until end of turn)/i;
-      
-      const match = upToOneText.match(pattern);
+      const match = upToOneText.match(CREATURE_GETS_PT_PATTERN);
       
       expect(match).not.toBeNull();
       expect(match![1]).toBe('+3');
