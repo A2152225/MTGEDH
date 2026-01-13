@@ -9,9 +9,15 @@ export type SpellOp =
   | 'DESTROY_ALL' | 'EXILE_ALL'
   | 'DESTROY_EACH' | 'DAMAGE_EACH'
   | 'ANY_TARGET_DAMAGE'
+  | 'DAMAGE_TARGET'
   | 'TARGET_PERMANENT' | 'TARGET_CREATURE' | 'TARGET_PLAYER'
   | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY'
-  | 'FLICKER_TARGET'; // Exile and return to battlefield (Acrobatic Maneuver, Cloudshift, etc.)
+  | 'FLICKER_TARGET'
+  | 'DRAW_CARDS'
+  | 'DRAW_TARGET_PLAYER'
+  | 'DISCARD_TARGET_PLAYER'
+  | 'ADD_COUNTERS_TARGET'
+  | 'ADD_COUNTERS_EACH'; // Exile and return to battlefield (Acrobatic Maneuver, Cloudshift, etc.)
 
 export type PermanentFilter = 'ANY' | 'CREATURE' | 'PLANESWALKER' | 'PERMANENT' | 'ARTIFACT' | 'ENCHANTMENT' | 'LAND';
 
@@ -51,6 +57,8 @@ export type SpellSpec = {
   minTargets: number;
   maxTargets: number;
   amount?: number;
+  amountIsX?: boolean; // For X spells: populate amount at cast/resolve time when X is known.
+  counterType?: string; // For ADD_COUNTERS_* ops (e.g., '+1/+1', '-1/-1').
   spellTypeFilter?: SpellTypeFilter; // For counterspells that only counter certain spell types
   targetDescription?: string; // Human-readable description of what can be targeted
   returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
@@ -61,6 +69,27 @@ export type SpellSpec = {
   multiFilter?: PermanentFilter[]; // For "artifact or enchantment" patterns (Nature's Claim) - uses OR logic
   creatureRestriction?: TargetRestriction; // For restrictions that only apply to creatures when multiFilter includes CREATURE (Atraxa's Fall)
 };
+
+function parseCountWord(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const t = String(raw).trim().toLowerCase();
+  if (!t) return null;
+  if (t === 'a' || t === 'an' || t === 'one') return 1;
+  const wordToNumber: Record<string, number> = {
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  if (wordToNumber[t] !== undefined) return wordToNumber[t];
+  if (/^\d+$/.test(t)) return parseInt(t, 10);
+  return null;
+}
 
 /**
  * Detect if a spell requires targets based on oracle text
@@ -289,6 +318,130 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       minTargets: 1, 
       maxTargets: 1,
     };
+  }
+
+  // ========================================================================
+  // DRAW / DISCARD (simple single-sentence templates)
+  // Keep these conservative; avoid matching multi-sentence loot/wheel effects.
+  // ========================================================================
+  {
+    const m = t.trim().match(/^draw\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]);
+      if (n !== null) return { op: 'DRAW_CARDS', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    const m = t.trim().match(/^target\s+player\s+draws?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
+    if (m) {
+      const raw = m[1];
+      if (String(raw).toLowerCase() === 'x') {
+        return { op: 'DRAW_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amountIsX: true, targetDescription: 'target player' };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'DRAW_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: n, targetDescription: 'target player' };
+    }
+  }
+  {
+    const m = t.trim().match(/^target\s+player\s+discards?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]);
+      if (n !== null) return { op: 'DISCARD_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: n, targetDescription: 'target player' };
+    }
+  }
+
+  // ========================================================================
+  // COUNTERS
+  // ========================================================================
+  {
+    const m = t.trim().match(/^put\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+\+1\/\+1\s+counters?\s+on\s+target\s+creature\.?$/i);
+    if (m) {
+      const raw = m[1];
+      const amountIsX = String(raw).toLowerCase() === 'x';
+      const n = amountIsX ? undefined : parseCountWord(raw) ?? undefined;
+      return {
+        op: 'ADD_COUNTERS_TARGET',
+        filter: 'CREATURE',
+        minTargets: 1,
+        maxTargets: 1,
+        counterType: '+1/+1',
+        ...(amountIsX ? { amountIsX: true } : { amount: n ?? 1 }),
+        targetDescription: 'target creature',
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^put\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+-1\/-1\s+counters?\s+on\s+target\s+creature\.?$/i);
+    if (m) {
+      const raw = m[1];
+      const amountIsX = String(raw).toLowerCase() === 'x';
+      const n = amountIsX ? undefined : parseCountWord(raw) ?? undefined;
+      return {
+        op: 'ADD_COUNTERS_TARGET',
+        filter: 'CREATURE',
+        minTargets: 1,
+        maxTargets: 1,
+        counterType: '-1/-1',
+        ...(amountIsX ? { amountIsX: true } : { amount: n ?? 1 }),
+        targetDescription: 'target creature',
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^put\s+a\s+\+1\/\+1\s+counter\s+on\s+each\s+of\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+creatures\.?$/i);
+    if (m) {
+      const max = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'ADD_COUNTERS_TARGET',
+        filter: 'CREATURE',
+        minTargets: 0,
+        maxTargets: max,
+        amount: 1,
+        counterType: '+1/+1',
+        targetDescription: `up to ${m[1]} target creature${max === 1 ? '' : 's'}`,
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^put\s+a\s+-1\/-1\s+counter\s+on\s+each\s+of\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+creatures\.?$/i);
+    if (m) {
+      const max = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'ADD_COUNTERS_TARGET',
+        filter: 'CREATURE',
+        minTargets: 0,
+        maxTargets: max,
+        amount: 1,
+        counterType: '-1/-1',
+        targetDescription: `up to ${m[1]} target creature${max === 1 ? '' : 's'}`,
+      };
+    }
+  }
+  {
+    if (/^put\s+a\s+\+1\/\+1\s+counter\s+on\s+each\s+creature\s+you\s+control\.?$/i.test(t.trim())) {
+      return {
+        op: 'ADD_COUNTERS_EACH',
+        filter: 'CREATURE',
+        minTargets: 0,
+        maxTargets: 0,
+        amount: 1,
+        counterType: '+1/+1',
+        controllerOnly: true,
+      };
+    }
+  }
+  {
+    if (/^put\s+a\s+-1\/-1\s+counter\s+on\s+each\s+creature\s+you\s+control\.?$/i.test(t.trim())) {
+      return {
+        op: 'ADD_COUNTERS_EACH',
+        filter: 'CREATURE',
+        minTargets: 0,
+        maxTargets: 0,
+        amount: 1,
+        counterType: '-1/-1',
+        controllerOnly: true,
+      };
+    }
   }
 
   // Detect filter type based on target description
@@ -661,6 +814,27 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     return { op: 'ANY_TARGET_DAMAGE', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: m ? parseInt(m[1], 10) : undefined };
   }
 
+  // Damage to a specific target type.
+  // Examples: "Shock deals 2 damage to any target" (handled above),
+  //           "Flame Slash deals 4 damage to target creature.",
+  //           "Strangle deals 3 damage to target creature or planeswalker."
+  if (/\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+creature\b/.test(t) || /\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+creature\s+or\s+planeswalker\b/.test(t)) {
+    const amountMatch = t.match(/deals?\s+(\d+|x)\s+damage\s+to\s+target/i);
+    const raw = amountMatch?.[1];
+    const isX = raw?.toLowerCase() === 'x';
+    const amount = !isX && raw ? parseInt(raw, 10) : undefined;
+    const isCreatureOrPw = /target\s+creature\s+or\s+planeswalker/.test(t);
+    return {
+      op: 'DAMAGE_TARGET',
+      filter: isCreatureOrPw ? 'CREATURE' : 'CREATURE',
+      minTargets: 1,
+      maxTargets: 1,
+      ...(isX ? { amountIsX: true } : { amount: Number.isFinite(amount) ? amount : undefined }),
+      ...(isCreatureOrPw ? { multiFilter: ['CREATURE', 'PLANESWALKER'] } : {}),
+      targetDescription: isCreatureOrPw ? 'target creature or planeswalker' : 'target creature',
+    };
+  }
+
   return null;
 }
 
@@ -786,6 +960,12 @@ function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>): b
 
 export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, spec: SpellSpec, sourceId?: string): TargetRef[] {
   const out: TargetRef[] = [];
+
+  // Player targeting (for draw/discard templates and similar single-target effects).
+  if (spec.op === 'DRAW_TARGET_PLAYER' || spec.op === 'DISCARD_TARGET_PLAYER' || spec.op === 'TARGET_PLAYER') {
+    for (const pr of state.players) out.push({ kind: 'player', id: pr.id });
+    return out;
+  }
   
   // Handle counterspells - they target spells on the stack
   if (spec.op === 'COUNTER_TARGET_SPELL') {
@@ -1055,6 +1235,9 @@ export type EngineEffect =
   | { kind: 'MoveToExile'; id: string }
   | { kind: 'DamagePermanent'; id: string; amount: number }
   | { kind: 'DamagePlayer'; playerId: PlayerID; amount: number }
+  | { kind: 'DrawCards'; playerId: PlayerID; count: number }
+  | { kind: 'RequestDiscard'; playerId: PlayerID; count: number }
+  | { kind: 'AddCountersPermanent'; id: string; counterType: string; amount: number }
   | { kind: 'CounterSpell'; stackItemId: string }
   | { kind: 'CounterAbility'; stackItemId: string }
   | { kind: 'Broadcast'; message: string }
@@ -1093,7 +1276,7 @@ export function meetsStatRequirement(p: BattlefieldPermanent, req: StatRequireme
   }
 }
 
-export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>): readonly EngineEffect[] {
+export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>, caster: PlayerID): readonly EngineEffect[] {
   const eff: EngineEffect[] = [];
   const applyAll = (k: 'DestroyPermanent' | 'MoveToExile') => {
     for (const p of state.battlefield) {
@@ -1115,6 +1298,50 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
   };
 
   switch (spec.op) {
+    case 'DRAW_CARDS': {
+      const n = Number(spec.amount ?? 0);
+      if (n > 0) eff.push({ kind: 'DrawCards', playerId: caster, count: n });
+      break;
+    }
+    case 'DRAW_TARGET_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'player') eff.push({ kind: 'DrawCards', playerId: t.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'DISCARD_TARGET_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'player') eff.push({ kind: 'RequestDiscard', playerId: t.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'ADD_COUNTERS_TARGET': {
+      const amount = Number(spec.amount ?? 0);
+      const counterType = String(spec.counterType || '').trim();
+      if (!counterType || amount <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'permanent') {
+          eff.push({ kind: 'AddCountersPermanent', id: t.id, counterType, amount });
+        }
+      }
+      break;
+    }
+    case 'ADD_COUNTERS_EACH': {
+      const amount = Number(spec.amount ?? 0);
+      const counterType = String(spec.counterType || '').trim();
+      if (!counterType || amount <= 0) break;
+
+      for (const p of state.battlefield) {
+        if (!matchesFilter(p, spec.filter)) continue;
+        if (spec.controllerOnly && p.controller !== caster) continue;
+        eff.push({ kind: 'AddCountersPermanent', id: p.id, counterType, amount });
+      }
+      break;
+    }
     case 'DESTROY_TARGET':
       for (const t of chosen) {
         if (t.kind === 'permanent') {
@@ -1188,6 +1415,14 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       for (const t of chosen) {
         if (t.kind === 'player') eff.push({ kind: 'DamagePlayer', playerId: t.id as PlayerID, amount: amt });
         else if (t.kind === 'permanent') eff.push({ kind: 'DamagePermanent', id: t.id, amount: amt });
+      }
+      break;
+    }
+    case 'DAMAGE_TARGET': {
+      const amt = Number(spec.amount ?? 0);
+      if (amt <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'permanent') eff.push({ kind: 'DamagePermanent', id: t.id, amount: amt });
       }
       break;
     }

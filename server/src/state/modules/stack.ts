@@ -6157,8 +6157,13 @@ export function resolveTopOfStack(ctx: GameContext) {
         return t;
       });
       
-      // Generate effects based on spell type and targets
-      const effects = resolveSpell(spellSpec, targetRefs, state as any);
+      // Generate effects based on spell type and targets.
+      // For X spells, hydrate the amount at resolution time when X is known.
+      const hydratedSpec = (spellSpec as any)?.amountIsX && typeof spellXValue === 'number'
+        ? ({ ...(spellSpec as any), amount: spellXValue } as any)
+        : spellSpec;
+
+      const effects = resolveSpell(hydratedSpec as any, targetRefs, state as any, controller as any);
       
       // Execute each effect
       for (const effect of effects) {
@@ -7861,6 +7866,50 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       if (player) {
         (player as any).life = ((player as any).life || 40) - effect.amount;
         debug(2, `[resolveSpell] ${spellName} dealt ${effect.amount} damage to player ${effect.playerId}`);
+      }
+      break;
+    }
+    case 'DrawCards': {
+      try {
+        const count = Math.max(0, Number((effect as any).count ?? 0));
+        if (count > 0) {
+          const drawn = drawCardsFromZone(ctx, (effect as any).playerId as PlayerID, count);
+          debug(2, `[resolveSpell] ${spellName} caused ${(effect as any).playerId} to draw ${drawn.length} card(s)`);
+        }
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} draw failed:`, err);
+      }
+      break;
+    }
+    case 'RequestDiscard': {
+      const playerId = (effect as any).playerId as PlayerID;
+      const count = Math.max(0, Number((effect as any).count ?? 0));
+      if (playerId && count > 0) {
+        (state as any).pendingDiscard = (state as any).pendingDiscard || {};
+        (state as any).pendingDiscard[playerId] = {
+          count,
+          source: spellName,
+          reason: 'spell_effect',
+        };
+        debug(2, `[resolveSpell] ${spellName} queued discard: ${playerId} discards ${count}`);
+      }
+      break;
+    }
+    case 'AddCountersPermanent': {
+      const battlefield = state.battlefield || [];
+      const perm = battlefield.find((p: any) => p.id === (effect as any).id);
+      if (perm) {
+        const counterType = String((effect as any).counterType || '').trim();
+        const amount = Math.max(0, Number((effect as any).amount ?? 0));
+        if (counterType && amount > 0) {
+          const existingCounters = perm.counters || {};
+          const current = (existingCounters as any)[counterType] || 0;
+          perm.counters = {
+            ...existingCounters,
+            [counterType]: current + amount,
+          } as any;
+          debug(2, `[resolveSpell] ${spellName} added ${amount} ${counterType} counter(s) to ${(perm as any).card?.name || perm.id}`);
+        }
       }
       break;
     }

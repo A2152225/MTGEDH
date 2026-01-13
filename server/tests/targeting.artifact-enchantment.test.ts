@@ -200,7 +200,7 @@ describe('Targeting artifacts and enchantments', () => {
       maxTargets: 0,
     };
     
-    const effects = resolveSpell(spec, [], g.state);
+    const effects = resolveSpell(spec, [], g.state, pid);
     
     // Should destroy both artifacts but not the enchantment
     expect(effects.length).toBe(2);

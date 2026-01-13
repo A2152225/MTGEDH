@@ -628,6 +628,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Execute spell effects based on spec and chosen targets
         const spec = (e as any).spec;
         const chosen = (e as any).chosen || [];
+        const caster = (e as any).caster as PlayerID;
         
         // Handle COUNTER_TARGET_SPELL specially since it's not in the targeting module
         if (spec?.op === 'COUNTER_TARGET_SPELL') {
@@ -654,7 +655,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         
         if (spec && typeof resolveSpell === 'function') {
           try {
-            const effects = resolveSpell(spec, chosen, ctx.state);
+            const effects = resolveSpell(spec, chosen, ctx.state, caster);
             // Apply each effect
             for (const eff of effects) {
               switch (eff.kind) {
@@ -663,6 +664,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   break;
                 case 'MoveToExile':
                   movePermanentToExile(ctx as any, eff.id);
+                  break;
+                case 'AddCountersPermanent':
+                  updateCounters(ctx as any, (eff as any).id, { [(eff as any).counterType]: (eff as any).amount });
                   break;
                 case 'DamagePermanent': {
                   // Apply damage to permanent (may kill it via SBA)
@@ -679,6 +683,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   }
                   break;
                 }
+                case 'DrawCards':
+                  if ((eff as any).playerId && (eff as any).count) {
+                    try {
+                      drawCards(ctx as any, (eff as any).playerId, Number((eff as any).count));
+                    } catch {}
+                  }
+                  break;
+                case 'RequestDiscard':
+                  if ((eff as any).playerId && (eff as any).count) {
+                    (ctx.state as any).pendingDiscard = (ctx.state as any).pendingDiscard || {};
+                    (ctx.state as any).pendingDiscard[(eff as any).playerId] = {
+                      count: Number((eff as any).count),
+                      source: (e as any)?.cardId || 'spell',
+                      reason: 'spell_effect',
+                    };
+                  }
+                  break;
                 case 'CounterSpell': {
                   // Counter a spell on the stack
                   const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === eff.stackItemId);
