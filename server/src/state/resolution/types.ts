@@ -208,6 +208,15 @@ export interface TargetSelectionStep extends BaseResolutionStep {
   readonly minTargets: number;
   readonly maxTargets: number;
   readonly targetDescription: string;
+  /**
+   * If true, the selected targets for this step must be different from targets chosen
+   * in earlier TARGET_SELECTION steps for the same sourceId (spell/ability).
+   *
+   * Server may also infer this from text like "another target" / "different target".
+   */
+  readonly disallowPreviouslyChosenTargets?: boolean;
+  /** Optional selected mode context (for modal spells/abilities) */
+  readonly selectedMode?: ChoiceOption;
   /** Optional context for spell casting target selection */
   readonly spellCastContext?: SpellCastContext;
 }

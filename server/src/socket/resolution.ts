@@ -9,6 +9,7 @@ import type { Server, Socket } from "socket.io";
 import { 
   ResolutionQueueManager, 
   ResolutionQueueEvent,
+  ResolutionStepStatus,
   ResolutionStepType,
   type ResolutionStep,
   type ResolutionStepResponse,
@@ -27,6 +28,8 @@ import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
 import { creatureHasHaste } from "./game-actions.js";
+import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
+import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 
 /**
  * Handle AI player resolution steps automatically
@@ -1069,7 +1072,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     if (nextStep) {
       socket.emit("resolutionStepPrompt", {
         gameId,
-        step: sanitizeStepForClient(nextStep),
+        step: sanitizeStepForClient(gameId, nextStep),
       });
     } else {
       socket.emit("noResolutionStep", { gameId });
@@ -1128,6 +1131,64 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       cancelled,
       timestamp: Date.now(),
     };
+
+    // Validate before completing the step (prevents permanently completing on invalid input)
+    if (step.type === ResolutionStepType.TARGET_SELECTION && !cancelled) {
+      const targetStepData = step as TargetSelectionStep;
+      const rawSelections = response.selections;
+
+      if (!Array.isArray(rawSelections) || !rawSelections.every(s => typeof s === 'string')) {
+        socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid target selection format" });
+        return;
+      }
+
+      const selectedIds = rawSelections as string[];
+      const validTargets = targetStepData.validTargets || [];
+      const minTargets = targetStepData.minTargets || 0;
+      const maxTargets = targetStepData.maxTargets || Infinity;
+
+      // Disallow selecting the same target multiple times.
+      const uniqueSelections = Array.from(new Set(selectedIds));
+      if (uniqueSelections.length !== selectedIds.length) {
+        socket.emit("error", { code: "INVALID_SELECTION", message: "Duplicate target selected" });
+        return;
+      }
+
+      // Validate selection count is within bounds
+      if (selectedIds.length < minTargets || selectedIds.length > maxTargets) {
+        socket.emit("error", {
+          code: "INVALID_SELECTION",
+          message: `Invalid target count: got ${selectedIds.length}, expected ${minTargets}-${maxTargets}`,
+        });
+        return;
+      }
+
+      // Validate all selected targets are in valid targets list
+      const validTargetIds = new Set(validTargets.map((t: any) => t.id));
+      if (!selectedIds.every(id => validTargetIds.has(id))) {
+        socket.emit("error", { code: "INVALID_SELECTION", message: "One or more selected targets are not valid" });
+        return;
+      }
+
+      // Enforce sequential distinct-target constraint for the same sourceId when indicated.
+      if (targetStepData.sourceId && stepIndicatesDifferentTarget(targetStepData)) {
+        const previouslyChosen = getPreviouslyChosenTargetsForSource(gameId, targetStepData.sourceId);
+        if (previouslyChosen.size > 0) {
+          const distinctValidTargets = validTargets.filter((t: any) => !previouslyChosen.has(t.id));
+          const enforceDistinct = distinctValidTargets.length >= minTargets;
+
+          if (enforceDistinct) {
+            const overlaps = selectedIds.filter(id => previouslyChosen.has(id));
+            if (overlaps.length > 0) {
+              socket.emit("error", { code: "INVALID_SELECTION", message: "Must choose a different target" });
+              return;
+            }
+          } else {
+            debugWarn(1, `[Resolution] Different-target constraint not enforceable for step ${stepId} (insufficient remaining targets)`);
+          }
+        }
+      }
+    }
     
     // Complete the step
     const completedStep = ResolutionQueueManager.completeStep(gameId, stepId, response);
@@ -1154,7 +1215,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       if (remainingSteps.length > 0) {
         socket.emit("resolutionStepPrompt", {
           gameId,
-          step: sanitizeStepForClient(remainingSteps[0]),
+          step: sanitizeStepForClient(gameId, remainingSteps[0]),
         });
       }
     } else {
@@ -1242,11 +1303,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     switch (event) {
       case ResolutionQueueEvent.STEP_ADDED:
         if (step && step.playerId === socket.data.playerId) {
-          // Notify player they have a new step to resolve
-          socket.emit("resolutionStepPrompt", {
-            gameId: eventGameId,
-            step: sanitizeStepForClient(step),
-          });
+          // Only prompt if this is the player's next pending step.
+          // (Avoid prompting multiple steps when a flow enqueues MODE_SELECTION + TARGET_SELECTION, etc.)
+          const pid = socket.data.playerId as any;
+          const steps = ResolutionQueueManager.getStepsForPlayer(eventGameId, pid);
+          const nextStep = steps.length > 0 ? steps[0] : undefined;
+
+          if (nextStep && nextStep.id === step.id) {
+            socket.emit("resolutionStepPrompt", {
+              gameId: eventGameId,
+              step: sanitizeStepForClient(eventGameId, step),
+            });
+          }
         }
         break;
         
@@ -1276,7 +1344,19 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
  * Sanitize a resolution step for sending to the client
  * Removes internal data and formats for client consumption
  */
-function sanitizeStepForClient(step: ResolutionStep): any {
+function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
+  const oracleText = getOracleTextFromResolutionStep(step);
+  const oracleContext = oracleText ? buildOraclePromptContext(oracleText) : undefined;
+
+  const typeSpecificFields = getTypeSpecificFields(step);
+  if (step.type === ResolutionStepType.TARGET_SELECTION) {
+    const targetStep = step as TargetSelectionStep;
+    const filtered = getFilteredValidTargetsForStep(gameId, targetStep);
+    if (filtered !== targetStep.validTargets) {
+      (typeSpecificFields as any).validTargets = filtered;
+    }
+  }
+
   return {
     id: step.id,
     type: step.type,
@@ -1288,9 +1368,57 @@ function sanitizeStepForClient(step: ResolutionStep): any {
     sourceImage: step.sourceImage,
     createdAt: step.createdAt,
     timeoutMs: step.timeoutMs,
+    oracleContext,
     // Include type-specific fields
-    ...getTypeSpecificFields(step),
+    ...typeSpecificFields,
   };
+}
+
+function stepIndicatesDifferentTarget(step: TargetSelectionStep): boolean {
+  if ((step as any).disallowPreviouslyChosenTargets === true) return true;
+
+  const combinedText = `${step.targetDescription || ''} ${step.description || ''}`.toLowerCase();
+  return /\b(another|different)\b/.test(combinedText);
+}
+
+function getPreviouslyChosenTargetsForSource(gameId: string, sourceId: string): Set<string> {
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const chosen = new Set<string>();
+
+  for (const completed of queue.completedSteps) {
+    if (completed.status !== ResolutionStepStatus.COMPLETED) continue;
+    if (completed.type !== ResolutionStepType.TARGET_SELECTION) continue;
+    if (completed.sourceId !== sourceId) continue;
+
+    const respSelections = (completed.response as any)?.selections;
+    if (!Array.isArray(respSelections)) continue;
+
+    for (const id of respSelections) {
+      if (typeof id === 'string' && id.length > 0) chosen.add(id);
+    }
+  }
+
+  return chosen;
+}
+
+/**
+ * If a TARGET_SELECTION step indicates "another" / "different" target, we can optionally
+ * filter out already-chosen target ids from earlier TARGET_SELECTION steps for the same
+ * sourceId. Safety fallback: if filtering would drop below minTargets, do not filter.
+ */
+function getFilteredValidTargetsForStep(
+  gameId: string,
+  step: TargetSelectionStep
+): readonly any[] {
+  if (!step.sourceId) return step.validTargets;
+  if (!stepIndicatesDifferentTarget(step)) return step.validTargets;
+
+  const previouslyChosen = getPreviouslyChosenTargetsForSource(gameId, step.sourceId);
+  if (previouslyChosen.size === 0) return step.validTargets;
+
+  const filtered = (step.validTargets || []).filter((t: any) => !previouslyChosen.has(t.id));
+  if (filtered.length < (step.minTargets ?? 0)) return step.validTargets;
+  return filtered;
 }
 
 /**
@@ -1615,6 +1743,778 @@ async function handleStepResponse(
   const pid = response.playerId;
   
   switch (step.type) {
+    case ResolutionStepType.MODE_SELECTION: {
+      const selected = (response.selections as any);
+      const selectedMode = Array.isArray(selected) ? selected[0] : selected;
+
+      // Attach selected mode to the next target selection step (same source/effect), if present.
+      // This allows the client to show the chosen mode and do mode-aware highlighting.
+      try {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        const modeOption = Array.isArray((step as any).modes)
+          ? ((step as any).modes as any[]).find(m => String(m.id) === String(selectedMode))
+          : undefined;
+
+        const modeText = `${modeOption?.description || ''}`.toLowerCase();
+        const modeLabel = String(modeOption?.label || '').trim();
+
+        const buildChoiceOptionsFromTargetRefs = (refs: any[]): any[] => {
+          return refs
+            .map((t: any) => {
+              if (t?.kind === 'permanent') {
+                const perm = (game.state.battlefield || []).find((p: any) => p.id === t.id);
+                if (!perm) return null;
+                return {
+                  id: t.id,
+                  label: perm?.card?.name || 'Unknown',
+                  description: 'permanent',
+                  imageUrl: perm?.card?.image_uris?.small || perm?.card?.image_uris?.normal,
+                  type: 'permanent',
+                  controller: perm?.controller,
+                  tapped: perm?.tapped === true,
+                  typeLine: perm?.card?.type_line,
+                  keywords: Array.isArray((perm?.card as any)?.keywords) ? (perm?.card as any).keywords : undefined,
+                  oracleText: (perm?.card as any)?.oracle_text,
+                  colors: (perm?.card as any)?.colors,
+                  colorIdentity: (perm?.card as any)?.color_identity,
+                  cmc: Number((perm?.card as any)?.cmc ?? 0),
+                  isToken: perm?.isToken === true,
+                  isOpponent: perm?.controller !== pid,
+                };
+              }
+
+              if (t?.kind === 'stack') {
+                const stackItem = ((game.state as any).stack || []).find((s: any) => s.id === t.id);
+                if (!stackItem) return null;
+                return {
+                  id: t.id,
+                  label: stackItem?.card?.name || 'Unknown',
+                  description: stackItem?.type || 'spell',
+                  imageUrl: stackItem?.card?.image_uris?.small || stackItem?.card?.image_uris?.normal,
+                  // Client treats stack targets best as 'card' for mode heuristics.
+                  type: 'card',
+                  controller: stackItem?.controller,
+                  typeLine: stackItem?.card?.type_line,
+                  keywords: Array.isArray((stackItem?.card as any)?.keywords) ? (stackItem?.card as any).keywords : undefined,
+                  oracleText: (stackItem?.card as any)?.oracle_text,
+                  colors: (stackItem?.card as any)?.colors,
+                  colorIdentity: (stackItem?.card as any)?.color_identity,
+                  cmc: Number((stackItem?.card as any)?.cmc ?? 0),
+                  isOpponent: stackItem?.controller !== pid,
+                };
+              }
+
+              if (t?.kind === 'player') {
+                const player = (game.state.players || []).find((p: any) => p.id === t.id);
+                return {
+                  id: t.id,
+                  label: player?.name || t.id,
+                  description: 'player',
+                  type: 'player',
+                  life: player?.life,
+                  isOpponent: t.id !== pid,
+                };
+              }
+
+              return null;
+            })
+            .filter(Boolean);
+        };
+
+        const buildSpellSpecFromTargetRequirements = (oracle: string, reqs: any, minTargets: number, maxTargets: number): SpellSpec | null => {
+          if (!reqs?.needsTargets) return null;
+
+          const targetTypes = Array.isArray(reqs.targetTypes) ? reqs.targetTypes.map((x: any) => String(x).toLowerCase()) : [];
+          const text = String(oracle || '').toLowerCase();
+
+          // Stack-targeting.
+          if (targetTypes.includes('spell')) {
+            let spellTypeFilter: any = 'ANY_SPELL';
+            if (/counter target noncreature spell/.test(text)) spellTypeFilter = 'NONCREATURE';
+            else if (/counter target creature spell/.test(text)) spellTypeFilter = 'CREATURE_SPELL';
+            else if (/counter target instant or sorcery/.test(text) || /counter target instant or sorcery spell/.test(text)) spellTypeFilter = 'INSTANT_SORCERY';
+            return {
+              op: 'COUNTER_TARGET_SPELL',
+              filter: 'ANY',
+              minTargets,
+              maxTargets,
+              targetDescription: reqs.targetDescription || 'target spell',
+              spellTypeFilter,
+            };
+          }
+          if (targetTypes.includes('ability')) {
+            return {
+              op: 'COUNTER_TARGET_ABILITY',
+              filter: 'ANY',
+              minTargets,
+              maxTargets,
+              targetDescription: reqs.targetDescription || 'target ability',
+            };
+          }
+
+          // "Any target".
+          if (targetTypes.includes('any') || /\bany\s+target\b/.test(text)) {
+            return {
+              op: 'ANY_TARGET_DAMAGE',
+              filter: 'ANY',
+              minTargets,
+              maxTargets,
+              targetDescription: reqs.targetDescription || 'any target',
+            };
+          }
+
+          // Multi-type permanent targets.
+          // Atraxa's Fall style: "artifact, battle, enchantment, or creature with flying"
+          if (/artifact,?\s+battle,?\s+enchantment,?\s+or\s+creature\s+with\s+flying/.test(text)) {
+            return {
+              op: 'TARGET_PERMANENT',
+              filter: 'ARTIFACT',
+              minTargets,
+              maxTargets,
+              targetDescription: reqs.targetDescription || 'target artifact, battle, enchantment, or creature with flying',
+              multiFilter: ['ARTIFACT', 'PERMANENT', 'ENCHANTMENT', 'CREATURE'],
+              creatureRestriction: { type: 'has_keyword', description: 'with flying', keyword: 'flying' },
+            };
+          }
+
+          if (/(\bartifact\b\s+or\s+\benchantment\b)/.test(text)) {
+            return {
+              op: 'TARGET_PERMANENT',
+              filter: 'PERMANENT',
+              minTargets,
+              maxTargets,
+              targetDescription: reqs.targetDescription || 'target artifact or enchantment',
+              multiFilter: ['ARTIFACT', 'ENCHANTMENT'],
+            };
+          }
+
+          // Generic comma-list OR patterns (best-effort).
+          // Examples: "target artifact, enchantment, or planeswalker"; "target artifact, battle, or creature".
+          if (/\btarget\b/.test(text) && /,\s*.*\bor\b/.test(text) && /\b(artifact|enchantment|battle|creature|planeswalker|land|permanent)\b/.test(text)) {
+            const filters: any[] = [];
+            if (text.includes('artifact')) filters.push('ARTIFACT');
+            if (text.includes('enchantment')) filters.push('ENCHANTMENT');
+            if (text.includes('planeswalker')) filters.push('PLANESWALKER');
+            if (text.includes('land')) filters.push('LAND');
+            if (text.includes('battle')) filters.push('PERMANENT');
+            if (text.includes('creature')) filters.push('CREATURE');
+            if (text.includes('permanent')) filters.push('PERMANENT');
+
+            const unique = Array.from(new Set(filters));
+            if (unique.length >= 2) {
+              // If mode text includes "creature with <keyword>", apply restriction only to creatures.
+              const creatureKeywordMatch = text.match(/creature\s+with\s+(flying|reach|trample)/);
+              const creatureRestriction = creatureKeywordMatch
+                ? ({ type: 'has_keyword', description: `with ${creatureKeywordMatch[1]}`, keyword: creatureKeywordMatch[1] } as any)
+                : undefined;
+              return {
+                op: 'TARGET_PERMANENT',
+                filter: unique[0] || 'PERMANENT',
+                minTargets,
+                maxTargets,
+                targetDescription: reqs.targetDescription || 'target permanent',
+                multiFilter: unique as any,
+                ...(creatureRestriction ? { creatureRestriction } : {}),
+              };
+            }
+          }
+
+          // Single-type permanent targets.
+          if (targetTypes.some((t: string) => t.includes('creature'))) {
+            return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target creature' };
+          }
+          if (targetTypes.some((t: string) => t.includes('planeswalker'))) {
+            return { op: 'TARGET_PERMANENT', filter: 'PLANESWALKER', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target planeswalker' };
+          }
+          if (targetTypes.some((t: string) => t.includes('artifact'))) {
+            return { op: 'TARGET_PERMANENT', filter: 'ARTIFACT', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target artifact' };
+          }
+          if (targetTypes.some((t: string) => t.includes('enchantment'))) {
+            return { op: 'TARGET_PERMANENT', filter: 'ENCHANTMENT', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target enchantment' };
+          }
+          if (targetTypes.some((t: string) => t.includes('land'))) {
+            return { op: 'TARGET_PERMANENT', filter: 'LAND', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target land' };
+          }
+          if (targetTypes.some((t: string) => t.includes('nonland'))) {
+            // Engine doesn't have a dedicated nonland filter; we'll post-filter by typeLine.
+            return { op: 'TARGET_PERMANENT', filter: 'PERMANENT', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target nonland permanent' };
+          }
+          if (targetTypes.some((t: string) => t.includes('noncreature'))) {
+            // Engine doesn't have a dedicated noncreature permanent filter; we'll post-filter by typeLine.
+            return { op: 'TARGET_PERMANENT', filter: 'PERMANENT', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target noncreature permanent' };
+          }
+          if (targetTypes.some((t: string) => t.includes('permanent'))) {
+            return { op: 'TARGET_PERMANENT', filter: 'PERMANENT', minTargets, maxTargets, targetDescription: reqs.targetDescription || 'target permanent' };
+          }
+
+          return null;
+        };
+
+        const applyModeRestrictionsToSpec = (spec: SpellSpec, modeTextRaw: string): SpellSpec => {
+          const text = String(modeTextRaw || '').toLowerCase();
+          let next: SpellSpec = { ...spec };
+
+          // "Another target" patterns: this mostly matters for permanent-sourced abilities.
+          // In engine terms, excludeSource means the source permanent itself can't be chosen as a target.
+          if (!next.excludeSource && /\banother\s+target\s+(?:creature|permanent|artifact|enchantment|land|planeswalker)\b/.test(text)) {
+            next = { ...next, excludeSource: true };
+          }
+          // Also catch "other than" phrasing when it clearly refers to the source.
+          if (!next.excludeSource && /\btarget\s+.*\bother\s+than\s+(?:this|that)\b/.test(text)) {
+            next = { ...next, excludeSource: true };
+          }
+
+          // Attacking/blocking/tapped/untapped constraints (creatures only).
+          if (/attacking or blocking creature/.test(text)) {
+            next = {
+              ...next,
+              targetRestriction: { type: 'attacked_or_blocked_this_turn', description: 'that is attacking or blocking' },
+              targetDescription: next.targetDescription || 'attacking or blocking creature',
+            };
+          } else if (/attacking creature/.test(text)) {
+            next = {
+              ...next,
+              targetRestriction: { type: 'attacked_this_turn', description: 'that is attacking' },
+              targetDescription: next.targetDescription || 'attacking creature',
+            };
+          } else if (/blocking creature/.test(text)) {
+            next = {
+              ...next,
+              targetRestriction: { type: 'blocked_this_turn', description: 'that is blocking' },
+              targetDescription: next.targetDescription || 'blocking creature',
+            };
+          } else if (/tapped creature/.test(text)) {
+            next = {
+              ...next,
+              targetRestriction: { type: 'tapped', description: 'tapped' },
+              targetDescription: next.targetDescription || 'tapped creature',
+            };
+          } else if (/untapped creature/.test(text)) {
+            next = {
+              ...next,
+              targetRestriction: { type: 'untapped', description: 'untapped' },
+              targetDescription: next.targetDescription || 'untapped creature',
+            };
+          }
+
+          // Creature keyword constraints (engine supports these via has_keyword).
+          // Keep this list aligned with what the engine can reasonably detect in keywords/oracle text.
+          const keywordAbilities = [
+            'flying',
+            'reach',
+            'trample',
+            'deathtouch',
+            'lifelink',
+            'vigilance',
+            'haste',
+            'menace',
+            'hexproof',
+            'indestructible',
+            'first strike',
+            'double strike',
+            'ward',
+            'defender',
+          ];
+          const keywordGroup = keywordAbilities
+            .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('|');
+          const keywordMatch = text.match(new RegExp(`\\b(?:creature\\s+)?(?:with|that\\s+has)\\s+(${keywordGroup})\\b`));
+          if (keywordMatch) {
+            const keyword = keywordMatch[1];
+            // If spec is creature-only, apply as a targetRestriction.
+            if (next.filter === 'CREATURE' && !next.multiFilter) {
+              next = {
+                ...next,
+                targetRestriction: { type: 'has_keyword', description: `with ${keyword}`, keyword },
+                targetDescription: next.targetDescription || `creature with ${keyword}`,
+              };
+            }
+            // If spec is multi-type including creatures, apply creatureRestriction.
+            if (Array.isArray(next.multiFilter) && (next.multiFilter as any[]).includes('CREATURE')) {
+              next = {
+                ...next,
+                creatureRestriction: { type: 'has_keyword', description: `with ${keyword}`, keyword },
+              };
+            }
+          }
+
+          // Power/toughness constraints (engine supports these via statRequirement).
+          // Examples: "target creature with toughness 4 or greater", "target creature with power 2 or less".
+          if (!next.statRequirement) {
+            const statMatch = text.match(/target\s+(?:attacking or blocking\s+)?creature\s+with\s+(power|toughness)\s+(\d+)\s+or\s+(greater|less)/);
+            if (statMatch) {
+              const stat = statMatch[1] as 'power' | 'toughness';
+              const value = parseInt(statMatch[2], 10);
+              const comparison = statMatch[3] === 'greater' ? '>=' : '<=';
+              if (Number.isFinite(value)) {
+                next = {
+                  ...next,
+                  statRequirement: { stat, comparison: comparison as any, value },
+                  targetDescription: next.targetDescription || `creature with ${stat} ${comparison} ${value}`,
+                };
+              }
+            }
+          }
+
+          return next;
+        };
+
+        for (const pending of queue.steps) {
+          if (pending.type === ResolutionStepType.TARGET_SELECTION && pending.sourceId && step.sourceId && pending.sourceId === step.sourceId) {
+            (pending as any).selectedMode = modeOption
+              ? { id: modeOption.id, label: modeOption.label, description: modeOption.description }
+              : { id: selectedMode, label: `Mode ${selectedMode}`, description: '' };
+
+            // Engine-backed recomputation of valid targets based on chosen mode text.
+            // Fallback: keep the original validTargets if we can't recompute safely.
+            const original = Array.isArray((pending as any).validTargets) ? ([...(pending as any).validTargets] as any[]) : [];
+            const cardName = String((pending as any).sourceName || step.sourceName || 'spell');
+            const modeSpellSpec = categorizeSpell(cardName, modeText);
+            const modeTargetReqs = parseTargetRequirements(modeText);
+            const nextMinTargets = Number(modeSpellSpec?.minTargets ?? modeTargetReqs?.minTargets ?? (pending as any).minTargets ?? 1);
+            const nextMaxTargets = Number(modeSpellSpec?.maxTargets ?? modeTargetReqs?.maxTargets ?? (pending as any).maxTargets ?? 1);
+            const nextTargetDescription = String(
+              (modeSpellSpec?.targetDescription || modeTargetReqs?.targetDescription || (pending as any).targetDescription || (pending as any).description || '')
+            ).trim();
+
+            // If the mode implies a per-opponent targeting structure, the step is usually not a plain TARGET_SELECTION.
+            // Don't override it here.
+            if (modeTargetReqs?.perOpponent) {
+              (pending as any).validTargets = original;
+              break;
+            }
+
+            const modeConstraintText = `${modeLabel} ${modeText}`.toLowerCase();
+            const requiresNonland = modeConstraintText.includes('nonland');
+            const requiresNoncreature = modeConstraintText.includes('noncreature');
+            const requiresNonartifact = modeConstraintText.includes('nonartifact');
+            const requiresNonenchantment = modeConstraintText.includes('nonenchantment');
+            const requiresYouControl = /\byou control\b/.test(modeConstraintText);
+            const requiresOpponentControls = /\ban opponent controls\b|\bopponent controls\b/.test(modeConstraintText);
+            const requiresYouDontControl = /\byou don't control\b|\byou do not control\b/.test(modeConstraintText);
+
+            let recomputed: any[] | null = null;
+
+            // First: best path, full heuristic spec.
+            if (modeSpellSpec && modeSpellSpec.minTargets > 0) {
+              const spec = applyModeRestrictionsToSpec(modeSpellSpec, modeConstraintText);
+              const sourceIdForExclude = spec.excludeSource && (game.state.battlefield || []).some((p: any) => p?.id === pending.sourceId)
+                ? String(pending.sourceId)
+                : undefined;
+              const refs = evaluateTargeting(game.state as any, pid as any, spec, sourceIdForExclude);
+              const opts = buildChoiceOptionsFromTargetRefs(refs);
+              recomputed = opts;
+            }
+
+            // Second: build a minimal spec from parsed target requirements.
+            if ((!recomputed || recomputed.length === 0) && modeTargetReqs?.needsTargets) {
+              const specFromReqs = buildSpellSpecFromTargetRequirements(modeText, modeTargetReqs, nextMinTargets, nextMaxTargets);
+              if (specFromReqs) {
+                const spec = applyModeRestrictionsToSpec(specFromReqs, modeConstraintText);
+                const sourceIdForExclude = spec.excludeSource && (game.state.battlefield || []).some((p: any) => p?.id === pending.sourceId)
+                  ? String(pending.sourceId)
+                  : undefined;
+                const refs = evaluateTargeting(game.state as any, pid as any, spec, sourceIdForExclude);
+                const opts = buildChoiceOptionsFromTargetRefs(refs);
+                recomputed = opts;
+              } else {
+                // Player-only targeting is not represented in evaluateTargeting (non-"any target"), so handle it directly.
+                const targetTypes = Array.isArray(modeTargetReqs?.targetTypes)
+                  ? (modeTargetReqs.targetTypes as any[]).map(t => String(t).toLowerCase())
+                  : [];
+                const isOpponentOnly = targetTypes.includes('opponent') || /\btarget\s+opponent\b/.test(modeText);
+                const isSelfOnly = /\btarget\s+(yourself|you)\b/.test(modeText);
+                const isPlayerOnly = targetTypes.includes('player') || isOpponentOnly || isSelfOnly;
+                if (isPlayerOnly) {
+                  recomputed = (game.state.players || [])
+                    .filter((p: any) => {
+                      if (isOpponentOnly) return p?.id && p.id !== pid;
+                      if (isSelfOnly) return p?.id && p.id === pid;
+                      return true;
+                    })
+                    .map((p: any) => ({
+                      id: p.id,
+                      label: p.name || p.id,
+                      description: 'player',
+                      type: 'player',
+                      life: p.life,
+                      isOpponent: p.id !== pid,
+                    }));
+                }
+              }
+            }
+
+            // Apply additional constraints that the current engine spec does not model.
+            if (recomputed && recomputed.length > 0) {
+              const applyConstraints = (list: any[]): any[] => {
+                const normalizeColorArray = (value: any): string[] => {
+                  if (!Array.isArray(value)) return [];
+                  return value
+                    .map((c: any) => String(c || '').trim())
+                    .filter(Boolean)
+                    .map((c: string) => c.toUpperCase());
+                };
+
+                const normalizeTypeLine = (value: any): string => {
+                  return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                };
+
+                const splitTypeLine = (typeLineRaw: any): { types: string; subtypes: string } => {
+                  const tl = normalizeTypeLine(typeLineRaw);
+                  if (!tl) return { types: '', subtypes: '' };
+                  // Scryfall uses an em dash; keep a fallback for other dash styles.
+                  if (tl.includes('—')) {
+                    const [types, subtypes] = tl.split('—', 2);
+                    return { types: (types || '').trim(), subtypes: (subtypes || '').trim() };
+                  }
+                  if (tl.includes(' - ')) {
+                    const [types, subtypes] = tl.split(' - ', 2);
+                    return { types: (types || '').trim(), subtypes: (subtypes || '').trim() };
+                  }
+                  return { types: tl.trim(), subtypes: '' };
+                };
+
+                const hasKeyword = (opt: any, keyword: string): boolean => {
+                  const k = String(keyword || '').toLowerCase().trim();
+                  if (!k) return false;
+                  const keywords = Array.isArray(opt?.keywords)
+                    ? (opt.keywords as any[]).map((x: any) => String(x || '').toLowerCase())
+                    : [];
+                  if (keywords.includes(k)) return true;
+                  const oracle = String(opt?.oracleText || '').toLowerCase();
+                  return oracle.includes(k);
+                };
+
+                const getColorCodes = (opt: any): string[] => {
+                  // Prefer explicit colors; fall back to color identity.
+                  const colors = normalizeColorArray(opt?.colors);
+                  if (colors.length > 0) return colors;
+                  return normalizeColorArray(opt?.colorIdentity);
+                };
+
+                const COLOR_CODE: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+                const colorWords = ['white', 'blue', 'black', 'red', 'green'] as const;
+
+                // Parse color constraints from mode text (simple/common oracle patterns).
+                const requiredColors: string[] = [];
+                const forbiddenColors: string[] = [];
+                for (const w of colorWords) {
+                  const code = COLOR_CODE[w];
+                  if (new RegExp(`\\bnon${w}\\b`).test(modeConstraintText)) forbiddenColors.push(code);
+                  // Require color only when the word appears in a typical target phrase.
+                  if (new RegExp(`\\b${w}\\s+(?:creature|permanent|spell|card)\\b`).test(modeConstraintText)) requiredColors.push(code);
+                }
+                const requiresColorless = /\\bcolorless\\b/.test(modeConstraintText);
+                const requiresMulticolored = /\\bmulticolou?red\\b/.test(modeConstraintText);
+                const requiresMonocolored = /\\bmonocolou?red\\b/.test(modeConstraintText);
+                const requiresNoncolorless = /\\bnoncolorless\\b|\\bnot colorless\\b/.test(modeConstraintText);
+
+                // Supertypes and type-line constraints.
+                const requiresBasicLand = /\\bbasic\\s+land\\b/.test(modeConstraintText);
+                const requiresNonbasicLand = /\\bnonbasic\\s+land\\b/.test(modeConstraintText);
+                const requiresLegendary = /\\blegendary\\b/.test(modeConstraintText) && !/\\bnonlegendary\\b/.test(modeConstraintText);
+                const requiresNonlegendary = /\\bnonlegendary\\b/.test(modeConstraintText);
+                const requiresSnow = /\\bsnow\\b/.test(modeConstraintText) && !/\\bnonsnow\\b/.test(modeConstraintText);
+                const requiresNonsnow = /\\bnonsnow\\b/.test(modeConstraintText);
+
+                // Keyword constraints (best-effort, creatures only).
+                const keywordAbilities = [
+                  'flying',
+                  'reach',
+                  'trample',
+                  'deathtouch',
+                  'lifelink',
+                  'vigilance',
+                  'haste',
+                  'menace',
+                  'hexproof',
+                  'indestructible',
+                  'first strike',
+                  'double strike',
+                  'ward',
+                  'defender',
+                ];
+                const keywordGroup = keywordAbilities
+                  .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                  .join('|');
+                const requiredKeywordMatch = modeConstraintText.match(
+                  new RegExp(`\\b(?:creature\\s+)?(?:with|that\\s+has)\\s+(${keywordGroup})\\b`)
+                );
+                const requiredKeyword = requiredKeywordMatch?.[1] ? requiredKeywordMatch[1] : null;
+                const forbiddenKeywordMatch = modeConstraintText.match(
+                  new RegExp(`\\b(?:without|doesn't\\s+have|does\\s+not\\s+have|that\\s+doesn't\\s+have|that\\s+does\\s+not\\s+have)\\s+(${keywordGroup})\\b`)
+                );
+                const forbiddenKeyword = forbiddenKeywordMatch?.[1] ? forbiddenKeywordMatch[1] : null;
+
+                // Creature subtype constraints (best-effort): support negative subtype like "non-Human creature".
+                // Avoid false positives by only recognizing "non-<word> creature" patterns.
+                const nonSubtypeMatch = modeConstraintText.match(/\\bnon[-\s]?([a-z][a-z']*)\\s+creature\\b/);
+                const forbiddenCreatureSubtype = nonSubtypeMatch?.[1] ? nonSubtypeMatch[1].toLowerCase() : null;
+
+                // Compound type-line constraints.
+                const requiresArtifactCreature = /\\bartifact\\s+creature\\b/.test(modeConstraintText);
+                const requiresEnchantmentCreature = /\\benchantment\\s+creature\\b/.test(modeConstraintText);
+                const requiresArtifactLand = /\\bartifact\\s+land\\b/.test(modeConstraintText);
+
+                // Token/nontoken constraints (best-effort, only when part of a target phrase).
+                const requiresNontoken = /\\btarget\\s+(?:[a-z'\\-]+\\s+)*nontoken\\b/.test(modeConstraintText);
+                const requiresToken = /\\btarget\\s+(?:[a-z'\\-]+\\s+)*token\\b/.test(modeConstraintText) && !requiresNontoken;
+
+                // Tapped/untapped constraints (best-effort, works for both creatures and permanents).
+                const requiresTapped = /\\btarget\\s+(?:[a-z'\\-]+\\s+)*tapped\\b/.test(modeConstraintText);
+                const requiresUntapped = /\\btarget\\s+(?:[a-z'\\-]+\\s+)*untapped\\b/.test(modeConstraintText);
+
+                // Mana value constraints (best-effort).
+                // Example: "target creature with mana value 3 or less".
+                const mvRangeMatch = /\\b(?:mana value|converted mana cost)\\s+(\\d+)\\s+or\\s+(less|fewer|greater|more)\\b/.exec(modeConstraintText);
+                const mvConstraint = mvRangeMatch && /\\btarget\\b/.test(modeConstraintText)
+                  ? {
+                      value: parseInt(mvRangeMatch[1], 10),
+                      cmp: mvRangeMatch[2] === 'less' || mvRangeMatch[2] === 'fewer' ? '<=' : '>=',
+                    }
+                  : null;
+                const mvExactMatch = !mvConstraint && /\\btarget\\b/.test(modeConstraintText)
+                  ? /\\b(?:mana value|converted mana cost)\\s+(?:exactly\\s+)?(\\d+)\\b(?!\\s+or\\b)/.exec(modeConstraintText)
+                  : null;
+                const mvExact = mvExactMatch ? parseInt(mvExactMatch[1], 10) : null;
+
+                // Positive creature subtype targeting (best-effort).
+                // Example: "target elf creature", "target human soldier creature".
+                const subtypeStop = new Set([
+                  'another',
+                  'tapped',
+                  'untapped',
+                  'attacking',
+                  'blocking',
+                  'legendary',
+                  'nonlegendary',
+                  'snow',
+                  'nonsnow',
+                  'basic',
+                  'nonbasic',
+                  'nonland',
+                  'noncreature',
+                  'nonartifact',
+                  'nonenchantment',
+                  'artifact',
+                  'enchantment',
+                  'token',
+                  'nontoken',
+                  'colorless',
+                  'noncolorless',
+                  'monocolored',
+                  'multicolored',
+                  'white',
+                  'blue',
+                  'black',
+                  'red',
+                  'green',
+                  'nonwhite',
+                  'nonblue',
+                  'nonblack',
+                  'nonred',
+                  'nongreen',
+                ]);
+                const subtypePhraseMatch = modeConstraintText.match(/\\btarget\\s+((?:[a-z][a-z'\\-]*\\s+){0,3})creature\\b/);
+                const requiredCreatureSubtypes = subtypePhraseMatch?.[1]
+                  ? subtypePhraseMatch[1]
+                      .trim()
+                      .split(/\\s+/)
+                      .map(t => t.trim())
+                      .filter(Boolean)
+                      .filter(t => !subtypeStop.has(t) && !t.startsWith('non'))
+                  : [];
+
+                // Common permanent subtype targeting.
+                // Examples: "target Aura"; "target Equipment".
+                const requiresAura = /\\btarget\\s+aura\\b/.test(modeConstraintText);
+                const requiresEquipment = /\\btarget\\s+equipment\\b/.test(modeConstraintText);
+
+                return list.filter((opt: any) => {
+                  const optType = String(opt?.type || '').toLowerCase();
+                  const typeLine = normalizeTypeLine(opt?.typeLine);
+                  const controller = String(opt?.controller || '');
+                  const isOpponent = typeof opt?.isOpponent === 'boolean' ? (opt.isOpponent as boolean) : undefined;
+
+                  if (optType !== 'player') {
+                    // Color constraints apply to permanents/spells, not players.
+                    const colors = getColorCodes(opt);
+                    if (requiresColorless && colors.length > 0) return false;
+                    if (requiresNoncolorless && colors.length === 0) return false;
+                    if (requiresMonocolored && colors.length !== 1) return false;
+                    if (requiresMulticolored && colors.length < 2) return false;
+                    for (const fc of forbiddenColors) {
+                      if (colors.includes(fc)) return false;
+                    }
+                    for (const rc of requiredColors) {
+                      if (!colors.includes(rc)) return false;
+                    }
+
+                    // Compound type requirements (when oracle is explicit).
+                    if (requiresArtifactCreature && !(typeLine.includes('artifact') && typeLine.includes('creature'))) return false;
+                    if (requiresEnchantmentCreature && !(typeLine.includes('enchantment') && typeLine.includes('creature'))) return false;
+                    if (requiresArtifactLand && !(typeLine.includes('artifact') && typeLine.includes('land'))) return false;
+
+                    // Token / nontoken filtering.
+                    if (requiresNontoken) {
+                      const isToken = opt?.isToken === true;
+                      if (isToken) return false;
+                    }
+                    if (requiresToken) {
+                      const isToken = opt?.isToken === true;
+                      if (!isToken) return false;
+                    }
+
+                    // Tapped / untapped filtering.
+                    if (requiresTapped && opt?.tapped !== true) return false;
+                    if (requiresUntapped && opt?.tapped === true) return false;
+
+                    // Mana value filtering.
+                    if (mvConstraint && Number.isFinite(mvConstraint.value)) {
+                      const mv = Number(opt?.cmc ?? 0);
+                      if (mvConstraint.cmp === '<=' && !(mv <= mvConstraint.value)) return false;
+                      if (mvConstraint.cmp === '>=' && !(mv >= mvConstraint.value)) return false;
+                    }
+
+                    if (mvExact !== null && Number.isFinite(mvExact)) {
+                      const mv = Number(opt?.cmc ?? 0);
+                      if (!(mv === mvExact)) return false;
+                    }
+
+                    // Keyword constraints (creatures only).
+                    if (typeLine.includes('creature')) {
+                      if (requiredKeyword && !hasKeyword(opt, requiredKeyword)) return false;
+                      if (forbiddenKeyword && hasKeyword(opt, forbiddenKeyword)) return false;
+                    }
+
+                    // Positive creature subtype filtering.
+                    if (requiredCreatureSubtypes.length > 0 && typeLine.includes('creature')) {
+                      const { subtypes } = splitTypeLine(typeLine);
+                      const subtypeList = subtypes ? subtypes.split(/\s+/).filter(Boolean) : [];
+                      for (const st of requiredCreatureSubtypes) {
+                        if (!subtypeList.includes(st)) return false;
+                      }
+                    }
+
+                    // Common permanent subtype filtering.
+                    if ((requiresAura || requiresEquipment) && optType !== 'player') {
+                      const { subtypes } = splitTypeLine(typeLine);
+                      const subtypeList = subtypes ? subtypes.split(/\s+/).filter(Boolean) : [];
+                      if (requiresAura && !subtypeList.includes('aura')) return false;
+                      if (requiresEquipment && !subtypeList.includes('equipment')) return false;
+                    }
+
+                    // Basic/nonbasic land.
+                    if (requiresBasicLand) {
+                      if (!(typeLine.includes('land') && typeLine.includes('basic'))) return false;
+                    }
+                    if (requiresNonbasicLand) {
+                      if (!typeLine.includes('land')) return false;
+                      if (typeLine.includes('basic')) return false;
+                    }
+
+                    // Legendary/nonlegendary.
+                    if (requiresLegendary && !typeLine.includes('legendary')) return false;
+                    if (requiresNonlegendary && typeLine.includes('legendary')) return false;
+
+                    // Snow/nonsnow.
+                    if (requiresSnow && !typeLine.includes('snow')) return false;
+                    if (requiresNonsnow && typeLine.includes('snow')) return false;
+
+                    // Negative creature subtype (non-Human, non-Elf, etc.).
+                    // Only apply when the target is actually a creature.
+                    if (forbiddenCreatureSubtype && typeLine.includes('creature')) {
+                      // Type line uses proper case, but we normalize to lowercase.
+                      // Subtypes appear after the em dash.
+                      const { subtypes } = splitTypeLine(typeLine);
+                      if (subtypes && subtypes.split(/\s+/).includes(forbiddenCreatureSubtype)) return false;
+                    }
+
+                    if (requiresNonland && typeLine.includes('land')) return false;
+                    if (requiresNoncreature && typeLine.includes('creature')) return false;
+                    if (requiresNonartifact && typeLine.includes('artifact')) return false;
+                    if (requiresNonenchantment && typeLine.includes('enchantment')) return false;
+                    if (requiresYouControl) {
+                      if (controller) {
+                        if (controller !== pid) return false;
+                      } else if (isOpponent !== undefined) {
+                        if (isOpponent) return false;
+                      }
+                    }
+                    if (requiresOpponentControls) {
+                      if (controller) {
+                        if (controller === pid) return false;
+                      } else if (isOpponent !== undefined) {
+                        if (!isOpponent) return false;
+                      }
+                    }
+                    if (requiresYouDontControl) {
+                      if (controller) {
+                        if (controller === pid) return false;
+                      } else if (isOpponent !== undefined) {
+                        if (!isOpponent) return false;
+                      }
+                    }
+                  }
+
+                  return true;
+                });
+              };
+
+              const constrained = applyConstraints(recomputed);
+              if (constrained.length >= Math.max(0, nextMinTargets)) {
+                recomputed = constrained;
+
+                // Prefer the requirements' phrasing when we applied extra constraints.
+                if ((requiresNonland || requiresNoncreature || requiresNonartifact || requiresNonenchantment || requiresYouControl || requiresOpponentControls || requiresYouDontControl) && modeTargetReqs?.targetDescription) {
+                  (pending as any).targetDescription = String(modeTargetReqs.targetDescription);
+                }
+              }
+            }
+
+            if (recomputed && recomputed.length >= Math.max(0, nextMinTargets)) {
+              (pending as any).validTargets = recomputed;
+              (pending as any).minTargets = nextMinTargets;
+              // Don't allow selecting more targets than exist.
+              const clampedMaxTargets = Math.max(nextMinTargets, Math.min(nextMaxTargets, recomputed.length));
+              (pending as any).maxTargets = clampedMaxTargets;
+              (pending as any).targetDescription = nextTargetDescription;
+              if (modeLabel) {
+                const desc = String((pending as any).targetDescription || nextTargetDescription || 'target');
+                (pending as any).description = `Choose ${desc} for ${cardName} (${modeLabel})`;
+              }
+
+              const effectIdForCast = pending.sourceId;
+              if (effectIdForCast && (game.state as any)?.pendingSpellCasts?.[effectIdForCast]) {
+                (game.state as any).pendingSpellCasts[effectIdForCast].validTargetIds = recomputed.map((t: any) => t.id);
+              }
+            } else {
+              // If engine recomputation isn't possible, keep the precomputed original list.
+              (pending as any).validTargets = original;
+            }
+          }
+        }
+      } catch {
+        // Best-effort only.
+      }
+
+      // Best-effort: stash on pendingSpellCasts for later stages (targets/payment), if applicable.
+      const effectId = step.sourceId;
+      if (effectId && (game.state as any)?.pendingSpellCasts?.[effectId]) {
+        (game.state as any).pendingSpellCasts[effectId].selectedMode = selectedMode;
+      }
+
+      // Inform players (helps debugging/clarity).
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} chose a mode for ${step.sourceName || 'a spell'}.`,
+        ts: Date.now(),
+      });
+      break;
+    }
+
     case ResolutionStepType.DISCARD_SELECTION:
       handleDiscardResponse(io, game, gameId, step, response);
       break;
@@ -2076,6 +2976,14 @@ function handleTargetSelectionResponse(
   const validTargets = targetStepData.validTargets || [];
   const minTargets = targetStepData.minTargets || 0;
   const maxTargets = targetStepData.maxTargets || Infinity;
+
+  // Disallow selecting the same target multiple times.
+  // The client already prevents duplicates via Set-based selection, but enforce server-side as well.
+  const uniqueSelections = Array.from(new Set(selections));
+  if (uniqueSelections.length !== selections.length) {
+    debugWarn(1, `[Resolution] Invalid target selection: duplicate target id(s) selected`);
+    return;
+  }
   
   // Validate selection count is within bounds
   if (selections.length < minTargets || selections.length > maxTargets) {
@@ -9076,7 +9984,6 @@ async function handleOptionChoiceResponse(
     if (remainingSteps.length === 0) {
       // All players have made their choices - now apply counters and any additional effects
       debug(2, `[Resolution] Counter placement: All players responded, applying counters`);
-      
       const selections = state._counterPlacementSelections || {};
       const playersWhoAccepted: string[] = []; // Track who accepted for "If a player does" effects
       const creaturesWithCounters: Array<{ id: string; playerId: string }> = [];

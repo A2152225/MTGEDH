@@ -39,6 +39,9 @@ export interface TargetSelectionModalProps {
   open: boolean;
   title: string;
   description?: string;
+  contextSteps?: string[];
+  selectedMode?: { name: string; description?: string };
+  viewerPlayerId?: string;
   source?: { name: string; imageUrl?: string };
   targets: TargetOption[];
   minTargets: number;
@@ -55,6 +58,9 @@ export function TargetSelectionModal({
   open,
   title,
   description,
+  contextSteps,
+  selectedMode,
+  viewerPlayerId,
   source,
   targets,
   minTargets,
@@ -84,6 +90,126 @@ export function TargetSelectionModal({
       return next;
     });
   }, [maxTargets]);
+
+  const modePreferredTypes = useMemo(() => {
+    const text = `${selectedMode?.name || ''} ${selectedMode?.description || ''}`.toLowerCase();
+    if (!text.trim()) return new Set<TargetType>();
+
+    const prefers = new Set<TargetType>();
+    if (text.includes('target player') || text.includes('target opponent') || text.includes('target yourself')) {
+      prefers.add('player');
+    }
+    if (
+      text.includes('target creature') ||
+      text.includes('target permanent') ||
+      text.includes('target artifact') ||
+      text.includes('target enchantment') ||
+      text.includes('target planeswalker')
+    ) {
+      prefers.add('permanent');
+    }
+    if (text.includes('target card') || text.includes('target spell') || text.includes('target instant') || text.includes('target sorcery')) {
+      prefers.add('card');
+    }
+    return prefers;
+  }, [selectedMode]);
+
+  const isModePreferredTarget = useCallback((target: TargetOption): boolean => {
+    if (!selectedMode?.name && !selectedMode?.description) return true;
+
+    const text = `${selectedMode?.name || ''} ${selectedMode?.description || ''}`.toLowerCase();
+    if (!text.trim()) return true;
+
+    // If we can't infer anything from the mode text, don't penalize anything.
+    const inferredTypes = modePreferredTypes;
+    if (inferredTypes.size === 0) return true;
+
+    if (target.type === 'player') {
+      if (!inferredTypes.has('player')) return false;
+
+      // Handle opponent/self constraints when possible.
+      if (viewerPlayerId) {
+        if (text.includes('target opponent')) return target.id !== viewerPlayerId;
+        if (text.includes('target yourself') || text.includes('target you')) return target.id === viewerPlayerId;
+      }
+
+      return true;
+    }
+
+    const targetTypeLine = (
+      target.typeLine ||
+      (target.card && (target.card as any).type_line) ||
+      ''
+    ).toLowerCase();
+
+    if (target.type === 'card') {
+      // If mode references cards/spells, prefer card targets.
+      // If we have a type line, use it to be a bit more precise.
+      if (!inferredTypes.has('card')) return false;
+      if (!targetTypeLine) return true;
+
+      if (text.includes('instant') && !targetTypeLine.includes('instant')) return false;
+      if (text.includes('sorcery') && !targetTypeLine.includes('sorcery')) return false;
+      if (text.includes('creature card') && !targetTypeLine.includes('creature')) return false;
+      return true;
+    }
+
+    // Permanent targets: use the type line where possible.
+    if (!inferredTypes.has('permanent')) return false;
+    if (!targetTypeLine) return true;
+
+    const wantsCreature = text.includes('target creature');
+    const wantsArtifact = text.includes('target artifact');
+    const wantsEnchantment = text.includes('target enchantment');
+    const wantsPlaneswalker = text.includes('target planeswalker');
+    const wantsLand = text.includes('target land');
+    const wantsPermanent = text.includes('target permanent');
+    const wantsAnyTarget = text.includes('any target');
+
+    // Controller constraints when we have controller info.
+    if (viewerPlayerId && target.controller) {
+      if (text.includes('you control') && target.controller !== viewerPlayerId) return false;
+      if ((text.includes("an opponent controls") || text.includes("opponent controls")) && target.controller === viewerPlayerId) return false;
+    }
+
+    // "Any target" typically means creature/planeswalker/player.
+    if (wantsAnyTarget) {
+      if (targetTypeLine.includes('creature') || targetTypeLine.includes('planeswalker')) return true;
+      return false;
+    }
+
+    if (wantsAnyTarget || wantsPermanent) return true;
+
+    // If mode specifies a concrete permanent type, require it.
+    if (wantsCreature && !targetTypeLine.includes('creature')) return false;
+    if (wantsArtifact && !targetTypeLine.includes('artifact')) return false;
+    if (wantsEnchantment && !targetTypeLine.includes('enchantment')) return false;
+    if (wantsPlaneswalker && !targetTypeLine.includes('planeswalker')) return false;
+    if (wantsLand && !targetTypeLine.includes('land')) return false;
+
+    // If mode doesn't specify a particular permanent type, allow.
+    return true;
+  }, [modePreferredTypes, selectedMode, viewerPlayerId]);
+
+  const sortTargetsByRelevance = useCallback((items: TargetOption[]): TargetOption[] => {
+    if (!selectedMode?.name && !selectedMode?.description) return items;
+
+    const score = (t: TargetOption): number => {
+      const isSelected = selectedIds.has(t.id);
+      const preferred = isModePreferredTarget(t);
+      return (isSelected ? 1000 : 0) + (preferred ? 100 : 0);
+    };
+
+    return [...items].sort((a, b) => {
+      const da = score(a);
+      const db = score(b);
+      if (db !== da) return db - da;
+
+      const an = (a.displayName || a.name || '').toLowerCase();
+      const bn = (b.displayName || b.name || '').toLowerCase();
+      return an.localeCompare(bn);
+    });
+  }, [isModePreferredTarget, selectedMode, selectedIds]);
 
   // Group targets by type or controller
   const groupedTargets = useMemo(() => {
@@ -204,6 +330,35 @@ export function TargetSelectionModal({
                 {description}
               </div>
             )}
+
+            {selectedMode?.name && (
+              <div style={{ marginTop: 10, padding: 10, borderRadius: 8, border: '1px solid #3a3a5a', backgroundColor: '#20203a' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#a0aec0', marginBottom: 4 }}>
+                  Chosen mode
+                </div>
+                <div style={{ fontSize: 13, color: '#f59e0b', fontWeight: 600 }}>
+                  {selectedMode.name}
+                </div>
+                {selectedMode.description && (
+                  <div style={{ marginTop: 4, fontSize: 12, color: '#cbd5e1', lineHeight: 1.4 }}>
+                    {selectedMode.description}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {contextSteps && contextSteps.length > 0 && (
+              <div style={{ marginTop: 10, padding: 10, borderRadius: 8, border: '1px solid #3a3a5a', backgroundColor: '#20203a' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#a0aec0', marginBottom: 6 }}>
+                  Effect steps (heuristic)
+                </div>
+                <ol style={{ margin: 0, paddingLeft: 18, color: '#cbd5e1', fontSize: 12, lineHeight: 1.4 }}>
+                  {contextSteps.slice(0, 12).map((s, idx) => (
+                    <li key={idx} style={{ marginBottom: 4 }}>{s}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
             <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
               {minTargets === maxTargets
                 ? `Select exactly ${minTargets} target${minTargets !== 1 ? 's' : ''}`
@@ -251,9 +406,10 @@ export function TargetSelectionModal({
                   padding: 12,
                 }}
               >
-                {groupTargets.map(target => {
+                {sortTargetsByRelevance(groupTargets).map(target => {
                   const isSelected = selectedIds.has(target.id);
                   const isPlayer = target.type === 'player';
+                  const isModePreferred = isModePreferredTarget(target);
 
                   return (
                     <div
@@ -271,8 +427,16 @@ export function TargetSelectionModal({
                         position: 'relative',
                         borderRadius: 6,
                         overflow: 'hidden',
-                        border: isSelected ? '3px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
-                        backgroundColor: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
+                        border: isSelected
+                          ? '3px solid #f59e0b'
+                          : isModePreferred
+                          ? '1px solid rgba(245, 158, 11, 0.28)'
+                          : '1px solid rgba(255,255,255,0.10)',
+                        backgroundColor: isSelected
+                          ? 'rgba(245, 158, 11, 0.2)'
+                          : isModePreferred
+                          ? 'rgba(245, 158, 11, 0.05)'
+                          : 'transparent',
                         cursor: selectedIds.size >= maxTargets && !isSelected ? 'not-allowed' : 'pointer',
                         opacity: selectedIds.size >= maxTargets && !isSelected ? 0.5 : 1,
                         transition: 'all 0.15s',
@@ -299,6 +463,12 @@ export function TargetSelectionModal({
                           {target.life !== undefined && (
                             <div style={{ fontSize: 11, color: '#888' }}>
                               {target.life} life
+                            </div>
+                          )}
+
+                          {selectedMode?.name && (
+                            <div style={{ fontSize: 10, color: isModePreferred ? '#f59e0b' : '#888' }}>
+                              {isModePreferred ? 'Matches chosen mode' : 'Other mode'}
                             </div>
                           )}
                         </div>
@@ -344,6 +514,19 @@ export function TargetSelectionModal({
                           >
                             {target.displayName || target.name}
                           </div>
+
+                          {selectedMode?.name && (
+                            <div
+                              style={{
+                                padding: '0 6px 6px 6px',
+                                fontSize: 10,
+                                color: isModePreferred ? '#f59e0b' : '#888',
+                                pointerEvents: 'none',
+                              }}
+                            >
+                              {isModePreferred ? 'Matches chosen mode' : 'Other mode'}
+                            </div>
+                          )}
                         </>
                       )}
                       {isSelected && (

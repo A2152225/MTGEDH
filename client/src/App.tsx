@@ -423,6 +423,8 @@ export function App() {
     title: string;
     description?: string;
     source?: { name: string; imageUrl?: string };
+    contextSteps?: string[];
+    selectedMode?: { name: string; description?: string };
     targets: TargetOption[];
     minTargets: number;
     maxTargets: number;
@@ -872,6 +874,8 @@ export function App() {
     imageUrl?: string;
     modes: CastingMode[];
     effectId?: string;
+    // If present, this modal answers a Resolution Queue step.
+    resolutionStepId?: string;
   } | null>(null);
   
   // Mana Pool state - tracks floating mana for the current player
@@ -3054,12 +3058,40 @@ export function App() {
         });
         setCreatureTypeModalOpen(true);
       }
+      // Handle mode selection via resolution queue (modal spells / choice events)
+      else if (step.type === 'mode_selection') {
+        const modes: CastingMode[] = (step.modes || []).map((m: any, idx: number) => ({
+          id: String(m.id ?? `mode_${idx + 1}`),
+          name: String(m.label ?? `Mode ${idx + 1}`),
+          description: String(m.description ?? ''),
+          cost: null,
+        }));
+
+        setCastingModeModalData({
+          cardId: step.sourceId || step.id,
+          cardName: step.sourceName || 'Spell',
+          source: step.sourceName,
+          title: step.description || 'Choose a mode',
+          description: 'Choose a mode before selecting targets.',
+          imageUrl: step.sourceImage,
+          modes,
+          effectId: step.sourceId,
+          resolutionStepId: step.id,
+        });
+        setCastingModeModalOpen(true);
+      }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
       else if (step.type === 'target_selection') {
+        const selectedModeRaw = (step as any).selectedMode as { label?: string; description?: string } | undefined;
+        const selectedModeUi = selectedModeRaw ? {
+          name: String(selectedModeRaw.label || 'Selected mode'),
+          description: String(selectedModeRaw.description || ''),
+        } : undefined;
+
         // Convert resolution queue step to target modal format
         const validTargets: TargetOption[] = (step.validTargets || []).map((t: any) => ({
           id: t.id,
-          type: (t.type as any) || 'permanent',
+          type: (t.type as any) || (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent'),
           name: t.label || t.name || 'Unknown',
           displayName: t.displayName,
           imageUrl: t.imageUrl,
@@ -3075,7 +3107,11 @@ export function App() {
           cardId: step.sourceId || '',
           source: { name: step.sourceName || 'Effect', imageUrl: step.sourceImage },
           title: step.description || `Choose target`,
-          description: step.targetDescription || '',
+          description: (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
+            ? selectedModeUi.description
+            : (step.targetDescription || '')),
+          contextSteps: (step.oracleContext?.steps || step.spellCastContext?.oracleContext?.steps || undefined) as any,
+          selectedMode: selectedModeUi,
           targets: validTargets,
           minTargets: step.minTargets || 1,
           maxTargets: step.maxTargets || 1,
@@ -6677,6 +6713,9 @@ export function App() {
         open={targetModalOpen}
         title={targetModalData?.title || 'Select Targets'}
         description={targetModalData?.description}
+        contextSteps={targetModalData?.contextSteps}
+        selectedMode={targetModalData?.selectedMode}
+        viewerPlayerId={you || undefined}
         source={targetModalData?.source}
         targets={targetModalData?.targets || []}
         minTargets={targetModalData?.minTargets ?? 1}
@@ -7115,12 +7154,21 @@ export function App() {
         effectId={castingModeModalData?.effectId}
         onConfirm={(selectedMode) => {
           if (safeView?.id && castingModeModalData) {
-            socket.emit("modeSelectionConfirm", {
-              gameId: safeView.id,
-              cardId: castingModeModalData.cardId,
-              selectedMode,
-              effectId: castingModeModalData.effectId,
-            });
+            if (castingModeModalData.resolutionStepId) {
+              socket.emit('submitResolutionResponse', {
+                gameId: safeView.id,
+                stepId: castingModeModalData.resolutionStepId,
+                selections: selectedMode,
+                cancelled: false,
+              });
+            } else {
+              socket.emit("modeSelectionConfirm", {
+                gameId: safeView.id,
+                cardId: castingModeModalData.cardId,
+                selectedMode,
+                effectId: castingModeModalData.effectId,
+              });
+            }
             setCastingModeModalOpen(false);
             setCastingModeModalData(null);
           }

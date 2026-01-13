@@ -18,6 +18,7 @@ import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLa
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -2479,6 +2480,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 name: perm?.card?.name || 'Unknown',
                 imageUrl: perm?.card?.image_uris?.small || perm?.card?.image_uris?.normal,
                 controller: perm?.controller,
+                typeLine: perm?.card?.type_line,
                 isOpponent: perm?.controller !== playerId,
               };
             } else {
@@ -2487,6 +2489,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 id: t.id,
                 kind: t.kind,
                 name: player?.name || t.id,
+                life: player?.life,
                 isOpponent: t.id !== playerId,
               };
             }
@@ -2521,10 +2524,30 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
         };
 
-        // Request targets FIRST (per MTG Rule 601.2c) via Resolution Queue
+        // Many spells require mode/choice selection before targets (CR 601.2b -> 601.2c).
+        // We only auto-enqueue a mode selection prompt for a safe subset of modal spells:
+        // - Oracle has a "Choose one/two/..." block
+        // - Every option appears to reference targets (heuristic)
         const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
         const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
         const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
+
+        const modal = oracleText ? extractModalModesFromOracleText(oracleText) : undefined;
+        if (modal && modal.allOptionsHaveTargets) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MODE_SELECTION,
+            playerId: playerId as PlayerID,
+            description: `Choose a mode for ${cardName}`,
+            mandatory: true,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            modes: modal.options.map(o => ({ id: o.id, label: o.label, description: o.description })),
+            minModes: modal.minModes,
+            maxModes: modal.maxModes,
+            allowDuplicates: false,
+          });
+        }
         
         // Add target selection step to Resolution Queue
         ResolutionQueueManager.addStep(gameId, {
@@ -2535,12 +2558,21 @@ export function registerGameActions(io: Server, socket: Socket) {
           sourceId: effectId,
           sourceName: cardName,
           sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          validTargets: validTargetList.map((t: any) => ({
-            id: t.id,
-            label: t.name,
-            description: t.kind,
-            imageUrl: t.imageUrl,
-          })),
+          validTargets: validTargetList.map((t: any) => {
+            const isPlayerTarget = t.kind === 'player';
+            return {
+              id: t.id,
+              label: t.name,
+              description: t.kind,
+              imageUrl: t.imageUrl,
+              // Extra fields for client UX + mode-aware filtering.
+              type: isPlayerTarget ? 'player' : 'permanent',
+              controller: t.controller,
+              typeLine: t.typeLine,
+              life: t.life,
+              isOpponent: t.isOpponent,
+            };
+          }),
           targetTypes: [isAura ? 'aura_target' : 'spell_target'],
           minTargets: requiredMinTargets,
           maxTargets: requiredMaxTargets,

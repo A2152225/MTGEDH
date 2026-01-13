@@ -16,3 +16,4 @@ coverage/
 /logs/*.backup
 Scryfall_Organized
 oracle-cards.json
+AtomicCards.json
