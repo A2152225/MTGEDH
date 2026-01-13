@@ -1378,7 +1378,33 @@ function stepIndicatesDifferentTarget(step: TargetSelectionStep): boolean {
   if ((step as any).disallowPreviouslyChosenTargets === true) return true;
 
   const combinedText = `${step.targetDescription || ''} ${step.description || ''}`.toLowerCase();
-  return /\b(another|different)\b/.test(combinedText);
+
+  // Be conservative: only infer a cross-step distinct-target constraint for phrases like
+  // "another target" / "different target" / "other target" etc. Plain "another/other" can mean other things.
+  // Allow plural "targets" as well.
+  // Also allow a small number of adjective words between the keyword and the literal word "target(s)",
+  // e.g. "a different creature target" / "choose another permanent target".
+  if (
+    /\b(another|different|other|new|next|additional|remaining)\b(?:\s+[a-z0-9-]+){0,3}\s+targets?\b/.test(
+      combinedText
+    )
+  ) {
+    return true;
+  }
+
+  // Also common in templated prompts: "second target" / "third target" / "2nd target".
+  if (/\b(second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+target\b/.test(combinedText)) {
+    return true;
+  }
+  if (/\b\d+(?:st|nd|rd|th)\s+target\b/.test(combinedText)) return true;
+
+  // Secondary heuristic: require that the target description is explicitly target-oriented.
+  const targetDesc = (step.targetDescription || '').toLowerCase();
+  if (targetDesc.includes('target') && /\b(another|different|other|new|next|additional|remaining)\b/.test(combinedText)) {
+    return true;
+  }
+
+  return false;
 }
 
 function getPreviouslyChosenTargetsForSource(gameId: string, sourceId: string): Set<string> {
