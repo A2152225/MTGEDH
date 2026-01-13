@@ -14,3 +14,5 @@ coverage/
 /server/server/
 /server/data/
 /logs/*.backup
+Scryfall_Organized
+oracle-cards.json
