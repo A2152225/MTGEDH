@@ -5,11 +5,12 @@
  * when importing a deck mid-game.
  */
 
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeAll } from "vitest";
 import { registerDeckHandlers } from "../src/socket/deck";
 import { games } from "../src/socket/socket";
 import { ensureGame } from "../src/socket/util";
 import { GamePhase } from "../../shared/src/types";
+import { initDb, createGameIfNotExists } from "../src/db";
 
 // Mock the scryfall service module used by the handler
 vi.mock("../src/services/scryfall", () => {
@@ -47,6 +48,10 @@ vi.mock("../src/services/scryfall", () => {
 });
 
 describe("registerDeckHandlers importDeck path", () => {
+  beforeAll(async () => {
+    await initDb();
+  });
+
   test("emits importWipeConfirmRequest when importing mid-game", async () => {
     // Create minimal mock io and socket capturing emitted events
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -81,6 +86,9 @@ describe("registerDeckHandlers importDeck path", () => {
     const gameId = "game_sock_test_midgame";
     const deckText = `1 Commander One
 1 Card Two`;
+
+    // ensureGame() will not recreate games that don't exist in the DB
+    createGameIfNotExists(gameId, 'commander', 40);
 
     // First ensure the game exists and set it to a mid-game phase
     const game = ensureGame(gameId);

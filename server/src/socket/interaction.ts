@@ -2990,11 +2990,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const cardName = card?.name || "Unknown";
     const oracleText = (card?.oracle_text || "").toLowerCase();
     const typeLine = (card?.type_line || "").toLowerCase();
+
+    const { isAbilityActivationProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
     
     // ========================================================================
     // Handle Special Land Activated Abilities
     // ========================================================================
     const specialLandConfig = SPECIAL_LAND_ABILITIES[cardName.toLowerCase()];
+
+    // If a special land ability will return early, we still need to enforce chosen-name activation lockouts.
+    // Best-effort mapping for our special ability IDs.
+    const isSpecialLandManaAbility =
+      (specialLandConfig?.type === 'hybrid_mana_production' && abilityId.includes('hybrid-mana')) ||
+      (specialLandConfig?.type === 'storage_counter' && abilityId.includes('remove-counters'));
+
+    const earlyRestriction = isAbilityActivationProhibitedByChosenName(game.state, pid as any, cardName, isSpecialLandManaAbility);
+    if (earlyRestriction.prohibited) {
+      const blocker = earlyRestriction.by?.sourceName || 'an effect';
+      socket.emit('error', {
+        code: 'CANNOT_ACTIVATE_CHOSEN_NAME',
+        message: `Activated abilities of sources named "${cardName}" can't be activated (${blocker} chose that name).`,
+      });
+      return;
+    }
     
     // 1. GRAVEN CAIRNS - Hybrid Mana Production Lands
     if (specialLandConfig?.type === 'hybrid_mana_production' && abilityId.includes('hybrid-mana')) {
@@ -6104,6 +6122,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Note: Also matches Talisman pattern: "{T}: Add {R} or {W}. This artifact deals 1 damage to you."
     const isManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
                           !/target/i.test(abilityText);
+
+    // Chosen-name activation restrictions (e.g., Pithing Needle / Phyrexian Revoker)
+    // Important: we check after identifying whether THIS specific activation is a mana ability,
+    // so "unless they're mana abilities" is respected.
+    const activationRestriction = isAbilityActivationProhibitedByChosenName(game.state, pid as any, cardName, isManaAbility);
+    if (activationRestriction.prohibited) {
+      const blocker = activationRestriction.by?.sourceName || 'an effect';
+      socket.emit('error', {
+        code: 'CANNOT_ACTIVATE_CHOSEN_NAME',
+        message: `Activated abilities of sources named "${cardName}" can't be activated (${blocker} chose that name).`,
+      });
+      return;
+    }
     
     if (!isManaAbility) {
       // Check if this is a tutor effect (searches library)

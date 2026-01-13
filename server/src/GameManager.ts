@@ -121,7 +121,7 @@ function mulberry32(seed: number) {
 }
 
 /** Minimal adapter providing the common game API expected by sockets */
-class MinimalGameAdapter {
+export class MinimalGameAdapter {
   id: string;
   state: any;
   seq: number;
@@ -258,6 +258,65 @@ class MinimalGameAdapter {
       zone: "library",
     }));
     this.state.zones[playerId].libraryCount = this._fallbackLibraries[playerId].length;
+    this.bumpSeq();
+  }
+
+  // Commander selection for tests / lightweight flows.
+  // Removes commanders from the player's library and snapshots commander metadata into state.commandZone.
+  setCommander(
+    playerId: string,
+    commanderNames: string[],
+    commanderIds: string[] = [],
+    _colorIdentity?: any
+  ) {
+    const cleanIds = (commanderIds || []).filter(
+      (id) => id && typeof id === "string" && id.trim() !== ""
+    );
+    const cleanNames = (commanderNames || []).filter(
+      (n) => n && typeof n === "string" && n.trim() !== ""
+    );
+
+    this.state.commandZone = this.state.commandZone || {};
+    const info =
+      this.state.commandZone[playerId] ||
+      ({ commanderIds: [], commanderNames: [], tax: 0, taxById: {}, inCommandZone: [] } as any);
+
+    info.commanderIds = cleanIds.slice();
+    info.commanderNames = cleanNames.slice();
+    info.inCommandZone = cleanIds.slice();
+    info.taxById = info.taxById || {};
+    for (const cid of cleanIds) {
+      if (info.taxById[cid] === undefined) info.taxById[cid] = 0;
+    }
+    info.tax = Object.values(info.taxById).reduce((a: number, b: number) => a + (b ?? 0), 0);
+
+    // Remove commanders from library (prefer libraries Map if present)
+    let lib: any[] | undefined;
+    if (this.libraries && typeof this.libraries.get === "function") {
+      lib = this.libraries.get(playerId);
+    }
+    if (!lib) lib = this._fallbackLibraries?.[playerId];
+    if (Array.isArray(lib) && lib.length > 0 && cleanIds.length > 0) {
+      const indicesToRemove: number[] = [];
+      for (const cid of cleanIds) {
+        const idx = lib.findIndex((c: any) => c && c.id === cid);
+        if (idx >= 0) indicesToRemove.push(idx);
+      }
+      const unique = Array.from(new Set(indicesToRemove)).sort((a, b) => b - a);
+      for (const idx of unique) lib.splice(idx, 1);
+
+      if (this.libraries && typeof this.libraries.set === "function") {
+        this.libraries.set(playerId, lib);
+      }
+      this._fallbackLibraries = this._fallbackLibraries || {};
+      this._fallbackLibraries[playerId] = lib;
+
+      this.state.zones = this.state.zones || {};
+      this.state.zones[playerId] = this.state.zones[playerId] || { hand: [], handCount: 0, libraryCount: 0 };
+      this.state.zones[playerId].libraryCount = lib.length;
+    }
+
+    this.state.commandZone[playerId] = info;
     this.bumpSeq();
   }
 

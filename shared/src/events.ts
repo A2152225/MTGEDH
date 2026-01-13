@@ -386,7 +386,7 @@ export interface ClientToServerEvents {
   // ===== SPELL CASTING =====
   
   // Cast spell from hand (with payment info)
-  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; xValue?: number; convokeTappedCreatures?: string[] }) => void;
+  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; xValue?: number; convokeTappedCreatures?: string[]; phyrexianChoices?: any }) => void;
 
   // ===== POSITION / UI EVENTS =====
   

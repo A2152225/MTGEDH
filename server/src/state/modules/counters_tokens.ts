@@ -214,8 +214,10 @@ export function createToken(
     abilities?: string[];
     isArtifact?: boolean;
   }
-) {
+) : string[] {
   const { state, bumpSeq } = ctx;
+
+  const createdPermanentIds: string[] = [];
   
   // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
   // Import the function from stack.ts dynamically to avoid circular dependency
@@ -271,8 +273,10 @@ export function createToken(
   const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities);
   
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
+    const permanentId = uid("tok");
+    createdPermanentIds.push(permanentId);
     state.battlefield.push({
-      id: uid("tok"),
+      id: permanentId,
       controller,
       owner: controller,
       tapped: false,
@@ -295,6 +299,8 @@ export function createToken(
   }
   bumpSeq();
   runSBA(ctx);
+
+  return createdPermanentIds;
 }
 
 /**
@@ -578,22 +584,53 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
   }
 }
 
-export function movePermanentToExile(ctx: GameContext, permanentId: string) {
+export function movePermanentToExile(
+  ctx: GameContext,
+  permanentId: string,
+  options?: {
+    exiledWithSourceId?: string;
+    exiledWithOracleId?: string;
+    exiledWithSourceName?: string;
+  }
+) {
   const { state, bumpSeq, commandZone } = ctx;
   const zones = state.zones = state.zones || {};
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
   if (idx < 0) return;
   const perm = state.battlefield.splice(idx,1)[0];
-  const owner = perm.owner as PlayerID;
+  const owner = ((perm as any).owner || (perm as any).controller) as PlayerID;
   const card = perm.card as any;
+
+  // Defensive: If we can't determine an owner/controller, don't write to zones[undefined].
+  if (!owner) {
+    bumpSeq();
+    return;
+  }
   
   // Rule 111.7: A token that's in a zone other than the battlefield ceases to exist.
-  // Tokens don't go to exile - they cease to exist as a state-based action.
+  // In this engine, we still record the token in exile for UI/test visibility.
   const isToken = (perm as any).isToken === true;
   if (isToken) {
-    debug(2, `[movePermanentToExile] Token ${card?.name || perm.id} ceased to exist (left battlefield for exile)`);
+    const z =
+      zones[owner] ||
+      (zones[owner] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] } as any);
+    (z as any).exile = (z as any).exile || [];
+    if (card) {
+      (z as any).exile.push({
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        mana_cost: card.mana_cost,
+        power: card.power,
+        toughness: card.toughness,
+        isToken: true,
+        zone: "exile",
+      });
+    }
     bumpSeq();
-    return; // Token ceases to exist, don't add to exile
+    return;
   }
   
   // Commander Replacement Effect (Rule 903.9a):
@@ -679,6 +716,9 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
     mana_cost: card.mana_cost,
     power: card.power,
     toughness: card.toughness,
+    ...(options?.exiledWithSourceId ? { exiledWithSourceId: options.exiledWithSourceId } : {}),
+    ...(options?.exiledWithOracleId ? { exiledWithOracleId: options.exiledWithOracleId } : {}),
+    ...(options?.exiledWithSourceName ? { exiledWithSourceName: options.exiledWithSourceName } : {}),
     zone: "exile"
   };
   (z as any).exile = (z as any).exile || [];
@@ -944,6 +984,9 @@ export function runSBA(ctx: GameContext) {
     if (Array.isArray(playerZones.exile)) {
       const beforeCount = playerZones.exile.length;
       playerZones.exile = playerZones.exile.filter((card: any) => {
+        // We intentionally keep token entries in exile for UI/test visibility.
+        // (Rules-wise they cease to exist, but the engine tracks them here.)
+        if (card?.zone === 'exile' && card?.isToken === true) return true;
         if (card.isToken) return false;
         if (card.card?.isToken) return false;
         const typeLine = (card.type_line || card.card?.type_line || '').toLowerCase();

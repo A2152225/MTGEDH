@@ -3,7 +3,7 @@
  * Example: Elvish Archdruid gives other Elf creatures you control +1/+1
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 import { calculateAllPTBonuses } from '../src/state/utils.js';
 
 describe('Lord Effects', () => {

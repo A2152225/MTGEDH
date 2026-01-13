@@ -15,7 +15,97 @@ import { appendEvent } from "../db";
 import { isAIPlayer } from "./ai.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { getTokenImageUrls } from "../services/tokens.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+
+function filterLibraryCardsSimple(lib: any[], filter: any): any[] {
+  const types: string[] = Array.isArray(filter?.types) ? filter.types.map((t: any) => String(t).toLowerCase()) : [];
+  const subtypes: string[] = Array.isArray(filter?.subtypes) ? filter.subtypes.map((t: any) => String(t).toLowerCase()) : [];
+
+  return (Array.isArray(lib) ? lib : [])
+    .filter((card: any) => {
+      const tl = String(card?.type_line || '').toLowerCase();
+      if (types.length > 0 && !types.some(t => tl.includes(t))) return false;
+      if (subtypes.length > 0 && !subtypes.some(st => tl.includes(st))) return false;
+      return true;
+    })
+    .map((card: any) => ({
+      id: card.id,
+      name: card.name,
+      type_line: card.type_line,
+      oracle_text: card.oracle_text,
+      image_uris: card.image_uris,
+      mana_cost: card.mana_cost,
+      cmc: card.cmc,
+      colors: card.colors,
+      power: card.power,
+      toughness: card.toughness,
+      loyalty: card.loyalty,
+    }));
+}
+
+function queueLibrarySearchStep(
+  game: any,
+  gameId: string,
+  playerId: string,
+  options: {
+    searchFor: string;
+    destination?: string;
+    tapped?: boolean;
+    optional?: boolean;
+    source?: string;
+    shuffleAfter?: boolean;
+    filter?: any;
+    maxSelections?: number;
+    minSelections?: number;
+    reveal?: boolean;
+    remainderDestination?: string;
+  }
+): void {
+  const {
+    searchFor,
+    destination = 'hand',
+    tapped = false,
+    optional = true,
+    source = 'Library Search',
+    shuffleAfter = true,
+    filter = {},
+    maxSelections = 1,
+    minSelections = 0,
+    reveal = true,
+    remainderDestination = 'shuffle',
+  } = options;
+
+  const lib = (game as any).libraries?.get(playerId) || [];
+  if (!Array.isArray(lib) || lib.length === 0) return;
+
+  const availableCards = filterLibraryCardsSimple(lib, filter);
+  if (availableCards.length === 0) return;
+
+  let description = searchFor || 'Search your library';
+  if (destination === 'battlefield') {
+    description += tapped ? ' (enters tapped)' : ' (enters untapped)';
+  }
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.LIBRARY_SEARCH,
+    playerId: playerId as any,
+    description,
+    mandatory: !optional,
+    sourceName: source,
+    searchCriteria: searchFor || 'any card',
+    minSelections,
+    maxSelections,
+    destination,
+    reveal,
+    shuffleAfter,
+    availableCards,
+    entersTapped: tapped,
+    remainderDestination,
+    remainderRandomOrder: true,
+    filter,
+  } as any);
+}
 
 /**
  * Pending Join Forces effect waiting for player contributions
@@ -697,11 +787,8 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
       }
       // Collective Voyage: Search for X basic lands where X is total mana paid
       else if (cardNameLower.includes('collective voyage')) {
-        // Set up pending library search for each player
         for (const playerId of pending.players) {
-          (game.state as any).pendingLibrarySearch = (game.state as any).pendingLibrarySearch || {};
-          (game.state as any).pendingLibrarySearch[playerId] = {
-            type: 'join-forces-search',
+          queueLibrarySearchStep(game, pending.gameId, playerId, {
             searchFor: `up to ${total} basic land card(s)`,
             destination: 'battlefield',
             tapped: true,
@@ -710,7 +797,7 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
             shuffleAfter: true,
             maxSelections: total,
             filter: { types: ['land'], subtypes: ['basic'] },
-          };
+          });
         }
         
         io.to(pending.gameId).emit("chat", {
@@ -1028,10 +1115,7 @@ function applyTemptingOfferEffect(
   
   // Tempt with Discovery: Search for lands
   if (cardNameLower.includes('discovery')) {
-    // Set up library search for initiator (searches N times)
-    (game.state as any).pendingLibrarySearch = (game.state as any).pendingLibrarySearch || {};
-    (game.state as any).pendingLibrarySearch[initiator] = {
-      type: 'tempting-offer-search',
+    queueLibrarySearchStep(game, pending.gameId, initiator, {
       searchFor: `up to ${initiatorBonusCount} land card(s)`,
       destination: 'battlefield',
       tapped: false,
@@ -1040,12 +1124,11 @@ function applyTemptingOfferEffect(
       shuffleAfter: true,
       maxSelections: initiatorBonusCount,
       filter: { types: ['land'] },
-    };
+    });
     
     // Each accepting opponent also gets to search for 1 land
     for (const opponentId of acceptedBy) {
-      (game.state as any).pendingLibrarySearch[opponentId] = {
-        type: 'tempting-offer-search',
+      queueLibrarySearchStep(game, pending.gameId, opponentId, {
         searchFor: 'a land card',
         destination: 'battlefield',
         tapped: false,
@@ -1054,7 +1137,7 @@ function applyTemptingOfferEffect(
         shuffleAfter: true,
         maxSelections: 1,
         filter: { types: ['land'] },
-      };
+      });
     }
     
     io.to(pending.gameId).emit("chat", {

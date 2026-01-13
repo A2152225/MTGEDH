@@ -69,6 +69,10 @@ export function setCommander(
   }
   
   if (!info.taxById) info.taxById = {};
+  // Ensure every commander has an explicit tax entry so callers/tests can rely on 0.
+  for (const cid of cleanCommanderIds) {
+    if ((info.taxById as any)[cid] === undefined) (info.taxById as any)[cid] = 0;
+  }
   info.tax = Object.values(info.taxById || {}).reduce((a: number, b: number) => a + b, 0);
 
   // Build commanderCards snapshot (prefer prior cached, then library entries, then battlefield)

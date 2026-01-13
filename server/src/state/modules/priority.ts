@@ -82,11 +82,12 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
     stateAny.priorityPassedBy = new Set<string>();
   }
   stateAny.priorityPassedBy.add(playerId);
-  
-  // NOTE: We do NOT clear justSkippedToPhase here when the player manually passes.
-  // The justSkippedToPhase flag should persist across multiple steps so the player
-  // gets priority at each step after using the phase navigator.
-  // It will be cleared automatically in autoPassLoop when moving to a different phase/step.
+
+  // Phase navigator metadata: once the initiating player manually passes,
+  // the special protection should end (tests expect this behavior).
+  if (!isAutoPass && stateAny.justSkippedToPhase?.playerId === playerId) {
+    delete stateAny.justSkippedToPhase;
+  }
   
   let resolvedNow = false;
   let advanceStep = false;

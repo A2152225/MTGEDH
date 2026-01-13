@@ -18,6 +18,7 @@ export interface CombatSelectionModalProps {
   onConfirm: (selections: AttackerSelection[] | BlockerSelection[]) => void;
   onSkip: () => void;
   onCancel?: () => void;
+  errorMessage?: string | null;
   /** If true, the modal is view-only (for spectators or non-active players) */
   readOnly?: boolean;
   /** Whether it's the current player's turn (for attackers mode) */
@@ -394,6 +395,7 @@ export function CombatSelectionModal({
   onConfirm,
   onSkip,
   onCancel,
+  errorMessage,
   readOnly = false,
   isYourTurn = true,
 }: CombatSelectionModalProps) {
@@ -740,6 +742,11 @@ export function CombatSelectionModal({
             ⚠️ <strong>Illegal Blocking:</strong> {Array.from(menaceViolations.values()).join('. ')}
           </div>
         )}
+                {errorMessage && (
+                  <div style={{ marginTop: 8, color: '#fca5a5', fontSize: 13 }}>
+                    {errorMessage}
+                  </div>
+                )}
 
         {/* Attacker Selection Mode */}
         {mode === 'attackers' && (

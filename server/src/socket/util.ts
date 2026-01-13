@@ -28,6 +28,7 @@ import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/sta
 import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
+import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 
 // ============================================================================
 // Constants
@@ -269,6 +270,11 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       debug(2, `[getPlayableCardIds] Checking ${zones.hand.length} cards in hand`);
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
+
+        // Chosen-name cast restrictions (e.g., Meddling Mage / Nevermore)
+        if (isSpellCastingProhibitedByChosenName(state, playerId, (card as any).name || '').prohibited) {
+          continue;
+        }
         
         // For transform cards, check if this represents the back face
         // Transform cards from Scryfall have layout="transform" and card_faces array

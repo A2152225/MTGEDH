@@ -6,7 +6,7 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 export type PeekCard = Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>;
 
 export function ScrySurveilModal(props: {
-  mode: 'scry' | 'surveil';
+  mode: 'scry' | 'surveil' | 'bottom_order';
   cards: PeekCard[]; // current top→down order
   imagePref: ImagePref;
   onCancel: () => void;
@@ -14,7 +14,7 @@ export function ScrySurveilModal(props: {
 }) {
   const { mode, cards, imagePref, onCancel, onConfirm } = props;
   const [keep, setKeep] = useState<string[]>(() => cards.map(c => c.id)); // start with all kept on top
-  const [other, setOther] = useState<string[]>([]); // bottom for scry, GY for surveil
+  const [other, setOther] = useState<string[]>([]); // bottom for scry/bottom_order, GY for surveil
 
   const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards]);
 
@@ -60,8 +60,8 @@ export function ScrySurveilModal(props: {
   };
 
   const confirm = () => {
-    if (mode === 'scry') onConfirm({ keepTopOrder: keep, bottomOrder: other });
-    else onConfirm({ keepTopOrder: keep, toGraveyard: other });
+    if (mode === 'surveil') onConfirm({ keepTopOrder: keep, toGraveyard: other });
+    else onConfirm({ keepTopOrder: keep, bottomOrder: other });
   };
 
   return (
@@ -71,7 +71,7 @@ export function ScrySurveilModal(props: {
     }}>
       <div style={{ background: '#fff', borderRadius: 8, width: 800, maxWidth: '95vw', padding: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={{ margin: 0 }}>{mode === 'scry' ? 'Scry' : 'Surveil'}</h3>
+          <h3 style={{ margin: 0 }}>{mode === 'surveil' ? 'Surveil' : mode === 'scry' ? 'Scry' : 'Put On Bottom'}</h3>
           <div>
             <button onClick={onCancel} style={{ marginRight: 8 }}>Cancel</button>
             <button onClick={confirm}>Confirm</button>
@@ -79,7 +79,7 @@ export function ScrySurveilModal(props: {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 12, marginTop: 12 }}>
           <div>
-            <div style={{ fontSize: 12, marginBottom: 6 }}>{mode === 'scry' ? 'Keep on top (top→down)' : 'Keep on top (top→down)'}</div>
+            <div style={{ fontSize: 12, marginBottom: 6 }}>Keep on top (top→down)</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 6 }}>
               {keep.map(id => (
                 <div key={id} style={{ position: 'relative' }}>
@@ -87,7 +87,7 @@ export function ScrySurveilModal(props: {
                   <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
                     <button onClick={() => setKeep(prev => bump(prev, id, -1))} title="Up">↑</button>
                     <button onClick={() => setKeep(prev => bump(prev, id, +1))} title="Down">↓</button>
-                    <button onClick={() => moveOne(id, true)} title={mode === 'scry' ? 'Move to bottom' : 'Move to graveyard'}>→</button>
+                    <button onClick={() => moveOne(id, true)} title={mode === 'surveil' ? 'Move to graveyard' : 'Move to bottom'}>→</button>
                   </div>
                 </div>
               ))}
@@ -95,7 +95,7 @@ export function ScrySurveilModal(props: {
           </div>
           <div />
           <div>
-            <div style={{ fontSize: 12, marginBottom: 6 }}>{mode === 'scry' ? 'Bottom (bottom→up order)' : 'To Graveyard (newest at bottom)'}</div>
+            <div style={{ fontSize: 12, marginBottom: 6 }}>{mode === 'surveil' ? 'To Graveyard (newest at bottom)' : 'Bottom (bottom→up order)'}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 6 }}>
               {other.map(id => (
                 <div key={id} style={{ position: 'relative' }}>
@@ -111,7 +111,7 @@ export function ScrySurveilModal(props: {
           </div>
         </div>
         <div style={{ marginTop: 8, fontSize: 12, color: '#555' }}>
-          Tip: In Scry, order in “Bottom” is bottom-most on the right; in Surveil, “To Graveyard” order sets arrival order (rightmost last).
+          Tip: In “Bottom”, order is bottom-most on the right; in Surveil, “To Graveyard” order sets arrival order (rightmost last).
         </div>
       </div>
     </div>

@@ -36,6 +36,7 @@ interface Props {
   onLeaveGame?: () => void;
   onUndo?: (count: number) => void;
   availableUndoCount?: number;
+  smartUndoCounts?: { stepCount: number; phaseCount: number; turnCount: number };
   // Randomness handlers
   onRollDie?: (sides: number) => void;
   onFlipCoin?: () => void;
@@ -79,6 +80,7 @@ export function GameStatusIndicator({
   turn, phase, step, turnPlayer, priority, players, you, combat,
   monarch, initiative, dayNight, cityBlessing,
   isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, availableUndoCount = 0,
+  smartUndoCounts,
   onRollDie, onFlipCoin,
   aiControlEnabled, aiStrategy, onToggleAIControl, availableAIStrategies
 }: Props) {

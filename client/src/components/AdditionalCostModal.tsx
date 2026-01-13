@@ -38,6 +38,7 @@ export interface AdditionalCostModalProps {
   availableCards?: AdditionalCostCard[];  // For discard
   availableTargets?: AdditionalCostTarget[];  // For sacrifice
   effectId?: string;
+  canCancel?: boolean;
   onConfirm: (selectedIds: string[]) => void;
   onCancel: () => void;
 }
@@ -54,6 +55,7 @@ export function AdditionalCostModal({
   availableCards = [],
   availableTargets = [],
   effectId,
+  canCancel = true,
   onConfirm,
   onCancel,
 }: AdditionalCostModalProps) {
@@ -300,20 +302,22 @@ export function AdditionalCostModal({
 
         {/* Action buttons */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button
-            onClick={onCancel}
-            style={{
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: '1px solid #555',
-              backgroundColor: 'transparent',
-              color: '#aaa',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
-          >
-            Cancel
-          </button>
+          {canCancel && (
+            <button
+              onClick={onCancel}
+              style={{
+                padding: '10px 20px',
+                borderRadius: 8,
+                border: '1px solid #555',
+                backgroundColor: 'transparent',
+                color: '#aaa',
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={handleConfirm}
             disabled={!canConfirm}

@@ -14,6 +14,7 @@
 
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 
 // ============================================================================
 // DYNAMIC PATTERN DETECTION REGEXES
@@ -525,6 +526,13 @@ export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: str
     const cardTriggers = detectUpkeepTriggers(permanent.card, permanent);
     
     for (const trigger of cardTriggers) {
+      // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
+      // would trigger, the ability does not trigger and should not be put on the stack.
+      // If the condition is unrecognized, keep the trigger (conservative fallback).
+      const interveningText = trigger.effect || trigger.description || '';
+      const ok = isInterveningIfSatisfied(ctx, controller, interveningText);
+      if (ok === false) continue;
+
       // Check if this trigger applies to the current upkeep
       const isControllerUpkeep = controller === activePlayerId;
       const isOpponentUpkeep = controller !== activePlayerId;

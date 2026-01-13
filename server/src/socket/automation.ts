@@ -536,6 +536,88 @@ export function registerAutomationHandlers(
   // =========================================================================
   // IGNORED CARDS FOR AUTO-PASS
   // =========================================================================
+
+  // =========================================================================
+  // YIELD PRIORITY TO TRIGGER SOURCES (STACK)
+  // =========================================================================
+  // When a player marks a triggered ability source as "Auto" from the stack UI,
+  // we treat that as a request to automatically pass priority whenever the top
+  // of the stack is a triggered ability from that source.
+  // This is separate from the "ignored cards" list (which affects canAct/canRespond).
+  socket.on("yieldToTriggerSource", (payload) => {
+    const { gameId, sourceId, sourceName } = payload as any;
+    const playerId = socket.data.playerId;
+
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+
+    if (!sourceId) {
+      socket.emit("error", { message: "Missing sourceId" });
+      return;
+    }
+
+    const stateAny = game.state as any;
+    if (!stateAny.yieldToTriggerSourcesForAutoPass) {
+      stateAny.yieldToTriggerSourcesForAutoPass = {};
+    }
+    if (!stateAny.yieldToTriggerSourcesForAutoPass[playerId]) {
+      stateAny.yieldToTriggerSourcesForAutoPass[playerId] = {};
+    }
+
+    stateAny.yieldToTriggerSourcesForAutoPass[playerId][sourceId] = {
+      sourceId,
+      sourceName: sourceName || sourceId,
+      enabled: true,
+      setAt: Date.now(),
+    };
+
+    debug(2, `[Automation] ${playerId} will yield priority to triggers from ${sourceName || sourceId} (${sourceId})`);
+
+    // If the player currently has priority, immediately re-run auto-pass evaluation so the
+    // newly-added yield rule can take effect without waiting for another state change.
+    if ((game.state as any).priority === playerId) {
+      import('./util.js').then((utilModule) => {
+        if (utilModule && utilModule.broadcastGame) {
+          utilModule.broadcastGame(io, game, gameId);
+        }
+      }).catch((err) => {
+        debugError(1, `[Automation] Failed to import util module for yieldToTriggerSource:`, err);
+      });
+    }
+  });
+
+  socket.on("unyieldToTriggerSource", (payload) => {
+    const { gameId, sourceId } = payload as any;
+    const playerId = socket.data.playerId;
+
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+
+    if (!sourceId) return;
+
+    const stateAny = game.state as any;
+    const map = stateAny.yieldToTriggerSourcesForAutoPass?.[playerId];
+    if (map && map[sourceId]) {
+      delete map[sourceId];
+      debug(2, `[Automation] ${playerId} stopped yielding priority to trigger source ${sourceId}`);
+    }
+  });
   
   /**
    * Handle adding a card to the ignore list for auto-pass.
@@ -859,7 +941,7 @@ async function processCastSpell(
 /**
  * Process ability activation
  */
-export async function processActivateAbility(
+async function processActivateAbility(
   gameId: string,
   playerId: string,
   ability: {
@@ -883,6 +965,16 @@ export async function processActivateAbility(
     if (!perm) {
       return { success: false, error: "Permanent not found" };
     }
+
+    // Best-effort: if this permanent is under a "lose all abilities" effect, block activated abilities.
+    if (Array.isArray((perm as any).untilNextTurnLoseAllAbilities) && (perm as any).untilNextTurnLoseAllAbilities.length > 0) {
+      return { success: false, error: "This permanent can't activate abilities right now" };
+    }
+
+    // Best-effort: if this permanent is under an "activated abilities can't be activated" effect, block activation.
+    if (Array.isArray((perm as any).untilNextTurnCantActivateAbilities) && (perm as any).untilNextTurnCantActivateAbilities.length > 0) {
+      return { success: false, error: "This permanent can't activate abilities right now" };
+    }
     
     // Check if it's a mana ability (doesn't use stack)
     // MTG Rule 605.1a - A mana ability is an activated ability that could add mana to a player's mana pool,
@@ -901,42 +993,11 @@ export async function processActivateAbility(
     const abilityText = tapAbilityMatch ? tapAbilityMatch[0] : '';
     const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
 
-    // Enforce "chosen card name" activation restrictions (Pithing Needle / Revoker / Spyglass style)
-    const normalizeText = (text: string) =>
-      (text || '')
-        .toLowerCase()
-        .replace(/[’‘]/g, "'")
-        .replace(/[“”]/g, '"')
-        .trim();
-
-    const activatingNameNorm = normalizeText(card?.name || '');
-
-    for (const restrictionPermanent of battlefield) {
-      const chosen = (restrictionPermanent as any)?.chosenCardName;
-      if (!chosen) continue;
-
-      const chosenNorm = normalizeText(String(chosen));
-      if (!chosenNorm) continue;
-      if (chosenNorm !== activatingNameNorm) continue;
-
-      const restrictionOracle = normalizeText((restrictionPermanent as any)?.card?.oracle_text || '');
-
-      // Needle / Spyglass: can't activate unless they're mana abilities
-      const blocksNonMana =
-        /activated abilities of sources with the chosen name can't be activated unless they're mana abilities\./i.test(
-          restrictionOracle
-        );
-
-      // Revoker / Gargoyle: can't activate (no exception)
-      const blocksAll = /activated abilities of sources with the chosen name can't be activated\./i.test(restrictionOracle);
-
-      if (blocksAll || (blocksNonMana && !isManaAbility)) {
-        const restrictionName = (restrictionPermanent as any)?.card?.name || 'a permanent';
-        return {
-          success: false,
-          error: `Activated abilities of ${card?.name || 'that card'} can't be activated (restricted by ${restrictionName}).`,
-        };
-      }
+    const { isAbilityActivationProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
+    const activationRestriction = isAbilityActivationProhibitedByChosenName(game.state, playerId as any, card?.name || '', isManaAbility);
+    if (activationRestriction.prohibited) {
+      const blocker = activationRestriction.by?.sourceName || 'an effect';
+      return { success: false, error: `Activated abilities of sources named "${card?.name || 'that card'}" can't be activated (${blocker} chose that name).` };
     }
     
     // Import Crystal abilities dynamically to check

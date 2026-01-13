@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { socket } from "./socket";
 import type {
   ClientGameView,
@@ -40,6 +40,7 @@ import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
 import { ManaPaymentTriggerModal } from "./components/ManaPaymentTriggerModal";
 import { ColorChoiceModal } from "./components/ColorChoiceModal";
+import { CardNameChoiceModal } from "./components/CardNameChoiceModal";
 import { AnyColorManaModal } from "./components/AnyColorManaModal";
 import { ManaDistributionModal } from "./components/ManaDistributionModal";
 import { AdditionalCostModal } from "./components/AdditionalCostModal";
@@ -56,7 +57,7 @@ import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForces
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
 import { KynaiosChoiceModal, type KynaiosChoiceRequest } from "./components/KynaiosChoiceModal";
 import { OptionChoiceModal, type OptionChoiceRequest } from "./components/OptionChoiceModal";
-import { CardNameChoiceModal, type CardNameChoiceRequest } from "./components/CardNameChoiceModal";
+import { TwoPileSplitModal, type TwoPileSplitRequest } from "./components/TwoPileSplitModal";
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
@@ -170,7 +171,7 @@ export function App() {
   };
 
   const [peek, setPeek] = useState<{
-    mode: "scry" | "surveil";
+    mode: "scry" | "surveil" | "bottom_order";
     cards: any[];
     stepId?: string; // For resolution queue
   } | null>(null);
@@ -234,6 +235,8 @@ export function App() {
   // Combat selection modal state
   const [combatModalOpen, setCombatModalOpen] = useState(false);
   const [combatMode, setCombatMode] = useState<'attackers' | 'blockers'>('attackers');
+  const [combatModalError, setCombatModalError] = useState<string | null>(null);
+  const lastCombatErrorSeenRef = useRef<string | null>(null);
   
   // Shock land choice modal state
   const [shockLandModalOpen, setShockLandModalOpen] = useState(false);
@@ -262,6 +265,11 @@ export function App() {
     stackItemId?: string;
     stepId?: string;  // Resolution queue step ID
   } | null>(null);
+
+  // Commander replacement (Resolution Queue)
+  const [resolutionCommanderZoneChoice, setResolutionCommanderZoneChoice] = useState<
+    { stepId: string; choice: any } | null
+  >(null);
   
   // Proliferate modal state
   const [proliferateModalOpen, setProliferateModalOpen] = useState(false);
@@ -358,9 +366,11 @@ export function App() {
   // Triggered ability modal state
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
   const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
+  const [triggerOrderStepId, setTriggerOrderStepId] = useState<string | null>(null);
   // Track sources that the player wants to auto-resolve (shortcut)
   // Map from sourceKey to { sourceName, count, effect }
   const [ignoredTriggerSources, setIgnoredTriggerSources] = useState<Map<string, { 
+    sourceId?: string;
     sourceName: string; 
     count: number; 
     effect: string;
@@ -418,7 +428,7 @@ export function App() {
     maxTargets: number;
     effectId?: string; // For tracking which effect requested the targets
     cardId?: string; // The card that is being targeted for
-    // Resolution queue integration
+    // Resolution Queue support
     stepId?: string;
     useResolutionQueue?: boolean;
   } | null>(null);
@@ -545,9 +555,9 @@ export function App() {
   const [optionChoiceModalOpen, setOptionChoiceModalOpen] = useState(false);
   const [optionChoiceRequest, setOptionChoiceRequest] = useState<OptionChoiceRequest | null>(null);
 
-  // Card Name Choice Modal state (Pithing Needle, Runed Halo, etc.)
-  const [cardNameChoiceModalOpen, setCardNameChoiceModalOpen] = useState(false);
-  const [cardNameChoiceRequest, setCardNameChoiceRequest] = useState<CardNameChoiceRequest | null>(null);
+  // Two-pile split Modal state ("separate into two piles" effects)
+  const [twoPileSplitModalOpen, setTwoPileSplitModalOpen] = useState(false);
+  const [twoPileSplitRequest, setTwoPileSplitRequest] = useState<TwoPileSplitRequest | null>(null);
 
   // Ponder Modal state (Ponder, Index, Telling Time, etc.)
   const [ponderModalOpen, setPonderModalOpen] = useState(false);
@@ -660,6 +670,16 @@ export function App() {
     imageUrl?: string;
     colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
   } | null>(null);
+
+  // Card Name Choice Modal state - for Pithing Needle, Nevermore, etc.
+  const [cardNameChoiceModalOpen, setCardNameChoiceModalOpen] = useState(false);
+  const [cardNameChoiceModalData, setCardNameChoiceModalData] = useState<{
+    stepId: string;
+    cardName: string;
+    reason: string;
+    imageUrl?: string;
+    mandatory: boolean;
+  } | null>(null);
   
   // Any Color Mana Modal state - for Birds of Paradise, Chromatic Lantern, etc.
   const [anyColorManaModalOpen, setAnyColorManaModalOpen] = useState(false);
@@ -676,7 +696,19 @@ export function App() {
   const [phyrexianManaModalOpen, setPhyrexianManaModalOpen] = useState(false);
   const [phyrexianManaModalData, setPhyrexianManaModalData] = useState<{
     pendingId: string;
-    permanentId: string;
+    permanentId?: string;
+    cardId?: string;
+    castSpellArgs?: {
+      gameId: string;
+      cardId: string;
+      targets?: any[];
+      payment?: any[];
+      skipInteractivePrompts?: boolean;
+      xValue?: number;
+      alternateCostId?: string;
+      convokeTappedCreatures?: string[];
+      phyrexianChoices?: any;
+    };
     cardName: string;
     abilityText: string;
     totalManaCost: string;
@@ -811,6 +843,12 @@ export function App() {
     availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
     availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
     effectId?: string;
+    // If present, this modal is being used to answer a ResolutionQueue step.
+    resolutionStepId?: string;
+    // Whether the resolution step is mandatory (if false, cancel is allowed).
+    resolutionStepMandatory?: boolean;
+    // Special target id that represents "sacrifice the source" (if allowed by the step).
+    resolutionSourceChoiceId?: string;
   } | null>(null);
   
   // Squad Cost Modal state - for paying squad costs multiple times
@@ -1173,22 +1211,49 @@ export function App() {
     }
     // Show blocker modal when you're being attacked during declare blockers step
     else if (step === "declareblockers" || step === "declare_blockers") {
-      // Find if there are attackers targeting you
-      const attackersTargetingYou = (safeView.battlefield || []).filter((p: any) => 
-        p.attacking === you
-      );
-      
-      // Only show modal if there are attackers AND we haven't already shown it for this turn
-      // This prevents the modal from re-opening after the player has made their blocking decision
-      const turnId = `${safeView.turn}_${safeView.turnPlayer}`;
-      if (attackersTargetingYou.length > 0 && hasShownBlockersModal.current !== turnId) {
+      // Note: attackers can target either a playerId OR a permanentId (planeswalker/battle).
+      // If a planeswalker/battle you control is being attacked, you are still the defending player
+      // and must be prompted to declare blockers.
+      const battlefield = (safeView.battlefield || []) as any[];
+      const attackersTargetingYou = battlefield.filter((p: any) => {
+        const target = p?.attacking;
+        if (!target) return false;
+        if (target === you) return true;
+
+        // If the target is a permanent you control (planeswalker/battle), treat as defending.
+        if (typeof target === 'string') {
+          const targetPerm = battlefield.find((perm: any) => perm?.id === target);
+          if (!targetPerm) return false;
+          if (targetPerm.controller !== you) return false;
+          const typeLine = String(targetPerm.card?.type_line || '').toLowerCase();
+          return typeLine.includes('planeswalker') || typeLine.includes('battle');
+        }
+
+        return false;
+      });
+
+      // IMPORTANT: Do not use a purely client-side "shown once" guard here.
+      // If the server rejects an illegal block (e.g. flying/shadow/menace), we must
+      // allow the modal to reopen so the player can correct their blockers.
+      // Use server-authoritative state: once the player is recorded in blockersDeclaredBy,
+      // we stop prompting for blockers.
+      const blockersDeclaredBy: string[] = Array.isArray((safeView as any).blockersDeclaredBy)
+        ? (safeView as any).blockersDeclaredBy
+        : [];
+
+      const youAlreadyDeclared = blockersDeclaredBy.includes(you);
+      if (attackersTargetingYou.length > 0 && !youAlreadyDeclared) {
         setCombatMode('blockers');
         setCombatModalOpen(true);
-        hasShownBlockersModal.current = turnId; // Mark that we've shown the modal
+      } else if (youAlreadyDeclared && combatMode === 'blockers' && combatModalOpen) {
+        // Server accepted declaration/skip; ensure the modal is closed.
+        setCombatModalOpen(false);
+        setCombatModalError(null);
       }
     }
     else {
       setCombatModalOpen(false);
+      setCombatModalError(null);
       // Reset auto-skip tracker when we leave combat steps
       if (hasAutoSkippedAttackers.current) {
         hasAutoSkippedAttackers.current = null;
@@ -1203,6 +1268,46 @@ export function App() {
       }
     }
   }, [safeView, you]);
+
+  // If the server rejects an illegal block declaration, it will emit a socket "error".
+  // Ensure the blockers modal re-opens (or stays open) and surface the message.
+  React.useEffect(() => {
+    if (!safeView || !you) return;
+    if (!lastError) return;
+    if (lastCombatErrorSeenRef.current === lastError) return;
+    lastCombatErrorSeenRef.current = lastError;
+
+    const step = String((safeView as any).step || "").toLowerCase();
+    if (step !== "declareblockers" && step !== "declare_blockers") return;
+
+    const battlefield = (safeView.battlefield || []) as any[];
+    const attackersTargetingYou = battlefield.filter((p: any) => {
+      const target = p?.attacking;
+      if (!target) return false;
+      if (target === you) return true;
+
+      if (typeof target === 'string') {
+        const targetPerm = battlefield.find((perm: any) => perm?.id === target);
+        if (!targetPerm) return false;
+        if (targetPerm.controller !== you) return false;
+        const typeLine = String(targetPerm.card?.type_line || '').toLowerCase();
+        return typeLine.includes('planeswalker') || typeLine.includes('battle');
+      }
+
+      return false;
+    });
+
+    const blockersDeclaredBy: string[] = Array.isArray((safeView as any).blockersDeclaredBy)
+      ? (safeView as any).blockersDeclaredBy
+      : [];
+    const youAlreadyDeclared = blockersDeclaredBy.includes(you);
+
+    if (attackersTargetingYou.length > 0 && !youAlreadyDeclared) {
+      setCombatMode('blockers');
+      setCombatModalError(lastError);
+      setCombatModalOpen(true);
+    }
+  }, [lastError, safeView, you]);
 
   // Priority modal logic - show when you gain priority on step changes
   React.useEffect(() => {
@@ -1668,26 +1773,64 @@ export function App() {
       effectId: string;
       targets?: string[];
       imageUrl?: string;
-      costReduction?: { amount: number; source: string }[];
-      convokeOptions?: { permanentId: string; name: string; colors: string[] }[];
+      // NOTE: Runtime can include legacy shapes here; normalize defensively.
+      costReduction?: any;
+      convokeOptions?: any;
     }) => {
       if (payload.gameId === safeView?.id) {
-        // Transform payload types to match state type
-        const transformedCostReduction = payload.costReduction ? {
-          generic: payload.costReduction.reduce((sum, r) => sum + r.amount, 0),
-          colors: {},
-          messages: payload.costReduction.map(r => r.source),
-        } : undefined;
-        
-        const transformedConvokeOptions = payload.convokeOptions ? {
-          availableCreatures: payload.convokeOptions.map(c => ({
-            id: c.permanentId,
-            name: c.name,
-            colors: c.colors,
-            canTapFor: c.colors, // Assume creatures can tap for their colors
-          })),
-          messages: [],
-        } : undefined;
+        // Transform payload types to match state type.
+        // costReduction can be either the documented array form or a legacy object form.
+        let transformedCostReduction:
+          | { generic: number; colors: Record<string, number>; messages: string[] }
+          | undefined;
+
+        const cr = payload.costReduction;
+        if (Array.isArray(cr)) {
+          transformedCostReduction = {
+            generic: cr.reduce((sum, r) => sum + (r?.amount ?? 0), 0),
+            colors: {},
+            messages: cr.map(r => String(r?.source ?? '')).filter(Boolean),
+          };
+        } else if (cr && typeof cr === 'object') {
+          const generic = typeof cr.generic === 'number' ? cr.generic : 0;
+          const colors = cr.colors && typeof cr.colors === 'object' ? cr.colors : {};
+          const messages = Array.isArray(cr.messages) ? cr.messages.map((m: any) => String(m)).filter(Boolean) : [];
+          if (generic !== 0 || Object.keys(colors).length > 0 || messages.length > 0) {
+            transformedCostReduction = { generic, colors, messages };
+          }
+        }
+
+        // convokeOptions can be either the documented array form or a legacy object form.
+        let transformedConvokeOptions:
+          | { availableCreatures: Array<{ id: string; name: string; colors: string[]; canTapFor: string[] }>; messages: string[] }
+          | undefined;
+
+        const co = payload.convokeOptions;
+        if (Array.isArray(co)) {
+          transformedConvokeOptions = {
+            availableCreatures: co.map(c => ({
+              id: c.permanentId,
+              name: c.name,
+              colors: c.colors,
+              canTapFor: c.colors, // Assume creatures can tap for their colors
+            })),
+            messages: [],
+          };
+        } else if (co && typeof co === 'object') {
+          const availableCreaturesRaw = Array.isArray(co.availableCreatures) ? co.availableCreatures : [];
+          const availableCreatures = availableCreaturesRaw
+            .map((c: any) => ({
+              id: String(c?.id ?? ''),
+              name: String(c?.name ?? ''),
+              colors: Array.isArray(c?.colors) ? c.colors : [],
+              canTapFor: Array.isArray(c?.canTapFor) ? c.canTapFor : (Array.isArray(c?.colors) ? c.colors : []),
+            }))
+            .filter((c: { id: string; name: string }) => c.id && c.name);
+          const messages = Array.isArray(co.messages) ? co.messages.map((m: any) => String(m)).filter(Boolean) : [];
+          if (availableCreatures.length > 0 || messages.length > 0) {
+            transformedConvokeOptions = { availableCreatures, messages };
+          }
+        }
         
         // Store the pending targets and effectId so we can include them when casting
         setSpellToCast({
@@ -2041,7 +2184,18 @@ export function App() {
     const handler = (payload: {
       gameId: string;
       pendingId: string;
-      permanentId: string;
+      permanentId?: string;
+      cardId?: string;
+      castSpellArgs?: {
+        gameId: string;
+        cardId: string;
+        targets?: any[];
+        payment?: any[];
+        skipInteractivePrompts?: boolean;
+        xValue?: number;
+        alternateCostId?: string;
+        convokeTappedCreatures?: string[];
+      };
       cardName: string;
       abilityText: string;
       totalManaCost: string;
@@ -2061,6 +2215,8 @@ export function App() {
         setPhyrexianManaModalData({
           pendingId: payload.pendingId,
           permanentId: payload.permanentId,
+          cardId: payload.cardId,
+          castSpellArgs: payload.castSpellArgs,
           cardName: payload.cardName,
           abilityText: payload.abilityText,
           totalManaCost: payload.totalManaCost,
@@ -2649,6 +2805,22 @@ export function App() {
         setOptionChoiceRequest(request);
         setOptionChoiceModalOpen(true);
       }
+
+      // Handle Two-pile split resolution step
+      else if (step.type === 'two_pile_split') {
+        const request: TwoPileSplitRequest = {
+          gameId: payload.gameId,
+          stepId: step.id,
+          sourceName: step.sourceName || 'Separate Into Two Piles',
+          sourceImage: step.sourceImage,
+          description: step.description || '',
+          items: step.items || [],
+          minPerPile: step.minPerPile ?? 0,
+          mandatory: step.mandatory !== false,
+        };
+        setTwoPileSplitRequest(request);
+        setTwoPileSplitModalOpen(true);
+      }
       
       // Handle Bounce Land choice resolution step
       else if (step.type === 'bounce_land_choice') {
@@ -2662,6 +2834,18 @@ export function App() {
           stepId: step.id,  // Store the step ID for resolution response
         });
         setBounceLandModalOpen(true);
+      }
+
+      // Handle Commander replacement choice (Rule 903.9a) via Resolution Queue
+      else if (step.type === 'commander_zone_choice') {
+        const choice = {
+          commanderId: step.commanderId,
+          commanderName: step.commanderName,
+          destinationZone: step.fromZone,
+          card: step.card,
+          exileTag: step.exileTag,
+        };
+        setResolutionCommanderZoneChoice({ stepId: step.id, choice });
       }
       
       // Handle Join Forces resolution step
@@ -2740,6 +2924,15 @@ export function App() {
       else if (step.type === 'surveil') {
         setPeek({
           mode: 'surveil',
+          cards: step.cards || [],
+          stepId: step.id,
+        });
+      }
+
+      // Handle Bottom Order resolution step
+      else if (step.type === 'bottom_order') {
+        setPeek({
+          mode: 'bottom_order',
           cards: step.cards || [],
           stepId: step.id,
         });
@@ -2839,6 +3032,17 @@ export function App() {
         });
         setColorChoiceModalOpen(true);
       }
+      // Handle card name choice via resolution queue
+      else if (step.type === 'card_name_choice') {
+        setCardNameChoiceModalData({
+          stepId: step.id,
+          cardName: (step as any).cardName || step.sourceName || 'Permanent',
+          reason: (step as any).reason || step.description || 'Choose a card name',
+          imageUrl: step.sourceImage,
+          mandatory: step.mandatory !== false,
+        });
+        setCardNameChoiceModalOpen(true);
+      }
       // Handle creature type choice via resolution queue
       else if (step.type === 'creature_type_choice') {
         setCreatureTypeModalData({
@@ -2850,48 +3054,14 @@ export function App() {
         });
         setCreatureTypeModalOpen(true);
       }
-      // Handle card name choice via resolution queue
-      else if (step.type === 'card_name_choice') {
-        const request: CardNameChoiceRequest = {
-          gameId: payload.gameId,
-          stepId: step.id,
-          sourceId: step.sourceId,
-          sourceName: step.sourceName || 'Name a Card',
-          sourceImage: step.sourceImage,
-          description: step.description || 'Choose a card name',
-          mandatory: step.mandatory !== false,
-        };
-
-        setCardNameChoiceRequest(request);
-        setCardNameChoiceModalOpen(true);
-      }
-      // Handle player choice via resolution queue by reusing the option choice modal
-      else if (step.type === 'player_choice') {
-        const players = (step.players || step.validPlayers || []) as Array<{ id: string; name: string }>;
-        const request: OptionChoiceRequest = {
-          gameId: payload.gameId,
-          stepId: step.id,
-          sourceId: step.sourceId,
-          sourceName: step.sourceName || 'Choose a Player',
-          sourceImage: step.sourceImage,
-          description: step.description || 'Choose a player',
-          options: players.map((p) => ({ id: p.id, label: p.name })),
-          minSelections: 1,
-          maxSelections: 1,
-          mandatory: step.mandatory !== false,
-        };
-
-        setOptionChoiceRequest(request);
-        setOptionChoiceModalOpen(true);
-      }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
       else if (step.type === 'target_selection') {
         // Convert resolution queue step to target modal format
         const validTargets: TargetOption[] = (step.validTargets || []).map((t: any) => ({
           id: t.id,
-          type: (t.type || 'permanent') as any,
+          type: (t.type as any) || 'permanent',
           name: t.label || t.name || 'Unknown',
-          displayName: t.label || t.name,
+          displayName: t.displayName,
           imageUrl: t.imageUrl,
           controller: t.controller,
           typeLine: t.typeLine,
@@ -2910,10 +3080,67 @@ export function App() {
           minTargets: step.minTargets || 1,
           maxTargets: step.maxTargets || 1,
           effectId: step.sourceId,
-          stepId: step.id,
-          useResolutionQueue: true,
+          stepId: step.id,  // Store step ID for resolution response
+          useResolutionQueue: true,  // Flag to indicate this came from Resolution Queue
         });
         setTargetModalOpen(true);
+      }
+
+      // Handle upkeep sacrifice via resolution queue (Eldrazi Monument, Smokestack, and generic "sacrifice a creature" effects)
+      else if (step.type === 'upkeep_sacrifice') {
+        const creatures = (step.creatures || []) as Array<{ id: string; name: string; imageUrl?: string }>;
+        const allowSourceSacrifice = (step as any).allowSourceSacrifice !== false;
+        const sourceToSacrifice = (step as any).sourceToSacrifice as { id: string; name: string; imageUrl?: string } | undefined;
+
+        const resolutionSourceChoiceId = '__SACRIFICE_SOURCE__';
+        const availableTargets: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }> = creatures.map(c => ({
+          id: c.id,
+          name: c.name,
+          imageUrl: c.imageUrl,
+          typeLine: 'Creature',
+        }));
+
+        if (allowSourceSacrifice && sourceToSacrifice) {
+          availableTargets.push({
+            id: resolutionSourceChoiceId,
+            name: sourceToSacrifice.name || step.sourceName || 'Source',
+            imageUrl: sourceToSacrifice.imageUrl,
+            typeLine: 'Source',
+          });
+        }
+
+        setAdditionalCostModalData({
+          cardId: step.sourceId || step.id,
+          cardName: step.sourceName || 'Sacrifice',
+          costType: 'sacrifice',
+          amount: 1,
+          title: step.sourceName || 'Sacrifice',
+          description: step.description || 'Choose a permanent to sacrifice',
+          imageUrl: step.sourceImage,
+          availableTargets,
+          effectId: step.id,
+          resolutionStepId: step.id,
+          resolutionStepMandatory: step.mandatory !== false,
+          resolutionSourceChoiceId: allowSourceSacrifice && sourceToSacrifice ? resolutionSourceChoiceId : undefined,
+        });
+        setAdditionalCostModalOpen(true);
+      }
+
+      // Handle trigger ordering via resolution queue
+      else if (step.type === 'trigger_order') {
+        const triggers: any[] = (step.triggers || []) as any[];
+        const promptTriggers: TriggerPromptData[] = triggers.map((t: any) => ({
+          id: t.id,
+          sourceId: t.sourceId || '',
+          sourceName: t.sourceName || 'Triggered Ability',
+          effect: t.effect || t.description || '',
+          type: 'order',
+          imageUrl: t.imageUrl,
+        }));
+
+        setTriggerOrderStepId(step.id);
+        setPendingTriggers(promptTriggers);
+        setTriggerModalOpen(true);
       }
     };
     
@@ -4026,21 +4253,25 @@ export function App() {
 
   const handleDeclareBlockers = (blockers: BlockerSelection[]) => {
     if (!safeView) return;
+    setCombatModalError(null);
     socket.emit("declareBlockers", {
       gameId: safeView.id,
       blockers,
     });
-    setCombatModalOpen(false);
+    // Do not close immediately. If the server rejects the blocks, we need to keep (or re-open)
+    // the modal so the defending player can correct them.
   };
 
   const handleSkipCombat = () => {
     if (!safeView) return;
     if (combatMode === 'attackers') {
       socket.emit("skipDeclareAttackers", { gameId: safeView.id });
+      setCombatModalOpen(false);
     } else {
+      setCombatModalError(null);
       socket.emit("skipDeclareBlockers", { gameId: safeView.id });
+      // Same rationale as handleDeclareBlockers: let the server close this via blockersDeclaredBy.
     }
-    setCombatModalOpen(false);
   };
 
   // Shock land handlers
@@ -4294,9 +4525,18 @@ export function App() {
     const sourceKey = sourceId || sourceName;
     setIgnoredTriggerSources(prev => {
       const next = new Map(prev);
-      next.set(sourceKey, { sourceName, count: 1, effect, imageUrl });
+      next.set(sourceKey, { sourceId: sourceId || undefined, sourceName, count: 1, effect, imageUrl });
       return next;
     });
+
+    // Also enable server-side yielding (for stack priority) when possible
+    if (sourceId) {
+      socket.emit('yieldToTriggerSource', {
+        gameId: safeView.id,
+        sourceId,
+        sourceName,
+      });
+    }
     
     // Resolve this trigger
     socket.emit("resolveTrigger", {
@@ -4314,16 +4554,42 @@ export function App() {
 
   // Handle "ignore this source" from stack UI - for triggers already on stack
   const handleIgnoreTriggerSourceFromStack = (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => {
+    if (!safeView) return;
     const sourceKey = sourceId || sourceName;
     setIgnoredTriggerSources(prev => {
       const next = new Map(prev);
-      next.set(sourceKey, { sourceName, count: 0, effect, imageUrl });
+      next.set(sourceKey, { sourceId: sourceId || undefined, sourceName, count: 0, effect, imageUrl });
       return next;
     });
+
+    if (sourceId) {
+      socket.emit('yieldToTriggerSource', {
+        gameId: safeView.id,
+        sourceId,
+        sourceName,
+      });
+    }
   };
 
   // Stop ignoring a trigger source
   const handleStopIgnoringSource = (sourceKey: string) => {
+    if (!safeView) {
+      setIgnoredTriggerSources(prev => {
+        const next = new Map(prev);
+        next.delete(sourceKey);
+        return next;
+      });
+      return;
+    }
+
+    const entry = ignoredTriggerSources.get(sourceKey);
+    const sourceId = entry?.sourceId;
+    if (sourceId) {
+      socket.emit('unyieldToTriggerSource', {
+        gameId: safeView.id,
+        sourceId,
+      });
+    }
     setIgnoredTriggerSources(prev => {
       const next = new Map(prev);
       next.delete(sourceKey);
@@ -4334,11 +4600,22 @@ export function App() {
   // Handle ordering of multiple simultaneous triggers
   const handleOrderTriggersConfirm = (orderedTriggerIds: string[]) => {
     if (!safeView) return;
-    socket.emit("orderTriggers", {
-      gameId: safeView.id,
-      orderedTriggerIds: orderedTriggerIds,  // FIX: Use correct parameter name expected by server
-    });
-    // Clear all the ordered triggers from pending
+
+    // Trigger ordering is handled via Resolution Queue now.
+    if (triggerOrderStepId) {
+      socket.emit('submitResolutionResponse', {
+        gameId: safeView.id,
+        stepId: triggerOrderStepId,
+        selections: orderedTriggerIds,
+        cancelled: false,
+      });
+      setTriggerOrderStepId(null);
+      setPendingTriggers(prev => prev.filter(t => !orderedTriggerIds.includes(t.id)));
+      setTriggerModalOpen(false);
+      return;
+    }
+
+    // No active trigger-order resolution step; just close ordering UI.
     setPendingTriggers(prev => prev.filter(t => !orderedTriggerIds.includes(t.id)));
     setTriggerModalOpen(false);
   };
@@ -4401,11 +4678,11 @@ export function App() {
     if (!safeView || !targetModalData) return;
     
     // Check if this came from Resolution Queue
-    if ((targetModalData as any).useResolutionQueue && (targetModalData as any).stepId) {
+    if (targetModalData.useResolutionQueue && targetModalData.stepId) {
       // Use Resolution Queue response system
       socket.emit("submitResolutionResponse", {
         gameId: safeView.id,
-        stepId: (targetModalData as any).stepId,
+        stepId: targetModalData.stepId,
         selections: selectedTargetIds,
         cancelled: false,
       });
@@ -4426,11 +4703,11 @@ export function App() {
     if (!safeView) return;
     
     // Check if this came from Resolution Queue
-    if (targetModalData && (targetModalData as any).useResolutionQueue && (targetModalData as any).stepId) {
+    if (targetModalData && targetModalData.useResolutionQueue && targetModalData.stepId) {
       // Use Resolution Queue cancel system
       socket.emit("cancelResolutionStep", {
         gameId: safeView.id,
-        stepId: (targetModalData as any).stepId,
+        stepId: targetModalData.stepId,
       });
     } else {
       // Legacy flow using targetSelectionCancel
@@ -4501,7 +4778,7 @@ export function App() {
     socket.emit("requestUndo", {
       gameId: safeView.id,
       type: "action",
-      count: actionsToUndo,
+      actionsToUndo,
     });
   };
 
@@ -4669,21 +4946,6 @@ export function App() {
     // Close modal after responding
     setOptionChoiceModalOpen(false);
     setOptionChoiceRequest(null);
-  };
-
-  // Card name choice response handler
-  const handleCardNameChoiceRespond = (cardName: string) => {
-    if (!safeView || !cardNameChoiceRequest) return;
-
-    socket.emit("submitResolutionResponse", {
-      gameId: safeView.id,
-      stepId: cardNameChoiceRequest.stepId,
-      selections: [cardName],
-      cancelled: false,
-    });
-
-    setCardNameChoiceModalOpen(false);
-    setCardNameChoiceRequest(null);
   };
 
   // Graveyard view handler
@@ -5081,6 +5343,7 @@ export function App() {
             onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
             onUndo={(count: number) => handleRequestUndo(count)}
             availableUndoCount={availableUndoCount}
+            smartUndoCounts={smartUndoCounts}
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
             onFlipCoin={() => socket.emit("flipCoin", { gameId: safeView.id })}
             aiControlEnabled={aiControlEnabled}
@@ -5202,8 +5465,7 @@ export function App() {
                 const needsFaceChoice = hasFaces && (
                   layout === 'split' || 
                   layout === 'adventure' || 
-                  layout === 'modal_dfc' ||
-                  layout === 'transform'
+                  layout === 'modal_dfc'
                 );
                 
                 if (needsFaceChoice && cardFaces) {
@@ -5604,16 +5866,31 @@ export function App() {
               console.error('[Scry/Surveil] Missing stepId - must use resolution queue');
               return;
             }
-            
-            const selections = peek.mode === "scry" 
-              ? {
-                  keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                  bottomOrder: (res.bottomOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                }
-              : {
-                  keepTopOrder: (res.keepTopOrder || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                  toGraveyard: (res.toGraveyard || []).map(id => peek.cards.find(c => c.id === id)).filter(Boolean),
-                };
+
+            const selections =
+              peek.mode === "bottom_order"
+                ? {
+                    bottomOrder: (res.bottomOrder || [])
+                      .map((id) => peek.cards.find((c) => c.id === id))
+                      .filter(Boolean),
+                  }
+                : peek.mode === "scry"
+                  ? {
+                      keepTopOrder: (res.keepTopOrder || [])
+                        .map((id) => peek.cards.find((c) => c.id === id))
+                        .filter(Boolean),
+                      bottomOrder: (res.bottomOrder || [])
+                        .map((id) => peek.cards.find((c) => c.id === id))
+                        .filter(Boolean),
+                    }
+                  : {
+                      keepTopOrder: (res.keepTopOrder || [])
+                        .map((id) => peek.cards.find((c) => c.id === id))
+                        .filter(Boolean),
+                      toGraveyard: (res.toGraveyard || [])
+                        .map((id) => peek.cards.find((c) => c.id === id))
+                        .filter(Boolean),
+                    };
             
             socket.emit("submitResolutionResponse", {
               gameId: view.id,
@@ -6037,6 +6314,7 @@ export function App() {
         availableCreatures={combatMode === 'blockers' ? myBlockerCreatures : myCreatures}
         attackingCreatures={attackingCreatures}
         defenders={defenders}
+        errorMessage={combatMode === 'blockers' ? combatModalError : null}
         isYourTurn={safeView != null && safeView.turnPlayer != null && safeView.turnPlayer === you}
         onConfirm={(selections) => {
           if (combatMode === 'attackers') {
@@ -6620,6 +6898,38 @@ export function App() {
         }}
       />
 
+      {/* Card Name Choice Modal (Pithing Needle, Nevermore, etc.) */}
+      <CardNameChoiceModal
+        open={cardNameChoiceModalOpen}
+        title={cardNameChoiceModalData ? `Choose a Card Name for ${cardNameChoiceModalData.cardName}` : 'Choose a Card Name'}
+        description={cardNameChoiceModalData?.reason}
+        cardName={cardNameChoiceModalData?.cardName}
+        sourceImageUrl={cardNameChoiceModalData?.imageUrl}
+        mandatory={cardNameChoiceModalData?.mandatory ?? true}
+        onConfirm={(chosenName) => {
+          if (safeView?.id && cardNameChoiceModalData) {
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: cardNameChoiceModalData.stepId,
+              selections: chosenName,
+              cancelled: false,
+            });
+            setCardNameChoiceModalOpen(false);
+            setCardNameChoiceModalData(null);
+          }
+        }}
+        onCancel={() => {
+          if (safeView?.id && cardNameChoiceModalData && cardNameChoiceModalData.mandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: cardNameChoiceModalData.stepId,
+            });
+            setCardNameChoiceModalOpen(false);
+            setCardNameChoiceModalData(null);
+          }
+        }}
+      />
+
       {/* Any Color Mana Modal (Birds of Paradise, Chromatic Lantern, etc.) */}
       <AnyColorManaModal
         open={anyColorManaModalOpen}
@@ -6658,11 +6968,20 @@ export function App() {
         cardImageUrl={phyrexianManaModalData?.cardImageUrl}
         onConfirm={(choices) => {
           if (safeView?.id && phyrexianManaModalData) {
-            socket.emit("phyrexianManaConfirm", {
-              gameId: safeView.id,
-              pendingId: phyrexianManaModalData.pendingId,
-              choices,
-            });
+            // If this prompt came from spell casting, re-emit castSpellFromHand with the choices.
+            // Otherwise, it's for an activated ability and we use the existing confirm event.
+            if (phyrexianManaModalData.castSpellArgs) {
+              socket.emit('castSpellFromHand', {
+                ...phyrexianManaModalData.castSpellArgs,
+                phyrexianChoices: choices,
+              });
+            } else {
+              socket.emit("phyrexianManaConfirm", {
+                gameId: safeView.id,
+                pendingId: phyrexianManaModalData.pendingId,
+                choices,
+              });
+            }
             setPhyrexianManaModalOpen(false);
             setPhyrexianManaModalData(null);
           }
@@ -6711,20 +7030,46 @@ export function App() {
         availableCards={additionalCostModalData?.availableCards}
         availableTargets={additionalCostModalData?.availableTargets}
         effectId={additionalCostModalData?.effectId}
+        canCancel={
+          additionalCostModalData?.resolutionStepId
+            ? additionalCostModalData?.resolutionStepMandatory === false
+            : true
+        }
         onConfirm={(selectedIds) => {
           if (safeView?.id && additionalCostModalData) {
-            socket.emit("additionalCostConfirm", {
-              gameId: safeView.id,
-              cardId: additionalCostModalData.cardId,
-              costType: additionalCostModalData.costType,
-              selectedCards: selectedIds,
-              effectId: additionalCostModalData.effectId,
-            });
+            if (additionalCostModalData.resolutionStepId) {
+              const chosen = selectedIds[0];
+              const selections =
+                additionalCostModalData.resolutionSourceChoiceId && chosen === additionalCostModalData.resolutionSourceChoiceId
+                  ? { type: 'source' }
+                  : chosen;
+
+              socket.emit('submitResolutionResponse', {
+                gameId: safeView.id,
+                stepId: additionalCostModalData.resolutionStepId,
+                selections,
+                cancelled: false,
+              });
+            } else {
+              socket.emit("additionalCostConfirm", {
+                gameId: safeView.id,
+                cardId: additionalCostModalData.cardId,
+                costType: additionalCostModalData.costType,
+                selectedCards: selectedIds,
+                effectId: additionalCostModalData.effectId,
+              });
+            }
             setAdditionalCostModalOpen(false);
             setAdditionalCostModalData(null);
           }
         }}
         onCancel={() => {
+          if (safeView?.id && additionalCostModalData?.resolutionStepId && additionalCostModalData?.resolutionStepMandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: additionalCostModalData.resolutionStepId,
+            });
+          }
           setAdditionalCostModalOpen(false);
           setAdditionalCostModalData(null);
         }}
@@ -6917,8 +7262,9 @@ export function App() {
         open={exileModalOpen}
         cards={useMemo(() => {
           if (!safeView || !exileModalPlayerId) return [];
-          const exile = (safeView as any).exile?.[exileModalPlayerId] || [];
-          return Array.isArray(exile) ? exile.filter((c: any) => c && c.name) as KnownCardRef[] : [];
+          const zones = safeView.zones?.[exileModalPlayerId];
+          const exile = zones?.exile || [];
+          return Array.isArray(exile) ? (exile.filter((c: any) => c && c.name) as KnownCardRef[]) : [];
         }, [safeView, exileModalPlayerId])}
         playerId={exileModalPlayerId || ''}
         canActivate={you === exileModalPlayerId}
@@ -6971,10 +7317,32 @@ export function App() {
           if (!safeView || !you) return 0;
           // Count untapped lands as available mana
           const battlefield = safeView.battlefield || [];
+          const isLandPermanent = (perm: any): boolean => {
+            const card = perm?.card as any;
+            if (!card) return false;
+            const faces = Array.isArray(card.card_faces) ? (card.card_faces as any[]) : null;
+            const layout = String(card.layout || '').toLowerCase();
+            if (faces && faces.length >= 2) {
+              const backOracle = String(faces[1]?.oracle_text || '');
+              const isTransformLike = layout === 'transform' || /transforms from/i.test(backOracle);
+              if (isTransformLike) {
+                const isTransformed = Boolean(perm.transformed);
+                const face = isTransformed ? faces[1] : faces[0];
+                return /\bland\b/i.test(String(face?.type_line || ''));
+              }
+              if (layout === 'modal_dfc') {
+                const selected = card.selectedMDFCFace;
+                if (typeof selected === 'number' && faces[selected]) {
+                  return /\bland\b/i.test(String(faces[selected]?.type_line || ''));
+                }
+              }
+            }
+            return /\bland\b/i.test(String(card.type_line || ''));
+          };
           return battlefield.filter((p: any) => 
             p.controller === you && 
             !p.tapped &&
-            (p.card?.type_line || '').toLowerCase().includes('land')
+            isLandPermanent(p)
           ).length;
         }, [safeView, you])}
         onContribute={handleJoinForcesContribute}
@@ -7020,14 +7388,40 @@ export function App() {
         onRespond={handleOptionChoiceRespond}
       />
 
-      {/* Card Name Choice Modal (Pithing Needle, Runed Halo, etc.) */}
-      <CardNameChoiceModal
-        open={cardNameChoiceModalOpen}
-        request={cardNameChoiceRequest}
-        onRespond={handleCardNameChoiceRespond}
+      {/* Two-pile split Modal (separate into two piles) */}
+      <TwoPileSplitModal
+        open={twoPileSplitModalOpen}
+        request={twoPileSplitRequest}
+        onRespond={(payload) => {
+          if (!safeView?.id || !twoPileSplitRequest) return;
+          socket.emit('submitResolutionResponse', {
+            gameId: safeView.id,
+            stepId: twoPileSplitRequest.stepId,
+            selections: payload,
+            cancelled: false,
+          });
+          setTwoPileSplitModalOpen(false);
+          setTwoPileSplitRequest(null);
+        }}
       />
 
       {/* Commander Zone Choice Modal (Rule 903.9a/903.9b) */}
+      {resolutionCommanderZoneChoice && (
+        <CommanderZoneChoiceModal
+          choice={resolutionCommanderZoneChoice.choice}
+          onChoice={(moveToCommandZone) => {
+            if (!safeView?.id) return;
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: resolutionCommanderZoneChoice.stepId,
+              selections: moveToCommandZone ? 'command' : 'stay',
+              cancelled: false,
+            });
+            setResolutionCommanderZoneChoice(null);
+          }}
+        />
+      )}
+
       {safeView?.pendingCommanderZoneChoice && safeView.pendingCommanderZoneChoice.length > 0 && (
         <CommanderZoneChoiceModal
           choice={safeView.pendingCommanderZoneChoice[0]}

@@ -719,6 +719,102 @@ function setCombatControl(game: any, combatControl: CombatControlEffect): void {
   game.state.combat.combatControl = combatControl;
 }
 
+export async function executeDeclareAttackers(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  attackers: Array<{
+    creatureId: string;
+    targetPlayerId?: string;
+    targetPermanentId?: string;
+    defendingPlayerId?: string;
+  }>,
+  options?: {
+    attackCostPaid?: boolean;
+    attackCostAmount?: number;
+    attackCostBreakdown?: any[];
+  }
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) {
+    throw Object.assign(new Error('Game not found'), { code: 'DECLARE_ATTACKERS_ERROR' });
+  }
+
+  const battlefield = game.state?.battlefield || [];
+  const attackerIds: string[] = [];
+
+  for (const attacker of attackers) {
+    const creature = battlefield.find(
+      (perm: any) => perm?.id === attacker.creatureId && perm?.controller === playerId
+    );
+
+    if (!creature) {
+      throw Object.assign(new Error('Invalid attacker selection'), { code: 'DECLARE_ATTACKERS_ERROR' });
+    }
+
+    attackerIds.push(attacker.creatureId);
+
+    const targetPlayerId = attacker.targetPlayerId || attacker.defendingPlayerId;
+    (creature as any).attacking = targetPlayerId || attacker.targetPermanentId;
+    (creature as any).attackedThisTurn = true;
+
+    const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+    if (!hasVigilance) {
+      (creature as any).tapped = true;
+    }
+  }
+
+  // Track total creatures attacked this turn for the attacking player (for Minas Tirith, Lightmine Field, etc.)
+  (game.state as any).creaturesAttackedThisTurn = (game.state as any).creaturesAttackedThisTurn || {};
+  (game.state as any).creaturesAttackedThisTurn[playerId] =
+    ((game.state as any).creaturesAttackedThisTurn[playerId] || 0) + attackerIds.length;
+
+  // Process tap triggers for creatures that became tapped from attacking
+  try {
+    processTapTriggersForAttackers(io, game, gameId, attackers as any, battlefield, playerId);
+  } catch (e) {
+    debugWarn(1, '[combat] Failed to process tap triggers during executeDeclareAttackers:', e);
+  }
+
+  // Use game's declareAttackers method if available
+  if (typeof (game as any).declareAttackers === 'function') {
+    try {
+      (game as any).declareAttackers(playerId, attackerIds);
+    } catch (e) {
+      debugWarn(1, '[combat] game.declareAttackers failed:', e);
+    }
+  }
+
+  // Persist the event
+  try {
+    await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {
+      playerId,
+      attackers,
+      ...(options?.attackCostPaid
+        ? {
+            attackCostPaid: true,
+            attackCostAmount: options.attackCostAmount,
+            attackCostBreakdown: options.attackCostBreakdown,
+          }
+        : {}),
+    });
+  } catch (e) {
+    debugWarn(1, '[combat] Failed to persist declareAttackers event:', e);
+  }
+
+  // Broadcast chat message
+  const attackerCount = attackers.length;
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, playerId)} declares ${attackerCount} attacker${attackerCount !== 1 ? 's' : ''}.`,
+    ts: Date.now(),
+  });
+
+  broadcastGame(io, game, gameId);
+}
+
 /**
  * Register combat phase socket handlers
  */

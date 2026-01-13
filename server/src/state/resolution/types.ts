@@ -46,6 +46,7 @@ export enum ResolutionStepType {
   DAMAGE_DIVISION = 'damage_division',
   DISCARD_SELECTION = 'discard_selection',
   HAND_TO_BOTTOM = 'hand_to_bottom',
+  BOTTOM_ORDER = 'bottom_order',
   TOKEN_CEASES_TO_EXIST = 'token_ceases_to_exist',
   COPY_CEASES_TO_EXIST = 'copy_ceases_to_exist',
   COMMANDER_ZONE_CHOICE = 'commander_zone_choice',
@@ -88,6 +89,9 @@ export enum ResolutionStepType {
   FATESEAL = 'fateseal',
   CLASH = 'clash',
   VOTE = 'vote',
+
+  // Two-pile split (Fact or Fiction style)
+  TWO_PILE_SPLIT = 'two_pile_split',
   
   // Upkeep sacrifice triggers (Eldrazi Monument, Smokestack, etc.)
   UPKEEP_SACRIFICE = 'upkeep_sacrifice',

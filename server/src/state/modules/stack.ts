@@ -36,6 +36,7 @@ import {
   checkGraveyardTrigger,
 } from "./triggered-abilities.js";
 import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
@@ -1243,6 +1244,21 @@ export function triggerETBEffectsForPermanent(
       const triggerController = controller;
       state.stack = state.stack || [];
       const triggerId = uid("trigger");
+
+      // Intervening-if triggers (e.g., "When ... enters..., if ...").
+      // If the condition is recognized and false at trigger time, do not create the trigger.
+      try {
+        const desc = String((trigger as any)?.description || "").trim();
+        if (/^if\s+/i.test(desc)) {
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc);
+          if (satisfied === false) {
+            debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+            continue;
+          }
+        }
+      } catch {
+        // Conservative fallback: if we can't evaluate, keep the trigger.
+      }
       
       // Build the trigger object with proper structure
       // The stack doesn't have strict typing, but we define the expected shape here
@@ -5873,6 +5889,22 @@ export function resolveTopOfStack(ctx: GameContext) {
             if (triggerSource?.controller) {
               triggerController = triggerSource.controller;
             }
+          }
+
+          // Intervening-if triggers: only trigger if condition is true both at trigger time and resolution.
+          // Here we enforce the first half (trigger time). If we can recognize the condition and it's false,
+          // we must not put the trigger on the stack.
+          try {
+            const desc = String((trigger as any)?.description || "").trim();
+            if (/^if\s+/i.test(desc)) {
+              const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc);
+              if (satisfied === false) {
+                debug(2, `[resolveTopOfStack] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+                continue;
+              }
+            }
+          } catch {
+            // If evaluation fails, be conservative and keep the trigger.
           }
           
           state.stack.push({

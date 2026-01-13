@@ -2620,6 +2620,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      const { isSpellCastingProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
+
       // DEBUG: Log incoming parameters to trace targeting loop
       debug(2, `[handleCastSpellFromHand] ======== DEBUG START ========`);
       debug(2, `[handleCastSpellFromHand] cardId: ${cardId}`);
@@ -2677,6 +2679,17 @@ export function registerGameActions(io: Server, socket: Socket) {
         socket.emit("error", {
           code: "CANNOT_CAST_LAND",
           message: "Lands cannot be cast as spells. Use playLand instead.",
+        });
+        return;
+      }
+
+      // Chosen-name cast restrictions (e.g., Meddling Mage / Nevermore)
+      const castRestriction = isSpellCastingProhibitedByChosenName(game.state, playerId, cardInHand.name || '');
+      if (castRestriction.prohibited) {
+        const blocker = castRestriction.by?.sourceName || 'an effect';
+        socket.emit('error', {
+          code: 'CANNOT_CAST_CHOSEN_NAME',
+          message: `Spells named "${cardInHand.name || 'that card'}" can't be cast (${blocker} chose that name).`,
         });
         return;
       }

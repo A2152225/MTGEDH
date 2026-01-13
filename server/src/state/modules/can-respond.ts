@@ -22,6 +22,7 @@ import { categorizeSpell, evaluateTargeting, parseTargetRequirements } from "../
 import { calculateMaxLandsPerTurn } from "./game-state-effects";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 
 /**
  * Check if a card has flash or is an instant
@@ -147,6 +148,15 @@ function isCardPlayableFromExile(playableCards: any, cardId: string): boolean {
  */
 function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boolean {
   if (!card) return false;
+
+  // When running in minimal/partial state contexts (e.g., unit tests or early bootstrapping),
+  // be conservative and assume targets exist. This avoids incorrectly auto-passing priority.
+  const hasBattlefieldInfo = Array.isArray(state?.battlefield);
+  const hasPlayersInfo = Array.isArray(state?.players);
+  const hasStackInfo = Array.isArray((state as any)?.stack);
+  // For general "target" spells, we typically need both battlefield + players to reason safely.
+  // Stack is only relevant for counterspells.
+  const hasEnoughTargetingContext = (hasBattlefieldInfo && hasPlayersInfo) || hasStackInfo;
   
   const typeLine = (card.type_line || "").toLowerCase();
   const oracleText = (card.oracle_text || "").toLowerCase();
@@ -192,7 +202,11 @@ function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boo
     
     if (isCounterspell) {
       // Counterspells require items on the stack to target
-      const stack = (state as any).stack || [];
+      const stack = (state as any).stack;
+      if (!Array.isArray(stack)) {
+        // No stack info available; assume the spell could be cast.
+        return true;
+      }
       if (stack.length === 0) {
         // No spells/abilities on stack to counter
         return false;
@@ -203,6 +217,9 @@ function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boo
     // Try to categorize the spell to see if it needs targets
     const spellSpec = categorizeSpell(cardName, oracleText);
     if (spellSpec && spellSpec.minTargets > 0) {
+      if (!hasEnoughTargetingContext) {
+        return true;
+      }
       // This spell requires targets - check if valid targets exist
       const validTargets = evaluateTargeting(state, playerId, spellSpec);
       return validTargets.length >= spellSpec.minTargets;
@@ -211,12 +228,13 @@ function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boo
     // Also check via parseTargetRequirements as backup
     const targetReqs = parseTargetRequirements(oracleText);
     if (targetReqs.needsTargets && targetReqs.minTargets > 0) {
-      // This spell requires targets but we couldn't categorize it precisely
-      // Cannot determine if valid targets exist without proper categorization
-      // To be safe for turn advancement: return false (spell not castable)
-      // This prevents incorrect turn stoppage while being conservative about unknown spells
-      debugWarn(2, `[hasValidTargetsForSpell] Could not categorize targeting spell ${cardName}, assuming no valid targets`);
-      return false;
+      if (!hasEnoughTargetingContext) {
+        return true;
+      }
+      // This spell requires targets but we couldn't categorize it precisely.
+      // Be conservative and assume targets might exist so we don't auto-pass incorrectly.
+      debugWarn(2, `[hasValidTargetsForSpell] Could not categorize targeting spell ${cardName}, assuming targets may exist`);
+      return true;
     }
   }
   
@@ -581,6 +599,11 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     if (Array.isArray(zones.hand)) {
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
+
+        // Chosen-name cast restrictions (e.g., Meddling Mage / Nevermore)
+        if (isSpellCastingProhibitedByChosenName(state, playerId, card.name || '').prohibited) {
+          continue;
+        }
         
         // Skip ignored cards - they shouldn't trigger auto-pass prompts
         if (ignoredCards[card.id]) {
@@ -625,6 +648,11 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     if (Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
         if (!card || typeof card === "string") continue;
+
+        // Chosen-name cast restrictions apply regardless of zone
+        if (isSpellCastingProhibitedByChosenName(state, playerId, card.name || '').prohibited) {
+          continue;
+        }
         
         // Skip ignored cards in graveyard
         if (ignoredCards[card.id]) {
@@ -669,6 +697,11 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     if (Array.isArray(exileZone)) {
       for (const card of exileZone as any[]) {
         if (!card || typeof card === "string") continue;
+
+        // Chosen-name cast restrictions apply regardless of zone
+        if (isSpellCastingProhibitedByChosenName(state, playerId, card.name || '').prohibited) {
+          continue;
+        }
         
         // Skip ignored cards in exile
         if (ignoredCards[card.id]) {
@@ -804,6 +837,12 @@ function hasActivatableAbility(
   
   const oracleText = permanent.card.oracle_text || "";
   const typeLine = (permanent.card.type_line || "").toLowerCase();
+
+  // Chosen-name activation restrictions (e.g., Pithing Needle / Phyrexian Revoker)
+  // This function only considers abilities that require priority, so treating the activation as non-mana is fine.
+  if (isAbilityActivationProhibitedByChosenName(state, playerId, permanent.card?.name || '', false).prohibited) {
+    return false;
+  }
   
   // Check for tap abilities: "{T}: Effect" or "{Cost}, {T}: Effect" or "{T}, Cost: Effect"
   // Common patterns: 

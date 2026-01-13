@@ -15,12 +15,18 @@ import {
   type TargetSelectionStep,
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
+import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB } from "./ai.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { isShockLand } from "./land-helpers.js";
+import type { GameContext } from "../state/context.js";
+import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
+import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
+import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
+import { creatureHasHaste } from "./game-actions.js";
 
 /**
  * Handle AI player resolution steps automatically
@@ -286,6 +292,23 @@ async function handleAIResolutionStep(
         debug(2, `[Resolution] AI surveil: keeping ${keepTop.length} on top, ${toGraveyard.length} to graveyard`);
         break;
       }
+
+      case ResolutionStepType.BOTTOM_ORDER: {
+        const bottomStep = step as any;
+        const cards = bottomStep.cards || [];
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            bottomOrder: cards,
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI bottom_order: ordering ${cards.length} card(s) as-is`);
+        break;
+      }
       
       case ResolutionStepType.DISCARD_SELECTION: {
         // AI discards highest CMC cards first (keeping lower CMC for playability)
@@ -367,40 +390,6 @@ async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         debug(2, `[Resolution] AI creature type choice: chose ${chosenType}`);
-        break;
-      }
-
-      case ResolutionStepType.CARD_NAME_CHOICE: {
-        // AI chooses a high-frequency card name as a reasonable default
-        const chosenName = 'Sol Ring';
-        response = {
-          stepId: step.id,
-          playerId: step.playerId,
-          selections: [chosenName],
-          cancelled: false,
-          timestamp: Date.now(),
-        };
-        debug(2, `[Resolution] AI card name choice: chose ${chosenName}`);
-        break;
-      }
-
-      case ResolutionStepType.NUMBER_CHOICE: {
-        const numberStep = step as any;
-        const chosenNumber =
-          typeof numberStep.defaultValue === 'number'
-            ? numberStep.defaultValue
-            : typeof numberStep.minValue === 'number'
-              ? numberStep.minValue
-              : 0;
-
-        response = {
-          stepId: step.id,
-          playerId: step.playerId,
-          selections: chosenNumber,
-          cancelled: false,
-          timestamp: Date.now(),
-        };
-        debug(2, `[Resolution] AI number choice: chose ${chosenNumber}`);
         break;
       }
       
@@ -499,6 +488,30 @@ async function handleAIResolutionStep(
         debug(2, `[Resolution] AI ponder: keeping ${cards.length} cards in original order`);
         break;
       }
+
+      case ResolutionStepType.TWO_PILE_SPLIT: {
+        const splitStep = step as any;
+        const items: any[] = Array.isArray(splitStep.items) ? splitStep.items : [];
+
+        // Simple AI: alternate items between piles.
+        const pileA: string[] = [];
+        const pileB: string[] = [];
+        items.forEach((it: any, idx: number) => {
+          const id = String(it?.id || '');
+          if (!id) return;
+          (idx % 2 === 0 ? pileA : pileB).push(id);
+        });
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: { pileA, pileB },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI two-pile split: pileA=${pileA.length}, pileB=${pileB.length}`);
+        break;
+      }
       
       case ResolutionStepType.DEVOUR_SELECTION: {
         // AI doesn't sacrifice creatures for devour (conservative strategy)
@@ -588,8 +601,11 @@ async function handleAIResolutionStep(
         const sacrificeStep = step as any;
         const creatures = sacrificeStep.creatures || [];
         const sourceToSacrifice = sacrificeStep.sourceToSacrifice;
+        const allowSourceSacrifice: boolean = sacrificeStep.allowSourceSacrifice !== false;
         
-        let selection: { type: 'creature' | 'source'; creatureId?: string } = { type: 'source' };
+        let selection: { type: 'creature' | 'source'; creatureId?: string } | undefined = allowSourceSacrifice
+          ? { type: 'source' }
+          : undefined;
         
         if (creatures.length > 0) {
           // Find the weakest creature (lowest combined power + toughness)
@@ -609,13 +625,17 @@ async function handleAIResolutionStep(
           selection = { type: 'creature', creatureId: weakestCreature.id };
           debug(2, `[Resolution] AI upkeep sacrifice: sacrificing ${weakestCreature.name} (weakest creature)`);
         } else {
-          debug(2, `[Resolution] AI upkeep sacrifice: no creatures, sacrificing ${sourceToSacrifice?.name || 'source'}`);
+          if (allowSourceSacrifice) {
+            debug(2, `[Resolution] AI upkeep sacrifice: no creatures, sacrificing ${sourceToSacrifice?.name || 'source'}`);
+          } else {
+            debug(2, `[Resolution] AI upkeep sacrifice: no creatures and no fallback, doing nothing`);
+          }
         }
         
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: selection,
+          selections: selection ?? [],
           cancelled: false,
           timestamp: Date.now(),
         };
@@ -1164,8 +1184,14 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       socket.emit("error", { code: "NOT_YOUR_STEP", message: "This is not your resolution step" });
       return;
     }
-    
-    if (step.mandatory) {
+
+    // Some mandatory steps represent an in-progress player-initiated action (e.g. spell cast target selection)
+    // and must be cancellable to avoid leaving the game in resolution mode.
+    const isCancellableMandatoryStep =
+      step.type === ResolutionStepType.TARGET_SELECTION &&
+      Boolean((step as any)?.spellCastContext?.effectId);
+
+    if (step.mandatory && !isCancellableMandatoryStep) {
       socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
       return;
     }
@@ -1184,6 +1210,16 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       
       const game = ensureGame(gameId);
       if (game) {
+        // If this cancelled step was part of an in-progress spell cast, clean up pending state
+        if (cancelledStep.type === ResolutionStepType.TARGET_SELECTION) {
+          const effectId =
+            (cancelledStep as any)?.spellCastContext?.effectId ||
+            (cancelledStep as any)?.sourceId;
+          const pending = (game.state as any)?.pendingSpellCasts;
+          if (effectId && pending?.[effectId]) {
+            delete pending[effectId];
+          }
+        }
         broadcastGame(io, game, gameId);
       }
     }
@@ -1318,6 +1354,16 @@ export function initializePriorityResolutionHandler(io: Server): void {
           broadcastGame(io, game, gameId);
         }
       }
+
+      // When a step is cancelled, we may also need to exit resolution mode.
+      // This matters for workflows like spell-casting target selection where the player cancels.
+      if (event === ResolutionQueueEvent.STEP_CANCELLED) {
+        const summary = ResolutionQueueManager.getPendingSummary(gameId);
+        if (!summary.hasPending && ctx.state.priority === null) {
+          exitResolutionMode(ctx);
+          broadcastGame(io, game, gameId);
+        }
+      }
     };
     
     ResolutionQueueManager.on(priorityHandler);
@@ -1434,6 +1480,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('cards' in step) fields.cards = step.cards;
       if ('surveilCount' in step) fields.surveilCount = step.surveilCount;
       break;
+
+    case ResolutionStepType.BOTTOM_ORDER:
+      if ('cards' in step) fields.cards = (step as any).cards;
+      if ('shuffleAfter' in step) fields.shuffleAfter = (step as any).shuffleAfter;
+      break;
       
     case ResolutionStepType.PROLIFERATE:
       if ('proliferateId' in step) fields.proliferateId = step.proliferateId;
@@ -1455,6 +1506,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('voteId' in step) fields.voteId = step.voteId;
       if ('choices' in step) fields.choices = step.choices;
       if ('votesSubmitted' in step) fields.votesSubmitted = step.votesSubmitted;
+      break;
+
+    case ResolutionStepType.TWO_PILE_SPLIT:
+      if ('items' in step) fields.items = (step as any).items;
+      if ('minPerPile' in step) fields.minPerPile = (step as any).minPerPile;
       break;
       
     case ResolutionStepType.KYNAIOS_CHOICE:
@@ -1533,6 +1589,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('creatures' in step) fields.creatures = step.creatures;
       if ('sourceToSacrifice' in step) fields.sourceToSacrifice = step.sourceToSacrifice;
       if ('alternativeSacrificeType' in step) fields.alternativeSacrificeType = step.alternativeSacrificeType;
+      if ('allowSourceSacrifice' in step) fields.allowSourceSacrifice = (step as any).allowSourceSacrifice;
       break;
   }
   
@@ -1605,6 +1662,10 @@ async function handleStepResponse(
     case ResolutionStepType.SURVEIL:
       handleSurveilResponse(io, game, gameId, step, response);
       break;
+
+    case ResolutionStepType.BOTTOM_ORDER:
+      handleBottomOrderResponse(io, game, gameId, step, response);
+      break;
       
     case ResolutionStepType.PROLIFERATE:
       handleProliferateResponse(io, game, gameId, step, response);
@@ -1624,6 +1685,10 @@ async function handleStepResponse(
       
     case ResolutionStepType.PONDER_EFFECT:
       handlePonderEffectResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.TWO_PILE_SPLIT:
+      await handleTwoPileSplitResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.LIBRARY_SEARCH:
@@ -1706,6 +1771,7 @@ function handleDiscardResponse(
   const discardStep = step as any;
   const hand = discardStep.hand || [];
   const discardCount = discardStep.discardCount;
+  const destination: 'graveyard' | 'exile' = discardStep.destination === 'exile' ? 'exile' : 'graveyard';
   
   // Validate selection count matches required discard count
   if (discardCount && selections.length !== discardCount) {
@@ -1729,20 +1795,43 @@ function handleDiscardResponse(
     return;
   }
   
-  // Move selected cards to graveyard
+  // Move selected cards to the destination zone
   zones.graveyard = zones.graveyard || [];
+  zones.exile = zones.exile || [];
+
+  const exileTag = (step as any)?.exileTag as
+    | {
+        exiledWithSourceId?: string;
+        exiledWithOracleId?: string;
+        exiledWithSourceName?: string;
+      }
+    | undefined;
+
+  const movedCards: any[] = [];
   
   for (const cardId of selections) {
     const cardIndex = zones.hand.findIndex((c: any) => c.id === cardId);
     if (cardIndex !== -1) {
       const [card] = zones.hand.splice(cardIndex, 1);
-      zones.graveyard.push({ ...card, zone: 'graveyard' });
+      movedCards.push(card);
+      if (destination === 'exile') {
+        zones.exile.push({
+          ...card,
+          ...(exileTag ? { ...exileTag } : null),
+          zone: 'exile',
+        });
+      } else {
+        zones.graveyard.push({ ...card, zone: 'graveyard' });
+      }
     }
   }
   
   // Update counts
   zones.handCount = zones.hand.length;
   zones.graveyardCount = zones.graveyard.length;
+  if (zones.exileCount !== undefined) {
+    zones.exileCount = zones.exile.length;
+  }
   
   // Clear legacy pending state if present
   if (game.state.pendingDiscardSelection?.[pid]) {
@@ -1754,9 +1843,74 @@ function handleDiscardResponse(
     id: `m_${Date.now()}`,
     gameId,
     from: "system",
-    message: `${getPlayerName(game, pid)} discarded ${selections.length} card(s).`,
+    message:
+      destination === 'exile'
+        ? `${getPlayerName(game, pid)} exiled ${selections.length} card(s) from hand.`
+        : `${getPlayerName(game, pid)} discarded ${selections.length} card(s).`,
     ts: Date.now(),
   });
+
+  // Planeswalker helper: "You may discard a card. If you do, draw a card."
+  const afterDiscardDrawCount = (step as any)?.afterDiscardDrawCount;
+  if (afterDiscardDrawCount && typeof afterDiscardDrawCount === 'number' && afterDiscardDrawCount > 0) {
+    if (typeof (game as any).drawCards === 'function') {
+      (game as any).drawCards(pid, afterDiscardDrawCount);
+    } else {
+      // Fallback draw: use game.libraries if present; else zones library.
+      const lib = (game as any).libraries?.get?.(pid) || zones.library || [];
+      for (let i = 0; i < afterDiscardDrawCount && lib.length > 0; i++) {
+        const drawn = lib.shift();
+        zones.hand.push({ ...drawn, zone: 'hand' });
+      }
+      zones.handCount = zones.hand.length;
+      zones.libraryCount = lib.length;
+      if ((game as any).libraries?.set) {
+        (game as any).libraries.set(pid, lib);
+      }
+    }
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} drew ${afterDiscardDrawCount} card(s).`,
+      ts: Date.now(),
+    });
+  }
+
+  // Planeswalker helper: discard, draw, and if a land was discarded, draw extra.
+  const afterDiscardDrawCountIfDiscardedLand = (step as any)?.afterDiscardDrawCountIfDiscardedLand;
+  if (
+    afterDiscardDrawCountIfDiscardedLand &&
+    typeof afterDiscardDrawCountIfDiscardedLand === 'number' &&
+    afterDiscardDrawCountIfDiscardedLand > 0
+  ) {
+    const discardedALand = movedCards.some((c: any) => String(c?.type_line || '').toLowerCase().includes('land'));
+    if (discardedALand) {
+      if (typeof (game as any).drawCards === 'function') {
+        (game as any).drawCards(pid, afterDiscardDrawCountIfDiscardedLand);
+      } else {
+        const lib = (game as any).libraries?.get?.(pid) || zones.library || [];
+        for (let i = 0; i < afterDiscardDrawCountIfDiscardedLand && lib.length > 0; i++) {
+          const drawn = lib.shift();
+          zones.hand.push({ ...drawn, zone: 'hand' });
+        }
+        zones.handCount = zones.hand.length;
+        zones.libraryCount = lib.length;
+        if ((game as any).libraries?.set) {
+          (game as any).libraries.set(pid, lib);
+        }
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} drew ${afterDiscardDrawCountIfDiscardedLand} additional card(s).`,
+        ts: Date.now(),
+      });
+    }
+  }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
@@ -1787,6 +1941,13 @@ function handleCommanderZoneResponse(
   const commanderName = stepData.commanderName || 'Commander';
   const fromZone = stepData.fromZone || 'graveyard';
   const card = stepData.card;
+  const exileTag = stepData.exileTag as
+    | {
+        exiledWithSourceId?: string;
+        exiledWithOracleId?: string;
+        exiledWithSourceName?: string;
+      }
+    | undefined;
   
   if (goToCommandZone) {
     // Actually move commander to command zone
@@ -1831,6 +1992,43 @@ function handleCommanderZoneResponse(
       ts: Date.now(),
     });
   } else {
+    // IMPORTANT: If this was a deferred commander replacement (graveyard/exile),
+    // the card was removed from the battlefield but NOT yet put into the destination zone.
+    // Ensure it actually ends up in the chosen zone.
+    const zones = game.state?.zones?.[pid];
+    if (zones && card) {
+      const destZoneName = fromZone;
+      const destZone = (zones as any)[destZoneName];
+
+      // If the card isn't already in the destination zone, add it.
+      if (Array.isArray(destZone)) {
+        const alreadyThere = destZone.some((c: any) => c?.id === commanderId || c?.id === card.id);
+        if (!alreadyThere) {
+          const zoneValue = destZoneName === 'exile' ? 'exile' : destZoneName;
+          destZone.push({
+            ...card,
+            ...(destZoneName === 'exile' && exileTag ? { ...exileTag } : null),
+            zone: zoneValue,
+          });
+          const countKey = `${destZoneName}Count` as keyof typeof zones;
+          if (typeof zones[countKey] === 'number') {
+            (zones[countKey] as number)++;
+          }
+        }
+      } else {
+        // If destination zone container doesn't exist, create as array.
+        (zones as any)[destZoneName] = [
+          {
+            ...card,
+            ...(destZoneName === 'exile' && exileTag ? { ...exileTag } : null),
+            zone: destZoneName === 'exile' ? 'exile' : destZoneName,
+          },
+        ];
+        const countKey = `${destZoneName}Count`;
+        (zones as any)[countKey] = 1;
+      }
+    }
+
     debug(2, `[Resolution] ${commanderName} stays in ${fromZone}`);
     
     io.to(gameId).emit("chat", {
@@ -1909,8 +2107,369 @@ function handleTargetSelectionResponse(
     }
   }
 
+  // ===== LORWYN ECLIPSED: Blight N (generic hook) =====
+  if ((step as any)?.keywordBlight === true && String((step as any)?.keywordBlightStage || '') === 'select_target') {
+    const controllerId = String((step as any).keywordBlightController || pid);
+    const n = Number((step as any).keywordBlightN || 0);
+    const sourceName = String((step as any).keywordBlightSourceName || step.sourceName || 'Blight');
+    const targetId = selections[0];
+
+    const targetPerm = (game.state?.battlefield || []).find((p: any) => p && p.id === targetId);
+    if (!targetPerm) {
+      debugWarn(1, `[Resolution] Blight target not found: ${targetId}`);
+      return;
+    }
+
+    targetPerm.counters = targetPerm.counters || {};
+    targetPerm.counters['-1/-1'] = (targetPerm.counters['-1/-1'] || 0) + (Number.isFinite(n) ? n : 0);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${n} -1/-1 counter${n === 1 ? '' : 's'} on ${targetPerm.card?.name || 'a creature'}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== GENERIC: Sacrifice "When you do" follow-up =====
+  if ((step as any)?.sacrificeWhenYouDo === true && String((step as any).sacrificeWhenYouDoStage || '') === 'select_sacrifice') {
+    const subtype = String((step as any).sacrificeWhenYouDoSubtype || '').trim();
+    const damage = Number((step as any).sacrificeWhenYouDoDamage || 0);
+    const lifeGain = Number((step as any).sacrificeWhenYouDoLifeGain || 0);
+    const controllerId = String((step as any).sacrificeWhenYouDoController || pid);
+    const sourceName = String((step as any).sacrificeWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = (step as any).sacrificeWhenYouDoSourcePermanentId as string | undefined;
+    const permanentIdToSac = selections[0];
+
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: game.state?.zones,
+      gameId,
+    } as unknown as GameContext;
+
+    const sacrificedName = sacrificePermanent(ctx, permanentIdToSac, controllerId);
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} sacrificed ${sacrificedName || 'a ' + subtype}.`,
+      ts: Date.now(),
+    });
+
+    // Put the reflexive trigger on the stack
+    game.state.stack = game.state.stack || [];
+    const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    game.state.stack.push({
+      id: triggerId,
+      type: 'triggered_ability',
+      controller: controllerId,
+      source: sourcePermanentId || null,
+      sourceName,
+      description: `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`,
+    } as any);
+
+    // Ask for "any target" for the reflexive trigger
+    const validAnyTarget = [
+      ...(game.state.players || []).map((p: any) => ({
+        id: p.id,
+        label: p.name || p.id,
+        description: 'player',
+      })),
+      ...(game.state.battlefield || []).map((p: any) => ({
+        id: p.id,
+        label: p.card?.name || 'Permanent',
+        description: p.card?.type_line || 'permanent',
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+      })),
+    ];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: controllerId as PlayerID,
+      description: `Choose any target for ${sourceName}`,
+      mandatory: true,
+      sourceId: triggerId,
+      sourceName,
+      validTargets: validAnyTarget,
+      targetTypes: ['any_target'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'any target',
+    } as any);
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== PLANESWALKER: Sacrifice another permanent → gain life + draw =====
+  if ((step as any)?.pwSacAnotherPermanentGainLifeDraw === true && String((step as any).pwSacAnotherPermanentStage || '') === 'select_sacrifice') {
+    const controllerId = String((step as any).pwSacAnotherPermanentController || pid);
+    const lifeGain = Number((step as any).pwSacAnotherPermanentLifeGain || 0);
+    const sourceName = String((step as any).pwSacAnotherPermanentSourceName || step.sourceName || 'Ability');
+    const permanentIdToSac = selections[0];
+
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: game.state?.zones,
+      gameId,
+    } as unknown as GameContext;
+
+    const sacrificedName = sacrificePermanent(ctx, permanentIdToSac, controllerId);
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} sacrificed ${sacrificedName || 'a permanent'}.`,
+      ts: Date.now(),
+    });
+
+    // Gain life
+    const startingLife = game.state.startingLife || 40;
+    game.state.life = game.state.life || {};
+    const currentLife = game.state.life?.[controllerId] ?? startingLife;
+    game.state.life[controllerId] = currentLife + lifeGain;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} gains ${lifeGain} life and draws a card.`,
+      ts: Date.now(),
+    });
+
+    // Draw a card
+    if (typeof (game as any).drawCards === 'function') {
+      (game as any).drawCards(controllerId, 1);
+    } else {
+      const zones = game.state?.zones?.[controllerId];
+      if (zones) {
+        zones.hand = zones.hand || [];
+        const lib = (game as any).libraries?.get?.(controllerId) || zones.library || [];
+        if (Array.isArray(lib) && lib.length > 0) {
+          const drawn = lib.shift();
+          zones.hand.push({ ...drawn, zone: 'hand' });
+        }
+        zones.handCount = zones.hand.length;
+        zones.libraryCount = Array.isArray(lib) ? lib.length : zones.libraryCount;
+        if ((game as any).libraries?.set && Array.isArray(lib)) {
+          (game as any).libraries.set(controllerId, lib);
+        }
+      }
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== GENERIC: Attach Equipment to created token (after selecting equipment) =====
+  if ((step as any)?.attachEquipmentToCreatedTokenSelectEquipment === true) {
+    const controllerId = String((step as any).attachEquipmentToCreatedTokenController || pid);
+    const tokenPermanentId = String((step as any).attachEquipmentToCreatedTokenPermanentId || '');
+    const sourceName = String((step as any).attachEquipmentToCreatedTokenSourceName || step.sourceName || 'Ability');
+    const equipPermanentId = selections[0];
+
+    const battlefield = game.state?.battlefield || [];
+    const equipment = battlefield.find((p: any) => p?.id === equipPermanentId);
+    const token = battlefield.find((p: any) => p?.id === tokenPermanentId);
+    if (!equipment || !token) {
+      debugWarn(2, `[Resolution] attachEquipmentToCreatedToken: missing equipment or token`);
+      return;
+    }
+
+    // Detach from previous creature if needed
+    const prevAttachedTo = equipment.attachedTo;
+    if (prevAttachedTo) {
+      const prevCreature = battlefield.find((p: any) => p?.id === prevAttachedTo);
+      if (prevCreature) {
+        prevCreature.attachedEquipment = Array.isArray(prevCreature.attachedEquipment)
+          ? prevCreature.attachedEquipment.filter((id: string) => id !== equipment.id)
+          : [];
+        if (prevCreature.attachedEquipment.length === 0) {
+          prevCreature.isEquipped = false;
+        }
+      }
+    }
+
+    // Attach
+    equipment.attachedTo = token.id;
+    token.attachedEquipment = Array.isArray(token.attachedEquipment) ? token.attachedEquipment : [];
+    if (!token.attachedEquipment.includes(equipment.id)) {
+      token.attachedEquipment.push(equipment.id);
+    }
+    token.isEquipped = true;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} attached ${equipment.card?.name || 'an Equipment'} to ${token.card?.name || 'the token'}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   // Execute immediate actions for certain target-selection steps
   const action = (step as any).action;
+  if (action === 'sacrifice_selected_permanents') {
+    const sourceName = String(step.sourceName || 'Effect');
+    const controllerId = String(pid);
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: game.state?.zones,
+      gameId,
+    } as unknown as GameContext;
+
+    const sacrificedNames: string[] = [];
+    for (const permanentIdToSac of selections) {
+      const sacrificedName = sacrificePermanent(ctx, permanentIdToSac, controllerId);
+      if (sacrificedName) sacrificedNames.push(sacrificedName);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message:
+        sacrificedNames.length > 0
+          ? `${sourceName}: ${getPlayerName(game, controllerId)} sacrificed ${sacrificedNames.length} permanent(s).`
+          : `${sourceName}: ${getPlayerName(game, controllerId)} sacrificed permanent(s).`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (action === 'pw_lukka_exile_upgrade') {
+    const controllerId = String(pid);
+    const sourceName = String(step.sourceName || 'Planeswalker');
+    const targetId = selections[0];
+    if (!targetId) {
+      debugWarn(1, `[Resolution] pw_lukka_exile_upgrade: missing selection`);
+      return;
+    }
+
+    const state = game.state || {};
+    const battlefield = (state.battlefield = state.battlefield || []);
+    const idx = battlefield.findIndex((p: any) => p?.id === targetId);
+    if (idx === -1) {
+      debugWarn(1, `[Resolution] pw_lukka_exile_upgrade: target not found on battlefield: ${targetId}`);
+      return;
+    }
+
+    const perm = battlefield[idx];
+    const tlPerm = String(perm?.card?.type_line || '').toLowerCase();
+    if (String(perm?.controller || '') !== controllerId || !tlPerm.includes('creature')) {
+      debugWarn(1, `[Resolution] pw_lukka_exile_upgrade: invalid target`);
+      return;
+    }
+
+    const exiledMv = Number(perm?.card?.cmc ?? 0);
+
+    // Exile the target creature you control.
+    battlefield.splice(idx, 1);
+    const zones = (state.zones = state.zones || {});
+    const owner = String(perm?.owner || perm?.controller || controllerId);
+    const ownerZones = (zones[owner] = zones[owner] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    });
+    ownerZones.exile = Array.isArray(ownerZones.exile) ? ownerZones.exile : (ownerZones.exile = []);
+    if (!perm.isToken && perm.card) {
+      ownerZones.exile.push({ ...(perm.card || {}), zone: 'exile' });
+      ownerZones.exileCount = ownerZones.exile.length;
+    }
+
+    // Reveal until a creature card with greater MV.
+    const lib: any[] = (game as any).libraries?.get?.(controllerId) || [];
+    const revealed: any[] = [];
+    let found: any = null;
+    while (Array.isArray(lib) && lib.length > 0) {
+      const c = lib.shift();
+      if (!c) break;
+      revealed.push(c);
+      const tl = String(c?.type_line || '').toLowerCase();
+      const isCreature = tl.includes('creature');
+      const mv = Number(c?.cmc ?? 0);
+      if (isCreature && mv > exiledMv) {
+        found = c;
+        break;
+      }
+    }
+
+    if (found) {
+      const tl = String(found?.type_line || '').toLowerCase();
+      const isCreature = tl.includes('creature');
+      const hasHaste =
+        String(found?.oracle_text || '').toLowerCase().includes('haste') ||
+        (Array.isArray(found?.keywords) && found.keywords.some((k: any) => String(k || '').toLowerCase() === 'haste'));
+
+      const newPermanent: any = {
+        id: uid('perm'),
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        basePower: isCreature ? parsePT(found?.power) : undefined,
+        baseToughness: isCreature ? parsePT(found?.toughness) : undefined,
+        summoningSickness: isCreature && !hasHaste,
+        card: { ...found, zone: 'battlefield' },
+      };
+      battlefield.push(newPermanent);
+    }
+
+    const rest = revealed.filter((c: any) => c && c !== found);
+    const restBottom = [...rest].sort(() => Math.random() - 0.5);
+    for (const c of restBottom) {
+      lib.push({ ...c, zone: 'library' });
+    }
+
+    // Update counts + persist library.
+    const controllerZones = (zones[controllerId] = zones[controllerId] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    });
+    controllerZones.libraryCount = Array.isArray(lib) ? lib.length : controllerZones.libraryCount;
+    if ((game as any).libraries?.set && Array.isArray(lib)) {
+      (game as any).libraries.set(controllerId, lib);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} exiled ${perm.card?.name || 'a creature'} and revealed cards until a creature with greater mana value was found.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (action === 'destroy_artifact_enchantment') {
     const state = game.state || {};
     const battlefield = state.battlefield || [];
@@ -2038,7 +2597,220 @@ function handleTargetSelectionResponse(
         }
       }
     }
-    
+
+    // This begin-combat workflow uses a Resolution Queue prompt mid-resolution.
+    // Remove the original triggered ability from the stack so it doesn't re-prompt.
+    const stack = game.state?.stack || [];
+    const stackItemId = step.sourceId;
+    if (stackItemId) {
+      const idx = stack.findIndex((it: any) => it?.id === stackItemId);
+      if (idx !== -1) {
+        const it = stack[idx];
+        if (it?.type === 'triggered_ability' && it?.triggerType === 'begin_combat') {
+          stack.splice(idx, 1);
+          debug(2, `[Resolution] Removed begin_combat trigger from stack (id: ${stackItemId})`);
+        }
+      }
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (action === 'move_graveyard_card_to_hand') {
+    const selectedCardId = selections[0];
+    const fromPlayerId = String((step as any).fromPlayerId || pid);
+    const zones = game.state?.zones || (game.state.zones = {});
+    zones[fromPlayerId] = zones[fromPlayerId] || {};
+    zones[fromPlayerId].graveyard = zones[fromPlayerId].graveyard || [];
+    zones[fromPlayerId].hand = zones[fromPlayerId].hand || [];
+
+    if (!selectedCardId) {
+      // "up to one" selection
+      debug(2, `[Resolution] move_graveyard_card_to_hand: no selection`);
+      return;
+    }
+
+    const gy: any[] = zones[fromPlayerId].graveyard;
+    const idx = gy.findIndex((c: any) => c?.id === selectedCardId);
+    if (idx === -1) {
+      debugWarn(1, `[Resolution] move_graveyard_card_to_hand: card not found in graveyard: ${selectedCardId}`);
+      return;
+    }
+
+    const [card] = gy.splice(idx, 1);
+    zones[fromPlayerId].hand.push({ ...card, zone: 'hand' });
+
+    zones[fromPlayerId].graveyardCount = zones[fromPlayerId].graveyard.length;
+    zones[fromPlayerId].handCount = zones[fromPlayerId].hand.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, fromPlayerId)} returns ${card?.name || 'a card'} from their graveyard to their hand (${step.sourceName || 'Effect'}).`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (action === 'move_graveyard_card_to_battlefield') {
+    const selectedCardId = selections[0];
+    const fromPlayerId = String((step as any).fromPlayerId || pid);
+    const zones = game.state?.zones || (game.state.zones = {});
+    zones[fromPlayerId] = zones[fromPlayerId] || {};
+    zones[fromPlayerId].graveyard = zones[fromPlayerId].graveyard || [];
+
+    if (!selectedCardId) {
+      debugWarn(1, `[Resolution] move_graveyard_card_to_battlefield: missing selection`);
+      return;
+    }
+
+    const gy: any[] = zones[fromPlayerId].graveyard;
+    const idx = gy.findIndex((c: any) => c?.id === selectedCardId);
+    if (idx === -1) {
+      debugWarn(1, `[Resolution] move_graveyard_card_to_battlefield: card not found in graveyard: ${selectedCardId}`);
+      return;
+    }
+
+    const [card] = gy.splice(idx, 1);
+    zones[fromPlayerId].graveyardCount = zones[fromPlayerId].graveyard.length;
+
+    const battlefield = (game.state.battlefield = game.state.battlefield || []);
+    const tl = String(card?.type_line || '').toLowerCase();
+    const isCreature = tl.includes('creature');
+    const isPlaneswalker = tl.includes('planeswalker');
+
+    const hasHaste =
+      String(card?.oracle_text || '').toLowerCase().includes('haste') ||
+      (Array.isArray(card?.keywords) && card.keywords.some((k: any) => String(k || '').toLowerCase() === 'haste'));
+
+    const newPermanent: any = {
+      id: uid('perm'),
+      controller: pid,
+      owner: fromPlayerId,
+      tapped: false,
+      counters: {},
+      basePower: isCreature ? parsePT(card?.power) : undefined,
+      baseToughness: isCreature ? parsePT(card?.toughness) : undefined,
+      summoningSickness: isCreature && !hasHaste,
+      card: { ...card, zone: 'battlefield' },
+    };
+
+    if (isPlaneswalker && card?.loyalty) {
+      const loyaltyValue = parseInt(String(card.loyalty), 10);
+      if (!Number.isNaN(loyaltyValue)) {
+        newPermanent.counters = { ...newPermanent.counters, loyalty: loyaltyValue };
+        newPermanent.loyalty = loyaltyValue;
+        newPermanent.baseLoyalty = loyaltyValue;
+      }
+    }
+
+    battlefield.push(newPermanent);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} returns ${card?.name || 'a card'} from their graveyard to the battlefield (${step.sourceName || 'Effect'}).`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (action === 'exile_graveyard_card') {
+    const selectedCardId = selections[0];
+    const zones = game.state?.zones || (game.state.zones = {});
+
+    if (!selectedCardId) {
+      debugWarn(1, `[Resolution] exile_graveyard_card: missing selection`);
+      return;
+    }
+
+    let foundOwner: string | null = null;
+    let foundCard: any = null;
+
+    for (const playerId of Object.keys(zones)) {
+      const gy: any[] = zones[playerId]?.graveyard || [];
+      const idx = gy.findIndex((c: any) => c?.id === selectedCardId);
+      if (idx !== -1) {
+        foundOwner = playerId;
+        foundCard = gy.splice(idx, 1)[0];
+        zones[playerId].graveyardCount = zones[playerId].graveyard.length;
+        break;
+      }
+    }
+
+    if (!foundOwner || !foundCard) {
+      debugWarn(1, `[Resolution] exile_graveyard_card: card not found in any graveyard: ${selectedCardId}`);
+      return;
+    }
+
+    zones[foundOwner].exile = zones[foundOwner].exile || [];
+    zones[foundOwner].exile.push({ ...foundCard, zone: 'exile' });
+    zones[foundOwner].exileCount = zones[foundOwner].exile.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} exiles ${foundCard?.name || 'a card'} from ${getPlayerName(game, foundOwner)}'s graveyard (${step.sourceName || 'Effect'}).`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (action === 'destroy_target_creature_or_planeswalker') {
+    const targetId = selections[0];
+    if (!targetId) {
+      debugWarn(1, `[Resolution] destroy_target_creature_or_planeswalker: missing selection`);
+      return;
+    }
+
+    const state = game.state || {};
+    const battlefield = state.battlefield || [];
+    const idx = battlefield.findIndex((p: any) => p?.id === targetId);
+    if (idx === -1) {
+      debugWarn(1, `[Resolution] destroy_target_creature_or_planeswalker: target not on battlefield: ${targetId}`);
+      return;
+    }
+
+    const [perm] = battlefield.splice(idx, 1);
+    const tl = String(perm?.card?.type_line || '').toLowerCase();
+    if (!(tl.includes('creature') || tl.includes('planeswalker'))) {
+      debugWarn(1, `[Resolution] destroy_target_creature_or_planeswalker: invalid target type: ${perm?.card?.type_line}`);
+      return;
+    }
+
+    const owner = perm.owner || perm.controller || pid;
+    state.zones = state.zones || {};
+    state.zones[owner] = state.zones[owner] || ({ hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 } as any);
+    state.zones[owner].graveyard = state.zones[owner].graveyard || [];
+
+    if (!perm.isToken) {
+      state.zones[owner].graveyard.push({ ...(perm.card || {}), zone: 'graveyard' });
+      state.zones[owner].graveyardCount = state.zones[owner].graveyard.length;
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${step.sourceName || 'Effect'}: ${perm.card?.name || 'Permanent'} was destroyed.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
     return;
   }
@@ -2110,6 +2882,11 @@ function handleTargetSelectionResponse(
       sourceName: cardName,
       description: abilityText,
       targets: selections,  // Include selected targets
+      planeswalker: {
+        oracleId: (permanent as any)?.card?.oracle_id,
+        abilityIndex,
+        loyaltyCost,
+      },
     };
     
     game.state.stack = game.state.stack || [];
@@ -2346,8 +3123,9 @@ function handleTriggerOrderResponse(
   }
   
   // Actually reorder the triggers on the stack
-  // Triggers are put on the stack in the order specified (first in list = first to resolve = last on stack)
-  // So we need to reverse the order when putting on stack
+  // IMPORTANT: In this codebase, the top of stack is the END of the array (stack.pop()).
+  // The client provides the desired RESOLUTION order (first in list resolves first).
+  // Therefore, the first chosen trigger must be placed LAST in the stack array.
   const stack = game.state?.stack || [];
   
   // Find the trigger items on the stack by ID or triggerId
@@ -2365,9 +3143,10 @@ function handleTriggerOrderResponse(
       }
     }
     
-    // Add them back in reverse order (last chosen = top of stack = resolves first)
+    // Add them back so that orderedTriggerIds[0] becomes the top-of-stack (last element).
+    // foundTriggerItems is in the same order as orderedTriggerIds.
     for (let i = foundTriggerItems.length - 1; i >= 0; i--) {
-      stack.unshift(foundTriggerItems[i]);
+      stack.push(foundTriggerItems[i]);
     }
     
     debug(1, `[Resolution] Reordered ${foundTriggerItems.length} triggers on stack`);
@@ -2560,6 +3339,7 @@ function handleUpkeepSacrificeResponse(
   const sourceId = stepData.sourceId;
   const sourceToSacrifice = stepData.sourceToSacrifice;
   const creatures = stepData.creatures || [];
+  const allowSourceSacrifice: boolean = stepData.allowSourceSacrifice !== false;
   
   const battlefield = game.state?.battlefield || [];
   const zones = game.state?.zones || {};
@@ -2597,7 +3377,7 @@ function handleUpkeepSacrificeResponse(
       
       debug(2, `[Resolution] ${pid} sacrificed ${creatureName} for ${sourceName}`);
     }
-  } else {
+  } else if (allowSourceSacrifice) {
     // Sacrifice the source (e.g., Eldrazi Monument)
     if (sourceId) {
       const sourceIdx = battlefield.findIndex((p: any) => p.id === sourceId);
@@ -2625,10 +3405,63 @@ function handleUpkeepSacrificeResponse(
         debug(2, `[Resolution] ${pid} sacrificed ${artifactName} (source) - no creatures available`);
       }
     }
+  } else {
+    // Creature-only sacrifice (no fallback). If there are no creatures, do as much as possible.
+    if (!Array.isArray(creatures) || creatures.length === 0) {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} has no creatures to sacrifice (${sourceName}).`,
+        ts: Date.now(),
+      });
+      debug(2, `[Resolution] ${pid} has no creatures to sacrifice (${sourceName})`);
+    } else {
+      debugWarn(1, `[Resolution] Missing/invalid creature selection for creature-only sacrifice (${sourceName})`);
+    }
   }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
+  }
+
+  // Planeswalker helper: "You may sacrifice a creature. When you do, destroy target creature or planeswalker."
+  if ((stepData as any).afterSacrificeDestroyTargetCreatureOrPlaneswalker === true) {
+    const battlefieldNow = game.state?.battlefield || [];
+
+    const validTargets = battlefieldNow
+      .filter((p: any) => {
+        const tl = String(p?.card?.type_line || '').toLowerCase();
+        return tl.includes('creature') || tl.includes('planeswalker');
+      })
+      .map((p: any) => ({
+        id: p.id,
+        type: 'permanent',
+        label: p.card?.name || 'Permanent',
+        controller: p.controller,
+        owner: p.owner,
+        typeLine: p.card?.type_line,
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        card: p.card,
+        zone: 'battlefield',
+      }));
+
+    if (validTargets.length > 0) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: pid as any,
+        description: `${sourceName}: Destroy target creature or planeswalker`,
+        mandatory: true,
+        sourceId: step.sourceId,
+        sourceName: step.sourceName,
+        validTargets,
+        targetTypes: ['creature', 'planeswalker'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'target creature or planeswalker',
+        action: 'destroy_target_creature_or_planeswalker',
+      } as any);
+    }
   }
 }
 
@@ -2818,6 +3651,64 @@ function handleJoinForcesResponse(
     debugWarn(1, `[Resolution] Join Forces: contribution ${contribution} exceeds available mana ${availableMana} for player ${pid}`);
     return; // Reject invalid contribution
   }
+
+  // Spend mana by tapping sources (Join Forces is a mana payment, not floating mana).
+  // This is intentionally a simple/optimistic model: we tap lands first, then mana rocks/dorks.
+  // Mana Flare / Heartbeat / Dictate are approximated as +1 extra mana per land tap.
+  if (contribution > 0) {
+    try {
+      const battlefield = (game.state?.battlefield || []) as any[];
+      const globalLandExtra = battlefield.some((p: any) => {
+        const name = String(p?.card?.name || '').toLowerCase();
+        return name.includes('mana flare') || name.includes('heartbeat of spring') || name.includes('dictate of karametra');
+      });
+
+      let remaining = contribution;
+
+      // Tap lands first
+      for (const perm of battlefield) {
+        if (remaining <= 0) break;
+        if (!perm || perm.controller !== pid) continue;
+        if (perm.tapped) continue;
+        const typeLine = String(perm.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('land')) continue;
+
+        perm.tapped = true;
+        remaining -= globalLandExtra ? 2 : 1;
+      }
+
+      // Then tap other mana sources (mana dorks/rocks), 1 mana each (conservative)
+      if (remaining > 0) {
+        for (const perm of battlefield) {
+          if (remaining <= 0) break;
+          if (!perm || perm.controller !== pid) continue;
+          if (perm.tapped) continue;
+          if (!perm.card) continue;
+
+          const oracle = String(perm.card?.oracle_text || '').toLowerCase();
+          if (!oracle.includes('{t}:') || !oracle.includes('add')) continue;
+
+          // Respect summoning sickness for creatures with tap abilities
+          const tl = String(perm.card?.type_line || '').toLowerCase();
+          const isCreature = tl.includes('creature');
+          const isLand = tl.includes('land');
+          if (isCreature && !isLand && perm.summoningSickness) {
+            const hasHaste = creatureHasHaste(perm, battlefield as any, pid as any);
+            if (!hasHaste) continue;
+          }
+
+          perm.tapped = true;
+          remaining -= 1;
+        }
+      }
+
+      if (remaining > 0) {
+        debugWarn(1, `[Resolution] Join Forces: tapped sources still short by ${remaining} for ${pid}`);
+      }
+    } catch (err) {
+      debugWarn(1, `[Resolution] Join Forces: failed to tap mana sources for ${pid}:`, err);
+    }
+  }
   
   debug(1, `[Resolution] Join Forces: player=${pid} contributed ${contribution} mana to ${cardName}`);
   
@@ -2886,10 +3777,22 @@ function applyJoinForcesEffect(
   
   // Minds Aglow: Each player draws X cards
   if (cardNameLower.includes('minds aglow')) {
+    const ctx: GameContext = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: () => {
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      },
+      rng: (game as any).rng,
+    } as any;
+
     for (const p of players) {
       if (p.hasLost) continue;
-      game.state.pendingDraws = game.state.pendingDraws || {};
-      game.state.pendingDraws[p.id] = (game.state.pendingDraws[p.id] || 0) + totalContributions;
+      try {
+        drawCardsFromZones(ctx, p.id, totalContributions);
+      } catch (err) {
+        debugWarn(1, `[Resolution] Minds Aglow: draw failed for ${p.id}:`, err);
+      }
     }
     
     io.to(gameId).emit("chat", {
@@ -3730,6 +4633,90 @@ function handleScryResponse(
     message,
     ts: Date.now(),
   });
+
+  // Optional planeswalker follow-up: after scry resolves, deal N damage to each opponent.
+  // This is used by template-driven planeswalker abilities like:
+  // "Scry X. [Name] deals N damage to each opponent."
+  const stepData = step as any;
+  if (stepData?.pwScryThenDamageToEachOpponent === true) {
+    const controllerId = String(stepData.pwScryThenDamageController || pid);
+    const damage = Number(stepData.pwScryThenDamageAmount || 0);
+    const sourceName = String(stepData.pwScryThenDamageSourceName || step.sourceName || 'Ability');
+
+    if (Number.isFinite(damage) && damage > 0) {
+      const startingLife = game.state.startingLife || 40;
+      game.state.life = game.state.life || {};
+
+      for (const p of game.state.players || []) {
+        if (!p?.id) continue;
+        if (String(p.id) === controllerId) continue;
+        const oppId = String(p.id);
+        const currentLife = game.state.life?.[oppId] ?? startingLife;
+        game.state.life[oppId] = currentLife - damage;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName} deals ${damage} damage to each opponent.`,
+        ts: Date.now(),
+      });
+    }
+  }
+
+  // Optional planeswalker follow-up: after scry resolves, draw cards.
+  // Used by template-driven planeswalker abilities like:
+  // "Scry X, then draw a card." and "Scry X. If you control an artifact, draw a card."
+  if (stepData?.pwScryThenDrawCards === true) {
+    const controllerId = String(stepData.pwScryThenDrawCardsController || pid);
+    const drawCount = Number(stepData.pwScryThenDrawCardsAmount || 0);
+    const sourceName = String(stepData.pwScryThenDrawCardsSourceName || step.sourceName || 'Ability');
+
+    let shouldDraw = Number.isFinite(drawCount) && drawCount > 0;
+    if (shouldDraw && stepData?.pwScryThenDrawCardsIfControllerControlsArtifact === true) {
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const controlsArtifact = battlefield.some((perm: any) => {
+        if (!perm) return false;
+        if (String(perm.controller || '') !== controllerId) return false;
+        const tl = String(perm?.card?.type_line || '').toLowerCase();
+        return tl.includes('artifact');
+      });
+      shouldDraw = controlsArtifact;
+    }
+
+    if (shouldDraw) {
+      if (typeof (game as any).drawCards === 'function') {
+        (game as any).drawCards(controllerId, drawCount);
+      } else {
+        const zones = game.state?.zones?.[controllerId];
+        if (zones) {
+          zones.hand = zones.hand || [];
+          const lib = (game as any).libraries?.get?.(controllerId) || zones.library || [];
+          if (Array.isArray(lib)) {
+            for (let i = 0; i < drawCount; i++) {
+              if (lib.length <= 0) break;
+              const drawn = lib.shift();
+              zones.hand.push({ ...drawn, zone: 'hand' });
+            }
+          }
+          zones.handCount = zones.hand.length;
+          zones.libraryCount = Array.isArray(lib) ? lib.length : zones.libraryCount;
+          if ((game as any).libraries?.set && Array.isArray(lib)) {
+            (game as any).libraries.set(controllerId, lib);
+          }
+        }
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} draws ${drawCount} card${drawCount === 1 ? '' : 's'}.`,
+        ts: Date.now(),
+      });
+    }
+  }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
@@ -3819,6 +4806,41 @@ function handleSurveilResponse(
     message,
     ts: Date.now(),
   });
+
+  // Optional follow-up: "then exile a card from a graveyard" (used by shared oracle templates)
+  if ((surveilStep as any).followUpExileGraveyardCard === true) {
+    const zones = game.state?.zones || {};
+    const allGyCards: Array<{ id: string; owner: string; name?: string; type_line?: string; image_uris?: any }> = [];
+    for (const playerId of Object.keys(zones)) {
+      const gy: any[] = zones[playerId]?.graveyard || [];
+      for (const c of gy) {
+        if (!c?.id) continue;
+        allGyCards.push({ id: c.id, owner: playerId, name: c.name, type_line: c.type_line, image_uris: c.image_uris });
+      }
+    }
+
+    if (allGyCards.length > 0) {
+      const followUpSourceName = String((surveilStep as any).followUpSourceName || step.sourceName || 'Effect');
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: pid as any,
+        description: `${followUpSourceName}: Exile a card from a graveyard`,
+        mandatory: true,
+        sourceName: followUpSourceName,
+        minTargets: 1,
+        maxTargets: 1,
+        action: 'exile_graveyard_card',
+        validTargets: allGyCards.map((c) => ({
+          id: c.id,
+          label: c.name || 'Card',
+          description: c.type_line || 'card',
+          imageUrl: c.image_uris?.small || c.image_uris?.normal,
+          zone: 'graveyard',
+          owner: c.owner,
+        })),
+      } as any);
+    }
+  }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
@@ -4176,6 +5198,103 @@ function handleVoteResponse(
 }
 
 /**
+ * Handle Bottom Order resolution response
+ * Player orders a provided list of cards, which are then placed on the bottom of their library
+ * in that exact order (bottom -> up).
+ */
+function handleBottomOrderResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+
+  // Accept either { bottomOrder: [...] } or a raw array.
+  const rawBottomOrder =
+    selections && typeof selections === 'object' && 'bottomOrder' in selections
+      ? (selections as any).bottomOrder
+      : selections;
+
+  const bottomIds: string[] = Array.isArray(rawBottomOrder)
+    ? rawBottomOrder
+        .map((x: any) => (typeof x === 'string' ? x : x?.id))
+        .filter(Boolean)
+        .map(String)
+    : [];
+
+  const bottomStep = step as any;
+  const cards: any[] = Array.isArray(bottomStep.cards) ? bottomStep.cards : [];
+  const stepCardIds = cards.map((c: any) => String(c?.id)).filter(Boolean);
+
+  debug(2, `[Resolution] Bottom order response: player=${pid}, count=${bottomIds.length}`);
+
+  // Validate: must be a permutation of the provided cards.
+  if (bottomIds.length !== stepCardIds.length) {
+    debugWarn(2, `[Resolution] bottom_order: card count mismatch (expected ${stepCardIds.length}, got ${bottomIds.length})`);
+    return;
+  }
+  const seen = new Set(bottomIds);
+  if (seen.size !== bottomIds.length) {
+    debugWarn(2, `[Resolution] bottom_order: duplicate IDs in bottomOrder`);
+    return;
+  }
+  const stepSet = new Set(stepCardIds);
+  if (!bottomIds.every(id => stepSet.has(id))) {
+    debugWarn(2, `[Resolution] bottom_order: selection contains cards not in original set`);
+    return;
+  }
+
+  const byId = new Map<string, any>(cards.map((c: any) => [String(c.id), c]));
+  const orderedCards = bottomIds.map(id => byId.get(id)).filter(Boolean);
+
+  const ctx = (game as any).ctx || game;
+  if (typeof (ctx as any).putCardsOnBottomOfLibrary === 'function') {
+    (ctx as any).putCardsOnBottomOfLibrary(pid, orderedCards);
+  } else {
+    const lib = (game as any).libraries?.get(pid) || [];
+    for (const card of orderedCards) {
+      lib.push({ ...card, zone: 'library' });
+    }
+    (game as any).libraries?.set(pid, lib);
+    const zones = (game.state as any).zones = (game.state as any).zones || {};
+    const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+    z.libraryCount = lib.length;
+  }
+
+  const shuffleAfter = bottomStep.shuffleAfter === true;
+  if (shuffleAfter) {
+    if (typeof (ctx as any).shuffleLibrary === 'function') {
+      (ctx as any).shuffleLibrary(pid);
+    } else {
+      const lib = (game as any).libraries?.get(pid) || [];
+      for (let i = lib.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [lib[i], lib[j]] = [lib[j], lib[i]];
+      }
+      (game as any).libraries?.set(pid, lib);
+      const zones = (game.state as any).zones = (game.state as any).zones || {};
+      const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+      z.libraryCount = lib.length;
+    }
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, pid)} put ${orderedCards.length} card(s) on the bottom of their library in a chosen order${shuffleAfter ? ' and shuffled' : ''}.`,
+    ts: Date.now(),
+  });
+
+  if (typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
+}
+
+/**
  * Handle Library Search resolution response
  * Generic handler for effects that reveal/search library and select cards
  * Used for: Genesis Wave, tutors, Impulse, etc.
@@ -4206,10 +5325,25 @@ async function handleLibrarySearchResponse(
   const remainderDestination = searchStep.remainderDestination || 'shuffle';
   const remainderRandomOrder = searchStep.remainderRandomOrder !== false; // default true
   const shuffleAfter = searchStep.shuffleAfter !== false; // default true
+  const shuffleOnlyIfSelectedFromLibrary = (searchStep as any).shuffleOnlyIfSelectedFromLibrary === true;
+  const remainderPlayerChoosesOrder =
+    remainderDestination === 'bottom' && (searchStep as any).remainderPlayerChoosesOrder === true;
   const contextValue = searchStep.contextValue;
   const entersTapped = searchStep.entersTapped || false;
   const sourceName = step.sourceName || 'Library Search';
   const lifeLoss = (searchStep as any).lifeLoss;
+
+  // Optional extras for specific effects
+  const destinationFaceDown = (searchStep as any).destinationFaceDown === true;
+  const grantPlayableFromExileToController = (searchStep as any).grantPlayableFromExileToController === true;
+  const playableFromExileTypeKey = String((searchStep as any).playableFromExileTypeKey || '').toLowerCase();
+
+  // Optional override: treat this step as selecting cards from a different zone.
+  // Default remains the library.
+  const searchZone = String((searchStep as any).searchZone || 'library');
+  const searchZones: string[] = Array.isArray((searchStep as any).searchZones)
+    ? ((searchStep as any).searchZones as any[]).map((z: any) => String(z))
+    : [];
   
   // Check if this is a split destination effect (Cultivate, Kodama's Reach)
   const isSplitDestination = searchStep.splitDestination || destination === 'split';
@@ -4241,18 +5375,127 @@ async function handleLibrarySearchResponse(
   // Create a map of card ID to full card data
   const allRevealedCards = [...availableCards, ...nonSelectableCards];
   const cardMap = new Map(allRevealedCards.map((c: any) => [c.id, c]));
+  let didSelectFromLibrary = false;
   const takeCardFromLibrary = (cardId: string) => {
     const idx = lib.findIndex((c: any) => c.id === cardId);
     if (idx >= 0) {
+      didSelectFromLibrary = true;
       return lib.splice(idx, 1)[0];
     }
     return cardMap.get(cardId);
   };
+
+  const takeCardFromGraveyard = (cardId: string) => {
+    const gy = Array.isArray(z.graveyard) ? z.graveyard : (z.graveyard = []);
+    const idx = gy.findIndex((c: any) => c?.id === cardId);
+    if (idx >= 0) {
+      const [taken] = gy.splice(idx, 1);
+      z.graveyardCount = gy.length;
+      return taken;
+    }
+    return cardMap.get(cardId);
+  };
+
+  const takeCardFromExile = (cardId: string) => {
+    const ex = Array.isArray(z.exile) ? z.exile : (z.exile = []);
+    const idx = ex.findIndex((c: any) => c?.id === cardId);
+    if (idx >= 0) {
+      const [taken] = ex.splice(idx, 1);
+      z.exileCount = ex.length;
+      return taken;
+    }
+    return cardMap.get(cardId);
+  };
+
+  const takeCardFromHand = (cardId: string) => {
+    const hand = Array.isArray(z.hand) ? z.hand : (z.hand = []);
+    const idx = hand.findIndex((c: any) => c?.id === cardId);
+    if (idx >= 0) {
+      const [taken] = hand.splice(idx, 1);
+      z.handCount = hand.length;
+      return taken;
+    }
+    return cardMap.get(cardId);
+  };
+
+  const takeCard = (cardId: string) => {
+    // Multi-zone support: when searching multiple zones, try to remove from each zone in order.
+    // This is used by some effects that allow choosing from hand/graveyard/library/exile.
+    if (searchZones.length > 0) {
+      for (const zone of searchZones) {
+        const zkey = String(zone || '').toLowerCase();
+        if (zkey === 'exile') {
+          const c = takeCardFromExile(cardId);
+          if (c) return c;
+          continue;
+        }
+        if (zkey === 'hand') {
+          const c = takeCardFromHand(cardId);
+          if (c) return c;
+          continue;
+        }
+        if (zkey === 'graveyard') {
+          const c = takeCardFromGraveyard(cardId);
+          if (c) return c;
+          continue;
+        }
+        // Default (and "library")
+        const c = takeCardFromLibrary(cardId);
+        if (c) return c;
+      }
+      return cardMap.get(cardId);
+    }
+    if (searchZone === 'exile') return takeCardFromExile(cardId);
+    if (searchZone === 'hand') return takeCardFromHand(cardId);
+    if (searchZone === 'graveyard') return takeCardFromGraveyard(cardId);
+    return takeCardFromLibrary(cardId);
+  };
+
+  const selectedCards = selectedIds.map(id => takeCard(id)).filter(Boolean);
+
+  // Optional additional constraints (used by some planeswalker templates)
+  const maxTypes = (searchStep as any).maxTypes as Record<string, number> | undefined;
+  if (maxTypes && selectedCards.length > 0) {
+    const counts: Record<string, number> = {};
+    for (const card of selectedCards as any[]) {
+      const tl = String(card?.type_line || '').toLowerCase();
+      for (const [typeKey, maxAllowed] of Object.entries(maxTypes)) {
+        if (typeof maxAllowed !== 'number') continue;
+        if (tl.includes(typeKey.toLowerCase())) {
+          counts[typeKey] = (counts[typeKey] || 0) + 1;
+          if (counts[typeKey] > maxAllowed) {
+            debugWarn(1, `[Resolution] Library search: selection exceeds maxTypes constraint (${typeKey} > ${maxAllowed})`);
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  const requireDifferentNames = (searchStep as any).requireDifferentNames === true;
+  if (requireDifferentNames && selectedCards.length > 0) {
+    const seen = new Set<string>();
+    for (const card of selectedCards as any[]) {
+      const name = String(card?.name || '').toLowerCase();
+      if (!name) continue;
+      if (seen.has(name)) {
+        debugWarn(1, `[Resolution] Library search: selection violates requireDifferentNames constraint`);
+        return;
+      }
+      seen.add(name);
+    }
+  }
   
-  const selectedCards = selectedIds.map(id => takeCardFromLibrary(id)).filter(Boolean);
-  
-  // For destination=top with shuffleAfter, place selected after shuffling remainder
-  const deferTopPlacement = destination === 'top' && shuffleAfter;
+  // If the remainder is ordered by the player, do not shuffle in this handler.
+  // Any shuffleAfter responsibility is deferred to the follow-up bottom_order step.
+  const willShuffleInThisHandler =
+    shuffleAfter &&
+    lib.length > 0 &&
+    (!shuffleOnlyIfSelectedFromLibrary || didSelectFromLibrary) &&
+    !(remainderPlayerChoosesOrder && remainderDestination === 'bottom');
+
+  // For destination=top with shuffling in this handler, place selected after shuffling remainder
+  const deferTopPlacement = destination === 'top' && willShuffleInThisHandler && !shuffleOnlyIfSelectedFromLibrary;
   
   // ========================================================================
   // SPLIT DESTINATION HANDLING (Cultivate, Kodama's Reach)
@@ -4266,6 +5509,20 @@ async function handleLibrarySearchResponse(
       const card = selectedCards.find(c => c && c.id === cardId);
       if (card) {
         await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+
+        // Optional: add extra counters as part of the effect (planeswalker templates).
+        const addCounters = (searchStep as any).addCounters as Record<string, number> | undefined;
+        if (addCounters && typeof addCounters === 'object') {
+          const newPerm = battlefield[battlefield.length - 1] as any;
+          if (newPerm) {
+            newPerm.counters = newPerm.counters || {};
+            for (const [k, v] of Object.entries(addCounters)) {
+              const n = Number(v);
+              if (!Number.isFinite(n) || n <= 0) continue;
+              newPerm.counters[k] = (newPerm.counters[k] || 0) + n;
+            }
+          }
+        }
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield (split destination)`);
       }
     }
@@ -4287,6 +5544,20 @@ async function handleLibrarySearchResponse(
       
       if (destination === 'battlefield') {
         await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+
+        // Optional: add extra counters as part of the effect (planeswalker templates).
+        const addCounters = (searchStep as any).addCounters as Record<string, number> | undefined;
+        if (addCounters && typeof addCounters === 'object') {
+          const newPerm = battlefield[battlefield.length - 1] as any;
+          if (newPerm) {
+            newPerm.counters = newPerm.counters || {};
+            for (const [k, v] of Object.entries(addCounters)) {
+              const n = Number(v);
+              if (!Number.isFinite(n) || n <= 0) continue;
+              newPerm.counters[k] = (newPerm.counters[k] || 0) + n;
+            }
+          }
+        }
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} onto battlefield`);
       } else if (destination === 'hand') {
         z.hand = z.hand || [];
@@ -4300,9 +5571,21 @@ async function handleLibrarySearchResponse(
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
       } else if (destination === 'exile') {
         z.exile = z.exile || [];
-        z.exile.push({ ...card, zone: 'exile' });
+        const exiledCard = { ...card, zone: 'exile', ...(destinationFaceDown ? { faceDown: true } : {}) };
+        z.exile.push(exiledCard);
         z.exileCount = z.exile.length;
         debug(2, `[Resolution] ${sourceName}: Exiled ${card.name}`);
+
+        if (grantPlayableFromExileToController) {
+          const typeLine = String((exiledCard as any)?.type_line || '').toLowerCase();
+          const passesTypeGate = !playableFromExileTypeKey || typeLine.includes(playableFromExileTypeKey);
+          if (passesTypeGate) {
+            const stateAny = state as any;
+            stateAny.playableFromExile = stateAny.playableFromExile || {};
+            const entry = (stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {});
+            entry[exiledCard.id] = true;
+          }
+        }
       } else if (destination === 'top') {
         lib.unshift({ ...card, zone: 'library' });
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} on top of library`);
@@ -4316,7 +5599,9 @@ async function handleLibrarySearchResponse(
   // Handle unselected cards (remainder)
   const unselectedCards = allRevealedCards.filter((c: any) => !selectedIds.includes(c.id));
   
-  if (remainderDestination === 'graveyard') {
+  if (remainderDestination === 'none') {
+    // Intentionally do nothing.
+  } else if (remainderDestination === 'graveyard') {
     z.graveyard = z.graveyard || [];
     for (const card of unselectedCards) {
       const fromLib = takeCardFromLibrary(card.id) || card;
@@ -4325,14 +5610,38 @@ async function handleLibrarySearchResponse(
     z.graveyardCount = z.graveyard.length;
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards into graveyard`);
   } else if (remainderDestination === 'bottom') {
-    const cardsToBottom = remainderRandomOrder 
-      ? [...unselectedCards].sort(() => Math.random() - 0.5)
-      : unselectedCards;
-    for (const card of cardsToBottom) {
-      const fromLib = takeCardFromLibrary(card.id) || card;
-      lib.push({ ...fromLib, zone: 'library' });
+    if (remainderPlayerChoosesOrder) {
+      // Remove the remainder from the library immediately, then prompt for ordering.
+      const cardsToOrder = unselectedCards.map((c: any) => takeCardFromLibrary(c.id) || c).filter(Boolean);
+
+      if (cardsToOrder.length > 0) {
+        const shuffleAfterBottomOrder =
+          shuffleAfter && (!shuffleOnlyIfSelectedFromLibrary || didSelectFromLibrary);
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.BOTTOM_ORDER,
+          playerId: pid as any,
+          description: `${sourceName}: Put the rest on the bottom of your library in any order.`,
+          mandatory: true,
+          sourceId: (step as any).sourceId,
+          sourceName,
+          sourceImage: (step as any).sourceImage,
+          cards: cardsToOrder,
+          shuffleAfter: shuffleAfterBottomOrder,
+        } as any);
+      }
+
+      debug(2, `[Resolution] ${sourceName}: Queued bottom_order for ${unselectedCards.length} remainder card(s)`);
+    } else {
+      const cardsToBottom = remainderRandomOrder 
+        ? [...unselectedCards].sort(() => Math.random() - 0.5)
+        : unselectedCards;
+      for (const card of cardsToBottom) {
+        const fromLib = takeCardFromLibrary(card.id) || card;
+        lib.push({ ...fromLib, zone: 'library' });
+      }
+      debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on bottom${remainderRandomOrder ? ' in random order' : ''}`);
     }
-    debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards on bottom${remainderRandomOrder ? ' in random order' : ''}`);
   } else if (remainderDestination === 'top') {
     const cardsToTop = remainderRandomOrder 
       ? [...unselectedCards].sort(() => Math.random() - 0.5)
@@ -4357,7 +5666,7 @@ async function handleLibrarySearchResponse(
   }
   
   // Shuffle if required
-  if (shuffleAfter && lib.length > 0) {
+  if (willShuffleInThisHandler) {
     for (let i = lib.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [lib[i], lib[j]] = [lib[j], lib[i]];
@@ -4376,6 +5685,37 @@ async function handleLibrarySearchResponse(
   
   // Update library count
   z.libraryCount = lib.length;
+
+  // Optional follow-up: after exiling a selected card, offer to cast it for free.
+  // Used by some planeswalker templates (e.g., Kasmina, Enigma Sage).
+  const followUpMayCast = (searchStep as any).followUpMayCastSelectedFromExileWithoutPayingManaCost === true;
+  if (followUpMayCast && destination === 'exile' && selectedCards.length >= 1) {
+    const cardsToOffer = (selectedCards as any[]).filter(Boolean);
+    const chosen = cardsToOffer[0];
+    const declineDestination = (searchStep as any).followUpMayCastDeclineDestination || 'exile';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: pid as any,
+      description: `${sourceName}: You may cast ${chosen?.name || 'that card'} from exile without paying its mana cost.`,
+      mandatory: false,
+      sourceName,
+      sourceId: (step as any).sourceId,
+      sourceImage: (step as any).sourceImage,
+      options: [
+        { id: 'cast', label: `Cast ${chosen?.name || 'that card'}` },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      castFromExileCardId: chosen?.id,
+      castFromExileCard: chosen,
+      castFromExileDeclineDestination: declineDestination,
+      castFromExileQueueCardIds: cardsToOffer.map(c => c.id),
+      castFromExileQueueCards: cardsToOffer,
+      castFromExileQueueIndex: 0,
+    } as any);
+  }
 
   // Apply life loss if specified (e.g., Vampiric Tutor)
   if (lifeLoss && lifeLoss > 0) {
@@ -5652,6 +6992,142 @@ function handlePonderEffectResponse(
 }
 
 /**
+ * Handle TWO_PILE_SPLIT response from client
+ * Used by planeswalker templates and other "separate into two piles" effects.
+ */
+async function handleTwoPileSplitResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: any,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const stepData = step as any;
+  const selections: any = response.selections;
+
+  const items: any[] = Array.isArray(stepData.items) ? stepData.items : [];
+  const itemIds = items.map((it: any) => String(it?.id || '')).filter(Boolean);
+  const validIds = new Set(itemIds);
+
+  let pileA: string[] = [];
+  let pileB: string[] = [];
+
+  if (selections && typeof selections === 'object') {
+    if (Array.isArray(selections.pileA) && Array.isArray(selections.pileB)) {
+      pileA = selections.pileA.map(String);
+      pileB = selections.pileB.map(String);
+    } else if (Array.isArray(selections.piles) && selections.piles.length === 2) {
+      pileA = (selections.piles[0] || []).map(String);
+      pileB = (selections.piles[1] || []).map(String);
+    }
+  }
+
+  // Normalize: valid IDs only, no dupes, ensure full assignment.
+  pileA = pileA.filter((id) => validIds.has(id));
+  const pileASet = new Set(pileA);
+  pileB = pileB.filter((id) => validIds.has(id) && !pileASet.has(id));
+  const assigned = new Set([...pileA, ...pileB]);
+  if (assigned.size !== itemIds.length) {
+    pileA = [];
+    pileB = [];
+    itemIds.forEach((id, idx) => (idx % 2 === 0 ? pileA : pileB).push(id));
+  }
+
+  const minPerPile = Number(stepData.minPerPile ?? 0);
+  if (minPerPile > 0 && (pileA.length < minPerPile || pileB.length < minPerPile)) {
+    const donor = pileA.length > pileB.length ? pileA : pileB;
+    const receiver = donor === pileA ? pileB : pileA;
+    while (receiver.length < minPerPile && donor.length > minPerPile) {
+      const moved = donor.pop();
+      if (moved) receiver.push(moved);
+    }
+  }
+
+  // ===== PLANESWALKER: JACE (TOP 3 -> OPPONENT SPLITS -> CONTROLLER CHOOSES PILE) =====
+  if (stepData.pwJaceTop3TwoPiles === true) {
+    const controllerId = String(stepData.pwJaceControllerId || '');
+    const sourceName = String(stepData.pwJaceSourceName || step.sourceName || 'Planeswalker');
+    const topCards: any[] = Array.isArray(stepData.pwJaceTopCards) ? stepData.pwJaceTopCards : [];
+    const originalOrder: string[] = Array.isArray(stepData.pwJaceTopCardIds)
+      ? stepData.pwJaceTopCardIds.map(String)
+      : topCards.map((c: any) => c?.id).filter(Boolean);
+
+    const byId = new Map(topCards.map((c: any) => [String(c?.id || ''), c]));
+    const names = (ids: string[]) => ids.map((id) => byId.get(id)?.name).filter(Boolean).join(', ') || '(empty)';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controllerId as PlayerID,
+      description: `${sourceName}: Choose a pile to put into your hand`,
+      mandatory: true,
+      sourceName,
+      options: [
+        { id: 'pileA', label: `Pile A (${pileA.length})`, description: names(pileA) },
+        { id: 'pileB', label: `Pile B (${pileB.length})`, description: names(pileB) },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      pwJaceTop3PickPile: true,
+      pwJaceControllerId: controllerId,
+      pwJaceSourceName: sourceName,
+      pwJaceTopCards: topCards,
+      pwJaceTopCardIds: originalOrder,
+      pwJacePileA: pileA,
+      pwJacePileB: pileB,
+    } as any);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, response.playerId)} separated the cards into two piles.`,
+      ts: Date.now(),
+    });
+    return;
+  }
+
+  // ===== PLANESWALKER: LILIANA (TARGET PLAYER SPLITS PERMANENTS -> CHOOSES PILE TO SACRIFICE) =====
+  if (stepData.pwLilianaSplitPermanents === true) {
+    const targetPlayerId = String(stepData.pwLilianaTargetPlayerId || response.playerId);
+    const sourceName = String(stepData.pwLilianaSourceName || step.sourceName || 'Planeswalker');
+
+    const battlefield = (game.state?.battlefield || []) as any[];
+    const byPermId = new Map(battlefield.map((p: any) => [String(p?.id || ''), p]));
+    const pileDesc = (ids: string[]) => ids.map((id) => byPermId.get(id)?.card?.name || byPermId.get(id)?.name).filter(Boolean).join(', ') || '(empty)';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: targetPlayerId as PlayerID,
+      description: `${sourceName}: Choose a pile to sacrifice`,
+      mandatory: true,
+      sourceName,
+      options: [
+        { id: 'pileA', label: `Pile A (${pileA.length})`, description: pileDesc(pileA) },
+        { id: 'pileB', label: `Pile B (${pileB.length})`, description: pileDesc(pileB) },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      pwLilianaChoosePileToSacrifice: true,
+      pwLilianaTargetPlayerId: targetPlayerId,
+      pwLilianaSourceName: sourceName,
+      pwLilianaPileA: pileA,
+      pwLilianaPileB: pileB,
+    } as any);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} separated their permanents into two piles.`,
+      ts: Date.now(),
+    });
+    return;
+  }
+
+  debug(2, `[handleTwoPileSplitResponse] No handler for TWO_PILE_SPLIT step ${step.id}`);
+}
+
+/**
  * Process pending ponder effects into resolution queue
  */
 export function processPendingPonder(io: Server, game: any, gameId: string): void {
@@ -6199,6 +7675,1601 @@ async function handleOptionChoiceResponse(
   const playerId = response.playerId;
   
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
+
+  const extractId = (sel: any): string | null => {
+    if (typeof sel === 'string') return sel;
+    if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
+    if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
+    return null;
+  };
+
+  // ===== COMBAT: ATTACK TAX (Ghostly Prison / Propaganda style) =====
+  // This is queued from server/socket/combat.ts when an attack requires paying a generic tax.
+  // The client presents a simple confirm/cancel choice.
+  if (stepData?.attackCostPayment === true) {
+    const choiceId = extractId(selectedOption);
+    const controllerId = String(response.playerId);
+    const amount = Number(stepData.attackCostAmount || 0) || 0;
+    const attackers = Array.isArray(stepData.attackers) ? stepData.attackers : [];
+    const breakdown = Array.isArray(stepData.attackCostBreakdown) ? stepData.attackCostBreakdown : [];
+
+    if (!choiceId) {
+      debugWarn(1, `[Resolution] attackCostPayment: missing choice id`);
+      return;
+    }
+
+    if (choiceId === 'cancel_attack') {
+      debug(2, `[Resolution] attackCostPayment: ${controllerId} cancelled attack`);
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, controllerId)} declined to pay the attack cost.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (choiceId !== 'pay_attack_cost') {
+      debugWarn(1, `[Resolution] attackCostPayment: unexpected choice '${choiceId}'`);
+      return;
+    }
+
+    if (attackers.length === 0) {
+      debugWarn(1, `[Resolution] attackCostPayment: missing attackers payload`);
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'DECLARE_ATTACKERS_ERROR',
+        message: 'Attack cost payment step is missing attacker data.',
+      });
+      return;
+    }
+
+    try {
+      await executeDeclareAttackers(io, gameId, controllerId as any, attackers, {
+        attackCostPaid: true,
+        attackCostAmount: amount,
+        attackCostBreakdown: breakdown,
+      });
+    } catch (err: any) {
+      debugError(1, `[Resolution] attackCostPayment failed:`, err);
+      emitToPlayer(io, controllerId, 'error', {
+        code: err?.code || 'DECLARE_ATTACKERS_ERROR',
+        message: err?.message ?? String(err),
+      });
+      broadcastGame(io, game, gameId);
+    }
+    return;
+  }
+
+  // ===== PLANESWALKER: "Draw two cards. Then discard two cards unless you discard an artifact card." =====
+  if (stepData?.pwDrawTwoDiscardTwoUnlessArtifact === true) {
+    const choiceId = extractId(selectedOption) || 'discard_two';
+    const controllerId = String(response.playerId);
+    const sourceName = String(stepData.pwDrawTwoDiscardTwoUnlessArtifactSourceName || step.sourceName || 'Planeswalker');
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    });
+    const hand: any[] = Array.isArray(z.hand) ? z.hand : (z.hand = []);
+
+    const artifactHand = hand.filter((c: any) => String(c?.type_line || '').toLowerCase().includes('artifact'));
+    const toHandCards = (cards: any[]) =>
+      cards.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        image_uris: c.image_uris,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+        colors: c.colors,
+      }));
+
+    if (choiceId === 'discard_artifact' && artifactHand.length > 0) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.DISCARD_SELECTION,
+        playerId: controllerId as any,
+        description: `${sourceName}: Discard 1 artifact card`,
+        mandatory: true,
+        sourceName,
+        discardCount: 1,
+        hand: toHandCards(artifactHand),
+      } as any);
+    } else {
+      const discardCount = Math.min(2, hand.length);
+      if (discardCount <= 0) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} had no cards to discard.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.DISCARD_SELECTION,
+        playerId: controllerId as any,
+        description: `${sourceName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'}`,
+        mandatory: true,
+        sourceName,
+        discardCount,
+        hand: toHandCards(hand),
+      } as any);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  // ===== PLANESWALKER: JACE TOP 3 -> CONTROLLER CHOOSES OPPONENT TO SPLIT =====
+  if (stepData?.pwJaceTop3ChooseOpponent === true) {
+    const chosenOpponentId = extractId(selectedOption);
+    const controllerId = String(stepData.pwJaceControllerId || playerId);
+    const sourceName = String(stepData.pwJaceSourceName || step.sourceName || 'Planeswalker');
+    const topCards: any[] = Array.isArray(stepData.pwJaceTopCards) ? stepData.pwJaceTopCards : [];
+    const topCardIds: string[] = Array.isArray(stepData.pwJaceTopCardIds)
+      ? stepData.pwJaceTopCardIds.map(String)
+      : topCards.map((c: any) => c?.id).filter(Boolean);
+
+    if (!chosenOpponentId) {
+      debugWarn(2, `[Resolution] pwJaceTop3ChooseOpponent: missing opponent choice`);
+      return;
+    }
+
+    const items = topCards.map((c: any) => ({
+      id: c.id,
+      label: c.name || 'Unknown',
+      description: c.type_line,
+      imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
+    }));
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TWO_PILE_SPLIT,
+      playerId: chosenOpponentId as PlayerID,
+      description: `${sourceName}: Separate the revealed cards into two piles`,
+      mandatory: true,
+      sourceName,
+      items,
+      minPerPile: 0,
+      pwJaceTop3TwoPiles: true,
+      pwJaceControllerId: controllerId,
+      pwJaceSourceName: sourceName,
+      pwJaceTopCards: topCards,
+      pwJaceTopCardIds: topCardIds,
+    } as any);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose ${getPlayerName(game, chosenOpponentId)} to separate the piles.`,
+      ts: Date.now(),
+    });
+
+    return;
+  }
+
+  // ===== GENERIC: "You may cast <that card> from exile without paying its mana cost." =====
+  // Used by planeswalker templates and other effects that exile a card then offer a free cast.
+  if (stepData.castFromExileCardId && stepData.castFromExileCard) {
+    const choiceId = extractId(selectedOption) || 'decline';
+    const exiledCardId = String(stepData.castFromExileCardId);
+    const declineDestination = String(stepData.castFromExileDeclineDestination || 'exile');
+    const zones = game.state?.zones?.[playerId];
+    if (!zones || !zones.exile) {
+      debugWarn(2, `[Resolution] Cast-from-exile: No exile zone found for player ${playerId}`);
+      return;
+    }
+
+    const cardIndex = zones.exile.findIndex((c: any) => c?.id === exiledCardId);
+    if (cardIndex === -1) {
+      debugWarn(2, `[Resolution] Cast-from-exile: Card ${exiledCardId} not found in exile`);
+      return;
+    }
+
+    const exiledCard = zones.exile[cardIndex];
+    const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
+
+    if (choiceId === 'cast') {
+      zones.exile.splice(cardIndex, 1);
+      zones.exileCount = zones.exile.length;
+
+      const stackItem = {
+        id: uid('free_exile_spell'),
+        type: 'spell',
+        card: { ...exiledCard, zone: 'stack' },
+        controller: playerId,
+        targets: [],
+        castFromHand: false,
+        castFromExile: true,
+        castWithoutPayingManaCost: true,
+      };
+
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} cast ${exiledCard.name} from exile without paying its mana cost (${sourceName}).`,
+        ts: Date.now(),
+      });
+    } else {
+      if (declineDestination === 'graveyard') {
+        zones.exile.splice(cardIndex, 1);
+        zones.exileCount = zones.exile.length;
+        zones.graveyard = zones.graveyard || [];
+        zones.graveyard.push({ ...exiledCard, zone: 'graveyard' });
+        zones.graveyardCount = zones.graveyard.length;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message:
+          declineDestination === 'graveyard'
+            ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`
+            : `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} (${sourceName}).`,
+        ts: Date.now(),
+      });
+    }
+
+    // Multi-card follow-up: if this prompt is part of a queue, enqueue the next prompt.
+    try {
+      const queueIds = Array.isArray(stepData.castFromExileQueueCardIds) ? stepData.castFromExileQueueCardIds : null;
+      const queueCards = Array.isArray(stepData.castFromExileQueueCards) ? stepData.castFromExileQueueCards : null;
+      const queueIndex = Number(stepData.castFromExileQueueIndex || 0);
+      if (queueIds && queueCards && queueIds.length > 0 && queueCards.length > 0) {
+        const nextIndex = queueIndex + 1;
+        const next = queueCards[nextIndex];
+        if (next && nextIndex < queueCards.length) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: playerId as any,
+            description: `${sourceName}: You may cast ${next?.name || 'that card'} from exile without paying its mana cost.`,
+            mandatory: false,
+            sourceName,
+            sourceId: (step as any).sourceId,
+            sourceImage: (step as any).sourceImage,
+            options: [
+              { id: 'cast', label: `Cast ${next?.name || 'that card'}` },
+              { id: 'decline', label: 'Decline' },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            castFromExileCardId: next?.id,
+            castFromExileCard: next,
+            castFromExileDeclineDestination: declineDestination,
+            castFromExileQueueCardIds: queueIds,
+            castFromExileQueueCards: queueCards,
+            castFromExileQueueIndex: nextIndex,
+          } as any);
+        }
+      }
+    } catch (err) {
+      debugWarn(2, `[Resolution] Cast-from-exile: Failed to enqueue next queued prompt:`, err);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
+  // ===== PLANESWALKER: "Exile the top card... You may cast... If you don't, deal N to each opponent." =====
+  if (stepData?.pwChandraImpulseCastOrBurn === true) {
+    const choiceId = extractId(selectedOption) || 'dont';
+    const controllerId = String(stepData.pwChandraImpulseController || playerId);
+    const damage = Number(stepData.pwChandraImpulseDamage || 0);
+    const sourceName = String(stepData.pwChandraImpulseSourceName || step.sourceName || 'Ability');
+    const exiledCardId = String(stepData.pwChandraImpulseExiledCardId || '');
+
+    if (choiceId === 'cast') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} chose to cast the exiled card${exiledCardId ? ` (${exiledCardId})` : ''}.`,
+        ts: Date.now(),
+      });
+
+      // Note: We currently don't have a resolution-step-driven "cast a spell now" flow.
+      // The card remains in exile and may be cast via the normal casting pipeline.
+    } else {
+      const startingLife = game.state.startingLife || 40;
+      game.state.life = game.state.life || {};
+
+      for (const p of game.state.players || []) {
+        if (!p?.id) continue;
+        if (String(p.id) === controllerId) continue;
+        const pid = String(p.id);
+        const currentLife = game.state.life?.[pid] ?? startingLife;
+        game.state.life[pid] = currentLife - damage;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to cast the exiled card. ${sourceName} deals ${damage} damage to each opponent.`,
+        ts: Date.now(),
+      });
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
+  // ===== PLANESWALKER: "Exile the top two cards... Choose one... You may play it this turn." =====
+  if (stepData?.pwExileTopTwoChooseOnePlay === true) {
+    const chosenCardId = extractId(selectedOption);
+    const controllerId = String(stepData.pwExileTopTwoChooseOnePlayController || playerId);
+    const sourceName = String(stepData.pwExileTopTwoChooseOnePlaySourceName || step.sourceName || 'Planeswalker');
+    const cardIds: string[] = Array.isArray(stepData.pwExileTopTwoChooseOnePlayCardIds)
+      ? stepData.pwExileTopTwoChooseOnePlayCardIds
+      : [];
+
+    if (!chosenCardId || cardIds.length === 0 || !cardIds.includes(chosenCardId)) {
+      debugWarn(2, `[Resolution] pwExileTopTwoChooseOnePlay: invalid selection`);
+      return;
+    }
+
+    ;(game.state as any).playableFromExile = (game.state as any).playableFromExile || {};
+    const pfe = (((game.state as any).playableFromExile[controllerId] =
+      (game.state as any).playableFromExile[controllerId] || {}) as any);
+    pfe[chosenCardId] = (game.state as any).turnNumber ?? 0;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose an exiled card to play this turn.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
+  // ===== PLANESWALKER: "Draw a card, then put a card from your hand on top of your library." =====
+  if (stepData?.pwDrawThenHandToTop === true) {
+    const chosenCardId = extractId(selectedOption);
+    const controllerId = String(stepData.pwDrawThenHandToTopController || playerId);
+    const sourceName = String(stepData.pwDrawThenHandToTopSourceName || step.sourceName || 'Planeswalker');
+    if (!chosenCardId) {
+      debugWarn(2, `[Resolution] pwDrawThenHandToTop: missing selection`);
+      return;
+    }
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+    });
+    z.hand = z.hand || [];
+
+    const idx = (z.hand as any[]).findIndex((c: any) => String(c?.id) === String(chosenCardId));
+    if (idx < 0) {
+      debugWarn(2, `[Resolution] pwDrawThenHandToTop: selected card not in hand`);
+      return;
+    }
+
+    const [card] = (z.hand as any[]).splice(idx, 1);
+
+    const lib = (game as any).libraries?.get?.(controllerId) || (z.library as any[]) || [];
+    lib.unshift({ ...card, zone: 'library' });
+    if ((game as any).libraries?.set) {
+      (game as any).libraries.set(controllerId, lib);
+    } else {
+      z.library = lib;
+    }
+
+    z.handCount = (z.hand as any[]).length;
+    z.libraryCount = lib.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on top of their library.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
+  // ===== PLANESWALKER: "Draw N cards, then put a card from your hand on the bottom of your library." =====
+  if (stepData?.pwDrawThenHandToBottom === true) {
+    const chosenCardId = extractId(selectedOption);
+    const controllerId = String(stepData.pwDrawThenHandToBottomController || playerId);
+    const sourceName = String(stepData.pwDrawThenHandToBottomSourceName || step.sourceName || 'Planeswalker');
+    if (!chosenCardId) {
+      debugWarn(2, `[Resolution] pwDrawThenHandToBottom: missing selection`);
+      return;
+    }
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+    });
+    z.hand = z.hand || [];
+
+    const idx = (z.hand as any[]).findIndex((c: any) => String(c?.id) === String(chosenCardId));
+    if (idx < 0) {
+      debugWarn(2, `[Resolution] pwDrawThenHandToBottom: selected card not in hand`);
+      return;
+    }
+
+    const [card] = (z.hand as any[]).splice(idx, 1);
+
+    const lib = (game as any).libraries?.get?.(controllerId) || (z.library as any[]) || [];
+    lib.push({ ...card, zone: 'library' });
+    if ((game as any).libraries?.set) {
+      (game as any).libraries.set(controllerId, lib);
+    } else {
+      z.library = lib;
+    }
+
+    z.handCount = (z.hand as any[]).length;
+    z.libraryCount = lib.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on the bottom of their library.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
+  // ===== PLANESWALKER: "You may sacrifice another permanent. If you do, gain N life and draw." =====
+  if (stepData?.pwSacAnotherPermanentGainLifeDraw === true) {
+    const choiceId = extractId(selectedOption) || 'dont';
+    const stage = String(stepData.pwSacAnotherPermanentStage || '');
+    const controllerId = String(stepData.pwSacAnotherPermanentController || playerId);
+    const lifeGain = Number(stepData.pwSacAnotherPermanentLifeGain || 0);
+    const sourceName = String(stepData.pwSacAnotherPermanentSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = stepData.pwSacAnotherPermanentSourcePermanentId as string | undefined;
+
+    if (stage === 'ask') {
+      if (choiceId !== 'sac') {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to sacrifice a permanent.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const battlefield = game.state?.battlefield || [];
+      const valid = battlefield
+        .filter((p: any) => p && String(p.controller) === controllerId)
+        .filter((p: any) => !sourcePermanentId || String(p.id) !== String(sourcePermanentId))
+        .map((p: any) => ({
+          id: p.id,
+          label: p.card?.name || 'Permanent',
+          description: p.card?.type_line || 'permanent',
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
+
+      if (valid.length === 0) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} has no other permanent to sacrifice.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: controllerId as PlayerID,
+        description: `Choose a permanent to sacrifice`,
+        mandatory: true,
+        sourceId: sourcePermanentId,
+        sourceName,
+        validTargets: valid,
+        targetTypes: ['sacrifice_target'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'a permanent you control',
+        pwSacAnotherPermanentGainLifeDraw: true,
+        pwSacAnotherPermanentStage: 'select_sacrifice',
+        pwSacAnotherPermanentController: controllerId,
+        pwSacAnotherPermanentSourceName: sourceName,
+        pwSacAnotherPermanentSourcePermanentId: sourcePermanentId,
+        pwSacAnotherPermanentLifeGain: lifeGain,
+      } as any);
+
+      return;
+    }
+
+    return;
+  }
+
+  // ===== GENERIC: "You may sacrifice a <Subtype>. When you do, ..." =====
+  if (stepData?.sacrificeWhenYouDo === true) {
+    const choiceId = extractId(selectedOption);
+    const stage = String(stepData.sacrificeWhenYouDoStage || '');
+    const controllerId = (stepData.sacrificeWhenYouDoController as string | undefined) || playerId;
+    const subtype = String(stepData.sacrificeWhenYouDoSubtype || '').trim();
+    const damage = Number(stepData.sacrificeWhenYouDoDamage || 0);
+    const lifeGain = Number(stepData.sacrificeWhenYouDoLifeGain || 0);
+    const sourceName = String(stepData.sacrificeWhenYouDoSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = stepData.sacrificeWhenYouDoSourcePermanentId as string | undefined;
+
+    if (stage === 'ask') {
+      if (!choiceId || choiceId === 'decline' || choiceId === 'dont') {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to sacrifice a ${subtype}.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const battlefield = game.state?.battlefield || [];
+      const subtypeLower = subtype.toLowerCase();
+      const validVamps = battlefield
+        .filter((p: any) => p && p.controller === controllerId)
+        .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes(subtypeLower))
+        .map((p: any) => ({
+          id: p.id,
+          label: p.card?.name || 'Permanent',
+          description: p.card?.type_line || '',
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
+
+      if (validVamps.length === 0) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} has no ${subtype} to sacrifice.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: controllerId as PlayerID,
+        description: `Choose a ${subtype} to sacrifice`,
+        mandatory: true,
+        sourceId: sourcePermanentId,
+        sourceName,
+        validTargets: validVamps,
+        targetTypes: ['sacrifice_target'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: `${subtype} you control`,
+        sacrificeWhenYouDo: true,
+        sacrificeWhenYouDoStage: 'select_sacrifice',
+        sacrificeWhenYouDoSubtype: subtype,
+        sacrificeWhenYouDoDamage: damage,
+        sacrificeWhenYouDoLifeGain: lifeGain,
+        sacrificeWhenYouDoController: controllerId,
+        sacrificeWhenYouDoSourceName: sourceName,
+        sacrificeWhenYouDoSourcePermanentId: sourcePermanentId,
+      } as any);
+
+      return;
+    }
+
+    return;
+  }
+
+  // ===== GENERIC: Attach an Equipment you control to a created token =====
+  if (stepData?.attachEquipmentToCreatedToken === true) {
+    const choiceId = extractId(selectedOption);
+    const controllerId = (stepData.attachEquipmentToCreatedTokenController as string | undefined) || playerId;
+    const tokenPermanentId = stepData.attachEquipmentToCreatedTokenPermanentId as string | undefined;
+    const sourceName = String(stepData.attachEquipmentToCreatedTokenSourceName || step.sourceName || 'Ability');
+
+    if (!tokenPermanentId) return;
+
+    if (!choiceId || choiceId === 'decline') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to attach an Equipment.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    const validEquipment = battlefield
+      .filter((p: any) => p && p.controller === controllerId)
+      .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('equipment'))
+      .map((p: any) => ({
+        id: p.id,
+        label: p.card?.name || 'Equipment',
+        description: p.card?.type_line || '',
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+      }));
+
+    if (validEquipment.length === 0) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} controls no Equipment to attach.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: controllerId as PlayerID,
+      description: `Choose an Equipment you control to attach`,
+      mandatory: true,
+      sourceName,
+      validTargets: validEquipment,
+      targetTypes: ['equipment'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'Equipment you control',
+      attachEquipmentToCreatedTokenSelectEquipment: true,
+      attachEquipmentToCreatedTokenPermanentId: tokenPermanentId,
+      attachEquipmentToCreatedTokenController: controllerId,
+      attachEquipmentToCreatedTokenSourceName: sourceName,
+    } as any);
+
+    return;
+  }
+
+  // ===== GENERIC: Venture into the dungeon =====
+  if (stepData?.ventureIntoDungeon === true) {
+    const stateAny = game.state as any;
+    stateAny.dungeonProgress = stateAny.dungeonProgress || {};
+    const prog = stateAny.dungeonProgress[playerId];
+
+    if (!prog) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: playerId as PlayerID,
+        description: 'Choose a dungeon to enter',
+        mandatory: true,
+        sourceName: String(stepData.ventureIntoDungeonSourceName || step.sourceName || 'Venture'),
+        options: [
+          { id: 'lost_mine', label: 'Lost Mine of Phandelver' },
+          { id: 'mad_mage', label: 'Dungeon of the Mad Mage' },
+          { id: 'tomb', label: 'Tomb of Annihilation' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        ventureChooseDungeon: true,
+      } as any);
+      return;
+    }
+
+    prog.roomIndex = (prog.roomIndex || 0) + 1;
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} ventured further into ${prog.dungeonName || 'a dungeon'} (room ${prog.roomIndex}).`,
+      ts: Date.now(),
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  if (stepData?.ventureChooseDungeon === true) {
+    const choiceId = extractId(selectedOption);
+    const stateAny = game.state as any;
+    stateAny.dungeonProgress = stateAny.dungeonProgress || {};
+
+    const dungeonName =
+      choiceId === 'mad_mage' ? 'Dungeon of the Mad Mage' :
+      choiceId === 'tomb' ? 'Tomb of Annihilation' :
+      'Lost Mine of Phandelver';
+
+    stateAny.dungeonProgress[playerId] = { dungeonId: choiceId || 'lost_mine', dungeonName, roomIndex: 0 };
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} entered ${dungeonName}.`,
+      ts: Date.now(),
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  // ===== GENERIC: Retarget a copied spell =====
+  if (stepData?.retargetSpellCopy === true) {
+    const choiceId = extractId(selectedOption);
+    const copyStackItemId = stepData.retargetSpellCopyStackItemId as string | undefined;
+    if (!copyStackItemId) return;
+    if (!choiceId || choiceId === 'keep') {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    const validTargets = Array.isArray(stepData.retargetSpellCopyValidTargets) ? stepData.retargetSpellCopyValidTargets : [];
+    const minTargets = Number(stepData.retargetSpellCopyMinTargets || 1);
+    const maxTargets = Number(stepData.retargetSpellCopyMaxTargets || 1);
+    const targetDescription = String(stepData.retargetSpellCopyTargetDescription || 'target');
+
+    if (validTargets.length === 0) {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: playerId as PlayerID,
+      description: `Choose ${targetDescription} for the copied spell`,
+      mandatory: true,
+      sourceId: copyStackItemId,
+      sourceName: step.sourceName,
+      validTargets,
+      targetTypes: ['spell_target'],
+      minTargets,
+      maxTargets,
+      targetDescription,
+    } as any);
+
+    return;
+  }
+
+  // ===== PLANESWALKER: LOOK TOP TWO, PUT ONE INTO HAND, OTHER ON BOTTOM =====
+  if (stepData?.pwLook2Pick1HandBottom === true) {
+    const extractId = (sel: any): string | null => {
+      if (typeof sel === 'string') return sel;
+      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
+      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
+      return null;
+    };
+
+    const chosenCardId = extractId(selectedOption);
+    const controllerId = (stepData.pwLook2Controller as string | undefined) || playerId;
+    const sourceName = (stepData.pwLook2SourceName as string | undefined) || step.sourceName || 'Planeswalker';
+    const topCardIds: string[] = Array.isArray(stepData.pwLook2TopCardIds) ? stepData.pwLook2TopCardIds : [];
+    if (!chosenCardId || topCardIds.length < 2) {
+      debugWarn(2, `[Resolution] pwLook2Pick1HandBottom: invalid selection or missing card ids`);
+      return;
+    }
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0, graveyard: [], graveyardCount: 0 });
+    const lib: any[] = z.library || [];
+    const hand: any[] = z.hand || [];
+
+    const removed: any[] = [];
+    for (const cid of topCardIds) {
+      const idx = lib.findIndex((c: any) => c?.id === cid);
+      if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
+    }
+    while (removed.length < 2 && lib.length > 0) removed.push(lib.shift());
+
+    const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
+    const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
+
+    if (chosen) hand.push({ ...chosen, zone: 'hand' });
+    if (other) lib.push({ ...other, zone: 'library' });
+
+    z.library = lib;
+    z.hand = hand;
+    z.libraryCount = lib.length;
+    z.handCount = hand.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the other on the bottom of their library.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    return;
+  }
+
+  // ===== PLANESWALKER: LOOK TOP TWO, PUT ONE INTO HAND, OTHER INTO GRAVEYARD =====
+  if (stepData?.pwLook2Pick1HandOtherGraveyard === true) {
+    const chosenCardId = extractId(selectedOption);
+    const controllerId = (stepData.pwLook2Controller as string | undefined) || playerId;
+    const sourceName = (stepData.pwLook2SourceName as string | undefined) || step.sourceName || 'Planeswalker';
+    const topCardIds: string[] = Array.isArray(stepData.pwLook2TopCardIds) ? stepData.pwLook2TopCardIds : [];
+    if (!chosenCardId || topCardIds.length < 2) {
+      debugWarn(2, `[Resolution] pwLook2Pick1HandOtherGraveyard: invalid selection or missing card ids`);
+      return;
+    }
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0, graveyard: [], graveyardCount: 0 });
+    const lib: any[] = z.library || [];
+    const hand: any[] = z.hand || [];
+    const gy: any[] = z.graveyard || (z.graveyard = []);
+
+    const removed: any[] = [];
+    for (const cid of topCardIds) {
+      const idx = lib.findIndex((c: any) => c?.id === cid);
+      if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
+    }
+    while (removed.length < 2 && lib.length > 0) removed.push(lib.shift());
+
+    const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
+    const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
+
+    if (chosen) hand.push({ ...chosen, zone: 'hand' });
+    if (other) gy.unshift({ ...other, zone: 'graveyard' });
+
+    z.library = lib;
+    z.hand = hand;
+    z.graveyard = gy;
+    z.libraryCount = lib.length;
+    z.handCount = hand.length;
+    z.graveyardCount = gy.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the other into their graveyard.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    return;
+  }
+
+  // ===== PLANESWALKER: LOOK TOP TWO, PUT ONE INTO GRAVEYARD =====
+  if (stepData?.pwLook2Put1Graveyard === true) {
+    const chosenCardId = extractId(selectedOption);
+    const controllerId = (stepData.pwLook2Controller as string | undefined) || playerId;
+    const sourceName = (stepData.pwLook2SourceName as string | undefined) || step.sourceName || 'Planeswalker';
+    const topCardIds: string[] = Array.isArray(stepData.pwLook2TopCardIds) ? stepData.pwLook2TopCardIds : [];
+    if (!chosenCardId || topCardIds.length < 2) {
+      debugWarn(2, `[Resolution] pwLook2Put1Graveyard: invalid selection or missing card ids`);
+      return;
+    }
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || {
+      library: [],
+      libraryCount: 0,
+      hand: [],
+      handCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+    });
+    const lib: any[] = z.library || [];
+    const gy: any[] = z.graveyard || (z.graveyard = []);
+
+    const removed: any[] = [];
+    for (const cid of topCardIds) {
+      const idx = lib.findIndex((c: any) => c?.id === cid);
+      if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
+    }
+    while (removed.length < 2 && lib.length > 0) removed.push(lib.shift());
+
+    const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
+    const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
+
+    if (chosen) gy.unshift({ ...chosen, zone: 'graveyard' });
+    if (other) lib.unshift({ ...other, zone: 'library' });
+
+    z.library = lib;
+    z.graveyard = gy;
+    z.libraryCount = lib.length;
+    z.graveyardCount = gy.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their graveyard.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    return;
+  }
+
+  // ===== PLANESWALKER: JACE TOP 3 -> CONTROLLER CHOOSES PILE TO PUT INTO HAND =====
+  if (stepData?.pwJaceTop3PickPile === true) {
+    const choiceId = extractId(selectedOption);
+    if (choiceId !== 'pileA' && choiceId !== 'pileB') {
+      debugWarn(2, `[Resolution] pwJaceTop3PickPile: invalid choice ${choiceId}`);
+      return;
+    }
+
+    const controllerId = String(stepData.pwJaceControllerId || playerId);
+    const sourceName = String(stepData.pwJaceSourceName || step.sourceName || 'Planeswalker');
+    const topCards: any[] = Array.isArray(stepData.pwJaceTopCards) ? stepData.pwJaceTopCards : [];
+    const originalOrder: string[] = Array.isArray(stepData.pwJaceTopCardIds)
+      ? stepData.pwJaceTopCardIds.map(String)
+      : topCards.map((c: any) => c?.id).filter(Boolean);
+    const pileA: string[] = Array.isArray(stepData.pwJacePileA) ? stepData.pwJacePileA.map(String) : [];
+    const pileB: string[] = Array.isArray(stepData.pwJacePileB) ? stepData.pwJacePileB.map(String) : [];
+
+    const chosenIds = choiceId === 'pileA' ? pileA : pileB;
+    const otherIds = choiceId === 'pileA' ? pileB : pileA;
+
+    const byId = new Map(topCards.map((c: any) => [String(c?.id || ''), c]));
+    const orderedIds = (ids: string[]) => {
+      const set = new Set(ids);
+      return originalOrder.filter((id) => set.has(id));
+    };
+
+    const chosenCards = orderedIds(chosenIds).map((id) => byId.get(id)).filter(Boolean);
+    const otherCards = orderedIds(otherIds).map((id) => byId.get(id)).filter(Boolean);
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || {
+      library: [],
+      libraryCount: 0,
+      hand: [],
+      handCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    });
+    const hand: any[] = Array.isArray(z.hand) ? z.hand : [];
+    const lib: any[] = Array.isArray(z.library) ? z.library : [];
+
+    for (const c of chosenCards) hand.push({ ...c, zone: 'hand' });
+    for (const c of otherCards) lib.push({ ...c, zone: 'library' });
+
+    z.hand = hand;
+    z.library = lib;
+    z.handCount = hand.length;
+    z.libraryCount = lib.length;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose a pile to put into their hand.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  // ===== PLANESWALKER: LILIANA -> TARGET PLAYER CHOOSES PILE TO SACRIFICE =====
+  if (stepData?.pwLilianaChoosePileToSacrifice === true) {
+    const choiceId = extractId(selectedOption);
+    if (choiceId !== 'pileA' && choiceId !== 'pileB') {
+      debugWarn(2, `[Resolution] pwLilianaChoosePileToSacrifice: invalid choice ${choiceId}`);
+      return;
+    }
+
+    const targetPlayerId = String(stepData.pwLilianaTargetPlayerId || playerId);
+    const sourceName = String(stepData.pwLilianaSourceName || step.sourceName || 'Planeswalker');
+    const pileA: string[] = Array.isArray(stepData.pwLilianaPileA) ? stepData.pwLilianaPileA.map(String) : [];
+    const pileB: string[] = Array.isArray(stepData.pwLilianaPileB) ? stepData.pwLilianaPileB.map(String) : [];
+    const toSacrifice = choiceId === 'pileA' ? pileA : pileB;
+
+    if (!toSacrifice.length) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} chose an empty pile to sacrifice.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    const ctx = {
+      gameId,
+      state: game.state,
+      commandZone: (game.state as any).commandZone || {},
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+    } as unknown as GameContext;
+
+    const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+
+    for (const permId of toSacrifice) {
+      try {
+        movePermanentToGraveyard(ctx, permId, true);
+      } catch {
+        // ignore
+      }
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} sacrificed ${toSacrifice.length} permanent${toSacrifice.length !== 1 ? 's' : ''}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  // ===== PLANESWALKER: YOU MAY DISCARD; IF YOU DO, DRAW =====
+  if (stepData?.pwMayDiscardThenDraw === true) {
+    const extractId = (sel: any): string | null => {
+      if (typeof sel === 'string') return sel;
+      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
+      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
+      return null;
+    };
+
+    const choiceId = extractId(selectedOption);
+    const stage = String(stepData.pwMayDiscardThenDrawStage || '');
+    const controllerId = (stepData.pwMayDiscardThenDrawPlayerId as string | undefined) || playerId;
+    const sourceName = (stepData.pwMayDiscardThenDrawSourceName as string | undefined) || step.sourceName || 'Planeswalker';
+
+    if (stage === 'ask') {
+      if (!choiceId || choiceId === 'dont' || choiceId === 'decline') {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to discard.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      if (choiceId !== 'discard') {
+        debugWarn(2, `[Resolution] pwMayDiscardThenDraw: unexpected choice ${choiceId}`);
+        return;
+      }
+
+      const state = game.state || {};
+      const zones = (state.zones = state.zones || {});
+      const z = (zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
+      const hand: any[] = z.hand || [];
+      const actualDiscard = hand.length > 0 ? 1 : 0;
+      if (actualDiscard <= 0) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} had no cards to discard.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.DISCARD_SELECTION,
+        playerId: controllerId,
+        description: `${sourceName}: Discard 1 card`,
+        mandatory: true,
+        sourceName: sourceName,
+        discardCount: 1,
+        hand: hand.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          type_line: c.type_line,
+          oracle_text: c.oracle_text,
+          image_uris: c.image_uris,
+          mana_cost: c.mana_cost,
+          cmc: c.cmc,
+          colors: c.colors,
+        })),
+        afterDiscardDrawCount: 1,
+      } as any);
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+
+      return;
+    }
+  }
+
+  // ===== PLANESWALKER: ADD TWO MANA IN ANY COMBINATION (DRAGONS ONLY) =====
+  if (stepData?.pwAddTwoManaAnyCombination === true) {
+    const extractId = (sel: any): string | null => {
+      if (typeof sel === 'string') return sel;
+      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
+      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
+      return null;
+    };
+
+    const stage = String(stepData.pwAddTwoManaStage || '');
+    const controllerId = (stepData.pwAddTwoManaController as string | undefined) || playerId;
+    const sourceName = (stepData.pwAddTwoManaSourceName as string | undefined) || step.sourceName || 'Planeswalker';
+    const sourceId = (stepData.pwAddTwoManaSourceId as string | undefined) || step.sourceId;
+    const restriction = (stepData.pwAddTwoManaRestriction as any) || 'dragon_spells';
+    const isUnrestricted = restriction === 'unrestricted' || restriction === 'none' || restriction === null || restriction === undefined;
+
+    const validColors = new Set(['white', 'blue', 'black', 'red', 'green']);
+    const chosen = extractId(selectedOption);
+    if (!chosen || !validColors.has(String(chosen).toLowerCase())) {
+      debugWarn(2, `[Resolution] pwAddTwoManaAnyCombination: invalid color selection`);
+      return;
+    }
+    const chosenColor = String(chosen).toLowerCase();
+
+    const options = [
+      { id: 'white', label: 'White' },
+      { id: 'blue', label: 'Blue' },
+      { id: 'black', label: 'Black' },
+      { id: 'red', label: 'Red' },
+      { id: 'green', label: 'Green' },
+    ];
+
+    if (stage === 'first') {
+      // Queue second color choice.
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: controllerId,
+        description: isUnrestricted
+          ? `${sourceName}: Choose a color for the second mana`
+          : `${sourceName}: Choose a color for the second mana (spend only to cast Dragon spells)`,
+        mandatory: true,
+        sourceName,
+        options,
+        minSelections: 1,
+        maxSelections: 1,
+        pwAddTwoManaAnyCombination: true,
+        pwAddTwoManaStage: 'second',
+        pwAddTwoManaController: controllerId,
+        pwAddTwoManaSourceName: sourceName,
+        pwAddTwoManaSourceId: sourceId,
+        pwAddTwoManaRestriction: restriction,
+        pwAddTwoManaFirstColor: chosenColor,
+      } as any);
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+
+      return;
+    }
+
+    if (stage === 'second') {
+      const firstColor = String(stepData.pwAddTwoManaFirstColor || '').toLowerCase();
+      if (!validColors.has(firstColor)) {
+        debugWarn(2, `[Resolution] pwAddTwoManaAnyCombination: missing first color`);
+        return;
+      }
+
+      if (isUnrestricted) {
+        const { getOrInitManaPool } = await import('./util.js');
+        const pool = getOrInitManaPool(game.state, controllerId) as any;
+        if (firstColor === chosenColor) {
+          pool[firstColor] = (pool[firstColor] || 0) + 2;
+        } else {
+          pool[firstColor] = (pool[firstColor] || 0) + 1;
+          pool[chosenColor] = (pool[chosenColor] || 0) + 1;
+        }
+      } else {
+        const { addRestrictedManaToPool } = await import('./util.js');
+        // Add two restricted mana (merge if same color).
+        if (firstColor === chosenColor) {
+          addRestrictedManaToPool(game.state, controllerId, firstColor as any, 2, restriction, undefined, sourceId, sourceName);
+        } else {
+          addRestrictedManaToPool(game.state, controllerId, firstColor as any, 1, restriction, undefined, sourceId, sourceName);
+          addRestrictedManaToPool(game.state, controllerId, chosenColor as any, 1, restriction, undefined, sourceId, sourceName);
+        }
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: isUnrestricted
+          ? `${sourceName}: ${getPlayerName(game, controllerId)} added two mana (${firstColor}${firstColor === chosenColor ? '' : ` and ${chosenColor}`}).`
+          : `${sourceName}: ${getPlayerName(game, controllerId)} added two mana (${firstColor}${firstColor === chosenColor ? '' : ` and ${chosenColor}`}) that can be spent only to cast Dragon spells.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+
+      return;
+    }
+  }
+
+  // ===== PLANESWALKER: ADD TEN MANA OF ANY ONE COLOR =====
+  if (stepData?.pwAddTenManaOneColor === true) {
+    const extractId = (sel: any): string | null => {
+      if (typeof sel === 'string') return sel;
+      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
+      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
+      return null;
+    };
+
+    const controllerId = (stepData.pwAddTenManaController as string | undefined) || playerId;
+    const sourceName = (stepData.pwAddTenManaSourceName as string | undefined) || step.sourceName || 'Planeswalker';
+
+    const validColors = new Set(['white', 'blue', 'black', 'red', 'green']);
+    const chosen = extractId(selectedOption);
+    if (!chosen || !validColors.has(String(chosen).toLowerCase())) {
+      debugWarn(2, `[Resolution] pwAddTenManaOneColor: invalid color selection`);
+      return;
+    }
+    const chosenColor = String(chosen).toLowerCase();
+
+    const { getOrInitManaPool } = await import('./util.js');
+    const pool = getOrInitManaPool(game.state, controllerId) as any;
+    pool[chosenColor] = (pool[chosenColor] || 0) + 10;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} added ten mana (${chosenColor}).`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
+  // ===== PLANESWALKER: PAY ANY AMOUNT; LOOK X; PICK 1; BOTTOM RANDOM =====
+  if (stepData?.pwPayAnyAmountLook === true) {
+    const extractId = (sel: any): string | null => {
+      if (typeof sel === 'string') return sel;
+      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
+      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
+      return null;
+    };
+
+    const stage = String(stepData.pwPayAnyAmountLookStage || '');
+    const controllerId = (stepData.pwPayAnyAmountLookController as string | undefined) || playerId;
+    const sourceName = (stepData.pwPayAnyAmountLookSourceName as string | undefined) || step.sourceName || 'Planeswalker';
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0 });
+    const lib: any[] = Array.isArray(z.library) ? z.library : [];
+    const hand: any[] = Array.isArray(z.hand) ? z.hand : [];
+
+    const pool: any = state.manaPool?.[controllerId] || {
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    };
+
+    const maxPay =
+      (pool.white || 0) +
+      (pool.blue || 0) +
+      (pool.black || 0) +
+      (pool.red || 0) +
+      (pool.green || 0) +
+      (pool.colorless || 0);
+
+    if (stage === 'chooseX') {
+      const raw = extractId(selectedOption);
+      const chosenX = Math.max(0, Math.min(maxPay, parseInt(String(raw || '0'), 10) || 0));
+
+      // Deduct chosenX from unrestricted pool (restricted mana is not spendable for this effect).
+      let remaining = chosenX;
+      const spendOrder: Array<'colorless' | 'white' | 'blue' | 'black' | 'red' | 'green'> = [
+        'colorless',
+        'white',
+        'blue',
+        'black',
+        'red',
+        'green',
+      ];
+      for (const c of spendOrder) {
+        if (remaining <= 0) break;
+        const avail = pool[c] || 0;
+        if (avail <= 0) continue;
+        const take = Math.min(avail, remaining);
+        pool[c] = avail - take;
+        remaining -= take;
+      }
+
+      if (!state.manaPool) state.manaPool = {};
+      state.manaPool[controllerId] = pool;
+
+      if (chosenX <= 0 || lib.length === 0) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} paid ${chosenX} and looked at 0 cards.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+
+      const top = lib.slice(0, chosenX);
+      const options = top.map((c: any) => ({
+        id: c?.id,
+        label: c?.name || 'Unknown',
+        description: c?.type_line,
+        imageUrl: c?.image_uris?.normal || c?.image_uris?.art_crop || c?.image_uris?.small,
+      }));
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: controllerId,
+        description: `${sourceName}: Choose a card to put into your hand`,
+        mandatory: true,
+        sourceName,
+        options,
+        minSelections: 1,
+        maxSelections: 1,
+        pwPayAnyAmountLook: true,
+        pwPayAnyAmountLookStage: 'chooseCard',
+        pwPayAnyAmountLookController: controllerId,
+        pwPayAnyAmountLookSourceName: sourceName,
+        pwPayAnyAmountLookTopCardIds: top.map((c: any) => c?.id).filter(Boolean),
+        pwPayAnyAmountLookX: chosenX,
+      } as any);
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    if (stage === 'chooseCard') {
+      const chosenCardId = extractId(selectedOption);
+      const topCardIds: string[] = Array.isArray(stepData.pwPayAnyAmountLookTopCardIds)
+        ? stepData.pwPayAnyAmountLookTopCardIds
+        : [];
+
+      if (!chosenCardId || topCardIds.length === 0) {
+        debugWarn(2, `[Resolution] pwPayAnyAmountLook chooseCard: invalid selection or missing ids`);
+        return;
+      }
+
+      // Remove looked cards from library by id (best-effort), fallback to shifting.
+      const removed: any[] = [];
+      for (const cid of topCardIds) {
+        const idx = lib.findIndex((c: any) => c?.id === cid);
+        if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
+      }
+      while (removed.length < topCardIds.length && lib.length > 0) {
+        removed.push(lib.shift());
+      }
+
+      const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
+      const rest = removed.filter((c: any) => c && c?.id !== chosen?.id);
+
+      // Randomize rest order before putting on bottom.
+      for (let i = rest.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [rest[i], rest[j]] = [rest[j], rest[i]];
+      }
+
+      if (chosen) hand.push({ ...chosen, zone: 'hand' });
+      for (const c of rest) {
+        lib.push({ ...c, zone: 'library' });
+      }
+
+      z.library = lib;
+      z.hand = hand;
+      z.libraryCount = lib.length;
+      z.handCount = hand.length;
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the rest on the bottom of their library in a random order.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+  }
+
+  // ===== PLANESWALKER: REVEAL TOP TWO, OPPONENT CHOOSES (Karn-style) =====
+  if (stepData?.pwkarn === true) {
+    // Helper to extract first selected ID
+    const extractId = (sel: any): string | null => {
+      if (typeof sel === 'string') return sel;
+      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
+      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
+      return null;
+    };
+
+    const stage = String(stepData.pwkarnStage || '');
+    const controllerId = stepData.pwkarnController as string | undefined;
+    const sourceName = stepData.pwkarnSourceName as string | undefined;
+
+    if (!controllerId || !sourceName) {
+      debugWarn(2, `[Resolution] pwkarn step missing controller/sourceName`);
+      return;
+    }
+
+    // Stage 1: controller chooses which opponent makes the card choice
+    if (stage === 'chooseOpponent') {
+      const chosenOpponentId = extractId(selectedOption);
+      if (!chosenOpponentId) {
+        debugWarn(2, `[Resolution] pwkarn chooseOpponent: no opponent selected`);
+        return;
+      }
+
+      const topCards: any[] = Array.isArray(stepData.pwkarnTopCards) ? stepData.pwkarnTopCards : [];
+      if (topCards.length < 2) {
+        debugWarn(2, `[Resolution] pwkarn chooseOpponent: missing top cards snapshot`);
+        return;
+      }
+
+      const controllerName = getPlayerName(game, controllerId);
+      const options = topCards.slice(0, 2).map((c: any) => ({
+        id: c.id,
+        label: c.name || 'Unknown',
+        description: c.type_line,
+        imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
+      }));
+
+      // Enqueue the opponent's card choice as the next step.
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: chosenOpponentId,
+        description: `${sourceName}: Choose a card to put into ${controllerName}'s hand`,
+        mandatory: true,
+        sourceName,
+        options,
+        minSelections: 1,
+        maxSelections: 1,
+        pwkarn: true,
+        pwkarnStage: 'chooseCard',
+        pwkarnController: controllerId,
+        pwkarnSourceName: sourceName,
+        pwkarnTopCardIds: topCards.slice(0, 2).map((c: any) => c.id),
+      } as any);
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${controllerName} revealed ${options.map(o => o.label).join(' and ')}.`,
+        ts: Date.now(),
+      });
+
+      return;
+    }
+
+    // Stage 2: chosen opponent chooses which revealed card goes to hand
+    if (stage === 'chooseCard') {
+      const chosenCardId = extractId(selectedOption);
+      const topCardIds: string[] = Array.isArray(stepData.pwkarnTopCardIds) ? stepData.pwkarnTopCardIds : [];
+      if (!chosenCardId || topCardIds.length < 2) {
+        debugWarn(2, `[Resolution] pwkarn chooseCard: invalid selection or card ids`);
+        return;
+      }
+
+      const state = game.state || {};
+      const zones = (state.zones = state.zones || {});
+      const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0, exile: [], exileCount: 0 });
+
+      const lib: any[] = z.library || [];
+      const hand: any[] = z.hand || [];
+      const exile: any[] = z.exile || [];
+
+      // Remove the two revealed cards from the library by id (best-effort).
+      const removed: any[] = [];
+      for (const cid of topCardIds) {
+        const idx = lib.findIndex((c: any) => c?.id === cid);
+        if (idx >= 0) {
+          removed.push(lib.splice(idx, 1)[0]);
+        }
+      }
+
+      // Fallback: if we couldn't find by id, just take top two.
+      while (removed.length < 2 && lib.length > 0) {
+        removed.push(lib.shift());
+      }
+
+      const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
+      const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
+
+      if (chosen) {
+        hand.push({ ...chosen, zone: 'hand' });
+      }
+      if (other) {
+        exile.push({
+          ...other,
+          zone: 'exile',
+          silverCounters: ((other as any).silverCounters || 0) + 1,
+          exiledBy: sourceName,
+        });
+      }
+
+      z.library = lib;
+      z.hand = hand;
+      z.exile = exile;
+      z.libraryCount = lib.length;
+      z.handCount = hand.length;
+      z.exileCount = exile.length;
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, playerId)} chose ${chosen?.name || 'a card'} for ${getPlayerName(game, controllerId)}. The other card was exiled with a silver counter.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+
+      return;
+    }
+  }
   
   // ===== REBOUND HANDLING =====
   // Handle rebound trigger resolution - player may cast the spell from exile
@@ -6835,6 +9906,71 @@ async function handleModalChoiceResponse(
     }
     return;
   }
+
+  // ========================================================================
+  // PLANESWALKER TOKEN KEYWORD COUNTER CHOICE (Beast: vigilance/reach/trample)
+  // ========================================================================
+  const beastCounterData = (modalStep as any).pwBeastKeywordCounterData;
+  if (beastCounterData) {
+    const { tokenPermanentId, tokenName } = beastCounterData;
+
+    let chosen: string | null = null;
+    if (typeof selections === 'string') {
+      chosen = selections;
+    } else if (Array.isArray(selections) && selections.length > 0) {
+      chosen = selections[0];
+    }
+
+    const allowed = new Set(['vigilance', 'reach', 'trample']);
+    if (!chosen || chosen === 'decline' || !allowed.has(String(chosen).toLowerCase())) {
+      debug(2, `[Resolution] Beast keyword counter: no valid choice`);
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    const tokenPerm = battlefield.find((p: any) => p.id === tokenPermanentId);
+    if (!tokenPerm) {
+      debug(2, `[Resolution] Beast keyword counter: token ${tokenPermanentId} no longer on battlefield`);
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      return;
+    }
+
+    const counterName = String(chosen).toLowerCase();
+    tokenPerm.counters = tokenPerm.counters || {};
+    tokenPerm.counters[counterName] = (tokenPerm.counters[counterName] || 0) + 1;
+
+    tokenPerm.grantedAbilities = tokenPerm.grantedAbilities || [];
+    if (!tokenPerm.grantedAbilities.includes(counterName)) {
+      tokenPerm.grantedAbilities.push(counterName);
+    }
+
+    tokenPerm.card = tokenPerm.card || {};
+    tokenPerm.card.keywords = tokenPerm.card.keywords || [];
+    const keywordCapitalized = counterName.charAt(0).toUpperCase() + counterName.slice(1);
+    if (!tokenPerm.card.keywords.includes(keywordCapitalized)) {
+      tokenPerm.card.keywords.push(keywordCapitalized);
+    }
+
+    debug(2, `[Resolution] Beast keyword counter: added ${counterName} to ${tokenName || 'token'} (${tokenPermanentId})`);
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${tokenName || 'Token'} gets a ${counterName} counter.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    return;
+  }
   
   // Generic modal choice handling (fallback for other modal choices)
   debug(2, `[Resolution] Generic modal choice: ${step.description}, selected: ${selectedId || 'none'}`);
@@ -6926,8 +10062,7 @@ async function handleSoldierProgramChoice(
     // Get all Soldiers controlled by this player
     const soldiers = battlefield.filter((p: any) => {
       if (p.controller !== playerId) return false;
-      const typeLine = (p.card?.type_line || '').toLowerCase();
-      return typeLine.includes('soldier');
+      return permanentHasCreatureTypeNow(p, 'soldier');
     });
     
     if (soldiers.length === 0) {
