@@ -369,6 +369,40 @@ async function handleAIResolutionStep(
         debug(2, `[Resolution] AI creature type choice: chose ${chosenType}`);
         break;
       }
+
+      case ResolutionStepType.CARD_NAME_CHOICE: {
+        // AI chooses a high-frequency card name as a reasonable default
+        const chosenName = 'Sol Ring';
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [chosenName],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI card name choice: chose ${chosenName}`);
+        break;
+      }
+
+      case ResolutionStepType.NUMBER_CHOICE: {
+        const numberStep = step as any;
+        const chosenNumber =
+          typeof numberStep.defaultValue === 'number'
+            ? numberStep.defaultValue
+            : typeof numberStep.minValue === 'number'
+              ? numberStep.minValue
+              : 0;
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: chosenNumber,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI number choice: chose ${chosenNumber}`);
+        break;
+      }
       
       case ResolutionStepType.OPTION_CHOICE:
       case ResolutionStepType.MODAL_CHOICE: {

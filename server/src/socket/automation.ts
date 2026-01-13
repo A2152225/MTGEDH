@@ -859,7 +859,7 @@ async function processCastSpell(
 /**
  * Process ability activation
  */
-async function processActivateAbility(
+export async function processActivateAbility(
   gameId: string,
   playerId: string,
   ability: {
@@ -900,6 +900,44 @@ async function processActivateAbility(
     const tapAbilityMatch = oracleText.match(/\{t\}:[^.]+/i);
     const abilityText = tapAbilityMatch ? tapAbilityMatch[0] : '';
     const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
+
+    // Enforce "chosen card name" activation restrictions (Pithing Needle / Revoker / Spyglass style)
+    const normalizeText = (text: string) =>
+      (text || '')
+        .toLowerCase()
+        .replace(/[’‘]/g, "'")
+        .replace(/[“”]/g, '"')
+        .trim();
+
+    const activatingNameNorm = normalizeText(card?.name || '');
+
+    for (const restrictionPermanent of battlefield) {
+      const chosen = (restrictionPermanent as any)?.chosenCardName;
+      if (!chosen) continue;
+
+      const chosenNorm = normalizeText(String(chosen));
+      if (!chosenNorm) continue;
+      if (chosenNorm !== activatingNameNorm) continue;
+
+      const restrictionOracle = normalizeText((restrictionPermanent as any)?.card?.oracle_text || '');
+
+      // Needle / Spyglass: can't activate unless they're mana abilities
+      const blocksNonMana =
+        /activated abilities of sources with the chosen name can't be activated unless they're mana abilities\./i.test(
+          restrictionOracle
+        );
+
+      // Revoker / Gargoyle: can't activate (no exception)
+      const blocksAll = /activated abilities of sources with the chosen name can't be activated\./i.test(restrictionOracle);
+
+      if (blocksAll || (blocksNonMana && !isManaAbility)) {
+        const restrictionName = (restrictionPermanent as any)?.card?.name || 'a permanent';
+        return {
+          success: false,
+          error: `Activated abilities of ${card?.name || 'that card'} can't be activated (restricted by ${restrictionName}).`,
+        };
+      }
+    }
     
     // Import Crystal abilities dynamically to check
     const { getCrystalAbility } = await import("../state/modules/triggers/crystal-abilities.js");

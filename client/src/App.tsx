@@ -56,6 +56,7 @@ import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForces
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
 import { KynaiosChoiceModal, type KynaiosChoiceRequest } from "./components/KynaiosChoiceModal";
 import { OptionChoiceModal, type OptionChoiceRequest } from "./components/OptionChoiceModal";
+import { CardNameChoiceModal, type CardNameChoiceRequest } from "./components/CardNameChoiceModal";
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
@@ -417,6 +418,9 @@ export function App() {
     maxTargets: number;
     effectId?: string; // For tracking which effect requested the targets
     cardId?: string; // The card that is being targeted for
+    // Resolution queue integration
+    stepId?: string;
+    useResolutionQueue?: boolean;
   } | null>(null);
   
   // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)
@@ -540,6 +544,10 @@ export function App() {
   // Option Choice Modal state (Generic option selection like Agitator Ant)
   const [optionChoiceModalOpen, setOptionChoiceModalOpen] = useState(false);
   const [optionChoiceRequest, setOptionChoiceRequest] = useState<OptionChoiceRequest | null>(null);
+
+  // Card Name Choice Modal state (Pithing Needle, Runed Halo, etc.)
+  const [cardNameChoiceModalOpen, setCardNameChoiceModalOpen] = useState(false);
+  const [cardNameChoiceRequest, setCardNameChoiceRequest] = useState<CardNameChoiceRequest | null>(null);
 
   // Ponder Modal state (Ponder, Index, Telling Time, etc.)
   const [ponderModalOpen, setPonderModalOpen] = useState(false);
@@ -2842,30 +2850,68 @@ export function App() {
         });
         setCreatureTypeModalOpen(true);
       }
+      // Handle card name choice via resolution queue
+      else if (step.type === 'card_name_choice') {
+        const request: CardNameChoiceRequest = {
+          gameId: payload.gameId,
+          stepId: step.id,
+          sourceId: step.sourceId,
+          sourceName: step.sourceName || 'Name a Card',
+          sourceImage: step.sourceImage,
+          description: step.description || 'Choose a card name',
+          mandatory: step.mandatory !== false,
+        };
+
+        setCardNameChoiceRequest(request);
+        setCardNameChoiceModalOpen(true);
+      }
+      // Handle player choice via resolution queue by reusing the option choice modal
+      else if (step.type === 'player_choice') {
+        const players = (step.players || step.validPlayers || []) as Array<{ id: string; name: string }>;
+        const request: OptionChoiceRequest = {
+          gameId: payload.gameId,
+          stepId: step.id,
+          sourceId: step.sourceId,
+          sourceName: step.sourceName || 'Choose a Player',
+          sourceImage: step.sourceImage,
+          description: step.description || 'Choose a player',
+          options: players.map((p) => ({ id: p.id, label: p.name })),
+          minSelections: 1,
+          maxSelections: 1,
+          mandatory: step.mandatory !== false,
+        };
+
+        setOptionChoiceRequest(request);
+        setOptionChoiceModalOpen(true);
+      }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
       else if (step.type === 'target_selection') {
         // Convert resolution queue step to target modal format
-        const validTargets = (step.validTargets || []).map((t: any) => ({
+        const validTargets: TargetOption[] = (step.validTargets || []).map((t: any) => ({
           id: t.id,
-          kind: t.description || 'permanent',
+          type: (t.type || 'permanent') as any,
           name: t.label || t.name || 'Unknown',
+          displayName: t.label || t.name,
           imageUrl: t.imageUrl,
           controller: t.controller,
-          isOpponent: t.isOpponent,
+          typeLine: t.typeLine,
+          life: t.life,
+          zone: t.zone,
+          owner: t.owner,
+          card: t.card,
         }));
         
         setTargetModalData({
           cardId: step.sourceId || '',
-          cardName: step.sourceName || 'Effect',
-          source: step.sourceName || 'Effect',
+          source: { name: step.sourceName || 'Effect', imageUrl: step.sourceImage },
           title: step.description || `Choose target`,
           description: step.targetDescription || '',
           targets: validTargets,
           minTargets: step.minTargets || 1,
           maxTargets: step.maxTargets || 1,
           effectId: step.sourceId,
-          stepId: step.id,  // Store step ID for resolution response
-          useResolutionQueue: true,  // Flag to indicate this came from Resolution Queue
+          stepId: step.id,
+          useResolutionQueue: true,
         });
         setTargetModalOpen(true);
       }
@@ -4623,6 +4669,21 @@ export function App() {
     // Close modal after responding
     setOptionChoiceModalOpen(false);
     setOptionChoiceRequest(null);
+  };
+
+  // Card name choice response handler
+  const handleCardNameChoiceRespond = (cardName: string) => {
+    if (!safeView || !cardNameChoiceRequest) return;
+
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: cardNameChoiceRequest.stepId,
+      selections: [cardName],
+      cancelled: false,
+    });
+
+    setCardNameChoiceModalOpen(false);
+    setCardNameChoiceRequest(null);
   };
 
   // Graveyard view handler
@@ -6957,6 +7018,13 @@ export function App() {
         open={optionChoiceModalOpen}
         request={optionChoiceRequest}
         onRespond={handleOptionChoiceRespond}
+      />
+
+      {/* Card Name Choice Modal (Pithing Needle, Runed Halo, etc.) */}
+      <CardNameChoiceModal
+        open={cardNameChoiceModalOpen}
+        request={cardNameChoiceRequest}
+        onRespond={handleCardNameChoiceRespond}
       />
 
       {/* Commander Zone Choice Modal (Rule 903.9a/903.9b) */}
