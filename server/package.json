@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "tsx watch --watch-path=src src/index.ts",
+    "dev:noreload": "npm run start",
     "start": "node --enable-source-maps --import tsx/esm src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

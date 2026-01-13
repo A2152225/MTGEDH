@@ -1628,25 +1628,6 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
   // ===== TEMPTING OFFER HANDLERS =====
   
   /**
-   * Pending Tempting Offer effect waiting for player responses
-   */
-  interface PendingTemptingOffer {
-    id: string;
-    gameId: string;
-    initiator: string;
-    cardName: string;
-    effectDescription: string;
-    acceptedBy: Set<string>;
-    responded: Set<string>;
-    opponents: string[];
-    timeout?: NodeJS.Timeout;
-    createdAt: number;
-  }
-  
-  // Store pending Tempting Offers by ID
-  const pendingTemptingOffers = new Map<string, PendingTemptingOffer>();
-  
-  /**
    * Initiate a Tempting Offer effect
    */
   socket.on("initiateTemptingOffer", ({

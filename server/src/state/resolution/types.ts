@@ -31,7 +31,7 @@ export enum ResolutionStepStatus {
 }
 
 /**
- * Resolution step type - maps to both legacy pending* fields and rules-engine ChoiceEventType
+ * Resolution step type - integrates with rules-engine ChoiceEventType
  */
 export enum ResolutionStepType {
   // Direct mappings to ChoiceEventType
@@ -148,47 +148,6 @@ export const STEP_TO_CHOICE_EVENT_TYPE: Partial<Record<ResolutionStepType, Choic
 };
 
 /**
- * Mapping from legacy pending* field names to ResolutionStepType
- */
-export const LEGACY_PENDING_TO_STEP_TYPE: Record<string, ResolutionStepType> = {
-  pendingDiscardSelection: ResolutionStepType.DISCARD_SELECTION,
-  pendingCommanderZoneChoice: ResolutionStepType.COMMANDER_ZONE_CHOICE,
-  pendingTriggerOrdering: ResolutionStepType.TRIGGER_ORDER,
-  pendingPonder: ResolutionStepType.PONDER_EFFECT,
-  pendingSacrificeAbility: ResolutionStepType.SACRIFICE_ABILITY,
-  pendingEntrapmentManeuver: ResolutionStepType.ENTRAPMENT_MANEUVER,
-  pendingTargets: ResolutionStepType.TARGET_SELECTION,
-  pendingModalChoice: ResolutionStepType.MODAL_CHOICE,
-  pendingManaColorSelection: ResolutionStepType.MANA_COLOR_SELECTION,
-  pendingLibrarySearch: ResolutionStepType.LIBRARY_SEARCH,
-  pendingBounceLandChoice: ResolutionStepType.BOUNCE_LAND_CHOICE,
-  pendingCreatureTypeSelection: ResolutionStepType.CREATURE_TYPE_CHOICE,
-  pendingFlickerReturns: ResolutionStepType.FLICKER_RETURNS,
-  pendingLinkedExileReturns: ResolutionStepType.LINKED_EXILE_RETURNS,
-  pendingJoinForces: ResolutionStepType.JOIN_FORCES,
-  pendingTemptingOffer: ResolutionStepType.TEMPTING_OFFER,
-  pendingProliferate: ResolutionStepType.PROLIFERATE,
-  pendingKynaiosChoice: ResolutionStepType.KYNAIOS_CHOICE,
-  pendingCascade: ResolutionStepType.CASCADE,
-  pendingScry: ResolutionStepType.SCRY,
-  pendingSurveil: ResolutionStepType.SURVEIL,
-  pendingDiscard: ResolutionStepType.DISCARD_EFFECT,
-  pendingMill: ResolutionStepType.MILL,
-  pendingKeywordChoice: ResolutionStepType.KEYWORD_CHOICE,
-  pendingRiotChoice: ResolutionStepType.RIOT_CHOICE,
-  pendingUnleashChoice: ResolutionStepType.UNLEASH_CHOICE,
-  pendingFabricateChoice: ResolutionStepType.FABRICATE_CHOICE,
-  pendingTributeChoice: ResolutionStepType.TRIBUTE_CHOICE,
-  pendingExploitChoice: ResolutionStepType.EXPLOIT_CHOICE,
-  pendingBackupChoice: ResolutionStepType.BACKUP_CHOICE,
-  pendingModularChoice: ResolutionStepType.MODULAR_CHOICE,
-  pendingMentorTarget: ResolutionStepType.MENTOR_TARGET,
-  pendingEnlistChoice: ResolutionStepType.ENLIST_CHOICE,
-  pendingExtortPayment: ResolutionStepType.EXTORT_PAYMENT,
-  pendingSoulshiftTarget: ResolutionStepType.SOULSHIFT_TARGET,
-};
-
-/**
  * Base interface for a resolution step
  */
 export interface BaseResolutionStep {
@@ -220,8 +179,6 @@ export interface BaseResolutionStep {
   apnapOrder?: number;
   /** Associated ChoiceEvent from rules-engine (if applicable) */
   choiceEvent?: ChoiceEvent;
-  /** Legacy pending field data (for backward compatibility) */
-  legacyData?: any;
   /** Response from player (populated when completed) */
   response?: ResolutionStepResponse;
 }
@@ -636,7 +593,6 @@ export interface CreateResolutionStepConfig {
   sourceImage?: string;
   timeoutMs?: number;
   priority?: number;
-  legacyData?: any;
   choiceEvent?: ChoiceEvent;
   // Type-specific fields
   [key: string]: any;
@@ -646,5 +602,4 @@ export default {
   ResolutionStepStatus,
   ResolutionStepType,
   STEP_TO_CHOICE_EVENT_TYPE,
-  LEGACY_PENDING_TO_STEP_TYPE,
 };

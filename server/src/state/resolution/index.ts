@@ -11,7 +11,6 @@
  * - Single ResolutionQueue per game instead of multiple pending* fields
  * - Integration with rules-engine ChoiceEvent system
  * - APNAP (Active Player, Non-Active Player) ordering support
- * - Backward compatibility with legacy pending* fields during migration
  * 
  * Usage:
  * ```typescript
@@ -46,7 +45,6 @@ export {
   ResolutionStepStatus,
   ResolutionStepType,
   STEP_TO_CHOICE_EVENT_TYPE,
-  LEGACY_PENDING_TO_STEP_TYPE,
   type BaseResolutionStep,
   type ResolutionStep,
   type ResolutionQueue,
@@ -83,8 +81,6 @@ export {
   orderByAPNAP,
   choiceEventToStep,
   stepResponseToChoiceResponse,
-  importLegacyPending,
-  exportToLegacyPending,
   clearStepsForPlayer,
   clearAllSteps,
 } from './ResolutionQueue.js';

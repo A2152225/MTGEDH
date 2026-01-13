@@ -540,7 +540,6 @@ export interface GameState {
    */
   noncreatureSpellsCastThisTurn?: Record<PlayerID, number>;
   /** Pending library search prompts keyed by player */
-  pendingLibrarySearch?: Record<PlayerID, any>;
   /**
    * Pending tap/untap activations for permanents with tap abilities.
    */

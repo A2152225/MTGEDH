@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
-import { processPendingCascades, processPendingScry, processPendingSurveil, processPendingProliferate, processPendingFateseal, processPendingClash, processPendingVote, processPendingPonder } from "./resolution.js";
+import { processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder } from "./resolution.js";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -2219,14 +2219,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const scryAmount = detectScryOnETB(oracleText);
       if (scryAmount && scryAmount > 0) {
         // Set pendingScry state - will be processed by processPendingScry() after stack resolution
-        const scryId = `scry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         (game.state as any).pendingScry = (game.state as any).pendingScry || {};
-        (game.state as any).pendingScry[scryId] = {
-          playerId,
-          count: scryAmount,
-          sourceId: cardId,
-          sourceName: cardName,
-        };
+        (game.state as any).pendingScry[playerId] = ((game.state as any).pendingScry[playerId] || 0) + scryAmount;
         
         debug(2, `[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
         
@@ -4477,20 +4471,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Process any pending ponder effects
       processPendingPonder(io, game, gameId);
       
-      // Process any pending surveil effects
-      processPendingSurveil(io, game, gameId);
-      
       // Process any pending proliferate effects
       processPendingProliferate(io, game, gameId);
-      
-      // Process any pending fateseal effects
-      processPendingFateseal(io, game, gameId);
-      
-      // Process any pending clash effects
-      processPendingClash(io, game, gameId);
-      
-      // Process any pending vote effects
-      processPendingVote(io, game, gameId);
       
       broadcastGame(io, game, gameId);
     } catch (err: any) {
@@ -4850,20 +4832,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Process any pending ponder effects
         processPendingPonder(io, game, gameId);
         
-        // Process any pending surveil effects
-        processPendingSurveil(io, game, gameId);
-        
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
-        
-        // Process any pending fateseal effects
-        processPendingFateseal(io, game, gameId);
-        
-        // Process any pending clash effects
-        processPendingClash(io, game, gameId);
-        
-        // Process any pending vote effects
-        processPendingVote(io, game, gameId);
         
         // ========================================================================
         // CRITICAL: Check if there's a pending phase skip that was interrupted
@@ -5638,20 +5608,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Process any pending scry effects
         processPendingScry(io, game, gameId);
         
-        // Process any pending surveil effects
-        processPendingSurveil(io, game, gameId);
-        
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
-        
-        // Process any pending fateseal effects
-        processPendingFateseal(io, game, gameId);
-        
-        // Process any pending clash effects
-        processPendingClash(io, game, gameId);
-        
-        // Process any pending vote effects
-        processPendingVote(io, game, gameId);
         
         // Process any pending ponder effects
         processPendingPonder(io, game, gameId);

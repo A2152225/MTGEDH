@@ -42,7 +42,6 @@ export interface GameState {
   
   // Pending interactions
   pendingForbiddenOrchard?: Record<string, any>;
-  pendingLibrarySearch?: Record<string, any>;
 }
 
 export enum GameFormat {

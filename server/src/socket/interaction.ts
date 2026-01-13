@@ -975,8 +975,8 @@ export function parseSearchCriteria(criteria: string): {
 
 export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Scry: Peek and reorder library cards
-  // Legacy scry/surveil handlers removed - now using resolution queue system
-  // See processPendingScry() and processPendingSurveil() in resolution.ts
+  // Legacy scry handlers removed - now using resolution queue system
+  // See processPendingScry() in resolution.ts
   
   // surveilResolve continued from removed handler (keeping for any remaining references)
   // TODO: Clean up after verifying no dependencies
@@ -5596,7 +5596,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           mandatory: true,
           sourceId: permanentId,
           sourceName: cardName,
-          legacyData: { abilityIndex, loyaltyCost: ability.loyaltyCost },
+          abilityIndex,
+          loyaltyCost: ability.loyaltyCost,
         });
         ResolutionQueueManager.completeStep(gameId, step.id, {
           stepId: step.id,

@@ -4,7 +4,7 @@
  * Manages resolution queues across multiple games and integrates with the game context.
  * Provides a central point for:
  * - Creating and accessing per-game resolution queues
- * - Converting between legacy pending* fields and ResolutionQueue
+ * - Queue orchestration and eventing
  * - Emitting events when resolution steps are added/completed
  * - Integration with the rules-engine ChoiceEvent system
  */
@@ -15,13 +15,12 @@ import type { ChoiceEvent, ChoiceResponse } from '../../../../rules-engine/src/c
 import {
   ResolutionStepStatus,
   ResolutionStepType,
-  LEGACY_PENDING_TO_STEP_TYPE,
   type ResolutionStep,
   type ResolutionQueue,
   type ResolutionStepResponse,
   type CreateResolutionStepConfig,
 } from './types.js';
-import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { debugError } from "../../utils/debug.js";
 import {
   createResolutionQueue,
   createResolutionStep,
@@ -39,8 +38,6 @@ import {
   orderByAPNAP,
   choiceEventToStep,
   stepResponseToChoiceResponse,
-  importLegacyPending,
-  exportToLegacyPending,
   clearStepsForPlayer,
   clearAllSteps,
 } from './ResolutionQueue.js';
@@ -278,48 +275,6 @@ class ResolutionQueueManagerClass {
   } {
     const queue = this.getQueue(gameId);
     return getPendingSummary(queue);
-  }
-
-  /**
-   * Sync legacy pending* fields from game state into the resolution queue
-   * Call this when transitioning from legacy system or when state is loaded
-   */
-  syncFromLegacyState(
-    gameId: string,
-    state: any,
-    turnOrder?: PlayerID[],
-    activePlayerId?: PlayerID
-  ): void {
-    const queue = this.getQueue(gameId);
-    
-    // List of legacy pending fields to check
-    const legacyFields = Object.keys(LEGACY_PENDING_TO_STEP_TYPE);
-    
-    for (const fieldName of legacyFields) {
-      const data = state[fieldName];
-      if (data == null) continue;
-      
-      // Skip empty objects/arrays
-      if (typeof data === 'object') {
-        if (Array.isArray(data) && data.length === 0) continue;
-        if (!Array.isArray(data) && Object.keys(data).length === 0) continue;
-      }
-      
-      importLegacyPending(queue, fieldName, data, turnOrder, activePlayerId);
-    }
-    
-    if (queue.steps.length > 0) {
-      this.emit(ResolutionQueueEvent.QUEUE_CHANGED, gameId);
-    }
-  }
-
-  /**
-   * Export resolution queue back to legacy pending* format
-   * Call this to maintain backward compatibility with existing code
-   */
-  exportToLegacyState(gameId: string): Record<string, any> {
-    const queue = this.getQueue(gameId);
-    return exportToLegacyPending(queue);
   }
 
   /**

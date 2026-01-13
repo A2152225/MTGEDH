@@ -1742,10 +1742,6 @@ async function handleStepResponse(
     // Add more handlers as needed
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
-      // For steps with legacy data, try to process using old system
-      if (step.legacyData) {
-        debug(2, `[Resolution] Step has legacy data, may need migration`);
-      }
   }
 }
 
@@ -2511,7 +2507,7 @@ function handleTargetSelectionResponse(
       minSelections: 1,
       maxSelections: 1,
       action: 'tap_or_untap_decision',
-      legacyData: { targetId },
+      targetId,
     } as any);
     return;
   }
@@ -6492,81 +6488,6 @@ export function processPendingScry(
 
 
 /**
- * Process pending surveil from legacy state and migrate to resolution queue
- * 
- * This is called after stack resolution or when surveil effects are created.
- * Migrates from pendingSurveil state to the resolution queue system.
- */
-export function processPendingSurveil(
-  io: Server,
-  game: any,
-  gameId: string
-): void {
-  try {
-    const pending = (game.state as any).pendingSurveil;
-    if (!pending || typeof pending !== 'object') return;
-    
-    for (const surveilId of Object.keys(pending)) {
-      const data = pending[surveilId];
-      if (!data || typeof data !== 'object') continue;
-      
-      const playerId = data.playerId;
-      const surveilCount = data.count || 0;
-      
-      if (!playerId || surveilCount <= 0) {
-        delete pending[surveilId];
-        continue;
-      }
-      
-      // Get library
-      const lib = (game as any).libraries?.get(playerId) || [];
-      if (!Array.isArray(lib)) continue;
-      
-      // Peek at the top N cards
-      const actualCount = Math.min(surveilCount, lib.length);
-      if (actualCount === 0) {
-        // No cards to surveil, skip
-        delete pending[surveilId];
-        continue;
-      }
-      
-      const cards = lib.slice(0, actualCount).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        type_line: c.type_line,
-        oracle_text: c.oracle_text,
-        imageUrl: c.image_uris?.normal,
-        mana_cost: c.mana_cost,
-        cmc: c.cmc,
-      }));
-      
-      // Add to resolution queue
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.SURVEIL,
-        playerId,
-        description: `Surveil ${actualCount}`,
-        mandatory: true,
-        sourceId: data.sourceId,
-        sourceName: data.sourceName || 'Surveil',
-        cards,
-        surveilCount: actualCount,
-      });
-      
-      // Clear from pending state
-      delete pending[surveilId];
-    }
-    
-    // Clean up empty pending object
-    if (Object.keys(pending).length === 0) {
-      delete (game.state as any).pendingSurveil;
-    }
-  } catch (err) {
-    debugWarn(1, "[processPendingSurveil] Error:", err);
-  }
-}
-
-
-/**
  * Process pending proliferate from legacy state and migrate to resolution queue
  * 
  * This is called after stack resolution or when proliferate effects are created.
@@ -6641,196 +6562,6 @@ export function processPendingProliferate(
     }
   } catch (err) {
     debugWarn(1, "[processPendingProliferate] Error:", err);
-  }
-}
-
-
-/**
- * Process pending fateseal from legacy state and migrate to resolution queue
- * 
- * Currently fateseal doesn't have legacy implementation, but this function
- * is provided for future use if needed.
- */
-export function processPendingFateseal(
-  io: Server,
-  game: any,
-  gameId: string
-): void {
-  try {
-    const pending = (game.state as any).pendingFateseal;
-    if (!pending || typeof pending !== 'object') return;
-    
-    for (const playerId of Object.keys(pending)) {
-      const data = pending[playerId];
-      if (!data || typeof data !== 'object') continue;
-      
-      const opponentId = data.opponentId;
-      const fatesealCount = data.count || 0;
-      
-      if (!opponentId || fatesealCount <= 0) {
-        delete pending[playerId];
-        continue;
-      }
-      
-      // Get opponent's library
-      const lib = (game as any).libraries?.get(opponentId) || [];
-      if (!Array.isArray(lib)) continue;
-      
-      // Peek at the top N cards of opponent's library
-      const actualCount = Math.min(fatesealCount, lib.length);
-      if (actualCount === 0) {
-        delete pending[playerId];
-        continue;
-      }
-      
-      const cards = lib.slice(0, actualCount).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        type_line: c.type_line,
-        oracle_text: c.oracle_text,
-        imageUrl: c.image_uris?.normal,
-        mana_cost: c.mana_cost,
-        cmc: c.cmc,
-      }));
-      
-      // Add to resolution queue
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.FATESEAL,
-        playerId,
-        description: `Fateseal ${actualCount} (${getPlayerName(game, opponentId)}'s library)`,
-        mandatory: true,
-        sourceId: data.sourceId,
-        sourceName: data.sourceName || 'Fateseal',
-        opponentId,
-        cards,
-        fatesealCount: actualCount,
-      });
-      
-      // Clear from pending state
-      delete pending[playerId];
-    }
-    
-    // Clean up empty pending object
-    if (Object.keys(pending).length === 0) {
-      delete (game.state as any).pendingFateseal;
-    }
-  } catch (err) {
-    debugWarn(1, "[processPendingFateseal] Error:", err);
-  }
-}
-
-
-/**
- * Process pending clash from legacy state and migrate to resolution queue
- * 
- * Currently clash doesn't have legacy implementation, but this function
- * is provided for future use if needed.
- */
-export function processPendingClash(
-  io: Server,
-  game: any,
-  gameId: string
-): void {
-  try {
-    const pending = (game.state as any).pendingClash;
-    if (!Array.isArray(pending) || pending.length === 0) return;
-    
-    for (const clashData of pending) {
-      if (!clashData || clashData.prompted) continue;
-      
-      const playerId = clashData.playerId;
-      if (!playerId) continue;
-      
-      // Mark as prompted
-      clashData.prompted = true;
-      
-      // Get player's library
-      const lib = (game as any).libraries?.get(playerId) || [];
-      if (lib.length === 0) continue;
-      
-      // Reveal top card
-      const revealedCard = {
-        id: lib[0].id,
-        name: lib[0].name,
-        type_line: lib[0].type_line,
-        oracle_text: lib[0].oracle_text,
-        imageUrl: lib[0].image_uris?.normal,
-        mana_cost: lib[0].mana_cost,
-        cmc: lib[0].cmc,
-      };
-      
-      // Add to resolution queue
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.CLASH,
-        playerId,
-        description: `Clash - Put ${revealedCard.name} on bottom?`,
-        mandatory: true,
-        sourceId: clashData.sourceId,
-        sourceName: clashData.sourceName || 'Clash',
-        revealedCard,
-        opponentId: clashData.opponentId,
-      });
-    }
-  } catch (err) {
-    debugWarn(1, "[processPendingClash] Error:", err);
-  }
-}
-
-
-/**
- * Process pending vote from legacy state and migrate to resolution queue
- * 
- * Votes are processed in APNAP order. This creates resolution steps for each
- * player who needs to vote.
- */
-export function processPendingVote(
-  io: Server,
-  game: any,
-  gameId: string
-): void {
-  try {
-    const pending = (game.state as any).pendingVote;
-    if (!Array.isArray(pending) || pending.length === 0) return;
-    
-    const players = game.state?.players || [];
-    
-    for (const voteData of pending) {
-      if (!voteData || voteData.prompted) continue;
-      
-      const voteId = voteData.id;
-      const choices = voteData.choices || [];
-      const voters = voteData.voters || players.map((p: any) => p.id);
-      const votesSubmitted = voteData.votes || [];
-      
-      if (choices.length === 0 || voters.length === 0) continue;
-      
-      // Mark as prompted
-      voteData.prompted = true;
-      
-      // Find next voter who hasn't voted yet
-      const alreadyVoted = new Set(votesSubmitted.map((v: any) => v.playerId));
-      const nextVoter = voters.find((pid: string) => !alreadyVoted.has(pid));
-      
-      if (!nextVoter) {
-        // All players have voted, process results
-        continue;
-      }
-      
-      // Add resolution step for next voter
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.VOTE,
-        playerId: nextVoter,
-        description: `Vote: ${choices.join(' or ')}`,
-        mandatory: true,
-        sourceId: voteData.sourceId,
-        sourceName: voteData.sourceName || 'Vote',
-        voteId,
-        choices,
-        votesSubmitted,
-      });
-    }
-  } catch (err) {
-    debugWarn(1, "[processPendingVote] Error:", err);
   }
 }
 
@@ -7294,7 +7025,6 @@ function filterLibraryCards(library: any[], filter: any, gameState?: any, contro
 
 /**
  * Helper function to create a library search resolution step directly
- * Replaces the legacy pendingLibrarySearch state
  */
 function createLibrarySearchStep(
   game: any,
@@ -7364,136 +7094,6 @@ function createLibrarySearchStep(
     remainderDestination,
     remainderRandomOrder: true,
   });
-}
-
-/**
- * Process pending library search effects into resolution queue
- * @deprecated This function migrates legacy pendingLibrarySearch state. Will be removed.
- */
-export function processPendingLibrarySearch(io: Server, game: any, gameId: string): void {
-  try {
-    const pendingLibrarySearch = (game.state as any)?.pendingLibrarySearch;
-    if (!pendingLibrarySearch || typeof pendingLibrarySearch !== 'object') return;
-    
-    for (const [playerId, searchData] of Object.entries(pendingLibrarySearch)) {
-      if (!searchData || typeof searchData !== 'object') continue;
-      
-      const data = searchData as any;
-      const {
-        type,
-        searchFor,
-        destination,
-        tapped,
-        optional,
-        source,
-        shuffleAfter,
-        filter,
-        maxSelections,
-        minSelections,
-        reveal,
-        remainderDestination,
-        discardRandomAfter,
-      } = data;
-      
-      // Get player's library
-      const lib = (game as any).libraries?.get(playerId) || [];
-      if (lib.length === 0) {
-        debug(2, `[processPendingLibrarySearch] Player ${playerId} has empty library, skipping search`);
-        delete pendingLibrarySearch[playerId];
-        continue;
-      }
-      
-      // Filter cards based on search criteria
-      let availableCards: any[] = [];
-      const searchCriteria = filter || {};
-      
-      for (const card of lib) {
-        let matches = true;
-        
-        // Check types
-        if (searchCriteria.types && searchCriteria.types.length > 0) {
-          const typeLine = (card.type_line || '').toLowerCase();
-          matches = searchCriteria.types.some((type: string) => typeLine.includes(type.toLowerCase()));
-        }
-        
-        // Check subtypes
-        if (matches && searchCriteria.subtypes && searchCriteria.subtypes.length > 0) {
-          const typeLine = (card.type_line || '').toLowerCase();
-          matches = searchCriteria.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
-        }
-        
-        // Check supertypes (e.g., "Basic" for basic lands)
-        if (matches && searchCriteria.supertypes && searchCriteria.supertypes.length > 0) {
-          const typeLine = (card.type_line || '').toLowerCase();
-          matches = searchCriteria.supertypes.some((supertype: string) => typeLine.includes(supertype.toLowerCase()));
-        }
-        
-        // Check colors
-        if (matches && searchCriteria.colors && searchCriteria.colors.length > 0) {
-          const cardColors = card.colors || [];
-          matches = searchCriteria.colors.some((color: string) => cardColors.includes(color));
-        }
-        
-        // Check mana value
-        if (matches && typeof searchCriteria.maxManaValue === 'number') {
-          matches = (card.cmc || 0) <= searchCriteria.maxManaValue;
-        }
-        
-        if (matches) {
-          availableCards.push({
-            id: card.id,
-            name: card.name,
-            type_line: card.type_line,
-            oracle_text: card.oracle_text,
-            image_uris: card.image_uris,  // Include full image_uris for battlefield placement
-            imageUrl: card.image_uris?.normal,
-            mana_cost: card.mana_cost,
-            cmc: card.cmc,
-            colors: card.colors,
-            power: card.power,
-            toughness: card.toughness,
-            loyalty: card.loyalty,
-          });
-        }
-      }
-      
-      debug(2, `[processPendingLibrarySearch] Migrating library search for player ${playerId}, ${availableCards.length} matching cards`);
-      
-      // Create description
-      let description = searchFor || 'Search your library';
-      if (destination === 'battlefield') {
-        description += tapped ? ' (enters tapped)' : ' (enters untapped)';
-      }
-      
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.LIBRARY_SEARCH,
-        playerId: playerId as string,
-        description,
-        mandatory: !optional,
-        sourceName: source || 'Library Search',
-        searchCriteria: searchFor || 'any card',
-        minSelections: minSelections || 0,
-        maxSelections: maxSelections || 1,
-        destination: destination || 'hand',
-        reveal: reveal !== false,
-        shuffleAfter: shuffleAfter !== false,
-        availableCards,
-        entersTapped: tapped || false,
-        remainderDestination: remainderDestination || 'shuffle',
-        remainderRandomOrder: true,
-      });
-      
-      // Clear from pending state after creating step
-      delete pendingLibrarySearch[playerId];
-    }
-    
-    // Clean up empty pending object
-    if (Object.keys(pendingLibrarySearch).length === 0) {
-      delete (game.state as any).pendingLibrarySearch;
-    }
-  } catch (e) {
-    debugError(1, '[processPendingLibrarySearch] Error:', e);
-  }
 }
 
 /**
@@ -9578,7 +9178,7 @@ async function handleOptionChoiceResponse(
   
   // Handle tap/untap decision
   if ((step as any).action === 'tap_or_untap_decision') {
-    const targetId = stepData.legacyData?.targetId;
+    const targetId = stepData.targetId;
     if (!targetId) return;
     const battlefield = game.state?.battlefield || [];
     const perm = battlefield.find((p: any) => p.id === targetId);

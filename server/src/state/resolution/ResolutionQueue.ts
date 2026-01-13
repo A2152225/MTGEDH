@@ -8,7 +8,7 @@
  * - FIFO queue with priority support
  * - APNAP (Active Player, Non-Active Player) ordering for multiplayer
  * - Integration with rules-engine ChoiceEvent system
- * - Backward compatibility with legacy pending* fields
+ * - Persistent queue state with sequence tracking
  */
 
 import type { PlayerID } from '../../../../shared/src/types.js';
@@ -17,7 +17,6 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import {
   ResolutionStepStatus,
   ResolutionStepType,
-  LEGACY_PENDING_TO_STEP_TYPE,
   type ResolutionStep,
   type ResolutionQueue,
   type ResolutionStepResponse,
@@ -66,14 +65,13 @@ export function createResolutionStep(config: CreateResolutionStepConfig): Resolu
     timeoutMs: config.timeoutMs,
     priority: config.priority ?? 0,
     choiceEvent: config.choiceEvent,
-    legacyData: config.legacyData,
   };
 
   // Copy over type-specific fields
   const typeSpecificFields: Record<string, any> = {};
   const baseKeys = new Set([
     'type', 'playerId', 'description', 'mandatory', 'sourceId', 
-    'sourceName', 'sourceImage', 'timeoutMs', 'priority', 'legacyData', 'choiceEvent'
+    'sourceName', 'sourceImage', 'timeoutMs', 'priority', 'choiceEvent'
   ]);
   
   for (const [key, value] of Object.entries(config)) {
@@ -379,110 +377,6 @@ export function stepResponseToChoiceResponse(
   };
 }
 
-/**
- * Import legacy pending* data into resolution queue
- * This is for backward compatibility during migration
- */
-export function importLegacyPending(
-  queue: ResolutionQueue, 
-  pendingFieldName: string, 
-  data: any,
-  turnOrder?: PlayerID[],
-  activePlayerId?: PlayerID
-): void {
-  const stepType = LEGACY_PENDING_TO_STEP_TYPE[pendingFieldName];
-  if (!stepType) {
-    debugWarn(2, `[ResolutionQueue] Unknown legacy pending field: ${pendingFieldName}`);
-    return;
-  }
-
-  // Handle object-style pending data (keyed by player ID)
-  if (typeof data === 'object' && !Array.isArray(data)) {
-    const steps: ResolutionStep[] = [];
-    
-    for (const [playerId, playerData] of Object.entries(data)) {
-      if (playerData == null) continue;
-      
-      const step = createResolutionStep({
-        type: stepType,
-        playerId,
-        description: `${pendingFieldName}: ${stepType}`,
-        mandatory: true,
-        legacyData: playerData,
-      });
-      steps.push(step);
-    }
-    
-    // Apply APNAP ordering if turn order is provided
-    if (turnOrder && activePlayerId && steps.length > 1) {
-      const orderedSteps = orderByAPNAP(steps, turnOrder, activePlayerId);
-      addSteps(queue, orderedSteps);
-    } else {
-      addSteps(queue, steps);
-    }
-  }
-  // Handle array-style pending data
-  else if (Array.isArray(data)) {
-    for (const item of data) {
-      if (item == null) continue;
-      
-      const playerId = item.playerId || item.controller || item.controllerId || 'unknown';
-      const step = createResolutionStep({
-        type: stepType,
-        playerId,
-        description: item.description || `${pendingFieldName}: ${stepType}`,
-        mandatory: item.mandatory ?? true,
-        sourceId: item.sourceId || item.permanentId,
-        sourceName: item.sourceName || item.cardName,
-        legacyData: item,
-      });
-      addStep(queue, step);
-    }
-  }
-}
-
-/**
- * Export queue state to legacy pending* format for backward compatibility
- */
-export function exportToLegacyPending(queue: ResolutionQueue): Record<string, any> {
-  const legacyPending: Record<string, any> = {};
-  
-  for (const step of queue.steps) {
-    if (step.status !== ResolutionStepStatus.PENDING) continue;
-    
-    // Find the legacy field name for this step type
-    let legacyFieldName: string | undefined;
-    for (const [fieldName, type] of Object.entries(LEGACY_PENDING_TO_STEP_TYPE)) {
-      if (type === step.type) {
-        legacyFieldName = fieldName;
-        break;
-      }
-    }
-    
-    if (!legacyFieldName) continue;
-    
-    // Initialize the legacy field if needed
-    if (!(legacyFieldName in legacyPending)) {
-      legacyPending[legacyFieldName] = {};
-    }
-    
-    // Export the step data
-    if (step.legacyData) {
-      legacyPending[legacyFieldName][step.playerId] = step.legacyData;
-    } else {
-      // Reconstruct legacy data from step fields
-      legacyPending[legacyFieldName][step.playerId] = {
-        playerId: step.playerId,
-        sourceId: step.sourceId,
-        sourceName: step.sourceName,
-        description: step.description,
-        mandatory: step.mandatory,
-      };
-    }
-  }
-  
-  return legacyPending;
-}
 
 /**
  * Clear all steps for a specific player
@@ -529,8 +423,6 @@ export default {
   orderByAPNAP,
   choiceEventToStep,
   stepResponseToChoiceResponse,
-  importLegacyPending,
-  exportToLegacyPending,
   clearStepsForPlayer,
   clearAllSteps,
 };

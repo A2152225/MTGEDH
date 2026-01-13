@@ -91,74 +91,51 @@ function extractColorIdentity(card: any): string[] {
  * Check if a card is a valid commander
  * Valid commanders include:
  * - Legendary creatures
- * - Legendary planeswalkers with "can be your commander"
- * - Legendary Vehicles (as of recent rules changes)
- * - Legendary cards with Station type
- * - Background enchantments (can be commanders when paired with "Choose a Background")
- * - Any card with "can be your commander" text
+ * - Planeswalkers (or other cards) that explicitly say "can be your commander"
  */
 function isValidCommander(card: any): boolean {
-  const typeLine = (card.type_line || '').toLowerCase();
-  const oracleText = (card.oracle_text || '').toLowerCase();
-  
-  // Background enchantments can be commanders (even if not legendary)
-  if (typeLine.includes('background')) {
+  if (!card) return false;
+  const typeLine = String(card.type_line || '').toLowerCase();
+  const oracleText = String(card.oracle_text || '').toLowerCase();
+
+  const isLegendary = typeLine.includes('legendary');
+  const isCreature = typeLine.includes('creature');
+  const isPlaneswalker = typeLine.includes('planeswalker');
+  const isBackgroundCard = typeLine.includes('background');
+
+  if (isLegendary && isCreature) return true;
+
+  // Some planeswalkers and special cards are commanders via explicit text.
+  if ((isPlaneswalker || !isBackgroundCard) && oracleText.includes('can be your commander')) {
     return true;
   }
-  
-  // Must be legendary for other types
-  if (!typeLine.includes('legendary')) {
-    return false;
-  }
-  
-  // Check if it's a creature
-  if (typeLine.includes('creature')) {
-    return true;
-  }
-  
-  // Check if it's a Vehicle (legendary Vehicles can now be commanders)
-  if (typeLine.includes('vehicle')) {
-    return true;
-  }
-  
-  // Check if it has Station type (legendary Stations can be commanders)
-  if (typeLine.includes('station')) {
-    return true;
-  }
-  
-  // Check for "can be your commander" text (planeswalkers, etc.)
-  if (oracleText.includes('can be your commander')) {
-    return true;
-  }
-  
+
   return false;
 }
 
 /**
- * Check if a card has partner ability
+ * Check if a commander has Partner (or Partner With).
  */
 function hasPartner(card: any): boolean {
-  const oracleText = (card.oracle_text || '').toLowerCase();
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
   return oracleText.includes('partner');
 }
 
 /**
- * Check if a card has background ability
+ * Check if a commander has "Choose a Background".
  */
 function hasBackground(card: any): boolean {
-  const typeLine = (card.type_line || '').toLowerCase();
-  const oracleText = (card.oracle_text || '').toLowerCase();
-  return typeLine.includes('background') || oracleText.includes('choose a background');
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  return oracleText.includes('choose a background');
 }
 
 /**
- * Calculate the overall color identity of a deck by examining all cards
+ * Calculate the deck's overall color identity based on all cards.
  */
 function calculateDeckColorIdentity(cards: any[]): Set<string> {
   const deckColors = new Set<string>();
   for (const card of cards) {
-    const colors = extractColorIdentity(card);
-    for (const color of colors) {
+    for (const color of extractColorIdentity(card)) {
       deckColors.add(color);
     }
   }
@@ -541,92 +518,47 @@ export async function autoSelectAICommander(
         gameId,
         playerId,
         totalCards: library.length,
-        sampleCard: library[0],
       });
       return false;
     }
-    
-    if (cardsForSelection.length < library.length) {
-      debugWarn(1, '[AI] autoSelectAICommander: filtered out cards lacking required data', {
-        gameId,
-        playerId,
-        totalCards: library.length,
-        validCards: cardsForSelection.length,
-      });
-    }
-    
-    debug(1, '[AI] autoSelectAICommander: found library with', cardsForSelection.length, 'cards');
-    
-    // Log the first few cards to help debug commander selection
-    if (cardsForSelection.length > 0) {
-      const firstCards = cardsForSelection.slice(0, 3).map((c: any) => ({
-        name: c.name,
-        type: c.type_line,
-        colors: c.color_identity || [],
-      }));
-      debug(1, '[AI] First cards in library:', JSON.stringify(firstCards));
-    }
-    
-    // Find the best commander(s) from the deck (uses original unshuffled order)
-    let { commanders, colorIdentity, exactMatch } = findBestCommanders(cardsForSelection);
-    
-    if (commanders.length === 0) {
-      debugWarn(2, '[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
-      
-      // Send alert to all players
-      io.to(gameId).emit('error', {
-        code: 'NO_COMMANDER_FOUND',
-        message: 'AI deck has no valid commander candidates'
-      });
-      
-      // Send chat message
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `⚠️ AI player has no valid commander in deck. Cannot start game.`,
-        ts: Date.now(),
-      });
-      
+
+    const { commanders, colorIdentity, exactMatch } = findBestCommanders(cardsForSelection);
+    if (!commanders || commanders.length === 0) {
+      debugWarn(1, '[AI] autoSelectAICommander: no commander selected', { gameId, playerId });
       return false;
     }
-    
-    // Check if commander identity matches deck
+
+    // Emit a warning if the commander identity doesn't exactly match the deck identity.
+    // This should be rare; it usually indicates malformed/incorrect deck data.
     if (!exactMatch) {
-      // Send warning to all players about identity mismatch
       const deckColors = calculateDeckColorIdentity(cardsForSelection);
-      const commanderColors = new Set<string>();
-      commanders.forEach((cmd: any) => extractColorIdentity(cmd).forEach(c => commanderColors.add(c)));
-      
-      const commanderNames = commanders.map((c: any) => c.name).join(' + ');
       const deckIdentityStr = Array.from(deckColors).join('');
+
+      const commanderColors = new Set<string>();
+      for (const commander of commanders) {
+        for (const color of extractColorIdentity(commander)) {
+          commanderColors.add(color);
+        }
+      }
       const commanderIdentityStr = Array.from(commanderColors).join('');
-      
-      debugWarn(1, '[AI] Commander identity mismatch:', {
-        gameId,
-        playerId,
-        commanders: commanderNames,
-        commanderIdentity: commanderIdentityStr,
-        deckIdentity: deckIdentityStr,
-      });
-      
-      // Send warning notification
+
+      const commanderNamesForMessage = commanders.map((c: any) => c.name).join(', ');
+
       io.to(gameId).emit('warning', {
         code: 'COMMANDER_IDENTITY_MISMATCH',
         message: `AI commander identity [${commanderIdentityStr}] does not exactly match deck identity [${deckIdentityStr}]`,
         details: {
-          commanders: commanderNames,
+          commanders: commanderNamesForMessage,
           commanderIdentity: commanderIdentityStr,
           deckIdentity: deckIdentityStr,
-        }
+        },
       });
-      
-      // Send chat message
+
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `⚠️ AI commander ${commanderNames} [${commanderIdentityStr}] does not match deck identity [${deckIdentityStr}]. This may indicate deck construction errors.`,
+        message: `⚠️ AI commander ${commanderNamesForMessage} [${commanderIdentityStr}] does not match deck identity [${deckIdentityStr}]. This may indicate deck construction errors.`,
         ts: Date.now(),
       });
     }
@@ -6169,14 +6101,6 @@ export function cleanupGameAI(gameId: string): void {
 /**
  * Check if there are any pending library searches for a game
  */
-/**
- * Check if there are any pending bounce land choices for a game
- * @deprecated Bounce land choices now use the resolution queue
- */
-function hasPendingBounceLandChoice(game: any): boolean {
-  const pending = (game.state as any)?.pendingBounceLandChoice;
-  return pending && typeof pending === 'object' && Object.keys(pending).length > 0;
-}
 
 /**
  * Check if there are any pending modals that should block AI advancement.
