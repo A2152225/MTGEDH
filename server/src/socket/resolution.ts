@@ -1379,6 +1379,13 @@ function stepIndicatesDifferentTarget(step: TargetSelectionStep): boolean {
 
   const combinedText = `${step.targetDescription || ''} ${step.description || ''}`.toLowerCase();
 
+  // Phrasing where the distinctness indicator comes after "target".
+  // Examples: "target creature other than that target", "other than the chosen target".
+  // Be conservative: require explicit reference to a previously chosen target.
+  if (/\bother than\b[^.]*\b(that|the chosen|the first|the second)\s+targets?\b/.test(combinedText)) {
+    return true;
+  }
+
   // Be conservative: only infer a cross-step distinct-target constraint for phrases like
   // "another target" / "different target" / "other target" etc. Plain "another/other" can mean other things.
   // Allow plural "targets" as well.

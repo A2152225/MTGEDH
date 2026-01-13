@@ -43,6 +43,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     ResolutionQueueManager.removeQueue('test_resolution_distinct_other_targets_plural');
     ResolutionQueueManager.removeQueue('test_resolution_distinct_different_creature_target');
     ResolutionQueueManager.removeQueue('test_resolution_distinct_another_permanent_target');
+    ResolutionQueueManager.removeQueue('test_resolution_distinct_other_than_that_target');
+    ResolutionQueueManager.removeQueue('test_resolution_distinct_other_than_chosen_target');
     games.delete('test_resolution_distinct_cross_step' as any);
     games.delete('test_resolution_distinct_single_step' as any);
     games.delete('test_resolution_distinct_other_target' as any);
@@ -51,6 +53,8 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     games.delete('test_resolution_distinct_other_targets_plural' as any);
     games.delete('test_resolution_distinct_different_creature_target' as any);
     games.delete('test_resolution_distinct_another_permanent_target' as any);
+    games.delete('test_resolution_distinct_other_than_that_target' as any);
+    games.delete('test_resolution_distinct_other_than_chosen_target' as any);
   });
 
   it('rejects selecting the same id across sequential TARGET_SELECTION steps for the same sourceId', async () => {
@@ -565,6 +569,136 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const beforeSecond = emitted.length;
     await handlers['submitResolutionResponse']({ gameId, stepId: step2.id, selections: ['A'] });
+
+    const errorEvt = emitted.slice(beforeSecond).find(e => e.event === 'error');
+    expect(errorEvt).toBeDefined();
+    expect(errorEvt!.payload.code).toBe('INVALID_SELECTION');
+    expect(errorEvt!.payload.message).toBe('Must choose a different target');
+  });
+
+  it('infers cross-step distinctness from "target ... other than that target" without an explicit flag', async () => {
+    const gameId = 'test_resolution_distinct_other_than_that_target';
+    createGameIfNotExists(gameId, 'commander', 40);
+
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+    (game.state as any).players = [{ id: 'p1', name: 'P1', spectator: false }];
+    (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const step1 = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: 'p1' as any,
+      description: 'Choose a target',
+      mandatory: true,
+      sourceId: 'spell_1',
+      sourceName: 'Test Spell',
+      validTargets: [
+        { id: 'A', label: 'Target A', description: 'creature' },
+        { id: 'B', label: 'Target B', description: 'creature' },
+      ],
+      targetTypes: ['creature'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'a target',
+    } as any);
+
+    const step2 = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: 'p1' as any,
+      description: 'Choose target creature other than that target',
+      mandatory: true,
+      sourceId: 'spell_1',
+      sourceName: 'Test Spell',
+      validTargets: [
+        { id: 'A', label: 'Target A', description: 'creature' },
+        { id: 'B', label: 'Target B', description: 'creature' },
+      ],
+      targetTypes: ['creature'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'target creature other than that target',
+    } as any);
+
+    expect(typeof handlers['submitResolutionResponse']).toBe('function');
+    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+
+    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+    expect(prompt).toBeDefined();
+    expect(prompt!.payload.step.id).toBe(step2.id);
+    expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
+
+    const beforeSecond = emitted.length;
+    await handlers['submitResolutionResponse']({ gameId, stepId: step2.id, selections: ['A'] });
+
+    const errorEvt = emitted.slice(beforeSecond).find(e => e.event === 'error');
+    expect(errorEvt).toBeDefined();
+    expect(errorEvt!.payload.code).toBe('INVALID_SELECTION');
+    expect(errorEvt!.payload.message).toBe('Must choose a different target');
+  });
+
+  it('infers cross-step distinctness from "other than the chosen target" without an explicit flag', async () => {
+    const gameId = 'test_resolution_distinct_other_than_chosen_target';
+    createGameIfNotExists(gameId, 'commander', 40);
+
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+    (game.state as any).players = [{ id: 'p1', name: 'P1', spectator: false }];
+    (game.state as any).stack = [{ id: 'spell_1', type: 'spell' }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const step1 = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: 'p1' as any,
+      description: 'Choose a target',
+      mandatory: true,
+      sourceId: 'spell_1',
+      sourceName: 'Test Spell',
+      validTargets: [
+        { id: 'A', label: 'Target A', description: 'creature' },
+        { id: 'B', label: 'Target B', description: 'creature' },
+      ],
+      targetTypes: ['creature'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'a target',
+    } as any);
+
+    const step2 = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: 'p1' as any,
+      description: 'Choose target creature other than the chosen target',
+      mandatory: true,
+      sourceId: 'spell_1',
+      sourceName: 'Test Spell',
+      validTargets: [
+        { id: 'A', label: 'Target A', description: 'creature' },
+        { id: 'B', label: 'Target B', description: 'creature' },
+      ],
+      targetTypes: ['creature'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'target creature other than the chosen target',
+    } as any);
+
+    expect(typeof handlers['submitResolutionResponse']).toBe('function');
+    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['B'] });
+
+    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+    expect(prompt).toBeDefined();
+    expect(prompt!.payload.step.id).toBe(step2.id);
+    expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['A']);
+
+    const beforeSecond = emitted.length;
+    await handlers['submitResolutionResponse']({ gameId, stepId: step2.id, selections: ['B'] });
 
     const errorEvt = emitted.slice(beforeSecond).find(e => e.event === 'error');
     expect(errorEvt).toBeDefined();
