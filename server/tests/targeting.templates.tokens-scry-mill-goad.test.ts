@@ -49,6 +49,22 @@ describe('Oracle templates: tokens / scry / mill / goad', () => {
     expect(spec?.maxTargets).toBe(1);
   });
 
+  it('categorizeSpell: "Each opponent mills two cards." -> MILL_EACH_OPPONENT', () => {
+    const spec = categorizeSpell('Opp Mill', 'Each opponent mills two cards.');
+    expect(spec?.op).toBe('MILL_EACH_OPPONENT');
+    expect(spec?.millCount).toBe(2);
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(0);
+  });
+
+  it('categorizeSpell: "Each player mills a card." -> MILL_EACH_PLAYER', () => {
+    const spec = categorizeSpell('All Mill', 'Each player mills a card.');
+    expect(spec?.op).toBe('MILL_EACH_PLAYER');
+    expect(spec?.millCount).toBe(1);
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(0);
+  });
+
   it('categorizeSpell: "Goad target creature an opponent controls." -> GOAD_TARGET (opponentOnly)', () => {
     const spec = categorizeSpell('Laser Screwdriver', 'Goad target creature an opponent controls. (Until your next turn, that creature attacks each combat if able and attacks a player other than you if able.)');
     expect(spec?.op).toBe('GOAD_TARGET');
@@ -166,6 +182,84 @@ describe('Execution via applyEvent(resolveSpell) for tokens / scry / mill / goad
 
     expect(afterLib).toBe(beforeLib - 2);
     expect(afterGy).toBe(beforeGy + 2);
+  });
+
+  it('MILL_EACH_OPPONENT mills for each opponent (not caster)', () => {
+    const g = createInitialGameState('t_mill_each_opponent');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    g.importDeckResolved(p2, [
+      { id: 'b1', name: 'B1', type_line: 'Instant', oracle_text: '' } as any,
+      { id: 'b2', name: 'B2', type_line: 'Instant', oracle_text: '' } as any,
+      { id: 'b3', name: 'B3', type_line: 'Instant', oracle_text: '' } as any,
+    ]);
+    g.importDeckResolved(p3, [
+      { id: 'c1', name: 'C1', type_line: 'Instant', oracle_text: '' } as any,
+      { id: 'c2', name: 'C2', type_line: 'Instant', oracle_text: '' } as any,
+      { id: 'c3', name: 'C3', type_line: 'Instant', oracle_text: '' } as any,
+    ]);
+
+    const beforeLib1 = g.state.zones?.[p1]?.libraryCount ?? 0;
+    const beforeGy1 = g.state.zones?.[p1]?.graveyardCount ?? 0;
+    const beforeLib2 = g.state.zones?.[p2]?.libraryCount ?? 0;
+    const beforeGy2 = g.state.zones?.[p2]?.graveyardCount ?? 0;
+    const beforeLib3 = g.state.zones?.[p3]?.libraryCount ?? 0;
+    const beforeGy3 = g.state.zones?.[p3]?.graveyardCount ?? 0;
+
+    const spec: SpellSpec = { op: 'MILL_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 2 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'mill_each_opponent', spec, chosen: [] });
+
+    expect(g.state.zones?.[p1]?.libraryCount ?? 0).toBe(beforeLib1);
+    expect(g.state.zones?.[p1]?.graveyardCount ?? 0).toBe(beforeGy1);
+    expect(g.state.zones?.[p2]?.libraryCount ?? 0).toBe(beforeLib2 - 2);
+    expect(g.state.zones?.[p2]?.graveyardCount ?? 0).toBe(beforeGy2 + 2);
+    expect(g.state.zones?.[p3]?.libraryCount ?? 0).toBe(beforeLib3 - 2);
+    expect(g.state.zones?.[p3]?.graveyardCount ?? 0).toBe(beforeGy3 + 2);
+  });
+
+  it('MILL_EACH_PLAYER mills for all players', () => {
+    const g = createInitialGameState('t_mill_each_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    g.importDeckResolved(p1, [
+      { id: 'a1', name: 'A1', type_line: 'Instant', oracle_text: '' } as any,
+      { id: 'a2', name: 'A2', type_line: 'Instant', oracle_text: '' } as any,
+    ]);
+    g.importDeckResolved(p2, [
+      { id: 'b1', name: 'B1', type_line: 'Instant', oracle_text: '' } as any,
+      { id: 'b2', name: 'B2', type_line: 'Instant', oracle_text: '' } as any,
+    ]);
+    g.importDeckResolved(p3, [
+      { id: 'c1', name: 'C1', type_line: 'Instant', oracle_text: '' } as any,
+      { id: 'c2', name: 'C2', type_line: 'Instant', oracle_text: '' } as any,
+    ]);
+
+    const beforeLib1 = g.state.zones?.[p1]?.libraryCount ?? 0;
+    const beforeGy1 = g.state.zones?.[p1]?.graveyardCount ?? 0;
+    const beforeLib2 = g.state.zones?.[p2]?.libraryCount ?? 0;
+    const beforeGy2 = g.state.zones?.[p2]?.graveyardCount ?? 0;
+    const beforeLib3 = g.state.zones?.[p3]?.libraryCount ?? 0;
+    const beforeGy3 = g.state.zones?.[p3]?.graveyardCount ?? 0;
+
+    const spec: SpellSpec = { op: 'MILL_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, millCount: 1 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'mill_each_player', spec, chosen: [] });
+
+    expect(g.state.zones?.[p1]?.libraryCount ?? 0).toBe(beforeLib1 - 1);
+    expect(g.state.zones?.[p1]?.graveyardCount ?? 0).toBe(beforeGy1 + 1);
+    expect(g.state.zones?.[p2]?.libraryCount ?? 0).toBe(beforeLib2 - 1);
+    expect(g.state.zones?.[p2]?.graveyardCount ?? 0).toBe(beforeGy2 + 1);
+    expect(g.state.zones?.[p3]?.libraryCount ?? 0).toBe(beforeLib3 - 1);
+    expect(g.state.zones?.[p3]?.graveyardCount ?? 0).toBe(beforeGy3 + 1);
   });
 
   it('GOAD_TARGET applies goad metadata to the chosen creature', () => {

@@ -44,6 +44,22 @@ describe('Oracle templates: draw/discard/counters/damage', () => {
     expect(spec?.amount).toBe(2);
   });
 
+  it('categorizeSpell: "Each opponent discards two cards." -> DISCARD_EACH_OPPONENT', () => {
+    const spec = categorizeSpell('Opp Discard', 'Each opponent discards two cards.');
+    expect(spec?.op).toBe('DISCARD_EACH_OPPONENT');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(0);
+    expect(spec?.amount).toBe(2);
+  });
+
+  it('categorizeSpell: "Each player discards a card." -> DISCARD_EACH_PLAYER', () => {
+    const spec = categorizeSpell('All Discard', 'Each player discards a card.');
+    expect(spec?.op).toBe('DISCARD_EACH_PLAYER');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(0);
+    expect(spec?.amount).toBe(1);
+  });
+
   it('categorizeSpell: "Put a +1/+1 counter on target creature." -> ADD_COUNTERS_TARGET', () => {
     const spec = categorizeSpell('Guiding Voice', 'Put a +1/+1 counter on target creature.');
     expect(spec?.op).toBe('ADD_COUNTERS_TARGET');
@@ -229,6 +245,42 @@ describe('Execution via applyEvent(resolveSpell) for new EngineEffect kinds', ()
     });
 
     expect((g.state as any).pendingDiscard?.[p2]?.count).toBe(2);
+  });
+
+  it('DISCARD_EACH_OPPONENT sets pendingDiscard for each opponent (not caster)', () => {
+    const g = createInitialGameState('t_discard_each_opponent');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    const spec: SpellSpec = { op: 'DISCARD_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 2 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'discard_each_opponent', spec, chosen: [] });
+
+    expect((g.state as any).pendingDiscard?.[p1]).toBeUndefined();
+    expect((g.state as any).pendingDiscard?.[p2]?.count).toBe(2);
+    expect((g.state as any).pendingDiscard?.[p3]?.count).toBe(2);
+  });
+
+  it('DISCARD_EACH_PLAYER sets pendingDiscard for all players', () => {
+    const g = createInitialGameState('t_discard_each_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    const spec: SpellSpec = { op: 'DISCARD_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: 1 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'discard_each_player', spec, chosen: [] });
+
+    expect((g.state as any).pendingDiscard?.[p1]?.count).toBe(1);
+    expect((g.state as any).pendingDiscard?.[p2]?.count).toBe(1);
+    expect((g.state as any).pendingDiscard?.[p3]?.count).toBe(1);
   });
 
   it('ADD_COUNTERS_TARGET adds counters to chosen creature', () => {

@@ -20,6 +20,7 @@ export type SpellOp =
   | 'SCRY'
   | 'SURVEIL' | 'SURVEIL_TARGET_PLAYER'
   | 'MILL_SELF' | 'MILL_TARGET_PLAYER'
+  | 'MILL_EACH_OPPONENT' | 'MILL_EACH_PLAYER'
   | 'GOAD_TARGET'
   | 'TARGET_PERMANENT' | 'TARGET_CREATURE' | 'TARGET_PLAYER'
   | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY'
@@ -28,6 +29,7 @@ export type SpellOp =
   | 'DRAW_TARGET_PLAYER'
   | 'DRAW_CARDS_EACH_OPPONENT' | 'DRAW_CARDS_EACH_PLAYER'
   | 'DISCARD_TARGET_PLAYER'
+  | 'DISCARD_EACH_OPPONENT' | 'DISCARD_EACH_PLAYER'
   | 'ADD_COUNTERS_TARGET'
   | 'ADD_COUNTERS_EACH'; // Exile and return to battlefield (Acrobatic Maneuver, Cloudshift, etc.)
 
@@ -391,6 +393,24 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       if (n !== null) return { op: 'DISCARD_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: n, targetDescription: 'target player' };
     }
   }
+  {
+    const m = t.trim().match(/^each\s+opponent\s+discards?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DISCARD_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'DISCARD_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    const m = t.trim().match(/^each\s+player\s+discards?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DISCARD_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'DISCARD_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
 
   // ========================================================================
   // LIFE GAIN / LOSS (conservative single-sentence templates)
@@ -737,6 +757,34 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
         maxTargets: 1,
         millCount: n,
         targetDescription: 'target player',
+      };
+    }
+  }
+  {
+    // Each opponent mills N cards.
+    const m = t.trim().match(/^each\s+opponent\s+mills\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'MILL_EACH_OPPONENT',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        millCount: n,
+      };
+    }
+  }
+  {
+    // Each player mills N cards.
+    const m = t.trim().match(/^each\s+player\s+mills\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'MILL_EACH_PLAYER',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        millCount: n,
       };
     }
   }
@@ -1886,6 +1934,25 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       }
       break;
     }
+    case 'MILL_EACH_OPPONENT': {
+      const n = Math.max(0, Number(spec.millCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'MillCards', playerId: pr.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'MILL_EACH_PLAYER': {
+      const n = Math.max(0, Number(spec.millCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'MillCards', playerId: pr.id as PlayerID, count: n });
+      }
+      break;
+    }
     case 'GOAD_TARGET': {
       for (const t of chosen) {
         if (t.kind === 'permanent') eff.push({ kind: 'GoadPermanent', id: t.id, goaderId: caster });
@@ -1929,6 +1996,25 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       if (n <= 0) break;
       for (const t of chosen) {
         if (t.kind === 'player') eff.push({ kind: 'RequestDiscard', playerId: t.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'DISCARD_EACH_OPPONENT': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'RequestDiscard', playerId: pr.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'DISCARD_EACH_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'RequestDiscard', playerId: pr.id as PlayerID, count: n });
       }
       break;
     }
