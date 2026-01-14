@@ -1,7 +1,7 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange } from "./game-state-effects.js";
 import { 
   detectKeywords, 
   getAttackTriggerKeywords, 
@@ -39,8 +39,9 @@ import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
-import { drawCards as drawCardsFromZone } from "./zones.js";
-import { runSBA, applyCounterModifications, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
+import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
+import { createToken, runSBA, applyCounterModifications, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
+import { applyGoadToCreature } from "./goad-effects.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -1417,7 +1418,7 @@ function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] Elixir of Immortality: ${controller} gained 5 life`);
     
     // Trigger life gain effects
-    triggerLifeGainEffects(ctx, controller, 5);
+    triggerLifeGainEffects(state, controller, 5);
     
     // Shuffle graveyard and the artifact into library using the utility
     const sourceId = (triggerItem as any).source; // The permanent ID of the elixir
@@ -6159,9 +6160,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       // Generate effects based on spell type and targets.
       // For X spells, hydrate the amount at resolution time when X is known.
-      const hydratedSpec = (spellSpec as any)?.amountIsX && typeof spellXValue === 'number'
-        ? ({ ...(spellSpec as any), amount: spellXValue } as any)
-        : spellSpec;
+      let hydratedSpec: any = spellSpec;
+      if ((hydratedSpec as any)?.amountIsX && typeof spellXValue === 'number') {
+        hydratedSpec = { ...(hydratedSpec as any), amount: spellXValue };
+      }
+      if ((hydratedSpec as any)?.tokenCountIsX && typeof spellXValue === 'number') {
+        hydratedSpec = { ...(hydratedSpec as any), tokenCount: spellXValue };
+      }
 
       const effects = resolveSpell(hydratedSpec as any, targetRefs, state as any, controller as any);
       
@@ -7021,7 +7026,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         
         // Trigger life gain effects (Ajani's Pridemate, etc.)
-        triggerLifeGainEffects(ctx, targetControllerForRemovalEffects, targetPowerBeforeRemoval);
+        triggerLifeGainEffects(state, targetControllerForRemovalEffects, targetPowerBeforeRemoval);
       }
     }
     
@@ -7111,7 +7116,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       
       // Trigger life gain effects (Ajani's Pridemate, etc.)
-      triggerLifeGainEffects(ctx, targetControllerForRemovalEffects, 4);
+      triggerLifeGainEffects(state, targetControllerForRemovalEffects, 4);
     }
     
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
@@ -7757,6 +7762,88 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       }
       break;
     }
+    case 'BouncePermanent': {
+      const id = String((effect as any).id || '');
+      if (!id) break;
+      const moved = movePermanentToHand(ctx, id);
+      if (moved) {
+        // If this was an Oblivion Ring-style permanent, return any cards it had exiled.
+        processLinkedExileReturns(ctx, id);
+        debug(2, `[resolveSpell] ${spellName} returned ${id} to its owner's hand`);
+      }
+      break;
+    }
+    case 'TapPermanent': {
+      const battlefield = state.battlefield || [];
+      const perm = battlefield.find((p: any) => p.id === (effect as any).id);
+      if (perm) {
+        (perm as any).tapped = true;
+        ctx.bumpSeq();
+        debug(2, `[resolveSpell] ${spellName} tapped ${(perm as any).card?.name || (effect as any).id}`);
+      }
+      break;
+    }
+    case 'UntapPermanent': {
+      const battlefield = state.battlefield || [];
+      const perm = battlefield.find((p: any) => p.id === (effect as any).id);
+      if (perm) {
+        (perm as any).tapped = false;
+        ctx.bumpSeq();
+        debug(2, `[resolveSpell] ${spellName} untapped ${(perm as any).card?.name || (effect as any).id}`);
+      }
+      break;
+    }
+    case 'GainLife': {
+      const playerId = (effect as any).playerId as PlayerID;
+      const amount = Math.max(0, Number((effect as any).amount ?? 0));
+      if (!playerId || amount <= 0) break;
+
+      const { finalAmount } = processLifeChange(ctx as any, playerId, amount, true);
+      if (finalAmount === 0) break;
+
+      const players = state.players || [];
+      const player = players.find((p: any) => p.id === playerId);
+      const startingLife = (state as any).startingLife ?? 40;
+      (state as any).life = (state as any).life || {};
+
+      const current = (state as any).life[playerId] ?? (player as any)?.life ?? startingLife;
+      const next = current + finalAmount;
+      (state as any).life[playerId] = next;
+      if (player) (player as any).life = next;
+      (ctx as any).life = (ctx as any).life || {};
+      (ctx as any).life[playerId] = next;
+
+      ctx.bumpSeq();
+      if (finalAmount > 0) {
+        try { triggerLifeGainEffects((ctx as any).state, playerId, finalAmount); } catch {}
+      }
+      debug(2, `[resolveSpell] ${spellName} changed life for ${playerId}: ${finalAmount >= 0 ? '+' : ''}${finalAmount}`);
+      break;
+    }
+    case 'LoseLife': {
+      const playerId = (effect as any).playerId as PlayerID;
+      const amount = Math.max(0, Number((effect as any).amount ?? 0));
+      if (!playerId || amount <= 0) break;
+
+      const { finalAmount } = processLifeChange(ctx as any, playerId, amount, false);
+      if (finalAmount === 0) break;
+
+      const players = state.players || [];
+      const player = players.find((p: any) => p.id === playerId);
+      const startingLife = (state as any).startingLife ?? 40;
+      (state as any).life = (state as any).life || {};
+
+      const current = (state as any).life[playerId] ?? (player as any)?.life ?? startingLife;
+      const next = current - Math.abs(finalAmount);
+      (state as any).life[playerId] = next;
+      if (player) (player as any).life = next;
+      (ctx as any).life = (ctx as any).life || {};
+      (ctx as any).life[playerId] = next;
+
+      ctx.bumpSeq();
+      debug(2, `[resolveSpell] ${spellName} changed life for ${playerId}: -${Math.abs(finalAmount)}`);
+      break;
+    }
     case 'FlickerPermanent': {
       // Flicker effect: Exile a permanent and return it to the battlefield
       // For tokens, they cease to exist when exiled and don't return
@@ -7911,6 +7998,110 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           debug(2, `[resolveSpell] ${spellName} added ${amount} ${counterType} counter(s) to ${(perm as any).card?.name || perm.id}`);
         }
       }
+      break;
+    }
+    case 'CreateToken': {
+      try {
+        const controller = (effect as any).controller as PlayerID;
+        const name = String((effect as any).name || 'Token');
+        const count = Math.max(0, Number((effect as any).count ?? 0));
+        const basePower = (effect as any).basePower;
+        const baseToughness = (effect as any).baseToughness;
+        const options = (effect as any).options;
+        if (controller && count > 0) {
+          createToken(ctx, controller, name, count, basePower, baseToughness, options);
+          debug(2, `[resolveSpell] ${spellName} created ${count} ${name} token(s) for ${controller}`);
+        }
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} createToken failed:`, err);
+      }
+      break;
+    }
+    case 'QueueScry': {
+      const playerId = (effect as any).playerId as PlayerID;
+      const count = Math.max(0, Number((effect as any).count ?? 0));
+      const gameId = (ctx as any).gameId;
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
+      try {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.SCRY,
+          playerId,
+          description: `${spellName}: Scry ${count}`,
+          mandatory: true,
+          sourceName: spellName,
+          scryCount: count,
+        } as any);
+        debug(2, `[resolveSpell] ${spellName} queued scry ${count} for ${playerId}`);
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} queue scry failed:`, err);
+      }
+      break;
+    }
+    case 'QueueSurveil': {
+      const playerId = (effect as any).playerId as PlayerID;
+      const count = Math.max(0, Number((effect as any).count ?? 0));
+      const gameId = (ctx as any).gameId;
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
+      try {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.SURVEIL,
+          playerId,
+          description: `${spellName}: Surveil ${count}`,
+          mandatory: true,
+          sourceName: spellName,
+          surveilCount: count,
+        } as any);
+        debug(2, `[resolveSpell] ${spellName} queued surveil ${count} for ${playerId}`);
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} queue surveil failed:`, err);
+      }
+      break;
+    }
+    case 'MillCards': {
+      const playerId = (effect as any).playerId as PlayerID;
+      const count = Math.max(0, Number((effect as any).count ?? 0));
+      if (!playerId || count <= 0) break;
+
+      const ctxLibraries = (ctx as any).libraries as Map<string, any[]> | undefined;
+      let lib: any[] | undefined;
+      if (ctxLibraries && typeof ctxLibraries.get === 'function') {
+        lib = ctxLibraries.get(playerId);
+      }
+
+      const zones = (state as any).zones || ((state as any).zones = {});
+      const z = (zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
+      z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+
+      if (lib && Array.isArray(lib)) {
+        for (let i = 0; i < count && lib.length > 0; i++) {
+          const milled = lib.shift();
+          if (milled) z.graveyard.push({ ...milled, zone: 'graveyard' });
+        }
+        if (ctxLibraries && typeof ctxLibraries.set === 'function') {
+          ctxLibraries.set(playerId, lib);
+        }
+        z.libraryCount = lib.length;
+        z.graveyardCount = z.graveyard.length;
+        ctx.bumpSeq();
+        debug(2, `[resolveSpell] ${spellName} milled ${count} card(s) for ${playerId}`);
+      }
+      break;
+    }
+    case 'GoadPermanent': {
+      const id = String((effect as any).id || '');
+      const goaderId = (effect as any).goaderId as PlayerID;
+      if (!id || !goaderId) break;
+      const battlefield = state.battlefield || [];
+      const idx = battlefield.findIndex((p: any) => p.id === id);
+      if (idx < 0) break;
+      const currentTurn = Number((state as any).turnNumber ?? 0) || 0;
+      const expiryTurn = currentTurn + 1;
+      const updated = applyGoadToCreature(battlefield[idx] as any, goaderId, expiryTurn);
+      battlefield[idx] = updated as any;
+      ctx.bumpSeq();
+      debug(2, `[resolveSpell] ${spellName} goaded ${(updated as any).card?.name || id} (by ${goaderId})`);
       break;
     }
     case 'CounterSpell': {

@@ -770,6 +770,13 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   const perm = battlefield.splice(idx, 1)[0];
   const owner = perm.owner as PlayerID;
   const card = perm.card;
+
+  // Tokens cease to exist when they leave the battlefield (Rule 111.7).
+  if ((perm as any).isToken === true) {
+    debug(2, `[movePermanentToHand] Token ${card?.name || permanentId} left battlefield -> ceased to exist (not moved to hand)`);
+    bumpSeq();
+    return true;
+  }
   
   // Commander Replacement Effect (Rule 903.9a):
   // If a commander would be put into its owner's hand from anywhere,

@@ -27,6 +27,7 @@ import {
   reconcileZonesConsistency,
   applyScry,
   applySurveil,
+  movePermanentToHand,
   applyExplore,
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
@@ -47,6 +48,7 @@ import { evaluateAction } from "../../rules-engine/index";
 import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { checkGraveyardTrigger } from "./triggered-abilities.js";
+import { processLifeChange } from "./game-state-effects";
 
 /* -------- Helpers ---------- */
 
@@ -665,6 +667,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 case 'MoveToExile':
                   movePermanentToExile(ctx as any, eff.id);
                   break;
+                case 'BouncePermanent':
+                  movePermanentToHand(ctx as any, (eff as any).id);
+                  break;
+                case 'TapPermanent': {
+                  const perm = ctx.state.battlefield.find((p: any) => p.id === (eff as any).id);
+                  if (perm) (perm as any).tapped = true;
+                  break;
+                }
+                case 'UntapPermanent': {
+                  const perm = ctx.state.battlefield.find((p: any) => p.id === (eff as any).id);
+                  if (perm) (perm as any).tapped = false;
+                  break;
+                }
                 case 'AddCountersPermanent':
                   updateCounters(ctx as any, (eff as any).id, { [(eff as any).counterType]: (eff as any).amount });
                   break;
@@ -681,6 +696,46 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   if (ctx.life && eff.playerId) {
                     ctx.life[eff.playerId] = (ctx.life[eff.playerId] ?? ctx.state.startingLife ?? 40) - eff.amount;
                   }
+                  break;
+                }
+                case 'GainLife': {
+                  const playerId = (eff as any).playerId as PlayerID;
+                  const amount = Math.max(0, Number((eff as any).amount ?? 0));
+                  if (!playerId || amount <= 0) break;
+
+                  const { finalAmount } = processLifeChange(ctx as any, playerId, amount, true);
+                  if (finalAmount === 0) break;
+
+                  (ctx.state as any).life = (ctx.state as any).life || {};
+                  const players = (ctx.state as any).players || [];
+                  const player = players.find((p: any) => p.id === playerId);
+                  const startingLife = (ctx.state as any).startingLife ?? 40;
+                  const current = (ctx.state as any).life[playerId] ?? (ctx as any).life?.[playerId] ?? player?.life ?? startingLife;
+                  const next = current + finalAmount;
+                  (ctx.state as any).life[playerId] = next;
+                  (ctx as any).life = (ctx as any).life || {};
+                  (ctx as any).life[playerId] = next;
+                  if (player) player.life = next;
+                  break;
+                }
+                case 'LoseLife': {
+                  const playerId = (eff as any).playerId as PlayerID;
+                  const amount = Math.max(0, Number((eff as any).amount ?? 0));
+                  if (!playerId || amount <= 0) break;
+
+                  const { finalAmount } = processLifeChange(ctx as any, playerId, amount, false);
+                  if (finalAmount === 0) break;
+
+                  (ctx.state as any).life = (ctx.state as any).life || {};
+                  const players = (ctx.state as any).players || [];
+                  const player = players.find((p: any) => p.id === playerId);
+                  const startingLife = (ctx.state as any).startingLife ?? 40;
+                  const current = (ctx.state as any).life[playerId] ?? (ctx as any).life?.[playerId] ?? player?.life ?? startingLife;
+                  const next = current - Math.abs(finalAmount);
+                  (ctx.state as any).life[playerId] = next;
+                  (ctx as any).life = (ctx as any).life || {};
+                  (ctx as any).life[playerId] = next;
+                  if (player) player.life = next;
                   break;
                 }
                 case 'DrawCards':
@@ -700,6 +755,69 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     };
                   }
                   break;
+                case 'CreateToken':
+                  try {
+                    createToken(
+                      ctx as any,
+                      (eff as any).controller,
+                      (eff as any).name,
+                      (eff as any).count,
+                      (eff as any).basePower,
+                      (eff as any).baseToughness,
+                      (eff as any).options
+                    );
+                  } catch {}
+                  break;
+                case 'QueueScry':
+                  if ((eff as any).playerId && (eff as any).count) {
+                    (ctx.state as any).pendingScry = (ctx.state as any).pendingScry || {};
+                    (ctx.state as any).pendingScry[(eff as any).playerId] = Number((eff as any).count);
+                  }
+                  break;
+                case 'QueueSurveil':
+                  if ((eff as any).playerId && (eff as any).count) {
+                    (ctx.state as any).pendingSurveil = (ctx.state as any).pendingSurveil || {};
+                    (ctx.state as any).pendingSurveil[(eff as any).playerId] = Number((eff as any).count);
+                  }
+                  break;
+                case 'MillCards': {
+                  const playerId = (eff as any).playerId as PlayerID;
+                  const count = Math.max(0, Number((eff as any).count ?? 0));
+                  if (!playerId || count <= 0) break;
+
+                  const lib = (ctx as any).libraries?.get?.(playerId);
+                  const zones = (ctx.state as any).zones || ((ctx.state as any).zones = {});
+                  const z = (zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
+                  z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+
+                  if (lib && Array.isArray(lib)) {
+                    for (let i = 0; i < count && lib.length > 0; i++) {
+                      const milled = lib.shift();
+                      if (milled) z.graveyard.push({ ...milled, zone: 'graveyard' });
+                    }
+                    (ctx as any).libraries?.set?.(playerId, lib);
+                    z.libraryCount = lib.length;
+                    z.graveyardCount = z.graveyard.length;
+                  }
+                  break;
+                }
+                case 'GoadPermanent': {
+                  const id = String((eff as any).id || '');
+                  const goaderId = (eff as any).goaderId as PlayerID;
+                  if (!id || !goaderId) break;
+                  const idx = ctx.state.battlefield.findIndex((p: any) => p.id === id);
+                  if (idx < 0) break;
+
+                  const perm = ctx.state.battlefield[idx] as any;
+                  const existing = perm.goadedBy || [];
+                  if (!existing.includes(goaderId)) {
+                    perm.goadedBy = [...existing, goaderId];
+                  }
+                  const currentTurn = Number((ctx.state as any).turnNumber ?? 0) || 0;
+                  const expiryTurn = currentTurn + 1;
+                  perm.goadedUntil = { ...(perm.goadedUntil || {}), [goaderId]: expiryTurn };
+                  break;
+                }
                 case 'CounterSpell': {
                   // Counter a spell on the stack
                   const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === eff.stackItemId);

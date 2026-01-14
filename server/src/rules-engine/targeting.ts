@@ -10,11 +10,23 @@ export type SpellOp =
   | 'DESTROY_EACH' | 'DAMAGE_EACH'
   | 'ANY_TARGET_DAMAGE'
   | 'DAMAGE_TARGET'
+  | 'GAIN_LIFE' | 'GAIN_LIFE_TARGET_PLAYER'
+  | 'LOSE_LIFE' | 'LOSE_LIFE_TARGET_PLAYER'
+  | 'GAIN_LIFE_EACH_OPPONENT' | 'GAIN_LIFE_EACH_PLAYER'
+  | 'LOSE_LIFE_EACH_OPPONENT' | 'LOSE_LIFE_EACH_PLAYER'
+  | 'BOUNCE_TARGET'
+  | 'TAP_TARGET' | 'UNTAP_TARGET'
+  | 'CREATE_TOKEN' | 'INVESTIGATE'
+  | 'SCRY'
+  | 'SURVEIL' | 'SURVEIL_TARGET_PLAYER'
+  | 'MILL_SELF' | 'MILL_TARGET_PLAYER'
+  | 'GOAD_TARGET'
   | 'TARGET_PERMANENT' | 'TARGET_CREATURE' | 'TARGET_PLAYER'
   | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY'
   | 'FLICKER_TARGET'
   | 'DRAW_CARDS'
   | 'DRAW_TARGET_PLAYER'
+  | 'DRAW_CARDS_EACH_OPPONENT' | 'DRAW_CARDS_EACH_PLAYER'
   | 'DISCARD_TARGET_PLAYER'
   | 'ADD_COUNTERS_TARGET'
   | 'ADD_COUNTERS_EACH'; // Exile and return to battlefield (Acrobatic Maneuver, Cloudshift, etc.)
@@ -59,12 +71,24 @@ export type SpellSpec = {
   amount?: number;
   amountIsX?: boolean; // For X spells: populate amount at cast/resolve time when X is known.
   counterType?: string; // For ADD_COUNTERS_* ops (e.g., '+1/+1', '-1/-1').
+  tokenKind?: 'CLUE' | 'TREASURE' | 'FOOD' | 'CREATURE';
+  tokenCount?: number;
+  tokenCountIsX?: boolean;
+  tokenName?: string;
+  tokenPower?: number;
+  tokenToughness?: number;
+  tokenColor?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+  tokenSubtype?: string;
+  scryCount?: number;
+  surveilCount?: number;
+  millCount?: number;
   spellTypeFilter?: SpellTypeFilter; // For counterspells that only counter certain spell types
   targetDescription?: string; // Human-readable description of what can be targeted
   returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
   statRequirement?: StatRequirement; // For spells like Repel Calamity (toughness 4 or greater)
   targetRestriction?: TargetRestriction; // For "target X that..." clauses (Reciprocate, etc.)
   controllerOnly?: boolean; // For "creature you control" patterns (Acrobatic Maneuver, Cloudshift)
+  opponentOnly?: boolean; // For "an opponent controls" patterns
   excludeSource?: boolean; // For "another target" patterns (Skrelv, etc.) - cannot target the source
   multiFilter?: PermanentFilter[]; // For "artifact or enchantment" patterns (Nature's Claim) - uses OR logic
   creatureRestriction?: TargetRestriction; // For restrictions that only apply to creatures when multiFilter includes CREATURE (Atraxa's Fall)
@@ -332,6 +356,24 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     }
   }
   {
+    const m = t.trim().match(/^each\s+opponent\s+draws?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DRAW_CARDS_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'DRAW_CARDS_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    const m = t.trim().match(/^each\s+player\s+draws?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DRAW_CARDS_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'DRAW_CARDS_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
     const m = t.trim().match(/^target\s+player\s+draws?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
     if (m) {
       const raw = m[1];
@@ -347,6 +389,106 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     if (m) {
       const n = parseCountWord(m[1]);
       if (n !== null) return { op: 'DISCARD_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: n, targetDescription: 'target player' };
+    }
+  }
+
+  // ========================================================================
+  // LIFE GAIN / LOSS (conservative single-sentence templates)
+  // ========================================================================
+  {
+    // "You gain N life." / "Gain N life."
+    const m = t.trim().match(/^(?:you\s+)?gain\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'GAIN_LIFE', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'GAIN_LIFE', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    // "Target player gains N life."
+    const m = t.trim().match(/^target\s+player\s+gains?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'GAIN_LIFE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amountIsX: true, targetDescription: 'target player' };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'GAIN_LIFE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: n, targetDescription: 'target player' };
+    }
+  }
+  {
+    // "Each opponent gains N life."
+    const m = t.trim().match(/^each\s+opponent\s+gains?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'GAIN_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'GAIN_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    // "Each player gains N life."
+    const m = t.trim().match(/^each\s+player\s+gains?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'GAIN_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'GAIN_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    // "You lose N life." / "Lose N life."
+    const m = t.trim().match(/^(?:you\s+)?lose\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'LOSE_LIFE', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'LOSE_LIFE', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    // "Target player loses N life."
+    const m = t.trim().match(/^target\s+player\s+loses?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'LOSE_LIFE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amountIsX: true, targetDescription: 'target player' };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'LOSE_LIFE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: n, targetDescription: 'target player' };
+    }
+  }
+  {
+    // "Each opponent loses N life."
+    const m = t.trim().match(/^each\s+opponent\s+loses?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'LOSE_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'LOSE_LIFE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    // "Each player loses N life."
+    const m = t.trim().match(/^each\s+player\s+loses?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+life\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return { op: 'LOSE_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      }
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'LOSE_LIFE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
     }
   }
 
@@ -440,6 +582,190 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
         amount: 1,
         counterType: '-1/-1',
         controllerOnly: true,
+      };
+    }
+  }
+
+  // TOKENS
+  {
+    // Investigate.
+    // e.g. "Investigate." / "Investigate. (Create a Clue token...)"
+    const m = t.trim().match(/^investigate\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      return {
+        op: 'INVESTIGATE',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        tokenKind: 'CLUE',
+        tokenCount: 1,
+      };
+    }
+  }
+  {
+    // Investigate twice.
+    const m = t.trim().match(/^investigate\s+twice\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      return {
+        op: 'INVESTIGATE',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        tokenKind: 'CLUE',
+        tokenCount: 2,
+      };
+    }
+  }
+  {
+    // Create a Treasure/Clue/Food token.
+    // e.g. "Create a Treasure token." (+ reminder text)
+    const m = t.trim().match(/^create\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+(treasure|clue|food)\s+tokens?\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const raw = m[1];
+      const kindRaw = m[2].toLowerCase();
+      const tokenKind = (kindRaw === 'treasure' ? 'TREASURE' : kindRaw === 'food' ? 'FOOD' : 'CLUE') as SpellSpec['tokenKind'];
+      const countIsX = String(raw).toLowerCase() === 'x';
+      const n = countIsX ? undefined : parseCountWord(raw) ?? undefined;
+      return {
+        op: 'CREATE_TOKEN',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        tokenKind,
+        ...(countIsX ? { tokenCountIsX: true } : { tokenCount: n ?? 1 }),
+      };
+    }
+  }
+  {
+    // Create a {P}/{T} {color} {Subtype} creature token.
+    // e.g. "Create a 1/1 green Saproling creature token."
+    // Only supports single-color, single-subtype, and explicit P/T.
+    const m = t.trim().match(/^create\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(\d+)\/(\d+)\s+(white|blue|black|red|green|colorless)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+creature\s+tokens?\.?$/i);
+    if (m) {
+      const count = parseCountWord(m[1]) ?? 1;
+      const power = parseInt(m[2], 10);
+      const toughness = parseInt(m[3], 10);
+      const color = m[4].toLowerCase() as NonNullable<SpellSpec['tokenColor']>;
+      const subtype = m[5];
+      return {
+        op: 'CREATE_TOKEN',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        tokenKind: 'CREATURE',
+        tokenCount: count,
+        tokenPower: power,
+        tokenToughness: toughness,
+        tokenColor: color,
+        tokenSubtype: subtype,
+        tokenName: `${subtype} Token`,
+      };
+    }
+  }
+
+  // SCRY
+  {
+    // Scry N.
+    const m = t.trim().match(/^scry\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'SCRY',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        scryCount: n,
+      };
+    }
+  }
+
+  // SURVEIL
+  {
+    // Surveil N.
+    const m = t.trim().match(/^surveil\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'SURVEIL',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        surveilCount: n,
+      };
+    }
+  }
+  {
+    // Target player surveils N.
+    const m = t.trim().match(/^target\s+player\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'SURVEIL_TARGET_PLAYER',
+        filter: 'ANY',
+        minTargets: 1,
+        maxTargets: 1,
+        surveilCount: n,
+        targetDescription: 'target player',
+      };
+    }
+  }
+
+  // MILL
+  {
+    // Mill N cards.
+    const m = t.trim().match(/^mill\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'MILL_SELF',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        millCount: n,
+      };
+    }
+  }
+  {
+    // Target player mills N cards.
+    const m = t.trim().match(/^target\s+player\s+mills\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'MILL_TARGET_PLAYER',
+        filter: 'ANY',
+        minTargets: 1,
+        maxTargets: 1,
+        millCount: n,
+        targetDescription: 'target player',
+      };
+    }
+  }
+
+  // GOAD
+  {
+    // Goad target creature.
+    const m = t.trim().match(/^goad\s+target\s+creature\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      return {
+        op: 'GOAD_TARGET',
+        filter: 'CREATURE',
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'target creature',
+      };
+    }
+  }
+  {
+    // Goad target creature an opponent controls.
+    const m = t.trim().match(/^goad\s+target\s+creature\s+an\s+opponent\s+controls\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      return {
+        op: 'GOAD_TARGET',
+        filter: 'CREATURE',
+        minTargets: 1,
+        maxTargets: 1,
+        opponentOnly: true,
+        targetDescription: 'target creature an opponent controls',
       };
     }
   }
@@ -790,6 +1116,98 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     }
   }
 
+  // ========================================================================
+  // TAP / UNTAP (conservative templates)
+  // Match only single-sentence forms to avoid partially applying multi-sentence
+  // effects like "Tap target creature. It doesn't untap...".
+  // ========================================================================
+  {
+    const m = t.trim().match(/^tap\s+target\s+(creature|permanent)\.?$/i);
+    if (m) {
+      const targetType = m[1].toLowerCase();
+      return {
+        op: 'TAP_TARGET',
+        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: `target ${targetType}`,
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^tap\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+(creature|permanent)s?\.?$/i);
+    if (m) {
+      const max = parseCountWord(m[1]) ?? 1;
+      const targetType = m[2].toLowerCase();
+      return {
+        op: 'TAP_TARGET',
+        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        minTargets: 0,
+        maxTargets: max,
+        targetDescription: `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'}`,
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^untap\s+target\s+(creature|permanent)\.?$/i);
+    if (m) {
+      const targetType = m[1].toLowerCase();
+      return {
+        op: 'UNTAP_TARGET',
+        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: `target ${targetType}`,
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^untap\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+(creature|permanent)s?\.?$/i);
+    if (m) {
+      const max = parseCountWord(m[1]) ?? 1;
+      const targetType = m[2].toLowerCase();
+      return {
+        op: 'UNTAP_TARGET',
+        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        minTargets: 0,
+        maxTargets: max,
+        targetDescription: `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'}`,
+      };
+    }
+  }
+
+  // ========================================================================
+  // BOUNCE (return to hand) (conservative templates)
+  // ========================================================================
+  {
+    // Unsummon-style: "Return target creature to its owner's hand."
+    const m = t.trim().match(/^return\s+target\s+(creature|permanent)\s+to\s+its\s+owner['’]s\s+hand\.?$/i);
+    if (m) {
+      const targetType = m[1].toLowerCase();
+      return {
+        op: 'BOUNCE_TARGET',
+        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: `target ${targetType}`,
+      };
+    }
+  }
+  {
+    // "Return up to one target creature to its owner's hand."
+    const m = t.trim().match(/^return\s+up\s+to\s+(a|an|one|1)\s+target\s+(creature|permanent)\s+to\s+its\s+owner['’]s\s+hand\.?$/i);
+    if (m) {
+      const targetType = m[2].toLowerCase();
+      return {
+        op: 'BOUNCE_TARGET',
+        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        minTargets: 0,
+        maxTargets: 1,
+        targetDescription: `up to one target ${targetType}`,
+      };
+    }
+  }
+
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
   if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
   
@@ -962,7 +1380,15 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
   const out: TargetRef[] = [];
 
   // Player targeting (for draw/discard templates and similar single-target effects).
-  if (spec.op === 'DRAW_TARGET_PLAYER' || spec.op === 'DISCARD_TARGET_PLAYER' || spec.op === 'TARGET_PLAYER') {
+  if (
+    spec.op === 'DRAW_TARGET_PLAYER' ||
+    spec.op === 'DISCARD_TARGET_PLAYER' ||
+    spec.op === 'MILL_TARGET_PLAYER' ||
+    spec.op === 'SURVEIL_TARGET_PLAYER' ||
+    spec.op === 'GAIN_LIFE_TARGET_PLAYER' ||
+    spec.op === 'LOSE_LIFE_TARGET_PLAYER' ||
+    spec.op === 'TARGET_PLAYER'
+  ) {
     for (const pr of state.players) out.push({ kind: 'player', id: pr.id });
     return out;
   }
@@ -1030,6 +1456,9 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     
     // Check controller restriction ("creature you control")
     if (spec.controllerOnly && p.controller !== caster) continue;
+
+    // Check opponent-only restriction ("an opponent controls")
+    if (spec.opponentOnly && p.controller === caster) continue;
     
     // Check excludeSource restriction ("another target" patterns - cannot target self)
     // This is used for abilities like Skrelv, Defector Mite that can only target "another" creature
@@ -1233,11 +1662,29 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
 export type EngineEffect =
   | { kind: 'DestroyPermanent'; id: string }
   | { kind: 'MoveToExile'; id: string }
+  | { kind: 'BouncePermanent'; id: string }
+  | { kind: 'TapPermanent'; id: string }
+  | { kind: 'UntapPermanent'; id: string }
+  | { kind: 'GainLife'; playerId: PlayerID; amount: number }
+  | { kind: 'LoseLife'; playerId: PlayerID; amount: number }
   | { kind: 'DamagePermanent'; id: string; amount: number }
   | { kind: 'DamagePlayer'; playerId: PlayerID; amount: number }
   | { kind: 'DrawCards'; playerId: PlayerID; count: number }
   | { kind: 'RequestDiscard'; playerId: PlayerID; count: number }
   | { kind: 'AddCountersPermanent'; id: string; counterType: string; amount: number }
+  | {
+    kind: 'CreateToken';
+    controller: PlayerID;
+    name: string;
+    count: number;
+    basePower?: number;
+    baseToughness?: number;
+    options?: { colors?: string[]; typeLine?: string; isArtifact?: boolean };
+  }
+  | { kind: 'QueueScry'; playerId: PlayerID; count: number }
+    | { kind: 'QueueSurveil'; playerId: PlayerID; count: number }
+  | { kind: 'MillCards'; playerId: PlayerID; count: number }
+  | { kind: 'GoadPermanent'; id: string; goaderId: PlayerID }
   | { kind: 'CounterSpell'; stackItemId: string }
   | { kind: 'CounterAbility'; stackItemId: string }
   | { kind: 'Broadcast'; message: string }
@@ -1298,9 +1745,175 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
   };
 
   switch (spec.op) {
+    case 'GAIN_LIFE': {
+      const n = Number(spec.amount ?? 0);
+      if (n > 0) eff.push({ kind: 'GainLife', playerId: caster, amount: n });
+      break;
+    }
+    case 'GAIN_LIFE_TARGET_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'player') eff.push({ kind: 'GainLife', playerId: t.id as PlayerID, amount: n });
+      }
+      break;
+    }
+    case 'GAIN_LIFE_EACH_OPPONENT': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'GainLife', playerId: pr.id as PlayerID, amount: n });
+      }
+      break;
+    }
+    case 'GAIN_LIFE_EACH_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'GainLife', playerId: pr.id as PlayerID, amount: n });
+      }
+      break;
+    }
+    case 'LOSE_LIFE': {
+      const n = Number(spec.amount ?? 0);
+      if (n > 0) eff.push({ kind: 'LoseLife', playerId: caster, amount: n });
+      break;
+    }
+    case 'LOSE_LIFE_TARGET_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'player') eff.push({ kind: 'LoseLife', playerId: t.id as PlayerID, amount: n });
+      }
+      break;
+    }
+    case 'LOSE_LIFE_EACH_OPPONENT': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'LoseLife', playerId: pr.id as PlayerID, amount: n });
+      }
+      break;
+    }
+    case 'LOSE_LIFE_EACH_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'LoseLife', playerId: pr.id as PlayerID, amount: n });
+      }
+      break;
+    }
+    case 'CREATE_TOKEN':
+    case 'INVESTIGATE': {
+      const count = Math.max(0, Number(spec.tokenCount ?? 0) || 0) || 1;
+      const kind = spec.tokenKind;
+      if (!kind || count <= 0) break;
+
+      if (kind === 'TREASURE' || kind === 'CLUE' || kind === 'FOOD') {
+        const name = kind === 'TREASURE' ? 'Treasure' : kind === 'FOOD' ? 'Food' : 'Clue';
+        const typeLine = kind === 'TREASURE' ? 'Artifact — Treasure' : kind === 'FOOD' ? 'Artifact — Food' : 'Artifact — Clue';
+        eff.push({
+          kind: 'CreateToken',
+          controller: caster,
+          name,
+          count,
+          options: { typeLine, isArtifact: true },
+        });
+        break;
+      }
+
+      if (kind === 'CREATURE') {
+        const colorWord = spec.tokenColor || 'colorless';
+        const colors =
+          colorWord === 'white' ? ['W'] :
+          colorWord === 'blue' ? ['U'] :
+          colorWord === 'black' ? ['B'] :
+          colorWord === 'red' ? ['R'] :
+          colorWord === 'green' ? ['G'] :
+          [];
+        const subtype = String(spec.tokenSubtype || '').trim();
+        const typeLine = subtype ? `Creature — ${subtype}` : 'Creature';
+        const name = String(spec.tokenName || subtype || 'Creature');
+        const basePower = typeof spec.tokenPower === 'number' ? spec.tokenPower : undefined;
+        const baseToughness = typeof spec.tokenToughness === 'number' ? spec.tokenToughness : undefined;
+        eff.push({
+          kind: 'CreateToken',
+          controller: caster,
+          name,
+          count,
+          basePower,
+          baseToughness,
+          options: { colors, typeLine },
+        });
+        break;
+      }
+      break;
+    }
+    case 'SCRY': {
+      const n = Math.max(0, Number(spec.scryCount ?? 0) || 0);
+      if (n > 0) eff.push({ kind: 'QueueScry', playerId: caster, count: n });
+      break;
+    }
+    case 'SURVEIL': {
+      const n = Math.max(0, Number(spec.surveilCount ?? 0) || 0);
+      if (n > 0) eff.push({ kind: 'QueueSurveil', playerId: caster, count: n });
+      break;
+    }
+    case 'SURVEIL_TARGET_PLAYER': {
+      const n = Math.max(0, Number(spec.surveilCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'player') eff.push({ kind: 'QueueSurveil', playerId: t.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'MILL_SELF': {
+      const n = Math.max(0, Number(spec.millCount ?? 0) || 0);
+      if (n > 0) eff.push({ kind: 'MillCards', playerId: caster, count: n });
+      break;
+    }
+    case 'MILL_TARGET_PLAYER': {
+      const n = Math.max(0, Number(spec.millCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind === 'player') eff.push({ kind: 'MillCards', playerId: t.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'GOAD_TARGET': {
+      for (const t of chosen) {
+        if (t.kind === 'permanent') eff.push({ kind: 'GoadPermanent', id: t.id, goaderId: caster });
+      }
+      break;
+    }
     case 'DRAW_CARDS': {
       const n = Number(spec.amount ?? 0);
       if (n > 0) eff.push({ kind: 'DrawCards', playerId: caster, count: n });
+      break;
+    }
+    case 'DRAW_CARDS_EACH_OPPONENT': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'DrawCards', playerId: pr.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'DRAW_CARDS_EACH_PLAYER': {
+      const n = Number(spec.amount ?? 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'DrawCards', playerId: pr.id as PlayerID, count: n });
+      }
       break;
     }
     case 'DRAW_TARGET_PLAYER': {
@@ -1342,6 +1955,21 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       }
       break;
     }
+    case 'BOUNCE_TARGET':
+      for (const t of chosen) {
+        if (t.kind === 'permanent') eff.push({ kind: 'BouncePermanent', id: t.id });
+      }
+      break;
+    case 'TAP_TARGET':
+      for (const t of chosen) {
+        if (t.kind === 'permanent') eff.push({ kind: 'TapPermanent', id: t.id });
+      }
+      break;
+    case 'UNTAP_TARGET':
+      for (const t of chosen) {
+        if (t.kind === 'permanent') eff.push({ kind: 'UntapPermanent', id: t.id });
+      }
+      break;
     case 'DESTROY_TARGET':
       for (const t of chosen) {
         if (t.kind === 'permanent') {

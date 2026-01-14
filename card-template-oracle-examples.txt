@@ -1,0 +1,40 @@
+## Investigate
+- Hard Evidence: Investigate. (Create a Clue token. It's an artifact with "{2}, Sacrifice this token: Draw a card.")
+- Heaven Sent: I, II — Investigate.
+- Wavesifter: When this creature enters, investigate twice. (To investigate, create a Clue token. It's an artifact with "{2}, Sacrifice this token: Draw a card.")
+- Armed with Proof: When this enchantment enters, investigate twice. (To investigate, create a Clue token. It's an artifact with "{2}, Sacrifice this token: Draw a card.")
+- Secrets of the Key: Investigate. If this spell was cast from a graveyard, investigate twice instead. (Create a Clue token. It's an artifact with "{2}, Sacrifice this token: Draw a card.")
+
+## Create Treasure/Clue/Food tokens
+- Strike It Rich: Create a Treasure token. (It's an artifact with "{T}, Sacrifice this token: Add one mana of any color.")
+- Ruthless Knave: {2}{B}, Sacrifice a creature: Create two Treasure tokens. (They're artifacts with "{T}, Sacrifice this token: Add one mana of any color.")
+- Sokka's Sword Training: Create a Clue token. (It's an artifact with "{2}, Sacrifice this token: Draw a card.")
+- Bake into a Pie: Destroy target creature. Create a Food token. (It's an artifact with "{2}, {T}, Sacrifice this token: You gain 3 life.")
+
+## Create simple creature tokens (P/T + single color, no abilities)
+- Sprout: Create a 1/1 green Saproling creature token.
+- Elephant Ambush: Create a 3/3 green Elephant creature token.
+- Rally for the Throne: Create two 1/1 white Human creature tokens.
+- Gisa's Bidding: Create two 2/2 black Zombie creature tokens.
+- Mogg Alarm: Create two 1/1 red Goblin creature tokens.
+
+## Scry N
+- Magma Jet: Magma Jet deals 2 damage to any target. Scry 2.
+- Memory Drain: Counter target spell. Scry 2.
+- Artisan's Sorrow: Destroy target artifact or enchantment. Scry 2. (Look at the top two cards of your library, then put any number of them on the bottom and the rest on top in any order.)
+- Battle of Frost and Fire: II — Scry 3.
+
+## Mill N / targeted mill
+- Mental Note: Mill two cards.
+- Thought Scour: Target player mills two cards.
+- Dream Twist: Target player mills three cards.
+- Brain Freeze: Target player mills three cards.
+
+## Goad templates
+- Ransom Note: • Goad target creature.
+- Grenzo, Havoc Raiser: • Goad target creature that player controls.
+- Red Death, Shipwrecker: Alluring Eyes — {T}: Goad target creature an opponent controls. That player draws a card. You add {R}. (Until your next turn, that creature attacks each combat if able and attacks a player other than you if able.)
+- Laser Screwdriver: {3}, {T}: Goad target creature. (Until your next turn, it attacks each combat if able and attacks a player other than you if able.)
+
+## Variant notes
+- Found exact substring "create two Clue tokens": False
