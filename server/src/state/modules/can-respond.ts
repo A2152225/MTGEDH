@@ -24,6 +24,26 @@ import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 
+function cardHasSplitSecond(card: any): boolean {
+  if (!card) return false;
+  const keywords = Array.isArray(card.keywords) ? card.keywords : [];
+  const oracleText = String(card.oracle_text || '').toLowerCase();
+  return keywords.some((k: any) => String(k).toLowerCase() === 'split second') || oracleText.includes('split second');
+}
+
+function isSplitSecondLockActive(state: any): boolean {
+  const stack = state?.stack;
+  if (!Array.isArray(stack) || stack.length === 0) return false;
+
+  // Rules-wise, Split Second should be the top-most spell (players can't add to the stack),
+  // but be robust and scan the whole stack.
+  for (const item of stack) {
+    const card = item?.card ?? item?.spell?.card ?? item?.sourceCard ?? item?.source?.card;
+    if (cardHasSplitSecond(card)) return true;
+  }
+  return false;
+}
+
 /**
  * Check if a card has flash or is an instant
  */
@@ -585,6 +605,9 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const { state } = ctx;
     if (!state) return false;
+
+    // Split Second: players can't cast spells while a split-second spell is on the stack.
+    if (isSplitSecondLockActive(state)) return false;
     
     const zones = state.zones?.[playerId];
     if (!zones) return false;
@@ -1086,6 +1109,10 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
   try {
     const { state } = ctx;
     if (!state) return false;
+
+    // Split Second: players can't activate non-mana abilities while a split-second spell is on the stack.
+    // (Mana abilities are excluded from this function already.)
+    if (isSplitSecondLockActive(state)) return false;
     
     const battlefield = state.battlefield || [];
     
@@ -1543,6 +1570,12 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     debug(2, `[canRespond] ${playerId}: checking instant-speed responses only`);
+
+    // Split Second: no spells/stack abilities can be responded with.
+    if (isSplitSecondLockActive(ctx.state)) {
+      debug(2, `[canRespond] ${playerId}: Split Second lock active (returning false)`);
+      return false;
+    }
     
     // Check if player can cast any instant/flash spells
     if (canCastAnySpell(ctx, playerId)) {

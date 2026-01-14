@@ -2328,6 +2328,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Split Second: players can't cast spells while a split-second spell is on the stack.
+      const splitSecondLockActive = Array.isArray((game.state as any)?.stack) && (game.state as any).stack.some((item: any) => {
+        const c = item?.card ?? item?.spell?.card ?? item?.sourceCard ?? item?.source?.card;
+        const keywords = Array.isArray(c?.keywords) ? c.keywords : [];
+        const ot = String(c?.oracle_text || '').toLowerCase();
+        return keywords.some((k: any) => String(k).toLowerCase() === 'split second') || ot.includes('split second');
+      });
+      if (splitSecondLockActive) {
+        socket.emit('error', {
+          code: 'SPLIT_SECOND_LOCK',
+          message: "Can't cast spells while a spell with split second is on the stack.",
+        });
+        return;
+      }
+
       const zones = game.state.zones?.[playerId];
       if (!zones || !Array.isArray(zones.hand)) {
         socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
@@ -2909,6 +2924,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         socket.emit("error", {
           code: "NO_PRIORITY",
           message: "You don't have priority",
+        });
+        return;
+      }
+
+      // Split Second: players can't cast spells while a split-second spell is on the stack.
+      const splitSecondLockActive = Array.isArray((game.state as any)?.stack) && (game.state as any).stack.some((item: any) => {
+        const c = item?.card ?? item?.spell?.card ?? item?.sourceCard ?? item?.source?.card;
+        const keywords = Array.isArray(c?.keywords) ? c.keywords : [];
+        const ot = String(c?.oracle_text || '').toLowerCase();
+        return keywords.some((k: any) => String(k).toLowerCase() === 'split second') || ot.includes('split second');
+      });
+      if (splitSecondLockActive) {
+        socket.emit('error', {
+          code: 'SPLIT_SECOND_LOCK',
+          message: "Can't cast spells while a spell with split second is on the stack.",
         });
         return;
       }

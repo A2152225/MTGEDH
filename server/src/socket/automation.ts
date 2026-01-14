@@ -881,6 +881,17 @@ async function processCastSpell(
     if (!game || !game.state) {
       return { success: false, error: "Game not found" };
     }
+
+    // Split Second: players can't cast spells while a split-second spell is on the stack.
+    const splitSecondLockActive = Array.isArray((game.state as any)?.stack) && (game.state as any).stack.some((item: any) => {
+      const c = item?.card ?? item?.spell?.card ?? item?.sourceCard ?? item?.source?.card;
+      const keywords = Array.isArray(c?.keywords) ? c.keywords : [];
+      const ot = String(c?.oracle_text || '').toLowerCase();
+      return keywords.some((k: any) => String(k).toLowerCase() === 'split second') || ot.includes('split second');
+    });
+    if (splitSecondLockActive) {
+      return { success: false, error: "Can't cast spells while a spell with split second is on the stack." };
+    }
     
     // Find card in hand
     const player = game.state.players.find((p: any) => p.id === playerId);
@@ -957,6 +968,13 @@ async function processActivateAbility(
     if (!game || !game.state) {
       return { success: false, error: "Game not found" };
     }
+
+    const splitSecondLockActive = Array.isArray((game.state as any)?.stack) && (game.state as any).stack.some((item: any) => {
+      const c = item?.card ?? item?.spell?.card ?? item?.sourceCard ?? item?.source?.card;
+      const keywords = Array.isArray(c?.keywords) ? c.keywords : [];
+      const ot = String(c?.oracle_text || '').toLowerCase();
+      return keywords.some((k: any) => String(k).toLowerCase() === 'split second') || ot.includes('split second');
+    });
     
     // Find permanent
     const battlefield = game.state.battlefield || [];
@@ -992,6 +1010,11 @@ async function processActivateAbility(
     const tapAbilityMatch = oracleText.match(/\{t\}:[^.]+/i);
     const abilityText = tapAbilityMatch ? tapAbilityMatch[0] : '';
     const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
+
+    // Split Second: players can't activate non-mana abilities while a split-second spell is on the stack.
+    if (splitSecondLockActive && !isManaAbility) {
+      return { success: false, error: "Can't activate abilities while a spell with split second is on the stack." };
+    }
 
     const { isAbilityActivationProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
     const activationRestriction = isAbilityActivationProhibitedByChosenName(game.state, playerId as any, card?.name || '', isManaAbility);

@@ -465,6 +465,40 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return false when Split Second is on the stack, even if player has an instant', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'bolt',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+              mana_cost: '{R}',
+            },
+          ],
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+      },
+      stack: [
+        {
+          id: 'stack_ss',
+          type: 'spell',
+          controller: 'p2',
+          card: {
+            name: 'Sudden Shock',
+            oracle_text: 'Split second\nSudden Shock deals 2 damage to any target.',
+            keywords: ['Split second'],
+          },
+        },
+      ],
+    });
+
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return false when player only has mana abilities (dont require priority)', () => {
     const ctx = createTestContext({
       zones: {

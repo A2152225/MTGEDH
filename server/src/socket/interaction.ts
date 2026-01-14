@@ -30,6 +30,23 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { parseTargetRequirements } from "../rules-engine/targeting.js";
 
+function cardHasSplitSecond(card: any): boolean {
+  if (!card) return false;
+  const keywords = Array.isArray(card.keywords) ? card.keywords : [];
+  const oracleText = String(card.oracle_text || '').toLowerCase();
+  return keywords.some((k: any) => String(k).toLowerCase() === 'split second') || oracleText.includes('split second');
+}
+
+function isSplitSecondLockActive(state: any): boolean {
+  const stack = state?.stack;
+  if (!Array.isArray(stack) || stack.length === 0) return false;
+  for (const item of stack) {
+    const card = item?.card ?? item?.spell?.card ?? item?.sourceCard ?? item?.source?.card;
+    if (cardHasSplitSecond(card)) return true;
+  }
+  return false;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -1510,6 +1527,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     const game = ensureGame(gameId);
+
+    // Split Second: players can't cast spells or activate non-mana abilities.
+    if (isSplitSecondLockActive(game.state)) {
+      socket.emit('error', {
+        code: 'SPLIT_SECOND_LOCK',
+        message: "Can't activate abilities while a spell with split second is on the stack.",
+      });
+      return;
+    }
     const zones = (game.state as any)?.zones?.[pid];
     
     if (!zones || !Array.isArray(zones.graveyard)) {
@@ -2975,6 +3001,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     const game = ensureGame(gameId);
+    const splitSecondLockActive = isSplitSecondLockActive(game.state);
     const battlefield = game.state?.battlefield || [];
     
     const permIndex = battlefield.findIndex((p: any) => p?.id === permanentId && p?.controller === pid);
@@ -3301,6 +3328,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Hideaway is handled during ETB (Enter the Battlefield), not as activated ability
     // The activated ability is just playing the exiled card
     if (specialLandConfig?.type === 'hideaway' && abilityId.includes('play-hideaway')) {
+      // Split Second: playing/casting is not allowed.
+      if (splitSecondLockActive) {
+        socket.emit('error', {
+          code: 'SPLIT_SECOND_LOCK',
+          message: "Can't cast spells or activate non-mana abilities while a spell with split second is on the stack.",
+        });
+        return;
+      }
+
       // Check if there's a face-down exiled card for this permanent
       const hideawayData = (permanent as any).hideawayCard;
       if (!hideawayData) {
@@ -3376,6 +3412,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const isFetchLandAbility = (abilityId === "fetch-land" || abilityId.includes("-fetch-")) && 
       isLand && !isCreature && !isArtifact && hasFetchPattern;
     if (isFetchLandAbility) {
+      // Split Second: can't activate non-mana abilities.
+      if (splitSecondLockActive) {
+        socket.emit('error', {
+          code: 'SPLIT_SECOND_LOCK',
+          message: "Can't activate abilities while a spell with split second is on the stack.",
+        });
+        return;
+      }
+
       // Validate: permanent must not be tapped
       if ((permanent as any).tapped) {
         socket.emit("error", {
@@ -6234,6 +6279,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     if (!isManaAbility) {
+      // Split Second: can't activate non-mana abilities.
+      if (splitSecondLockActive) {
+        socket.emit('error', {
+          code: 'SPLIT_SECOND_LOCK',
+          message: "Can't activate abilities while a spell with split second is on the stack.",
+        });
+        return;
+      }
+
       // Check if this is a tutor effect (searches library)
       const tutorInfo = detectTutorEffect(abilityText);
       
@@ -9545,6 +9599,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     const game = ensureGame(gameId);
+
+    // Split Second: cycling is an activated ability (non-mana).
+    if (isSplitSecondLockActive(game.state)) {
+      socket.emit('error', {
+        code: 'SPLIT_SECOND_LOCK',
+        message: "Can't activate abilities while a spell with split second is on the stack.",
+      });
+      return;
+    }
     const zones = (game.state as any)?.zones?.[pid];
     if (!zones || !zones.hand) {
       socket.emit("error", {
