@@ -8,6 +8,7 @@
     "dev": "tsx watch --watch-path=src src/index.ts",
     "dev:noreload": "npm run start",
     "start": "node --enable-source-maps --import tsx/esm src/index.ts",
+    "targeting:coverage": "node --enable-source-maps --import tsx/esm scripts/targeting-coverage.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run typecheck"
