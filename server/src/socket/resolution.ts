@@ -1792,10 +1792,14 @@ async function handleStepResponse(
   response: ResolutionStepResponse
 ): Promise<void> {
   if (response.cancelled) {
-    // Most cancelled steps are a no-op. Some TARGET_SELECTION steps are intentionally cancellable
-    // (e.g. Ward payment or optional additional-cost payments) and need custom cancellation semantics.
+    // Most cancelled steps are a no-op. Some steps (e.g. Ward payments / optional costs)
+    // need custom cancellation semantics handled in their normal handlers.
     if (step.type === ResolutionStepType.TARGET_SELECTION) {
       await handleTargetSelectionResponse(io, game, gameId, step, response);
+    } else if (step.type === ResolutionStepType.DISCARD_SELECTION) {
+      handleDiscardResponse(io, game, gameId, step, response);
+    } else if (step.type === ResolutionStepType.OPTION_CHOICE) {
+      await handleOptionChoiceResponse(io, game, gameId, step, response);
     }
     return;
   }
@@ -2715,6 +2719,37 @@ function handleDiscardResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): void {
+  if (response.cancelled) {
+    const stepAny = step as any;
+    if (stepAny?.wardPayment === true) {
+      const triggeredBy = String(stepAny?.wardTriggeredBy || stepAny?.sourceId || '').trim();
+      const wardController = String(stepAny?.wardPermanentController || 'system');
+      const wardName = String(stepAny?.wardPermanentName || step.sourceName || 'Ward');
+      const pid = response.playerId;
+
+      if (triggeredBy) {
+        const ctx = {
+          state: game.state,
+          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+          zones: game.state?.zones,
+          gameId,
+        } as unknown as GameContext;
+
+        counterStackItem(ctx, triggeredBy, wardController);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${wardName}: ${getPlayerName(game, pid)} declined to pay ward and the spell/ability was countered.`,
+          ts: Date.now(),
+        });
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      }
+    }
+
+    return;
+  }
+
   const pid = response.playerId;
   const selections = response.selections as string[];
   
@@ -3066,6 +3101,33 @@ async function handleTargetSelectionResponse(
   // Cancellation-aware handling for special TARGET_SELECTION steps.
   if (response.cancelled) {
     const stepAny = step as any;
+    if (stepAny?.wardPayment === true) {
+      const triggeredBy = String(stepAny?.wardTriggeredBy || step.sourceId || '').trim();
+      const wardController = String(stepAny?.wardPermanentController || 'system');
+      const wardName = String(stepAny?.wardPermanentName || step.sourceName || 'Ward');
+      if (triggeredBy) {
+        const ctx = {
+          state: game.state,
+          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+          zones: game.state?.zones,
+          gameId,
+        } as unknown as GameContext;
+
+        counterStackItem(ctx, triggeredBy, wardController);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${wardName}: ${getPlayerName(game, pid)} declined to pay ward and the spell/ability was countered.`,
+          ts: Date.now(),
+        });
+      }
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
     if (stepAny?.keywordBlight === true) {
       const stage = String(stepAny?.keywordBlightStage || '');
       const controllerId = String(stepAny?.keywordBlightController || pid);
@@ -3107,6 +3169,23 @@ async function handleTargetSelectionResponse(
           (game.state as any).pendingSpellCasts[effectId].additionalCostMethod = 'none';
         }
         emitPendingCastPaymentIfNeeded(effectId, controllerId);
+        return;
+      }
+
+      // Activated-ability blight-cost cancellation = activation cancelled.
+      if (stage === 'ability_activation_cost') {
+        const activationId = String(stepAny?.keywordBlightActivationId || '');
+        if (activationId && (game.state as any)?.pendingBlightAbilityActivations?.[activationId]) {
+          delete (game.state as any).pendingBlightAbilityActivations[activationId];
+        }
+        // No-op: the activation never proceeds.
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game, controllerId)} cancelled the activation.`,
+          ts: Date.now(),
+        });
         return;
       }
     }
@@ -3152,13 +3231,14 @@ async function handleTargetSelectionResponse(
   // ===== LORWYN ECLIPSED: Blight N (generic hook) =====
   if (
     (step as any)?.keywordBlight === true &&
-    ['select_target', 'ward_payment', 'cast_additional_cost'].includes(String((step as any)?.keywordBlightStage || ''))
+    ['select_target', 'ward_payment', 'cast_additional_cost', 'ability_activation_cost'].includes(String((step as any)?.keywordBlightStage || ''))
   ) {
     const controllerId = String((step as any).keywordBlightController || pid);
     const n = Number((step as any).keywordBlightN || 0);
     const sourceName = String((step as any).keywordBlightSourceName || step.sourceName || 'Blight');
     const stage = String((step as any)?.keywordBlightStage || '');
     const effectId = String((step as any)?.keywordBlightEffectId || '');
+    const activationId = String((step as any)?.keywordBlightActivationId || '');
     if (selections.length === 0) {
       // Some templates allow "up to one target". In that case, selecting no target is a valid no-op.
       debug(2, `[Resolution] Blight: no target selected (no-op)`);
@@ -3212,100 +3292,561 @@ async function handleTargetSelectionResponse(
       }
       emitPendingCastPaymentIfNeeded(effectId, controllerId);
     }
+
+    if (stage === 'ability_activation_cost') {
+      try {
+        if (!activationId) {
+          debugWarn(1, `[Resolution] Blight ability_activation_cost: missing activation id`);
+          return;
+        }
+
+        const pending = (game.state as any)?.pendingBlightAbilityActivations?.[activationId];
+        if (!pending) {
+          debugWarn(1, `[Resolution] Blight ability_activation_cost: pending activation not found (${activationId})`);
+          return;
+        }
+
+        // Clear pending state before proceeding (prevents double-activation on retries).
+        delete (game.state as any).pendingBlightAbilityActivations[activationId];
+
+        const permanentId = String(pending.permanentId || '');
+        const abilityText = String(pending.abilityText || '');
+        const cardName = String(pending.cardName || pending.sourceName || 'Ability');
+        const requiresTap = Boolean(pending.requiresTap);
+        const manaCost = String(pending.manaCost || '');
+
+        // Defensive: we only support resuming activations whose costs are strictly
+        // (mana symbols and/or {T}/{Q}) plus the already-paid "Blight N".
+        // If other non-mana text remains, refuse to proceed rather than granting a free cost.
+        const remainingNonManaCostText = manaCost
+          .replace(/\{[^}]+\}/g, ' ')
+          .replace(/\bblight\s+\w+\b/gi, ' ')
+          .replace(/[\s,]+/g, ' ')
+          .trim();
+        if (remainingNonManaCostText.length > 0) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Unsupported activation cost after Blight payment (${remainingNonManaCostText}).`,
+          });
+          return;
+        }
+
+        const battlefield = game.state?.battlefield || [];
+        const perm = battlefield.find((p: any) => p && p.id === permanentId);
+        if (!perm) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'PERMANENT_NOT_FOUND',
+            message: 'Permanent no longer on battlefield',
+          });
+          return;
+        }
+
+        if (String(perm.controller || '') !== controllerId) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'NOT_CONTROLLER',
+            message: 'You no longer control that permanent',
+          });
+          return;
+        }
+
+        if (requiresTap && (perm as any).tapped) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'ALREADY_TAPPED',
+            message: `${cardName} is already tapped`,
+          });
+          return;
+        }
+
+        // Pay mana portion of the activation cost (conservative: no Phyrexian and no X).
+        const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+        const manaOnly = manaSymbols
+          .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+          .join('');
+
+        if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Unsupported activation cost after Blight payment (${manaOnly || 'complex cost'})`,
+          });
+          return;
+        }
+
+        if (manaOnly) {
+          const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+          const parsedCost = parseManaCost(manaOnly);
+          const pool = getOrInitManaPool(game.state, controllerId) as any;
+          const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+          const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+          if (validationError) {
+            emitToPlayer(io, controllerId, 'error', {
+              code: 'INSUFFICIENT_MANA',
+              message: validationError,
+            });
+            return;
+          }
+          consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic);
+        }
+
+        // Tap as part of cost.
+        if (requiresTap && !(perm as any).tapped) {
+          (perm as any).tapped = true;
+        }
+
+        // Put the ability on the stack.
+        const stackItem = {
+          id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          type: 'ability' as const,
+          controller: controllerId,
+          source: permanentId,
+          sourceName: cardName,
+          description: abilityText,
+        } as any;
+
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push(stackItem);
+
+        io.to(gameId).emit('stackUpdate', {
+          gameId,
+          stack: (game.state.stack || []).map((s: any) => ({
+            id: s.id,
+            type: s.type,
+            name: s.sourceName || s.card?.name || 'Ability',
+            controller: s.controller,
+            targets: s.targets,
+            source: s.source,
+            sourceName: s.sourceName,
+            description: s.description,
+          })),
+        });
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
+          ts: Date.now(),
+        });
+
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+      } catch (err) {
+        debugError(1, `[Resolution] Failed to resume blight-cost activation`, err);
+      }
+    }
     return;
   }
 
-  // ===== WARD: Ward—Blight N =====
-  // If the completed step selected a warded permanent with Ward—Blight N, enqueue a payment step.
-  // (Conservative: only supports the custom Blight N ward cost.)
+  // ===== WARD: Payment prompts =====
+  // When a spell/ability on the stack gains targets, check if any target has Ward.
+  // If so, enqueue a payment prompt for the caster/activator. Declining (or being unable to pay)
+  // counters the spell/ability.
+  // Supports Ward—Blight N, mana ward costs like Ward {2} / Ward—{1}{U}, and common non-mana
+  // ward costs like "Ward—Discard a card", "Ward—Pay 3 life", "Ward—Sacrifice a permanent".
   if (!(step as any)?.keywordBlight && step.type === ResolutionStepType.TARGET_SELECTION) {
     const sourceId = (step as any)?.sourceId as string | undefined;
-    if (sourceId && game.state?.stack) {
-      const stackItem = game.state.stack.find((item: any) => item && item.id === sourceId);
-      const casterId = String(stackItem?.controller || pid);
+    if (!sourceId || !game.state?.stack) {
+      // If we can't associate targets with a stack item, we can't apply ward.
+      return;
+    }
 
-      // Only meaningful if the step belongs to the casting/activating player.
-      if (casterId) {
-        const battlefield = game.state?.battlefield || [];
+    const stackItem = game.state.stack.find((item: any) => item && item.id === sourceId);
+    const casterId = String(stackItem?.controller || pid);
+    if (!casterId) return;
 
-        const parseBlightN = (cost: string): number | null => {
-          const m = String(cost || '').match(/\bblight\s*(\d+)\b/i);
-          if (!m) return null;
-          const n = Number.parseInt(m[1], 10);
-          return Number.isFinite(n) ? n : null;
-        };
+    const battlefield = game.state?.battlefield || [];
 
-        for (const targetId of selections) {
-          const targetPerm = battlefield.find((p: any) => p && p.id === targetId);
-          if (!targetPerm) continue;
+    const parseBlightN = (cost: string): number | null => {
+      const m = String(cost || '').match(/\bblight\s*(\d+)\b/i);
+      if (!m) return null;
+      const n = Number.parseInt(m[1], 10);
+      return Number.isFinite(n) ? n : null;
+    };
 
-          const wardCost = getWardCost(targetPerm.card);
-          if (!wardCost) continue;
+    const canPayManaWard = async (payerId: string, wardCost: string): Promise<string | null> => {
+      try {
+        const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment } = await import('./util.js');
+        const parsed = parseManaCost(String(wardCost));
+        const pool = getOrInitManaPool(game.state, payerId) as any;
+        const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+        const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+        return validationError || null;
+      } catch (err) {
+        debugWarn(1, `[Resolution] Failed ward mana affordability check`, err);
+        return 'Unable to validate ward payment';
+      }
+    };
 
-          const blightN = parseBlightN(wardCost);
-          if (!blightN) continue;
+    for (const targetId of selections) {
+      const targetPerm = battlefield.find((p: any) => p && p.id === targetId);
+      if (!targetPerm) continue;
 
-          // Ward triggers only for opponents; if we're targeting our own permanent, ignore.
-          if (String(targetPerm.controller || '') === casterId) continue;
+      // Ward triggers only for opponents; if we're targeting our own permanent, ignore.
+      if (String(targetPerm.controller || '') === casterId) continue;
 
-          const validTargets = battlefield
-            .filter((p: any) => p && String(p.controller || '') === casterId)
-            .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
-            .map((p: any) => ({
-              id: p.id,
-              label: p.card?.name || 'Creature',
-              description: p.card?.type_line || 'creature',
-              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-            }));
+      const wardCost = getWardCost(targetPerm.card);
+      if (!wardCost) continue;
 
-          if (validTargets.length === 0) {
-            // If the player can't pay, ward will counter the spell/ability.
-            const ctx = {
-              state: game.state,
-              bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-              zones: game.state?.zones,
-              gameId,
-            } as unknown as GameContext;
+      const normalizedWardCost = String(wardCost || '').trim().replace(/[\s\t]+/g, ' ').replace(/[.;,]+$/g, '').trim();
+      const lowerWardCost = normalizedWardCost.toLowerCase();
 
-            counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
-            io.to(gameId).emit('chat', {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: 'system',
-              message: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
-              ts: Date.now(),
-            });
+      const parseCountToken = (token: string): number | null => {
+        const raw = String(token || '').trim().toLowerCase();
+        if (!raw) return null;
+        if (raw === 'a' || raw === 'an' || raw === 'one') return 1;
+        if (raw === 'two') return 2;
+        if (raw === 'three') return 3;
+        if (raw === 'four') return 4;
+        if (raw === 'five') return 5;
+        if (raw === 'six') return 6;
+        if (raw === 'seven') return 7;
+        if (raw === 'eight') return 8;
+        if (raw === 'nine') return 9;
+        if (raw === 'ten') return 10;
+        if (/^\d+$/.test(raw)) return Number.parseInt(raw, 10);
+        return null;
+      };
 
-            if (typeof game.bumpSeq === 'function') game.bumpSeq();
-            return;
-          }
+      // ---- Ward—Blight N ----
+      const blightN = parseBlightN(normalizedWardCost);
+      if (blightN) {
+        const validTargets = battlefield
+          .filter((p: any) => p && String(p.controller || '') === casterId)
+          .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+          .map((p: any) => ({
+            id: p.id,
+            label: p.card?.name || 'Creature',
+            description: p.card?.type_line || 'creature',
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
 
-          ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.TARGET_SELECTION,
-            playerId: casterId as any,
-            status: ResolutionStepStatus.PENDING,
-            sourceId,
-            sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
-            description: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}: Choose a creature you control to put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on it (or cancel to be countered).`,
-            mandatory: false,
-            createdAt: Date.now(),
-            priority: 0,
-            validTargets,
-            targetTypes: ['creature'],
-            minTargets: 1,
-            maxTargets: 1,
-            targetDescription: 'creature you control',
+        if (validTargets.length === 0) {
+          const ctx = {
+            state: game.state,
+            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+            zones: game.state?.zones,
+            gameId,
+          } as unknown as GameContext;
 
-            // Custom payload consumed by the Blight hook above.
-            keywordBlight: true,
-            keywordBlightStage: 'ward_payment',
-            keywordBlightController: casterId,
-            keywordBlightN: blightN,
-            keywordBlightSourceName: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}`,
-            keywordBlightTriggeredBy: sourceId,
-            keywordBlightWardController: String(targetPerm.controller || ''),
-          } as any);
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
         }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: casterId as any,
+          status: ResolutionStepStatus.PENDING,
+          sourceId,
+          sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+          description: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}: Choose a creature you control to put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on it (or cancel to be countered).`,
+          mandatory: false,
+          createdAt: Date.now(),
+          priority: 0,
+          validTargets,
+          targetTypes: ['creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'creature you control',
+
+          keywordBlight: true,
+          keywordBlightStage: 'ward_payment',
+          keywordBlightController: casterId,
+          keywordBlightN: blightN,
+          keywordBlightSourceName: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}`,
+          keywordBlightTriggeredBy: sourceId,
+          keywordBlightWardController: String(targetPerm.controller || ''),
+        } as any);
+
+        continue;
+      }
+
+      // ---- Mana ward costs (Ward {2} / Ward—{1}{U}) ----
+      if (/\{[^}]+\}/.test(normalizedWardCost)) {
+        const validationError = await canPayManaWard(casterId, normalizedWardCost);
+        if (validationError) {
+          const ctx = {
+            state: game.state,
+            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+            zones: game.state?.zones,
+            gameId,
+          } as unknown as GameContext;
+
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
+        }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: casterId as any,
+          status: ResolutionStepStatus.PENDING,
+          sourceId,
+          sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+          description: `${targetPerm.card?.name || 'Ward'} has ward ${normalizedWardCost}. Pay ${normalizedWardCost} or the spell/ability will be countered.`,
+          mandatory: true,
+          createdAt: Date.now(),
+          priority: 0,
+          minSelections: 1,
+          maxSelections: 1,
+          options: [
+            { id: 'pay_ward_cost', label: `Pay ${normalizedWardCost}` },
+            { id: 'decline_ward_cost', label: 'Decline (counter)' },
+          ],
+
+          wardPayment: true,
+          wardPaymentType: 'mana',
+          wardCost: normalizedWardCost,
+          wardPermanentId: String(targetPerm.id || ''),
+          wardPermanentName: String(targetPerm.card?.name || 'Ward'),
+          wardPermanentController: String(targetPerm.controller || ''),
+          wardTriggeredBy: sourceId,
+        } as any);
+
+        continue;
+      }
+
+      // ---- Non-mana ward costs (discard/pay life/sacrifice) ----
+      // Conservative: only implement the most common one-action templates.
+      // If the ward cost is present but unrecognized, treat it as unpayable (counter).
+      const makeCounterCtx = () =>
+        ({
+          state: game.state,
+          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+          zones: game.state?.zones,
+          gameId,
+        }) as unknown as GameContext;
+
+      const lifeMatch = lowerWardCost.match(/\bpay\s+(\w+)\s+life\b/);
+      if (lifeMatch) {
+        const lifeAmount = parseCountToken(lifeMatch[1]);
+        if (!lifeAmount || lifeAmount <= 0) {
+          const ctx = makeCounterCtx();
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ward cost unsupported and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
+        }
+
+        const startingLife = game.state.startingLife || 40;
+        game.state.life = game.state.life || {};
+        const currentLife = game.state.life?.[casterId] ?? startingLife;
+        if (currentLife < lifeAmount) {
+          const ctx = makeCounterCtx();
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
+        }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: casterId as any,
+          status: ResolutionStepStatus.PENDING,
+          sourceId,
+          sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+          description: `${targetPerm.card?.name || 'Ward'} has ward—${normalizedWardCost}. Pay ${normalizedWardCost} or the spell/ability will be countered.`,
+          mandatory: true,
+          createdAt: Date.now(),
+          priority: 0,
+          minSelections: 1,
+          maxSelections: 1,
+          options: [
+            { id: 'pay_ward_cost', label: `Pay ${normalizedWardCost}` },
+            { id: 'decline_ward_cost', label: 'Decline (counter)' },
+          ],
+          wardPayment: true,
+          wardPaymentType: 'life',
+          wardCost: normalizedWardCost,
+          wardLifeAmount: lifeAmount,
+          wardPermanentId: String(targetPerm.id || ''),
+          wardPermanentName: String(targetPerm.card?.name || 'Ward'),
+          wardPermanentController: String(targetPerm.controller || ''),
+          wardTriggeredBy: sourceId,
+        } as any);
+
+        continue;
+      }
+
+      const discardMatch = lowerWardCost.match(/\bdiscard\s+(\w+)\s+cards?\b/);
+      if (discardMatch) {
+        const discardCount = parseCountToken(discardMatch[1]);
+        if (!discardCount || discardCount <= 0) {
+          const ctx = makeCounterCtx();
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ward cost unsupported and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
+        }
+
+        const zones = game.state?.zones?.[casterId];
+        const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+        if (hand.length < discardCount) {
+          const ctx = makeCounterCtx();
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
+        }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: casterId as any,
+          status: ResolutionStepStatus.PENDING,
+          sourceId,
+          sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+          description: `${targetPerm.card?.name || 'Ward'} has ward—${normalizedWardCost}. Pay ${normalizedWardCost} or the spell/ability will be countered.`,
+          mandatory: true,
+          createdAt: Date.now(),
+          priority: 0,
+          minSelections: 1,
+          maxSelections: 1,
+          options: [
+            { id: 'pay_ward_cost', label: `Pay ${normalizedWardCost}` },
+            { id: 'decline_ward_cost', label: 'Decline (counter)' },
+          ],
+          wardPayment: true,
+          wardPaymentType: 'discard',
+          wardCost: normalizedWardCost,
+          wardDiscardCount: discardCount,
+          wardPermanentId: String(targetPerm.id || ''),
+          wardPermanentName: String(targetPerm.card?.name || 'Ward'),
+          wardPermanentController: String(targetPerm.controller || ''),
+          wardTriggeredBy: sourceId,
+        } as any);
+
+        continue;
+      }
+
+      const sacrificeMatch = lowerWardCost.match(/\bsacrifice\s+(\w+)\s+(nonland permanent|permanent|creature|artifact|enchantment|land)\b/);
+      if (sacrificeMatch) {
+        const sacCount = parseCountToken(sacrificeMatch[1]);
+        const sacKind = String(sacrificeMatch[2] || '').trim().toLowerCase();
+        if (!sacCount || sacCount <= 0 || !sacKind) {
+          const ctx = makeCounterCtx();
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ward cost unsupported and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
+        }
+
+        const eligible = battlefield
+          .filter((p: any) => p && String(p.controller || '') === casterId)
+          .filter((p: any) => {
+            const tl = String(p.card?.type_line || '').toLowerCase();
+            if (sacKind === 'permanent') return true;
+            if (sacKind === 'nonland permanent') return !tl.includes('land');
+            return tl.includes(sacKind);
+          })
+          .map((p: any) => ({
+            id: p.id,
+            label: p.card?.name || 'Permanent',
+            description: p.card?.type_line || 'permanent',
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
+
+        if (eligible.length < sacCount) {
+          const ctx = makeCounterCtx();
+          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          return;
+        }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: casterId as any,
+          status: ResolutionStepStatus.PENDING,
+          sourceId,
+          sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+          description: `${targetPerm.card?.name || 'Ward'} has ward—${normalizedWardCost}. Pay ${normalizedWardCost} or the spell/ability will be countered.`,
+          mandatory: true,
+          createdAt: Date.now(),
+          priority: 0,
+          minSelections: 1,
+          maxSelections: 1,
+          options: [
+            { id: 'pay_ward_cost', label: `Pay ${normalizedWardCost}` },
+            { id: 'decline_ward_cost', label: 'Decline (counter)' },
+          ],
+          wardPayment: true,
+          wardPaymentType: 'sacrifice',
+          wardCost: normalizedWardCost,
+          wardSacrificeCount: sacCount,
+          wardSacrificeKind: sacKind,
+          wardPermanentId: String(targetPerm.id || ''),
+          wardPermanentName: String(targetPerm.card?.name || 'Ward'),
+          wardPermanentController: String(targetPerm.controller || ''),
+          wardTriggeredBy: sourceId,
+        } as any);
+
+        continue;
+      }
+
+      // Unknown ward cost (non-mana and non-blight). Fail closed.
+      {
+        const ctx = makeCounterCtx();
+        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ward cost unsupported and the spell/ability was countered.`,
+          ts: Date.now(),
+        });
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        return;
       }
     }
   }
@@ -8464,6 +9005,355 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  // ===== WARD: Pay ward cost (mana + common non-mana) =====
+  if (stepData?.wardPayment === true) {
+    const choiceId = extractId(selectedOption);
+    const wardCost = String(stepData?.wardCost || '').trim().replace(/[\s\t]+/g, ' ').replace(/[.;,]+$/g, '').trim();
+    const paymentTypeRaw = String(stepData?.wardPaymentType || '').trim().toLowerCase();
+    const paymentType = paymentTypeRaw || (/\{[^}]+\}/.test(wardCost) ? 'mana' : '');
+    const wardPermanentName = String(stepData?.wardPermanentName || step.sourceName || 'Ward');
+    const wardPermanentController = String(stepData?.wardPermanentController || 'system');
+    const triggeredBy = String(stepData?.wardTriggeredBy || step.sourceId || '').trim();
+
+    // Treat cancellation like declining to pay ward.
+    if (response.cancelled) {
+      if (!triggeredBy) {
+        debugWarn(1, `[Resolution] wardPayment: cancelled but missing triggeredBy/sourceId`);
+        return;
+      }
+
+      const ctx = {
+        state: game.state,
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+        zones: game.state?.zones,
+        gameId,
+      } as unknown as GameContext;
+
+      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${wardPermanentName}: ${getPlayerName(game, playerId)} declined to pay ward and the spell/ability was countered.`,
+        ts: Date.now(),
+      });
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    const parseCountToken = (token: string): number | null => {
+      const raw = String(token || '').trim().toLowerCase();
+      if (!raw) return null;
+      if (raw === 'a' || raw === 'an' || raw === 'one') return 1;
+      if (raw === 'two') return 2;
+      if (raw === 'three') return 3;
+      if (raw === 'four') return 4;
+      if (raw === 'five') return 5;
+      if (raw === 'six') return 6;
+      if (raw === 'seven') return 7;
+      if (raw === 'eight') return 8;
+      if (raw === 'nine') return 9;
+      if (raw === 'ten') return 10;
+      if (/^\d+$/.test(raw)) return Number.parseInt(raw, 10);
+      return null;
+    };
+
+    if (!choiceId) {
+      debugWarn(1, `[Resolution] wardPayment: missing choice id`);
+      return;
+    }
+
+    if (!triggeredBy) {
+      debugWarn(1, `[Resolution] wardPayment: missing triggeredBy/sourceId`);
+      return;
+    }
+
+    // If the spell/ability was already countered/removed, this ward payment is moot.
+    const stackItem = (game.state?.stack || []).find((s: any) => s && s.id === triggeredBy);
+    if (!stackItem) {
+      debug(2, `[Resolution] wardPayment: stack item missing (${triggeredBy}); skipping`);
+      return;
+    }
+
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: game.state?.zones,
+      gameId,
+    } as unknown as GameContext;
+
+    if (choiceId === 'decline_ward_cost') {
+      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${wardPermanentName}: ${getPlayerName(game, playerId)} declined to pay ward and the spell/ability was countered.`,
+        ts: Date.now(),
+      });
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (choiceId !== 'pay_ward_cost') {
+      debugWarn(1, `[Resolution] wardPayment: unexpected choice '${choiceId}'`);
+      return;
+    }
+
+    if (paymentType === 'mana') {
+      if (!/\{[^}]+\}/.test(wardCost)) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Unsupported ward cost (${wardCost || 'unknown'}).`,
+        });
+        counterStackItem(ctx, triggeredBy, wardPermanentController);
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      try {
+        const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+        const parsed = parseManaCost(wardCost);
+        const pool = getOrInitManaPool(game.state, playerId) as any;
+        const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+        const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+
+        if (validationError) {
+          emitToPlayer(io, playerId, 'error', {
+            code: 'INSUFFICIENT_MANA',
+            message: validationError,
+          });
+          counterStackItem(ctx, triggeredBy, wardPermanentController);
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${wardPermanentName}: ${getPlayerName(game, playerId)} couldn't pay ward and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          broadcastGame(io, game, gameId);
+          return;
+        }
+
+        consumeManaFromPool(pool, parsed.colors, parsed.generic);
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${wardPermanentName}: ${getPlayerName(game, playerId)} paid ward ${wardCost}.`,
+          ts: Date.now(),
+        });
+
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+      } catch (err) {
+        debugError(1, `[Resolution] wardPayment: failed to process mana payment`, err);
+        emitToPlayer(io, playerId, 'error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Failed to process ward payment (${wardCost || 'unknown'}).`,
+        });
+        counterStackItem(ctx, triggeredBy, wardPermanentController);
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+      }
+
+      return;
+    }
+
+    if (paymentType === 'life') {
+      const lifeAmount = Number(stepData?.wardLifeAmount || 0) || ((): number => {
+        const m = wardCost.toLowerCase().match(/\bpay\s+(\w+)\s+life\b/);
+        const parsed = m ? parseCountToken(m[1]) : null;
+        return parsed || 0;
+      })();
+
+      if (!lifeAmount || lifeAmount <= 0) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Unsupported ward cost (${wardCost || 'unknown'}).`,
+        });
+        counterStackItem(ctx, triggeredBy, wardPermanentController);
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      const startingLife = game.state.startingLife || 40;
+      game.state.life = game.state.life || {};
+      const currentLife = game.state.life?.[playerId] ?? startingLife;
+      if (currentLife < lifeAmount) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'INSUFFICIENT_LIFE',
+          message: `Not enough life to pay ${lifeAmount}.`,
+        });
+        counterStackItem(ctx, triggeredBy, wardPermanentController);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${wardPermanentName}: ${getPlayerName(game, playerId)} couldn't pay ward and the spell/ability was countered.`,
+          ts: Date.now(),
+        });
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      game.state.life[playerId] = currentLife - lifeAmount;
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${wardPermanentName}: ${getPlayerName(game, playerId)} paid ward—${wardCost}.`,
+        ts: Date.now(),
+      });
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (paymentType === 'discard') {
+      const discardCount = Number(stepData?.wardDiscardCount || 0) || ((): number => {
+        const m = wardCost.toLowerCase().match(/\bdiscard\s+(\w+)\s+cards?\b/);
+        const parsed = m ? parseCountToken(m[1]) : null;
+        return parsed || 0;
+      })();
+
+      const zones = game.state?.zones?.[playerId];
+      const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+      if (!discardCount || discardCount <= 0 || hand.length < discardCount) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'INSUFFICIENT_CARDS',
+          message: `Not enough cards in hand to discard ${discardCount || 1}.`,
+        });
+        counterStackItem(ctx, triggeredBy, wardPermanentController);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${wardPermanentName}: ${getPlayerName(game, playerId)} couldn't pay ward and the spell/ability was countered.`,
+          ts: Date.now(),
+        });
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      const toHandCards = (cards: any[]) =>
+        cards.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          type_line: c.type_line,
+          oracle_text: c.oracle_text,
+          image_uris: c.image_uris,
+          mana_cost: c.mana_cost,
+          cmc: c.cmc,
+          colors: c.colors,
+        }));
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.DISCARD_SELECTION,
+        playerId: playerId as any,
+        description: `${wardPermanentName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'} to pay ward`,
+        mandatory: true,
+        sourceName: wardPermanentName,
+        discardCount,
+        hand: toHandCards(hand),
+        wardPayment: true,
+        wardPaymentType: 'discard',
+        wardCost: wardCost,
+        wardTriggeredBy: triggeredBy,
+        wardPermanentName,
+        wardPermanentController,
+      } as any);
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (paymentType === 'sacrifice') {
+      const sacCount = Number(stepData?.wardSacrificeCount || 0) || 0;
+      const sacKind = String(stepData?.wardSacrificeKind || '').trim().toLowerCase();
+      const battlefield = (game.state?.battlefield || []) as any[];
+      const eligible = battlefield
+        .filter((p: any) => p && String(p.controller || '') === playerId)
+        .filter((p: any) => {
+          const tl = String(p.card?.type_line || '').toLowerCase();
+          if (sacKind === 'permanent') return true;
+          if (sacKind === 'nonland permanent') return !tl.includes('land');
+          return sacKind ? tl.includes(sacKind) : false;
+        })
+        .map((p: any) => ({
+          id: p.id,
+          label: p.card?.name || 'Permanent',
+          description: p.card?.type_line || 'permanent',
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
+
+      if (!sacCount || sacCount <= 0 || eligible.length < sacCount) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'INSUFFICIENT_PERMANENTS',
+          message: `Not enough permanents to sacrifice to pay ward.`,
+        });
+        counterStackItem(ctx, triggeredBy, wardPermanentController);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${wardPermanentName}: ${getPlayerName(game, playerId)} couldn't pay ward and the spell/ability was countered.`,
+          ts: Date.now(),
+        });
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: playerId as any,
+        status: ResolutionStepStatus.PENDING,
+        sourceId: triggeredBy,
+        sourceName: wardPermanentName,
+        description: `${wardPermanentName}: Sacrifice ${sacCount} ${sacKind} to pay ward (required)`,
+        mandatory: true,
+        createdAt: Date.now(),
+        priority: 0,
+        validTargets: eligible,
+        targetTypes: ['permanent'],
+        minTargets: sacCount,
+        maxTargets: sacCount,
+        targetDescription: sacKind,
+        action: 'sacrifice_selected_permanents',
+        wardPayment: true,
+        wardPaymentType: 'sacrifice',
+        wardCost: wardCost,
+        wardTriggeredBy: triggeredBy,
+        wardPermanentName,
+        wardPermanentController,
+      } as any);
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    emitToPlayer(io, playerId, 'error', {
+      code: 'UNSUPPORTED_COST',
+      message: `Unsupported ward cost (${wardCost || 'unknown'}).`,
+    });
+    counterStackItem(ctx, triggeredBy, wardPermanentController);
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
+
+    return;
+  }
 
   // ===== SPELL CASTING: Additional cost — "Blight N or pay {X}" =====
   if (stepData?.spellAdditionalCostBlightOrPay === true) {

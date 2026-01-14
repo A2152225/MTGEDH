@@ -5809,6 +5809,101 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
       debug(2, `[activateBattlefieldAbility] ${cardName} activation condition met: attacked with ${creaturesAttacked} creatures this turn`);
     }
+
+    // ========================================================================
+    // Blight as an activated-ability cost (e.g., "{T}, Blight 1: ...")
+    // Queue a TARGET_SELECTION step to pay Blight, then resume activation from resolution.ts.
+    // ========================================================================
+    const blightCostStr = String(manaCost || '');
+    const blightCostMatch = blightCostStr.match(/\bblight\s+(\w+)\b/i);
+    if (blightCostMatch) {
+      const raw = String(blightCostMatch[1] || '').trim();
+      if (raw.toLowerCase() === 'x') {
+        socket.emit('error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Cannot activate ${cardName}: Blight X as an activation cost is not supported yet.`,
+        });
+        return;
+      }
+
+      const blightN = parseWordNumber(raw) || parseInt(raw, 10) || 0;
+      if (blightN > 0) {
+        // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus "Blight N".
+        // If the cost contains other text (e.g., sacrifice/discard/exile/tap a creature), reject up-front
+        // so we don't take Blight payment and then fail to resume correctly.
+        const remainingNonManaCostText = blightCostStr
+          .replace(/\{[^}]+\}/g, ' ')
+          .replace(/\bblight\s+\w+\b/gi, ' ')
+          .replace(/[\s,]+/g, ' ')
+          .trim();
+
+        if (remainingNonManaCostText.length > 0) {
+          socket.emit('error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Cannot activate ${cardName}: Blight cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+          });
+          return;
+        }
+
+        const validTargets = battlefield
+          .filter((p: any) => p && p.controller === pid)
+          .filter((p: any) => ((p.card?.type_line || '').toLowerCase().includes('creature')))
+          .map((p: any) => ({
+            id: p.id,
+            label: p.card?.name || 'Creature',
+            description: p.card?.type_line || 'creature',
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
+
+        if (validTargets.length === 0) {
+          socket.emit('error', {
+            code: 'NO_VALID_TARGETS',
+            message: `Cannot pay Blight ${blightN} (you control no creatures).`,
+          });
+          return;
+        }
+
+        // Store pending activation to resume after Blight payment.
+        const activationId = `blight_activation_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        (game.state as any).pendingBlightAbilityActivations = (game.state as any).pendingBlightAbilityActivations || {};
+        (game.state as any).pendingBlightAbilityActivations[activationId] = {
+          playerId: pid,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText,
+          manaCost,
+          requiresTap,
+          timestamp: Date.now(),
+        };
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          description: `${cardName}: Blight ${blightN} — Choose a creature you control to put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on it (cancel to abort activation).`,
+          mandatory: false,
+          sourceName: cardName,
+          sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+          validTargets,
+          targetTypes: ['creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'creature you control',
+
+          // Custom payload consumed by resolution.ts.
+          keywordBlight: true,
+          keywordBlightStage: 'ability_activation_cost',
+          keywordBlightController: pid,
+          keywordBlightN: blightN,
+          keywordBlightSourceName: `${cardName} — Blight ${blightN}`,
+          keywordBlightActivationId: activationId,
+        } as any);
+
+        debug(2, `[activateBattlefieldAbility] ${cardName} requires Blight ${blightN} as activation cost; queued TARGET_SELECTION (activationId: ${activationId})`);
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    }
     
     // Check if sacrifice is required and we need to prompt for selection
     if (sacrificeType && sacrificeType !== 'self') {
