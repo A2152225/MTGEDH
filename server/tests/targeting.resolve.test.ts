@@ -142,4 +142,30 @@ describe('Targeting resolve destroy/exile', () => {
     expect(g.state.battlefield.find(p => p.id === 'p2_c')).toBeDefined();
     expect(g.state.battlefield.find(p => p.id === 'p1_a')).toBeDefined();
   });
+
+  it('categorizeSpell: "Destroy up to two target nonland permanents" -> DESTROY_TARGET (nonlandOnly, max 2)', () => {
+    const spec = categorizeSpell('NonlandUpTo', 'Destroy up to two target nonland permanents.');
+    expect(spec?.op).toBe('DESTROY_TARGET');
+    expect(spec?.filter).toBe('PERMANENT');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(2);
+    expect(spec?.nonlandOnly).toBe(true);
+  });
+
+  it('DESTROY_TARGET with nonlandOnly skips lands (defensive)', () => {
+    const g = createInitialGameState('tgt_destroy_nonland_defensive');
+    const pid = 'p1' as PlayerID;
+
+    g.state.battlefield.push({
+      id: 'land1',
+      owner: pid,
+      controller: pid,
+      tapped: false,
+      card: { id: 'island', name: 'Island', type_line: 'Land — Island', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('NonlandUpTo', 'Destroy up to two target nonland permanents.')!;
+    const effects = resolveSpell(spec, [{ kind: 'permanent', id: 'land1' }], g.state as any, pid);
+    expect(effects.some(e => e.kind === 'DestroyPermanent')).toBe(false);
+  });
 });

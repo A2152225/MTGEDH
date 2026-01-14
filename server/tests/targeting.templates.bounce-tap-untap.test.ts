@@ -12,6 +12,31 @@ describe('Oracle templates: bounce / tap / untap', () => {
     expect(spec?.maxTargets).toBe(1);
   });
 
+  it('categorizeSpell: "Return target artifact to its owner\'s hand." -> BOUNCE_TARGET (ARTIFACT)', () => {
+    const spec = categorizeSpell('Hurkyl-ish', "Return target artifact to its owner's hand.");
+    expect(spec?.op).toBe('BOUNCE_TARGET');
+    expect(spec?.filter).toBe('ARTIFACT');
+    expect(spec?.minTargets).toBe(1);
+    expect(spec?.maxTargets).toBe(1);
+  });
+
+  it('categorizeSpell: "Return up to two target creatures to their owners\' hands." -> BOUNCE_TARGET (max 2)', () => {
+    const spec = categorizeSpell('BounceTwo', "Return up to two target creatures to their owners' hands.");
+    expect(spec?.op).toBe('BOUNCE_TARGET');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(2);
+  });
+
+  it('categorizeSpell: "Return up to two target nonland permanents to their owners\' hands." -> BOUNCE_TARGET (PERMANENT + nonlandOnly)', () => {
+    const spec = categorizeSpell('BounceNonlands', "Return up to two target nonland permanents to their owners' hands.");
+    expect(spec?.op).toBe('BOUNCE_TARGET');
+    expect(spec?.filter).toBe('PERMANENT');
+    expect(spec?.nonlandOnly).toBe(true);
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(2);
+  });
+
   it('categorizeSpell: "Tap target creature." -> TAP_TARGET', () => {
     const spec = categorizeSpell('Twiddle-ish', 'Tap target creature.');
     expect(spec?.op).toBe('TAP_TARGET');
@@ -20,12 +45,79 @@ describe('Oracle templates: bounce / tap / untap', () => {
     expect(spec?.maxTargets).toBe(1);
   });
 
+  it('categorizeSpell: "Tap target creature an opponent controls." -> TAP_TARGET (opponentOnly)', () => {
+    const spec = categorizeSpell('TapOpp', 'Tap target creature an opponent controls.');
+    expect(spec?.op).toBe('TAP_TARGET');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.opponentOnly).toBe(true);
+    expect(spec?.controllerOnly).not.toBe(true);
+  });
+
+  it('categorizeSpell: "Tap target land." -> TAP_TARGET (LAND)', () => {
+    const spec = categorizeSpell('Ice', 'Tap target land.');
+    expect(spec?.op).toBe('TAP_TARGET');
+    expect(spec?.filter).toBe('LAND');
+  });
+
+  it('categorizeSpell: "Tap target nonland permanent." -> TAP_TARGET (PERMANENT + nonlandOnly)', () => {
+    const spec = categorizeSpell('Freeze', 'Tap target nonland permanent.');
+    expect(spec?.op).toBe('TAP_TARGET');
+    expect(spec?.filter).toBe('PERMANENT');
+    expect(spec?.nonlandOnly).toBe(true);
+  });
+
+  it('categorizeSpell: "Tap up to two target nonland permanents." -> TAP_TARGET (PERMANENT + nonlandOnly, max 2)', () => {
+    const spec = categorizeSpell('TapNonlands', 'Tap up to two target nonland permanents.');
+    expect(spec?.op).toBe('TAP_TARGET');
+    expect(spec?.filter).toBe('PERMANENT');
+    expect(spec?.nonlandOnly).toBe(true);
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(2);
+  });
+
+  it('categorizeSpell: "Tap target attacking or blocking creature." -> TAP_TARGET with attacked_or_blocked_this_turn restriction', () => {
+    const spec = categorizeSpell('TapCombat', 'Tap target attacking or blocking creature.');
+    expect(spec?.op).toBe('TAP_TARGET');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.targetRestriction?.type).toBe('attacked_or_blocked_this_turn');
+  });
+
+  it('categorizeSpell: "Tap target creature that entered this turn." -> TAP_TARGET with entered_this_turn restriction', () => {
+    const spec = categorizeSpell('TapNew', 'Tap target creature that entered this turn.');
+    expect(spec?.op).toBe('TAP_TARGET');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.targetRestriction?.type).toBe('entered_this_turn');
+  });
+
   it('categorizeSpell: "Untap target permanent." -> UNTAP_TARGET', () => {
     const spec = categorizeSpell('Twiddle', 'Untap target permanent.');
     expect(spec?.op).toBe('UNTAP_TARGET');
     expect(spec?.filter).toBe('PERMANENT');
     expect(spec?.minTargets).toBe(1);
     expect(spec?.maxTargets).toBe(1);
+  });
+
+  it('categorizeSpell: "Untap target creature you control." -> UNTAP_TARGET (controllerOnly)', () => {
+    const spec = categorizeSpell('UntapMine', 'Untap target creature you control.');
+    expect(spec?.op).toBe('UNTAP_TARGET');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.controllerOnly).toBe(true);
+    expect(spec?.opponentOnly).not.toBe(true);
+  });
+
+  it('categorizeSpell: "Untap target planeswalker." -> UNTAP_TARGET (PLANESWALKER)', () => {
+    const spec = categorizeSpell('Wake', 'Untap target planeswalker.');
+    expect(spec?.op).toBe('UNTAP_TARGET');
+    expect(spec?.filter).toBe('PLANESWALKER');
+  });
+
+  it('categorizeSpell: "Untap up to two target nonland permanents." -> UNTAP_TARGET (PERMANENT + nonlandOnly, max 2)', () => {
+    const spec = categorizeSpell('UntapNonlands', 'Untap up to two target nonland permanents.');
+    expect(spec?.op).toBe('UNTAP_TARGET');
+    expect(spec?.filter).toBe('PERMANENT');
+    expect(spec?.nonlandOnly).toBe(true);
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(2);
   });
 
   it('categorizeSpell: "Tap all creatures." -> TAP_ALL', () => {
@@ -77,6 +169,68 @@ describe('Oracle templates: bounce / tap / untap', () => {
   });
 });
 
+describe('Target evaluation: single-target controller/opponent scopes', () => {
+  it('evaluateTargeting: opponentOnly excludes caster-controlled permanents', () => {
+    const g = createInitialGameState('t_scope_opponent_only');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'p1_creature',
+      owner: p1,
+      controller: p1,
+      tapped: false,
+      card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'p2_creature',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'c2', name: 'P2 Bear', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('TapOpp', 'Tap target creature an opponent controls.')!;
+    const targets = evaluateTargeting(g.state as any, p1, spec);
+    const ids = new Set(targets.filter(t => t.kind === 'permanent').map(t => t.id));
+
+    expect(ids.has('p1_creature')).toBe(false);
+    expect(ids.has('p2_creature')).toBe(true);
+  });
+
+  it('evaluateTargeting: controllerOnly excludes opponent-controlled permanents', () => {
+    const g = createInitialGameState('t_scope_controller_only');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'p1_creature',
+      owner: p1,
+      controller: p1,
+      tapped: true,
+      card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'p2_creature',
+      owner: p2,
+      controller: p2,
+      tapped: true,
+      card: { id: 'c2', name: 'P2 Bear', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('UntapMine', 'Untap target creature you control.')!;
+    const targets = evaluateTargeting(g.state as any, p1, spec);
+    const ids = new Set(targets.filter(t => t.kind === 'permanent').map(t => t.id));
+
+    expect(ids.has('p1_creature')).toBe(true);
+    expect(ids.has('p2_creature')).toBe(false);
+  });
+});
+
 describe('Target evaluation: tap respects controller filter', () => {
   it('evaluateTargeting: TAP_TARGET creature only returns creature permanents', () => {
     const g = createInitialGameState('t_tap_targets');
@@ -106,6 +260,67 @@ describe('Target evaluation: tap respects controller filter', () => {
 
     expect(ids.has('c_perm')).toBe(true);
     expect(ids.has('a_perm')).toBe(false);
+  });
+
+  it('evaluateTargeting: nonlandOnly excludes lands for PERMANENT filter', () => {
+    const g = createInitialGameState('t_nonland_targets');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'land1',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'island', name: 'Island', type_line: 'Land — Island', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'art1',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'ring', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+    } as any);
+
+    const spec: SpellSpec = { op: 'TAP_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1, nonlandOnly: true };
+    const targets = evaluateTargeting(g.state as any, p1, spec, undefined);
+    const ids = new Set(targets.filter(t => t.kind === 'permanent').map(t => t.id));
+
+    expect(ids.has('land1')).toBe(false);
+    expect(ids.has('art1')).toBe(true);
+  });
+
+  it('evaluateTargeting: TAP_TARGET with combat restriction only returns attackers/blockers', () => {
+    const g = createInitialGameState('t_tap_attacking_or_blocking');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'attacker',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      attacking: true,
+      card: { id: 'c1', name: 'Attacker', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'idle',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'c2', name: 'Idle', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('TapCombat', 'Tap target attacking or blocking creature.')!;
+    const targets = evaluateTargeting(g.state as any, p1, spec, undefined);
+    const ids = new Set(targets.filter(t => t.kind === 'permanent').map(t => t.id));
+
+    expect(ids.has('attacker')).toBe(true);
+    expect(ids.has('idle')).toBe(false);
   });
 });
 
@@ -202,6 +417,33 @@ describe('Execution via applyEvent(resolveSpell) for bounce / tap / untap', () =
     });
 
     expect((g.state.battlefield.find(p => p.id === 'perm1') as any).tapped).toBe(false);
+  });
+
+  it('TAP_TARGET with nonlandOnly does not tap lands (defensive)', () => {
+    const g = createInitialGameState('t_tap_nonland_defensive');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'land1',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'island', name: 'Island', type_line: 'Land — Island', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Freeze', 'Tap target nonland permanent.')!;
+    g.applyEvent!({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'freeze',
+      spec,
+      chosen: [{ kind: 'permanent', id: 'land1' } as TargetRef],
+    });
+
+    expect((g.state.battlefield.find(p => p.id === 'land1') as any).tapped).toBe(false);
   });
 
   it('TAP_ALL taps all creatures', () => {

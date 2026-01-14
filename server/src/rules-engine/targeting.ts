@@ -9,8 +9,10 @@ export type SpellOp =
   | 'DESTROY_ALL' | 'EXILE_ALL'
   | 'DESTROY_ALL_TARGET_PLAYER' | 'EXILE_ALL_TARGET_PLAYER'
   | 'DESTROY_EACH' | 'DAMAGE_EACH'
+  | 'DAMAGE_EACH_OPPONENT' | 'DAMAGE_EACH_PLAYER'
   | 'ANY_TARGET_DAMAGE'
   | 'DAMAGE_TARGET'
+  | 'DAMAGE_TARGET_PLAYER'
   | 'GAIN_LIFE' | 'GAIN_LIFE_TARGET_PLAYER'
   | 'LOSE_LIFE' | 'LOSE_LIFE_TARGET_PLAYER'
   | 'GAIN_LIFE_EACH_OPPONENT' | 'GAIN_LIFE_EACH_PLAYER'
@@ -909,6 +911,11 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       keyword: 'flying',
     };
   }
+  // Pattern: "creature or planeswalker" (e.g., burn/removal)
+  else if (/creature\s+or\s+planeswalker/.test(t) || /planeswalker\s+or\s+creature/.test(t)) {
+    filter = 'CREATURE';
+    multiFilter = ['CREATURE', 'PLANESWALKER'];
+  }
   // Pattern: "artifact or enchantment" (Nature's Claim, Naturalize, etc.)
   else if (/artifact or enchantment/.test(t)) {
     filter = 'ARTIFACT'; // Primary filter
@@ -1054,18 +1061,140 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   if (/exile all\b/.test(t) && !/exile all\s+(?:other\s+)?spells\b/.test(t)) return { op: 'EXILE_ALL', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
   if (/destroy each\b/.test(t)) return { op: 'DESTROY_EACH', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
 
-  if (/each creature/.test(t) && /\bdamage\b/.test(t)) {
-    const m = t.match(/(\d+)\s+damage/);
-    return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amount: m ? parseInt(m[1], 10) : undefined };
+  // Damage-to-player templates
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+each\s+opponent\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DAMAGE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      return { op: 'DAMAGE_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: parseInt(raw, 10) };
+    }
+  }
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+each\s+player\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DAMAGE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      return { op: 'DAMAGE_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: parseInt(raw, 10) };
+    }
+  }
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+(player|opponent)\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      const isOpponent = String(m[2]).toLowerCase() === 'opponent';
+      if (raw === 'x') {
+        return { op: 'DAMAGE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amountIsX: true, ...(isOpponent ? { opponentOnly: true } : {}), targetDescription: isOpponent ? 'target opponent' : 'target player' };
+      }
+      return { op: 'DAMAGE_TARGET_PLAYER', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: parseInt(raw, 10), ...(isOpponent ? { opponentOnly: true } : {}), targetDescription: isOpponent ? 'target opponent' : 'target player' };
+    }
   }
 
-  if (/exile up to (\d+)/.test(t)) {
-    const n = parseInt(t.match(/exile up to (\d+)/)![1], 10);
-    return { op: 'EXILE_TARGET', filter, minTargets: 0, maxTargets: n, ...(multiFilter && { multiFilter }) };
+  // Damage-to-permanent mass templates (filter-aware)
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+each\s+planeswalker\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DAMAGE_EACH', filter: 'PLANESWALKER', minTargets: 0, maxTargets: 0, amountIsX: true };
+      return { op: 'DAMAGE_EACH', filter: 'PLANESWALKER', minTargets: 0, maxTargets: 0, amount: parseInt(raw, 10) };
+    }
   }
-  if (/destroy up to (\d+)/.test(t)) {
-    const n = parseInt(t.match(/destroy up to (\d+)/)![1], 10);
-    return { op: 'DESTROY_TARGET', filter, minTargets: 0, maxTargets: n, ...(multiFilter && { multiFilter }) };
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+each\s+creature\s+and\s+each\s+planeswalker\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amountIsX: true, multiFilter: ['CREATURE', 'PLANESWALKER'] };
+      return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amount: parseInt(raw, 10), multiFilter: ['CREATURE', 'PLANESWALKER'] };
+    }
+  }
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+each\s+creature\s+you\s+control\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amountIsX: true, controllerOnly: true };
+      return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amount: parseInt(raw, 10), controllerOnly: true };
+    }
+  }
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+each\s+creature\s+your\s+opponents\s+control\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amountIsX: true, opponentOnly: true };
+      return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amount: parseInt(raw, 10), opponentOnly: true };
+    }
+  }
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+each\s+creature\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amountIsX: true };
+      return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amount: parseInt(raw, 10) };
+    }
+  }
+  // Conservative fallback for older/simple pattern detection
+  if (/each creature/.test(t) && /\bdamage\b/.test(t)) {
+    const m = t.match(/(\d+)\s+damage/);
+    if (m) return { op: 'DAMAGE_EACH', filter: 'CREATURE', minTargets: 0, maxTargets: 0, amount: parseInt(m[1], 10) };
+  }
+
+  // Up to N target destroy/exile: nonland permanents
+  {
+    const m = t.match(/\bexile\s+up\s+to\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+target\s+nonland\s+permanent(?:s)?(?:\s+(you\s+control|an\s+opponent\s+controls))?\b/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      return {
+        op: 'EXILE_TARGET',
+        filter: 'PERMANENT',
+        minTargets: 0,
+        maxTargets: n,
+        nonlandOnly: true,
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope
+          ? `up to ${m[1]} target nonland permanent${n === 1 ? '' : 's'} ${scope}`
+          : `up to ${m[1]} target nonland permanent${n === 1 ? '' : 's'}`,
+      };
+    }
+  }
+  {
+    const m = t.match(/\bdestroy\s+up\s+to\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+target\s+nonland\s+permanent(?:s)?(?:\s+(you\s+control|an\s+opponent\s+controls))?\b/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      return {
+        op: 'DESTROY_TARGET',
+        filter: 'PERMANENT',
+        minTargets: 0,
+        maxTargets: n,
+        nonlandOnly: true,
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope
+          ? `up to ${m[1]} target nonland permanent${n === 1 ? '' : 's'} ${scope}`
+          : `up to ${m[1]} target nonland permanent${n === 1 ? '' : 's'}`,
+      };
+    }
+  }
+
+  // Up to N target destroy/exile (allow word counts)
+  {
+    const m = t.match(/\bexile\s+up\s+to\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+target\b/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return { op: 'EXILE_TARGET', filter, minTargets: 0, maxTargets: n, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
+    }
+  }
+  {
+    const m = t.match(/\bdestroy\s+up\s+to\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+target\b/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return { op: 'DESTROY_TARGET', filter, minTargets: 0, maxTargets: n, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
+    }
   }
 
   // Flicker effects - exile and return to battlefield
@@ -1206,6 +1335,86 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       targetDescription: `creature ${restriction.description}`,
     };
   }
+
+  // Pattern: "target attacking or blocking creature"
+  const attackingOrBlockingCreatureMatch = t.match(/target attacking or blocking creature/i);
+  if (attackingOrBlockingCreatureMatch) {
+    const restriction: TargetRestriction = {
+      type: 'attacked_or_blocked_this_turn',
+      description: 'that is attacking or blocking',
+    };
+
+    if (/^tap\b/i.test(t.trim())) {
+      return { op: 'TAP_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking or blocking creature' };
+    }
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking or blocking creature' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking or blocking creature' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking or blocking creature' };
+  }
+
+  // Pattern: "target creature that attacked this turn"
+  const attackedThisTurnMatch = t.match(/target creature that attacked this turn/i);
+  if (attackedThisTurnMatch) {
+    const restriction: TargetRestriction = {
+      type: 'attacked_this_turn',
+      description: 'that attacked this turn',
+    };
+
+    if (/^tap\b/i.test(t.trim())) {
+      return { op: 'TAP_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that attacked this turn' };
+    }
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that attacked this turn' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that attacked this turn' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that attacked this turn' };
+  }
+
+  // Pattern: "target creature that blocked this turn"
+  const blockedThisTurnMatch = t.match(/target creature that blocked this turn/i);
+  if (blockedThisTurnMatch) {
+    const restriction: TargetRestriction = {
+      type: 'blocked_this_turn',
+      description: 'that blocked this turn',
+    };
+
+    if (/^tap\b/i.test(t.trim())) {
+      return { op: 'TAP_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that blocked this turn' };
+    }
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that blocked this turn' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that blocked this turn' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that blocked this turn' };
+  }
+
+  // Pattern: "target creature that entered the battlefield this turn" (post-Bloomburrow may omit "the battlefield")
+  const enteredThisTurnMatch = t.match(/target creature that entered(?: (?:the )?battlefield)? this turn/i);
+  if (enteredThisTurnMatch) {
+    const restriction: TargetRestriction = {
+      type: 'entered_this_turn',
+      description: 'that entered this turn',
+    };
+
+    if (/^tap\b/i.test(t.trim())) {
+      return { op: 'TAP_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that entered this turn' };
+    }
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that entered this turn' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that entered this turn' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'creature that entered this turn' };
+  }
   
   // Pattern: "target attacking creature" (Condemn, Divine Verdict, etc.)
   const attackingCreatureMatch = t.match(/target attacking creature/i);
@@ -1214,6 +1423,10 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       type: 'attacked_this_turn',
       description: 'that is attacking',
     };
+
+    if (/^tap\b/i.test(t.trim())) {
+      return { op: 'TAP_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking creature' };
+    }
     
     if (/exile target/.test(t)) {
       return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking creature' };
@@ -1235,6 +1448,10 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       type: 'blocked_this_turn',
       description: 'that is blocking',
     };
+
+    if (/^tap\b/i.test(t.trim())) {
+      return { op: 'TAP_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'blocking creature' };
+    }
     
     if (/exile target/.test(t)) {
       return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'blocking creature' };
@@ -1331,56 +1548,112 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // effects like "Tap target creature. It doesn't untap...".
   // ========================================================================
   {
-    const m = t.trim().match(/^tap\s+target\s+(creature|permanent)\.?$/i);
+    const m = t.trim().match(/^tap\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?\.?$/i);
     if (m) {
       const targetType = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
       return {
         op: 'TAP_TARGET',
-        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
         minTargets: 1,
         maxTargets: 1,
-        targetDescription: `target ${targetType}`,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope ? `target ${targetType} ${scope}` : `target ${targetType}`,
       };
     }
   }
   {
-    const m = t.trim().match(/^tap\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+(creature|permanent)s?\.?$/i);
+    const m = t.trim().match(/^tap\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)s?(?:\s+(you\s+control|an\s+opponent\s+controls))?\.?$/i);
     if (m) {
       const max = parseCountWord(m[1]) ?? 1;
       const targetType = m[2].toLowerCase();
+      const scope = (m[3] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
       return {
         op: 'TAP_TARGET',
-        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
         minTargets: 0,
         maxTargets: max,
-        targetDescription: `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'}`,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope
+          ? `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'} ${scope}`
+          : `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'}`,
       };
     }
   }
   {
-    const m = t.trim().match(/^untap\s+target\s+(creature|permanent)\.?$/i);
+    const m = t.trim().match(/^untap\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?\.?$/i);
     if (m) {
       const targetType = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
       return {
         op: 'UNTAP_TARGET',
-        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
         minTargets: 1,
         maxTargets: 1,
-        targetDescription: `target ${targetType}`,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope ? `target ${targetType} ${scope}` : `target ${targetType}`,
       };
     }
   }
   {
-    const m = t.trim().match(/^untap\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+(creature|permanent)s?\.?$/i);
+    const m = t.trim().match(/^untap\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)s?(?:\s+(you\s+control|an\s+opponent\s+controls))?\.?$/i);
     if (m) {
       const max = parseCountWord(m[1]) ?? 1;
       const targetType = m[2].toLowerCase();
+      const scope = (m[3] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
       return {
         op: 'UNTAP_TARGET',
-        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
         minTargets: 0,
         maxTargets: max,
-        targetDescription: `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'}`,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope
+          ? `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'} ${scope}`
+          : `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'}`,
       };
     }
   }
@@ -1492,31 +1765,155 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // ========================================================================
   {
     // Unsummon-style: "Return target creature to its owner's hand."
-    const m = t.trim().match(/^return\s+target\s+(creature|permanent)\s+to\s+its\s+owner['’]s\s+hand\.?$/i);
+    const m = t.trim().match(/^return\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?\s+to\s+its\s+owner['’]s\s+hand\.?$/i);
     if (m) {
       const targetType = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
       return {
         op: 'BOUNCE_TARGET',
-        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
         minTargets: 1,
         maxTargets: 1,
-        targetDescription: `target ${targetType}`,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope ? `target ${targetType} ${scope}` : `target ${targetType}`,
       };
     }
   }
   {
     // "Return up to one target creature to its owner's hand."
-    const m = t.trim().match(/^return\s+up\s+to\s+(a|an|one|1)\s+target\s+(creature|permanent)\s+to\s+its\s+owner['’]s\s+hand\.?$/i);
+    const m = t.trim().match(/^return\s+up\s+to\s+(a|an|one|1)\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?\s+to\s+its\s+owner['’]s\s+hand\.?$/i);
     if (m) {
       const targetType = m[2].toLowerCase();
+      const scope = (m[3] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
       return {
         op: 'BOUNCE_TARGET',
-        filter: targetType === 'creature' ? 'CREATURE' : 'PERMANENT',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
         minTargets: 0,
         maxTargets: 1,
-        targetDescription: `up to one target ${targetType}`,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope ? `up to one target ${targetType} ${scope}` : `up to one target ${targetType}`,
       };
     }
+  }
+
+  {
+    // "Return up to two target creatures to their owners' hands." (and similar)
+    const m = t.trim().match(/^return\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)s?(?:\s+(you\s+control|an\s+opponent\s+controls))?\s+to\s+their\s+owners['’]?\s+hands?\.?$/i);
+    if (m) {
+      const max = parseCountWord(m[1]) ?? 1;
+      const targetType = m[2].toLowerCase();
+      const scope = (m[3] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
+      return {
+        op: 'BOUNCE_TARGET',
+        filter:
+          targetType === 'creature' ? 'CREATURE' :
+          targetType === 'artifact' ? 'ARTIFACT' :
+          targetType === 'enchantment' ? 'ENCHANTMENT' :
+          targetType === 'land' ? 'LAND' :
+          targetType === 'planeswalker' ? 'PLANESWALKER' :
+          'PERMANENT',
+        minTargets: 0,
+        maxTargets: max,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: scope
+          ? `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'} ${scope}`
+          : `up to ${m[1]} target ${targetType}${max === 1 ? '' : 's'}`,
+      };
+    }
+  }
+
+  // Scoped single-target removal: "Destroy/Exile target X you control" / "...an opponent controls".
+  {
+    const m = t.trim().match(/^(destroy|exile)\s+target\s+(creature|permanent|artifact|enchantment|land|planeswalker|nonland\s+permanent)\s+(you\s+control|an\s+opponent\s+controls)\.?$/i);
+    if (m) {
+      const verb = m[1].toLowerCase();
+      const targetType = m[2].toLowerCase();
+      const scope = m[3].toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+      const nonlandOnly = targetType === 'nonland permanent';
+      const filter: PermanentFilter =
+        targetType === 'creature' ? 'CREATURE' :
+        targetType === 'artifact' ? 'ARTIFACT' :
+        targetType === 'enchantment' ? 'ENCHANTMENT' :
+        targetType === 'land' ? 'LAND' :
+        targetType === 'planeswalker' ? 'PLANESWALKER' :
+        'PERMANENT';
+      return {
+        op: verb === 'destroy' ? 'DESTROY_TARGET' : 'EXILE_TARGET',
+        filter,
+        minTargets: 1,
+        maxTargets: 1,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: `target ${targetType} ${scope}`,
+      };
+    }
+  }
+
+  // Damage to a scoped battlefield target: "...to target creature/planeswalker you control / an opponent controls".
+  {
+    const m = t.match(/\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+(creature|planeswalker|creature\s+or\s+planeswalker)\s+(you\s+control|an\s+opponent\s+controls)\b/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      const kind = String(m[2]).toLowerCase();
+      const scope = String(m[3]).toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'an opponent controls';
+
+      const isCreatureOrPw = kind.includes('or');
+      const isPlaneswalkerOnly = kind === 'planeswalker' && !isCreatureOrPw;
+
+      return {
+        op: 'DAMAGE_TARGET',
+        filter: isPlaneswalkerOnly ? 'PLANESWALKER' : 'CREATURE',
+        minTargets: 1,
+        maxTargets: 1,
+        ...(raw === 'x' ? { amountIsX: true } : { amount: parseInt(raw, 10) }),
+        ...(isCreatureOrPw ? { multiFilter: ['CREATURE', 'PLANESWALKER'] } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+        targetDescription: `target ${kind} ${scope}`,
+      };
+    }
+  }
+
+  // Nonland permanent targeting for destroy/exile (single target)
+  {
+    const m = t.trim().match(/^destroy\s+target\s+nonland\s+permanent\.?$/i);
+    if (m) return { op: 'DESTROY_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1, nonlandOnly: true, targetDescription: 'target nonland permanent' };
+  }
+  {
+    const m = t.trim().match(/^exile\s+target\s+nonland\s+permanent\.?$/i);
+    if (m) return { op: 'EXILE_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1, nonlandOnly: true, targetDescription: 'target nonland permanent' };
   }
 
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
@@ -1547,20 +1944,21 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // Examples: "Shock deals 2 damage to any target" (handled above),
   //           "Flame Slash deals 4 damage to target creature.",
   //           "Strangle deals 3 damage to target creature or planeswalker."
-  if (/\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+creature\b/.test(t) || /\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+creature\s+or\s+planeswalker\b/.test(t)) {
+  if (/\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+creature\b/.test(t) || /\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+planeswalker\b/.test(t) || /\bdeals?\s+(\d+|x)\s+damage\s+to\s+target\s+creature\s+or\s+planeswalker\b/.test(t)) {
     const amountMatch = t.match(/deals?\s+(\d+|x)\s+damage\s+to\s+target/i);
     const raw = amountMatch?.[1];
     const isX = raw?.toLowerCase() === 'x';
     const amount = !isX && raw ? parseInt(raw, 10) : undefined;
     const isCreatureOrPw = /target\s+creature\s+or\s+planeswalker/.test(t);
+    const isPlaneswalkerOnly = /target\s+planeswalker\b/.test(t) && !isCreatureOrPw;
     return {
       op: 'DAMAGE_TARGET',
-      filter: isCreatureOrPw ? 'CREATURE' : 'CREATURE',
+      filter: isPlaneswalkerOnly ? 'PLANESWALKER' : 'CREATURE',
       minTargets: 1,
       maxTargets: 1,
       ...(isX ? { amountIsX: true } : { amount: Number.isFinite(amount) ? amount : undefined }),
       ...(isCreatureOrPw ? { multiFilter: ['CREATURE', 'PLANESWALKER'] } : {}),
-      targetDescription: isCreatureOrPw ? 'target creature or planeswalker' : 'target creature',
+      targetDescription: isCreatureOrPw ? 'target creature or planeswalker' : isPlaneswalkerOnly ? 'target planeswalker' : 'target creature',
     };
   }
 
@@ -1698,13 +2096,17 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     spec.op === 'SURVEIL_TARGET_PLAYER' ||
     spec.op === 'GAIN_LIFE_TARGET_PLAYER' ||
     spec.op === 'LOSE_LIFE_TARGET_PLAYER' ||
+    spec.op === 'DAMAGE_TARGET_PLAYER' ||
     spec.op === 'DESTROY_ALL_TARGET_PLAYER' ||
     spec.op === 'EXILE_ALL_TARGET_PLAYER' ||
     spec.op === 'TAP_ALL_TARGET_PLAYER' ||
     spec.op === 'UNTAP_ALL_TARGET_PLAYER' ||
     spec.op === 'TARGET_PLAYER'
   ) {
-    for (const pr of state.players) out.push({ kind: 'player', id: pr.id });
+    for (const pr of state.players) {
+      if (spec.opponentOnly && pr.id === caster) continue;
+      out.push({ kind: 'player', id: pr.id });
+    }
     return out;
   }
   
@@ -1765,6 +2167,9 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     }
     
     if (!matchesFilterRequirement) continue;
+
+    // Optional nonland restriction (e.g., "target nonland permanent")
+    if (spec.nonlandOnly && isLand(p)) continue;
     
     // Check hexproof/shroud (can't target opponent's permanents with hexproof/shroud)
     if (hasHexproofOrShroud(p, state) && p.controller !== caster) continue;
@@ -2379,17 +2784,38 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
     }
     case 'BOUNCE_TARGET':
       for (const t of chosen) {
-        if (t.kind === 'permanent') eff.push({ kind: 'BouncePermanent', id: t.id });
+        if (t.kind === 'permanent') {
+          const perm = state.battlefield.find(p => p.id === t.id);
+          if (!perm) continue;
+          if (spec.controllerOnly && perm.controller !== caster) continue;
+          if (spec.opponentOnly && perm.controller === caster) continue;
+          if (spec.nonlandOnly && isLand(perm)) continue;
+          eff.push({ kind: 'BouncePermanent', id: t.id });
+        }
       }
       break;
     case 'TAP_TARGET':
       for (const t of chosen) {
-        if (t.kind === 'permanent') eff.push({ kind: 'TapPermanent', id: t.id });
+        if (t.kind === 'permanent') {
+          const perm = state.battlefield.find(p => p.id === t.id);
+          if (!perm) continue;
+          if (spec.controllerOnly && perm.controller !== caster) continue;
+          if (spec.opponentOnly && perm.controller === caster) continue;
+          if (spec.nonlandOnly && isLand(perm)) continue;
+          eff.push({ kind: 'TapPermanent', id: t.id });
+        }
       }
       break;
     case 'UNTAP_TARGET':
       for (const t of chosen) {
-        if (t.kind === 'permanent') eff.push({ kind: 'UntapPermanent', id: t.id });
+        if (t.kind === 'permanent') {
+          const perm = state.battlefield.find(p => p.id === t.id);
+          if (!perm) continue;
+          if (spec.controllerOnly && perm.controller !== caster) continue;
+          if (spec.opponentOnly && perm.controller === caster) continue;
+          if (spec.nonlandOnly && isLand(perm)) continue;
+          eff.push({ kind: 'UntapPermanent', id: t.id });
+        }
       }
       break;
     case 'TAP_ALL':
@@ -2424,6 +2850,12 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
           // Check if target is still valid at resolution time
           const perm = state.battlefield.find(p => p.id === t.id);
           if (!perm) continue; // Target no longer exists
+
+          if (spec.controllerOnly && perm.controller !== caster) continue;
+          if (spec.opponentOnly && perm.controller === caster) continue;
+
+          // Optional nonland restriction
+          if (spec.nonlandOnly && isLand(perm)) continue;
           
           // Check stat requirement at resolution (e.g., toughness 4+ for Repel Calamity)
           if (spec.statRequirement && isCreature(perm)) {
@@ -2444,6 +2876,12 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
           // Check if target is still valid at resolution time
           const perm = state.battlefield.find(p => p.id === t.id);
           if (!perm) continue; // Target no longer exists
+
+          if (spec.controllerOnly && perm.controller !== caster) continue;
+          if (spec.opponentOnly && perm.controller === caster) continue;
+
+          // Optional nonland restriction
+          if (spec.nonlandOnly && isLand(perm)) continue;
           
           // Check stat requirement at resolution (e.g., toughness 4+ for Repel Calamity)
           if (spec.statRequirement && isCreature(perm)) {
@@ -2479,10 +2917,41 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       applyAll('MoveToExile');
       break;
     case 'DAMAGE_EACH': {
-      const amt = spec.amount ?? 0;
+      const amt = Number(spec.amount ?? 0);
+      if (amt <= 0) break;
       for (const p of state.battlefield) {
-        if (!isCreature(p)) continue;
+        let matchesFilterRequirement = false;
+        if (spec.multiFilter) {
+          matchesFilterRequirement = matchesMultiFilter(p, spec.multiFilter);
+        } else {
+          matchesFilterRequirement = matchesFilter(p, spec.filter);
+        }
+        if (!matchesFilterRequirement) continue;
+
+        if (spec.controllerOnly && p.controller !== caster) continue;
+        if (spec.opponentOnly && p.controller === caster) continue;
+        if (spec.nonlandOnly && isLand(p)) continue;
+
         eff.push({ kind: 'DamagePermanent', id: p.id, amount: amt });
+      }
+      break;
+    }
+    case 'DAMAGE_EACH_OPPONENT': {
+      const amt = Number(spec.amount ?? 0);
+      if (amt <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'DamagePlayer', playerId: pr.id as PlayerID, amount: amt });
+      }
+      break;
+    }
+    case 'DAMAGE_EACH_PLAYER': {
+      const amt = Number(spec.amount ?? 0);
+      if (amt <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'DamagePlayer', playerId: pr.id as PlayerID, amount: amt });
       }
       break;
     }
@@ -2494,11 +2963,31 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       }
       break;
     }
+    case 'DAMAGE_TARGET_PLAYER': {
+      const amt = Number(spec.amount ?? 0);
+      if (amt <= 0) break;
+      for (const t of chosen) {
+        if (t.kind !== 'player') continue;
+        if (spec.opponentOnly && (t.id as PlayerID) === caster) continue;
+        eff.push({ kind: 'DamagePlayer', playerId: t.id as PlayerID, amount: amt });
+      }
+      break;
+    }
     case 'DAMAGE_TARGET': {
       const amt = Number(spec.amount ?? 0);
       if (amt <= 0) break;
       for (const t of chosen) {
-        if (t.kind === 'permanent') eff.push({ kind: 'DamagePermanent', id: t.id, amount: amt });
+        if (t.kind !== 'permanent') continue;
+
+        const perm = state.battlefield.find(p => p.id === t.id);
+        if (!perm) continue;
+        if (spec.controllerOnly && perm.controller !== caster) continue;
+        if (spec.opponentOnly && perm.controller === caster) continue;
+
+        // Defensive nonland restriction (for any future nonland damage templates).
+        if (spec.nonlandOnly && isLand(perm)) continue;
+
+        eff.push({ kind: 'DamagePermanent', id: t.id, amount: amt });
       }
       break;
     }
