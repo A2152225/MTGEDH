@@ -7,6 +7,7 @@ export type { TargetRef };
 export type SpellOp =
   | 'DESTROY_TARGET' | 'EXILE_TARGET'
   | 'DESTROY_ALL' | 'EXILE_ALL'
+  | 'DESTROY_ALL_TARGET_PLAYER' | 'EXILE_ALL_TARGET_PLAYER'
   | 'DESTROY_EACH' | 'DAMAGE_EACH'
   | 'ANY_TARGET_DAMAGE'
   | 'DAMAGE_TARGET'
@@ -16,9 +17,11 @@ export type SpellOp =
   | 'LOSE_LIFE_EACH_OPPONENT' | 'LOSE_LIFE_EACH_PLAYER'
   | 'BOUNCE_TARGET'
   | 'TAP_TARGET' | 'UNTAP_TARGET'
+  | 'TAP_ALL' | 'UNTAP_ALL'
+  | 'TAP_ALL_TARGET_PLAYER' | 'UNTAP_ALL_TARGET_PLAYER'
   | 'CREATE_TOKEN' | 'INVESTIGATE'
-  | 'SCRY'
-  | 'SURVEIL' | 'SURVEIL_TARGET_PLAYER'
+  | 'SCRY' | 'SCRY_EACH_OPPONENT' | 'SCRY_EACH_PLAYER'
+  | 'SURVEIL' | 'SURVEIL_TARGET_PLAYER' | 'SURVEIL_EACH_OPPONENT' | 'SURVEIL_EACH_PLAYER'
   | 'MILL_SELF' | 'MILL_TARGET_PLAYER'
   | 'MILL_EACH_OPPONENT' | 'MILL_EACH_PLAYER'
   | 'GOAD_TARGET'
@@ -72,6 +75,7 @@ export type SpellSpec = {
   maxTargets: number;
   amount?: number;
   amountIsX?: boolean; // For X spells: populate amount at cast/resolve time when X is known.
+  nonlandOnly?: boolean; // For "nonland permanents" patterns.
   counterType?: string; // For ADD_COUNTERS_* ops (e.g., '+1/+1', '-1/-1').
   tokenKind?: 'CLUE' | 'TREASURE' | 'FOOD' | 'CREATURE';
   tokenCount?: number;
@@ -685,6 +689,34 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
 
   // SCRY
   {
+    // Each opponent scries N.
+    const m = t.trim().match(/^each\s+opponent\s+scries\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'SCRY_EACH_OPPONENT',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        scryCount: n,
+      };
+    }
+  }
+  {
+    // Each player scries N.
+    const m = t.trim().match(/^each\s+player\s+scries\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'SCRY_EACH_PLAYER',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        scryCount: n,
+      };
+    }
+  }
+  {
     // Scry N.
     const m = t.trim().match(/^scry\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
@@ -700,6 +732,34 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
 
   // SURVEIL
+  {
+    // Each opponent surveils N.
+    const m = t.trim().match(/^each\s+opponent\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'SURVEIL_EACH_OPPONENT',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        surveilCount: n,
+      };
+    }
+  }
+  {
+    // Each player surveils N.
+    const m = t.trim().match(/^each\s+player\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    if (m) {
+      const n = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'SURVEIL_EACH_PLAYER',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        surveilCount: n,
+      };
+    }
+  }
   {
     // Surveil N.
     const m = t.trim().match(/^surveil\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
@@ -887,6 +947,107 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // Cards like Martial Coup: "Create X tokens. If X is 5 or more, destroy all other creatures."
   // These conditional effects must be handled separately by the X-value-aware code in stack.ts
   const hasConditionalXWipe = /if x is \d+ or more[,.]?\s*destroy all/i.test(t);
+
+  // Scoped wipes (single sentence): "destroy/exile all {type} you control / your opponents control"
+  // and "destroy/exile all {type} target player controls".
+  {
+    const m = t.trim().match(/^destroy\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)(?:\s+(you\s+control|your\s+opponents\s+control))?\.?$/i);
+    if (m && !hasConditionalXWipe) {
+      const typePhrase = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'your opponents control';
+
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const wipeFilter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'DESTROY_ALL',
+        filter: wipeFilter,
+        minTargets: 0,
+        maxTargets: 0,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^exile\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)(?:\s+(you\s+control|your\s+opponents\s+control))?\.?$/i);
+    if (m && !/exile all\s+(?:other\s+)?spells\b/i.test(t)) {
+      const typePhrase = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'your opponents control';
+
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const wipeFilter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'EXILE_ALL',
+        filter: wipeFilter,
+        minTargets: 0,
+        maxTargets: 0,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^destroy\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)\s+target\s+player\s+controls\.?$/i);
+    if (m && !hasConditionalXWipe) {
+      const typePhrase = m[1].toLowerCase();
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const wipeFilter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'DESTROY_ALL_TARGET_PLAYER',
+        filter: wipeFilter,
+        minTargets: 1,
+        maxTargets: 1,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        targetDescription: 'target player',
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^exile\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)\s+target\s+player\s+controls\.?$/i);
+    if (m && !/exile all\s+(?:other\s+)?spells\b/i.test(t)) {
+      const typePhrase = m[1].toLowerCase();
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const wipeFilter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'EXILE_ALL_TARGET_PLAYER',
+        filter: wipeFilter,
+        minTargets: 1,
+        maxTargets: 1,
+        ...(nonlandOnly ? { nonlandOnly: true } : {}),
+        targetDescription: 'target player',
+      };
+    }
+  }
   
   if (/destroy all\b/.test(t) && !hasConditionalXWipe) return { op: 'DESTROY_ALL', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
   // Only match "exile all" if it's targeting permanents (creatures, planeswalkers, etc.), not spells
@@ -1224,6 +1385,108 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     }
   }
 
+  // Mass tap/untap (no targets): "tap all creatures", "untap all lands you control", etc.
+  {
+    const m = t.trim().match(/^tap\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)(?:\s+(you\s+control|your\s+opponents\s+control))?\.?$/i);
+    if (m) {
+      const typePhrase = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'your opponents control';
+
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const filter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'TAP_ALL',
+        filter,
+        minTargets: 0,
+        maxTargets: 0,
+        nonlandOnly,
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^untap\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)(?:\s+(you\s+control|your\s+opponents\s+control))?\.?$/i);
+    if (m) {
+      const typePhrase = m[1].toLowerCase();
+      const scope = (m[2] || '').toLowerCase();
+      const controllerOnly = scope === 'you control';
+      const opponentOnly = scope === 'your opponents control';
+
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const filter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'UNTAP_ALL',
+        filter,
+        minTargets: 0,
+        maxTargets: 0,
+        nonlandOnly,
+        ...(controllerOnly ? { controllerOnly: true } : {}),
+        ...(opponentOnly ? { opponentOnly: true } : {}),
+      };
+    }
+  }
+
+  // Mass tap/untap controlled by a targeted player: "tap all creatures target player controls."
+  {
+    const m = t.trim().match(/^tap\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)\s+target\s+player\s+controls\.?$/i);
+    if (m) {
+      const typePhrase = m[1].toLowerCase();
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const filter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'TAP_ALL_TARGET_PLAYER',
+        filter,
+        minTargets: 1,
+        maxTargets: 1,
+        nonlandOnly,
+        targetDescription: 'target player',
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^untap\s+all\s+(creatures|lands|artifacts|enchantments|permanents|nonland\s+permanents)\s+target\s+player\s+controls\.?$/i);
+    if (m) {
+      const typePhrase = m[1].toLowerCase();
+      const nonlandOnly = typePhrase === 'nonland permanents';
+      const filter: PermanentFilter =
+        typePhrase.includes('creature') ? 'CREATURE' :
+        typePhrase.includes('land') ? 'LAND' :
+        typePhrase.includes('artifact') ? 'ARTIFACT' :
+        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        'PERMANENT';
+
+      return {
+        op: 'UNTAP_ALL_TARGET_PLAYER',
+        filter,
+        minTargets: 1,
+        maxTargets: 1,
+        nonlandOnly,
+        targetDescription: 'target player',
+      };
+    }
+  }
+
   // ========================================================================
   // BOUNCE (return to hand) (conservative templates)
   // ========================================================================
@@ -1435,6 +1698,10 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     spec.op === 'SURVEIL_TARGET_PLAYER' ||
     spec.op === 'GAIN_LIFE_TARGET_PLAYER' ||
     spec.op === 'LOSE_LIFE_TARGET_PLAYER' ||
+    spec.op === 'DESTROY_ALL_TARGET_PLAYER' ||
+    spec.op === 'EXILE_ALL_TARGET_PLAYER' ||
+    spec.op === 'TAP_ALL_TARGET_PLAYER' ||
+    spec.op === 'UNTAP_ALL_TARGET_PLAYER' ||
     spec.op === 'TARGET_PLAYER'
   ) {
     for (const pr of state.players) out.push({ kind: 'player', id: pr.id });
@@ -1773,7 +2040,7 @@ export function meetsStatRequirement(p: BattlefieldPermanent, req: StatRequireme
 
 export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>, caster: PlayerID): readonly EngineEffect[] {
   const eff: EngineEffect[] = [];
-  const applyAll = (k: 'DestroyPermanent' | 'MoveToExile') => {
+  const applyAll = (k: 'DestroyPermanent' | 'MoveToExile' | 'TapPermanent' | 'UntapPermanent') => {
     for (const p of state.battlefield) {
       // Check if permanent matches the filter requirements
       let matchesFilterRequirement = false;
@@ -1787,7 +2054,38 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       }
       
       if (!matchesFilterRequirement) continue;
+
+      // Optional controller scope (used by some templates like "...you control" / "...your opponents control")
+      if (spec.controllerOnly && p.controller !== caster) continue;
+      if (spec.opponentOnly && p.controller === caster) continue;
+
+      // Skip permanents controlled by players who have already lost (defensive)
+      const controllerPlayer = state.players.find((x: any) => x?.id === (p as any).controller);
+      if (controllerPlayer && (controllerPlayer as any).hasLost) continue;
+
+      // Optional nonland restriction
+      if (spec.nonlandOnly && isLand(p)) continue;
       
+      eff.push({ kind: k, id: p.id });
+    }
+  };
+
+  const applyAllControlledBy = (k: 'DestroyPermanent' | 'MoveToExile' | 'TapPermanent' | 'UntapPermanent', controller: PlayerID) => {
+    const controllerPlayer = state.players.find((x: any) => x?.id === controller);
+    if (controllerPlayer && (controllerPlayer as any).hasLost) return;
+
+    for (const p of state.battlefield) {
+      if ((p as any).controller !== controller) continue;
+      if (spec.nonlandOnly && isLand(p)) continue;
+
+      let matchesFilterRequirement = false;
+      if (spec.multiFilter) {
+        matchesFilterRequirement = matchesMultiFilter(p, spec.multiFilter);
+      } else {
+        matchesFilterRequirement = matchesFilter(p, spec.filter);
+      }
+      if (!matchesFilterRequirement) continue;
+
       eff.push({ kind: k, id: p.id });
     }
   };
@@ -1908,9 +2206,47 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       if (n > 0) eff.push({ kind: 'QueueScry', playerId: caster, count: n });
       break;
     }
+    case 'SCRY_EACH_OPPONENT': {
+      const n = Math.max(0, Number(spec.scryCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'QueueScry', playerId: pr.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'SCRY_EACH_PLAYER': {
+      const n = Math.max(0, Number(spec.scryCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'QueueScry', playerId: pr.id as PlayerID, count: n });
+      }
+      break;
+    }
     case 'SURVEIL': {
       const n = Math.max(0, Number(spec.surveilCount ?? 0) || 0);
       if (n > 0) eff.push({ kind: 'QueueSurveil', playerId: caster, count: n });
+      break;
+    }
+    case 'SURVEIL_EACH_OPPONENT': {
+      const n = Math.max(0, Number(spec.surveilCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        if (pr.id === caster) continue;
+        eff.push({ kind: 'QueueSurveil', playerId: pr.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'SURVEIL_EACH_PLAYER': {
+      const n = Math.max(0, Number(spec.surveilCount ?? 0) || 0);
+      if (n <= 0) break;
+      for (const pr of state.players) {
+        if ((pr as any)?.hasLost) continue;
+        eff.push({ kind: 'QueueSurveil', playerId: pr.id as PlayerID, count: n });
+      }
       break;
     }
     case 'SURVEIL_TARGET_PLAYER': {
@@ -2054,6 +2390,32 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
     case 'UNTAP_TARGET':
       for (const t of chosen) {
         if (t.kind === 'permanent') eff.push({ kind: 'UntapPermanent', id: t.id });
+      }
+      break;
+    case 'TAP_ALL':
+      applyAll('TapPermanent');
+      break;
+    case 'UNTAP_ALL':
+      applyAll('UntapPermanent');
+      break;
+    case 'TAP_ALL_TARGET_PLAYER':
+      for (const t of chosen) {
+        if (t.kind === 'player') applyAllControlledBy('TapPermanent', t.id as PlayerID);
+      }
+      break;
+    case 'UNTAP_ALL_TARGET_PLAYER':
+      for (const t of chosen) {
+        if (t.kind === 'player') applyAllControlledBy('UntapPermanent', t.id as PlayerID);
+      }
+      break;
+    case 'DESTROY_ALL_TARGET_PLAYER':
+      for (const t of chosen) {
+        if (t.kind === 'player') applyAllControlledBy('DestroyPermanent', t.id as PlayerID);
+      }
+      break;
+    case 'EXILE_ALL_TARGET_PLAYER':
+      for (const t of chosen) {
+        if (t.kind === 'player') applyAllControlledBy('MoveToExile', t.id as PlayerID);
       }
       break;
     case 'DESTROY_TARGET':

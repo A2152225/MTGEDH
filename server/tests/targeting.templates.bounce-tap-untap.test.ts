@@ -27,6 +27,54 @@ describe('Oracle templates: bounce / tap / untap', () => {
     expect(spec?.minTargets).toBe(1);
     expect(spec?.maxTargets).toBe(1);
   });
+
+  it('categorizeSpell: "Tap all creatures." -> TAP_ALL', () => {
+    const spec = categorizeSpell('Sleep-ish', 'Tap all creatures.');
+    expect(spec?.op).toBe('TAP_ALL');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(0);
+  });
+
+  it('categorizeSpell: "Tap all creatures your opponents control." -> TAP_ALL (opponents only)', () => {
+    const spec = categorizeSpell('Blinding Light-ish', 'Tap all creatures your opponents control.');
+    expect(spec?.op).toBe('TAP_ALL');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.opponentOnly).toBe(true);
+    expect(spec?.controllerOnly).not.toBe(true);
+  });
+
+  it('categorizeSpell: "Untap all lands you control." -> UNTAP_ALL (controller only)', () => {
+    const spec = categorizeSpell('Reset-ish', 'Untap all lands you control.');
+    expect(spec?.op).toBe('UNTAP_ALL');
+    expect(spec?.filter).toBe('LAND');
+    expect(spec?.controllerOnly).toBe(true);
+    expect(spec?.opponentOnly).not.toBe(true);
+  });
+
+  it('categorizeSpell: "Untap all nonland permanents you control." -> UNTAP_ALL (nonland, controller only)', () => {
+    const spec = categorizeSpell('Paradox-ish', 'Untap all nonland permanents you control.');
+    expect(spec?.op).toBe('UNTAP_ALL');
+    expect(spec?.filter).toBe('PERMANENT');
+    expect(spec?.nonlandOnly).toBe(true);
+    expect(spec?.controllerOnly).toBe(true);
+  });
+
+  it('categorizeSpell: "Tap all creatures target player controls." -> TAP_ALL_TARGET_PLAYER', () => {
+    const spec = categorizeSpell('Sleep-ish', 'Tap all creatures target player controls.');
+    expect(spec?.op).toBe('TAP_ALL_TARGET_PLAYER');
+    expect(spec?.filter).toBe('CREATURE');
+    expect(spec?.minTargets).toBe(1);
+    expect(spec?.maxTargets).toBe(1);
+  });
+
+  it('categorizeSpell: "Untap all lands target player controls." -> UNTAP_ALL_TARGET_PLAYER', () => {
+    const spec = categorizeSpell('Reset-ish', 'Untap all lands target player controls.');
+    expect(spec?.op).toBe('UNTAP_ALL_TARGET_PLAYER');
+    expect(spec?.filter).toBe('LAND');
+    expect(spec?.minTargets).toBe(1);
+    expect(spec?.maxTargets).toBe(1);
+  });
 });
 
 describe('Target evaluation: tap respects controller filter', () => {
@@ -154,5 +202,255 @@ describe('Execution via applyEvent(resolveSpell) for bounce / tap / untap', () =
     });
 
     expect((g.state.battlefield.find(p => p.id === 'perm1') as any).tapped).toBe(false);
+  });
+
+  it('TAP_ALL taps all creatures', () => {
+    const g = createInitialGameState('t_tap_all_creatures');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'c1',
+      owner: p1,
+      controller: p1,
+      tapped: false,
+      card: { id: 'bear1', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'c2',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'bear2', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'a1',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'ring', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Sleep-ish', 'Tap all creatures.')!;
+    g.applyEvent!({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'tap_all',
+      spec,
+      chosen: [],
+    });
+
+    expect((g.state.battlefield.find(p => p.id === 'c1') as any).tapped).toBe(true);
+    expect((g.state.battlefield.find(p => p.id === 'c2') as any).tapped).toBe(true);
+    expect((g.state.battlefield.find(p => p.id === 'a1') as any).tapped).toBe(false);
+  });
+
+  it('TAP_ALL (opponents only) taps only opponents creatures', () => {
+    const g = createInitialGameState('t_tap_all_opponents_creatures');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'c1',
+      owner: p1,
+      controller: p1,
+      tapped: false,
+      card: { id: 'bear1', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'c2',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'bear2', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Blinding Light-ish', 'Tap all creatures your opponents control.')!;
+    g.applyEvent!({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'tap_all_opps',
+      spec,
+      chosen: [],
+    });
+
+    expect((g.state.battlefield.find(p => p.id === 'c1') as any).tapped).toBe(false);
+    expect((g.state.battlefield.find(p => p.id === 'c2') as any).tapped).toBe(true);
+  });
+
+  it('UNTAP_ALL (lands you control) untaps only your lands', () => {
+    const g = createInitialGameState('t_untap_all_lands_you_control');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'l1',
+      owner: p1,
+      controller: p1,
+      tapped: true,
+      card: { id: 'forest', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'l2',
+      owner: p2,
+      controller: p2,
+      tapped: true,
+      card: { id: 'island', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'a1',
+      owner: p1,
+      controller: p1,
+      tapped: true,
+      card: { id: 'ring', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Reset-ish', 'Untap all lands you control.')!;
+    g.applyEvent!({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'untap_lands',
+      spec,
+      chosen: [],
+    });
+
+    expect((g.state.battlefield.find(p => p.id === 'l1') as any).tapped).toBe(false);
+    expect((g.state.battlefield.find(p => p.id === 'l2') as any).tapped).toBe(true);
+    expect((g.state.battlefield.find(p => p.id === 'a1') as any).tapped).toBe(true);
+  });
+
+  it('UNTAP_ALL (nonland permanents you control) skips lands', () => {
+    const g = createInitialGameState('t_untap_nonland_perms_you_control');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'l1',
+      owner: p1,
+      controller: p1,
+      tapped: true,
+      card: { id: 'forest', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'a1',
+      owner: p1,
+      controller: p1,
+      tapped: true,
+      card: { id: 'ring', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'c2',
+      owner: p2,
+      controller: p2,
+      tapped: true,
+      card: { id: 'bear2', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Paradox-ish', 'Untap all nonland permanents you control.')!;
+    g.applyEvent!({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'untap_nonlands',
+      spec,
+      chosen: [],
+    });
+
+    expect((g.state.battlefield.find(p => p.id === 'l1') as any).tapped).toBe(true);
+    expect((g.state.battlefield.find(p => p.id === 'a1') as any).tapped).toBe(false);
+    expect((g.state.battlefield.find(p => p.id === 'c2') as any).tapped).toBe(true);
+  });
+
+  it('TAP_ALL_TARGET_PLAYER taps only creatures controlled by the chosen player', () => {
+    const g = createInitialGameState('t_tap_all_creatures_target_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'p2_creature',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'bear2', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'p2_artifact',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'ring', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'p1_creature',
+      owner: p1,
+      controller: p1,
+      tapped: false,
+      card: { id: 'bear1', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Sleep-ish', 'Tap all creatures target player controls.')!;
+    g.applyEvent!({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'tap_all_target_player',
+      spec,
+      chosen: [{ kind: 'player', id: p2 } as TargetRef],
+    });
+
+    expect((g.state.battlefield.find(p => p.id === 'p2_creature') as any).tapped).toBe(true);
+    expect((g.state.battlefield.find(p => p.id === 'p2_artifact') as any).tapped).toBe(false);
+    expect((g.state.battlefield.find(p => p.id === 'p1_creature') as any).tapped).toBe(false);
+  });
+
+  it('UNTAP_ALL_TARGET_PLAYER untaps only lands controlled by the chosen player', () => {
+    const g = createInitialGameState('t_untap_all_lands_target_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'p2_land',
+      owner: p2,
+      controller: p2,
+      tapped: true,
+      card: { id: 'island', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'p2_creature',
+      owner: p2,
+      controller: p2,
+      tapped: true,
+      card: { id: 'bear2', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'p1_land',
+      owner: p1,
+      controller: p1,
+      tapped: true,
+      card: { id: 'forest', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Reset-ish', 'Untap all lands target player controls.')!;
+    g.applyEvent!({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'untap_all_target_player',
+      spec,
+      chosen: [{ kind: 'player', id: p2 } as TargetRef],
+    });
+
+    expect((g.state.battlefield.find(p => p.id === 'p2_land') as any).tapped).toBe(false);
+    expect((g.state.battlefield.find(p => p.id === 'p2_creature') as any).tapped).toBe(true);
+    expect((g.state.battlefield.find(p => p.id === 'p1_land') as any).tapped).toBe(true);
   });
 });

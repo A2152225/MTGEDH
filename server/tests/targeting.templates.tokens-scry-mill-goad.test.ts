@@ -35,6 +35,30 @@ describe('Oracle templates: tokens / scry / mill / goad', () => {
     expect(spec?.scryCount).toBe(2);
   });
 
+  it('categorizeSpell: "Each opponent scries 2." -> SCRY_EACH_OPPONENT', () => {
+    const spec = categorizeSpell('Opp Scry', 'Each opponent scries 2.');
+    expect(spec?.op).toBe('SCRY_EACH_OPPONENT');
+    expect(spec?.scryCount).toBe(2);
+  });
+
+  it('categorizeSpell: "Each player scries 1." -> SCRY_EACH_PLAYER', () => {
+    const spec = categorizeSpell('All Scry', 'Each player scries 1.');
+    expect(spec?.op).toBe('SCRY_EACH_PLAYER');
+    expect(spec?.scryCount).toBe(1);
+  });
+
+  it('categorizeSpell: "Each opponent surveils 2." -> SURVEIL_EACH_OPPONENT', () => {
+    const spec = categorizeSpell('Opp Surveil', 'Each opponent surveils 2.');
+    expect(spec?.op).toBe('SURVEIL_EACH_OPPONENT');
+    expect(spec?.surveilCount).toBe(2);
+  });
+
+  it('categorizeSpell: "Each player surveils 1." -> SURVEIL_EACH_PLAYER', () => {
+    const spec = categorizeSpell('All Surveil', 'Each player surveils 1.');
+    expect(spec?.op).toBe('SURVEIL_EACH_PLAYER');
+    expect(spec?.surveilCount).toBe(1);
+  });
+
   it('categorizeSpell: "Mill two cards." -> MILL_SELF', () => {
     const spec = categorizeSpell('Mental Note', 'Mill two cards.');
     expect(spec?.op).toBe('MILL_SELF');
@@ -126,6 +150,80 @@ describe('Execution via applyEvent(resolveSpell) for tokens / scry / mill / goad
     g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'scry2', spec, chosen: [] });
 
     expect((g.state as any).pendingScry?.[p1]).toBe(2);
+  });
+
+  it('SCRY_EACH_OPPONENT sets pendingScry for each opponent (not caster)', () => {
+    const g = createInitialGameState('t_scry_each_opponent_pending');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    const spec: SpellSpec = { op: 'SCRY_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 2 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'scry_each_opponent', spec, chosen: [] });
+
+    expect((g.state as any).pendingScry).toEqual({
+      [p2]: 2,
+      [p3]: 2,
+    });
+  });
+
+  it('SCRY_EACH_PLAYER sets pendingScry for all players', () => {
+    const g = createInitialGameState('t_scry_each_player_pending');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    const spec: SpellSpec = { op: 'SCRY_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, scryCount: 1 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'scry_each_player', spec, chosen: [] });
+
+    expect((g.state as any).pendingScry).toEqual({
+      [p1]: 1,
+      [p2]: 1,
+      [p3]: 1,
+    });
+  });
+
+  it('SURVEIL_EACH_OPPONENT sets pendingSurveil for each opponent (not caster)', () => {
+    const g = createInitialGameState('t_surveil_each_opponent_pending');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    const spec: SpellSpec = { op: 'SURVEIL_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 2 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'surveil_each_opponent', spec, chosen: [] });
+
+    expect((g.state as any).pendingSurveil).toEqual({
+      [p2]: 2,
+      [p3]: 2,
+    });
+  });
+
+  it('SURVEIL_EACH_PLAYER sets pendingSurveil for all players', () => {
+    const g = createInitialGameState('t_surveil_each_player_pending');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+
+    const spec: SpellSpec = { op: 'SURVEIL_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, surveilCount: 1 } as any;
+    g.applyEvent!({ type: 'resolveSpell', caster: p1, cardId: 'surveil_each_player', spec, chosen: [] });
+
+    expect((g.state as any).pendingSurveil).toEqual({
+      [p1]: 1,
+      [p2]: 1,
+      [p3]: 1,
+    });
   });
 
   it('MILL_SELF mills from library into graveyard for caster', () => {
