@@ -35,6 +35,9 @@ export type SpellOp =
   | 'DRAW_CARDS_EACH_OPPONENT' | 'DRAW_CARDS_EACH_PLAYER'
   | 'DISCARD_TARGET_PLAYER'
   | 'DISCARD_EACH_OPPONENT' | 'DISCARD_EACH_PLAYER'
+  | 'BLIGHT_SELF'
+  | 'BLIGHT_EACH_OPPONENT' | 'BLIGHT_EACH_PLAYER'
+  | 'BLIGHT_TARGET_OPPONENT' | 'BLIGHT_TARGET_PLAYER'
   | 'ADD_COUNTERS_TARGET'
   | 'ADD_COUNTERS_EACH'; // Exile and return to battlefield (Acrobatic Maneuver, Cloudshift, etc.)
 
@@ -419,6 +422,101 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
 
   // ========================================================================
+  // LORWYN ECLIPSED: Blight (keyword action)
+  // Reminder text (Scryfall): "To blight N, a player puts N -1/-1 counters on a creature they control."
+  // ========================================================================
+  {
+    // "Each opponent blights 1." (often with reminder text in parentheses)
+    const m = t.trim().match(/^each\s+opponent\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s*\.(?:\s*\(.*\))?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'BLIGHT_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'BLIGHT_EACH_OPPONENT', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    // "Target opponent blights 2." (often with reminder text in parentheses)
+    const m = t.trim().match(/^target\s+opponent\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s*\.(?:\s*\(.*\))?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'BLIGHT_TARGET_OPPONENT',
+          filter: 'ANY',
+          minTargets: 1,
+          maxTargets: 1,
+          amountIsX: true,
+          opponentOnly: true,
+          targetDescription: 'target opponent',
+        };
+      }
+
+      const n = parseCountWord(raw);
+      if (n !== null) {
+        return {
+          op: 'BLIGHT_TARGET_OPPONENT',
+          filter: 'ANY',
+          minTargets: 1,
+          maxTargets: 1,
+          amount: n,
+          opponentOnly: true,
+          targetDescription: 'target opponent',
+        };
+      }
+    }
+  }
+  {
+    // "Each player blights N."
+    const m = t.trim().match(/^each\s+player\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s*\.(?:\s*\(.*\))?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'BLIGHT_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'BLIGHT_EACH_PLAYER', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+  {
+    // "Target player blights N."
+    const m = t.trim().match(/^target\s+player\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s*\.(?:\s*\(.*\))?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'BLIGHT_TARGET_PLAYER',
+          filter: 'ANY',
+          minTargets: 1,
+          maxTargets: 1,
+          amountIsX: true,
+          targetDescription: 'target player',
+        };
+      }
+
+      const n = parseCountWord(raw);
+      if (n !== null) {
+        return {
+          op: 'BLIGHT_TARGET_PLAYER',
+          filter: 'ANY',
+          minTargets: 1,
+          maxTargets: 1,
+          amount: n,
+          targetDescription: 'target player',
+        };
+      }
+    }
+  }
+  {
+    // "Blight N." (implicit: you blight N)
+    const m = t.trim().match(/^blight\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s*\.(?:\s*\(.*\))?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') return { op: 'BLIGHT_SELF', filter: 'ANY', minTargets: 0, maxTargets: 0, amountIsX: true };
+      const n = parseCountWord(raw);
+      if (n !== null) return { op: 'BLIGHT_SELF', filter: 'ANY', minTargets: 0, maxTargets: 0, amount: n };
+    }
+  }
+
+  // ========================================================================
   // LIFE GAIN / LOSS (conservative single-sentence templates)
   // ========================================================================
   {
@@ -522,36 +620,84 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // COUNTERS
   // ========================================================================
   {
-    const m = t.trim().match(/^put\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+\+1\/\+1\s+counters?\s+on\s+target\s+creature\.?$/i);
+    const m = t.trim().match(/^put\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+\+1\/\+1\s+counters?\s+on\s+target\s+creature(?:\s+that\s+entered(?:\s+(?:the\s+)?battlefield)?\s+this\s+turn)?\.?$/i);
     if (m) {
       const raw = m[1];
       const amountIsX = String(raw).toLowerCase() === 'x';
       const n = amountIsX ? undefined : parseCountWord(raw) ?? undefined;
+      const hasEnteredThisTurnRestriction = /target\s+creature\s+that\s+entered(?:\s+(?:the\s+)?battlefield)?\s+this\s+turn/i.test(t);
       return {
         op: 'ADD_COUNTERS_TARGET',
         filter: 'CREATURE',
         minTargets: 1,
         maxTargets: 1,
         counterType: '+1/+1',
+        ...(hasEnteredThisTurnRestriction
+          ? {
+              targetRestriction: {
+                type: 'entered_this_turn',
+                description: 'that entered this turn',
+              },
+              targetDescription: 'creature that entered this turn',
+            }
+          : { targetDescription: 'target creature' }),
         ...(amountIsX ? { amountIsX: true } : { amount: n ?? 1 }),
-        targetDescription: 'target creature',
       };
     }
   }
   {
-    const m = t.trim().match(/^put\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+-1\/-1\s+counters?\s+on\s+target\s+creature\.?$/i);
+    const m = t.trim().match(/^put\s+a\s+\+1\/\+1\s+counter\s+on\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+creatures?\.?$/i);
+    if (m) {
+      const max = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'ADD_COUNTERS_TARGET',
+        filter: 'CREATURE',
+        minTargets: 0,
+        maxTargets: max,
+        amount: 1,
+        counterType: '+1/+1',
+        targetDescription: `up to ${m[1]} target creature${max === 1 ? '' : 's'}`,
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^put\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+-1\/-1\s+counters?\s+on\s+target\s+creature(?:\s+that\s+entered(?:\s+(?:the\s+)?battlefield)?\s+this\s+turn)?\.?$/i);
     if (m) {
       const raw = m[1];
       const amountIsX = String(raw).toLowerCase() === 'x';
       const n = amountIsX ? undefined : parseCountWord(raw) ?? undefined;
+      const hasEnteredThisTurnRestriction = /target\s+creature\s+that\s+entered(?:\s+(?:the\s+)?battlefield)?\s+this\s+turn/i.test(t);
       return {
         op: 'ADD_COUNTERS_TARGET',
         filter: 'CREATURE',
         minTargets: 1,
         maxTargets: 1,
         counterType: '-1/-1',
+        ...(hasEnteredThisTurnRestriction
+          ? {
+              targetRestriction: {
+                type: 'entered_this_turn',
+                description: 'that entered this turn',
+              },
+              targetDescription: 'creature that entered this turn',
+            }
+          : { targetDescription: 'target creature' }),
         ...(amountIsX ? { amountIsX: true } : { amount: n ?? 1 }),
-        targetDescription: 'target creature',
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^put\s+a\s+-1\/-1\s+counter\s+on\s+up\s+to\s+(one|two|three|four|five|\d+)\s+target\s+creatures?\.?$/i);
+    if (m) {
+      const max = parseCountWord(m[1]) ?? 1;
+      return {
+        op: 'ADD_COUNTERS_TARGET',
+        filter: 'CREATURE',
+        minTargets: 0,
+        maxTargets: max,
+        amount: 1,
+        counterType: '-1/-1',
+        targetDescription: `up to ${m[1]} target creature${max === 1 ? '' : 's'}`,
       };
     }
   }
@@ -2101,7 +2247,9 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     spec.op === 'EXILE_ALL_TARGET_PLAYER' ||
     spec.op === 'TAP_ALL_TARGET_PLAYER' ||
     spec.op === 'UNTAP_ALL_TARGET_PLAYER' ||
-    spec.op === 'TARGET_PLAYER'
+    spec.op === 'TARGET_PLAYER' ||
+    spec.op === 'BLIGHT_TARGET_OPPONENT' ||
+    spec.op === 'BLIGHT_TARGET_PLAYER'
   ) {
     for (const pr of state.players) {
       if (spec.opponentOnly && pr.id === caster) continue;
@@ -2402,7 +2550,10 @@ export type EngineEffect =
     options?: { colors?: string[]; typeLine?: string; isArtifact?: boolean };
   }
   | { kind: 'QueueScry'; playerId: PlayerID; count: number }
-    | { kind: 'QueueSurveil'; playerId: PlayerID; count: number }
+  | { kind: 'QueueSurveil'; playerId: PlayerID; count: number }
+  | { kind: 'QueueBlight'; playerId: PlayerID; count: number }
+  | { kind: 'QueueBlightEachOpponent'; count: number }
+  | { kind: 'QueueBlightEachPlayer'; count: number }
   | { kind: 'MillCards'; playerId: PlayerID; count: number }
   | { kind: 'GoadPermanent'; id: string; goaderId: PlayerID }
   | { kind: 'CounterSpell'; stackItemId: string }
@@ -2440,6 +2591,66 @@ export function meetsStatRequirement(p: BattlefieldPermanent, req: StatRequireme
     case '<': return statValue < req.value;
     case '=': return statValue === req.value;
     default: return true;
+  }
+}
+
+function meetsTargetRestrictionAtResolution(
+  p: BattlefieldPermanent,
+  restriction: TargetRestriction,
+  state: Readonly<GameState>,
+  caster: PlayerID
+): boolean {
+  switch (restriction.type) {
+    case 'dealt_damage_to_you_this_turn':
+    case 'dealt_combat_damage_to_you_this_turn': {
+      const damageTracker = (state as any).creaturesThatDealtDamageToPlayer?.[caster];
+      return !!(damageTracker && damageTracker[p.id]);
+    }
+    case 'attacked_this_turn':
+      return !!(p as any).attacking || !!(p as any).attackedThisTurn;
+    case 'attacked_or_blocked_this_turn':
+      return (
+        !!(p as any).attacking ||
+        !!(p as any).attackedThisTurn ||
+        !!(p as any).blocking ||
+        !!(p as any).blockedThisTurn
+      );
+    case 'blocked_this_turn':
+      return !!(p as any).blocking || !!(p as any).blockedThisTurn;
+    case 'entered_this_turn':
+      return !!(p as any).enteredThisTurn;
+    case 'tapped':
+      return !!(p as any).tapped;
+    case 'untapped':
+      return !(p as any).tapped;
+    case 'controlled_by_active_player': {
+      const activePlayerId = (state as any).turnPlayer || state.players[(state as any).activePlayerIndex || 0]?.id;
+      return p.controller === activePlayerId;
+    }
+    case 'has_keyword': {
+      const oracleText = (p.card as any)?.oracle_text || '';
+      const cardKeywords = (p.card as any)?.keywords || [];
+      const keyword = restriction.keyword?.toLowerCase() || '';
+
+      const hasKeywordInArray =
+        Array.isArray(cardKeywords) &&
+        cardKeywords.some((k: string) => typeof k === 'string' && k.toLowerCase() === keyword);
+      if (hasKeywordInArray) return true;
+
+      const keywordPattern = new RegExp(`\\b${keyword}\\b`, 'i');
+      if (keywordPattern.test(oracleText)) return true;
+
+      const attachments = state.battlefield.filter((att: any) => att.attachedTo === p.id);
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\[\]\\\\]]/g, '\\$&');
+      const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${escapedKeyword}`, 'i');
+      for (const attachment of attachments) {
+        const attOracle = ((attachment.card as any)?.oracle_text || '').toLowerCase();
+        if (grantsKeywordPattern.test(attOracle)) return true;
+      }
+      return false;
+    }
+    default:
+      return true;
   }
 }
 
@@ -2496,6 +2707,43 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
   };
 
   switch (spec.op) {
+    case 'BLIGHT_SELF': {
+      const n = Math.max(0, Number(spec.amount ?? 0));
+      if (n <= 0) break;
+      eff.push({ kind: 'QueueBlight', playerId: caster, count: n });
+      break;
+    }
+    case 'BLIGHT_EACH_OPPONENT': {
+      const n = Math.max(0, Number(spec.amount ?? 0));
+      if (n <= 0) break;
+      eff.push({ kind: 'QueueBlightEachOpponent', count: n });
+      break;
+    }
+    case 'BLIGHT_EACH_PLAYER': {
+      const n = Math.max(0, Number(spec.amount ?? 0));
+      if (n <= 0) break;
+      eff.push({ kind: 'QueueBlightEachPlayer', count: n });
+      break;
+    }
+    case 'BLIGHT_TARGET_OPPONENT': {
+      const n = Math.max(0, Number(spec.amount ?? 0));
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind !== 'player') continue;
+        if ((t.id as PlayerID) === caster) continue;
+        eff.push({ kind: 'QueueBlight', playerId: t.id as PlayerID, count: n });
+      }
+      break;
+    }
+    case 'BLIGHT_TARGET_PLAYER': {
+      const n = Math.max(0, Number(spec.amount ?? 0));
+      if (n <= 0) break;
+      for (const t of chosen) {
+        if (t.kind !== 'player') continue;
+        eff.push({ kind: 'QueueBlight', playerId: t.id as PlayerID, count: n });
+      }
+      break;
+    }
     case 'GAIN_LIFE': {
       const n = Number(spec.amount ?? 0);
       if (n > 0) eff.push({ kind: 'GainLife', playerId: caster, amount: n });
@@ -2764,9 +3012,18 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       const counterType = String(spec.counterType || '').trim();
       if (!counterType || amount <= 0) break;
       for (const t of chosen) {
-        if (t.kind === 'permanent') {
-          eff.push({ kind: 'AddCountersPermanent', id: t.id, counterType, amount });
-        }
+        if (t.kind !== 'permanent') continue;
+
+        const perm = state.battlefield.find(p => p.id === t.id);
+        if (!perm) continue;
+        if (!matchesFilter(perm, spec.filter)) continue;
+        if (spec.controllerOnly && perm.controller !== caster) continue;
+        if (spec.opponentOnly && perm.controller === caster) continue;
+        if (spec.nonlandOnly && isLand(perm)) continue;
+        if (spec.targetRestriction && !meetsTargetRestrictionAtResolution(perm, spec.targetRestriction, state, caster)) continue;
+        if (spec.statRequirement && isCreature(perm) && !meetsStatRequirement(perm, spec.statRequirement)) continue;
+
+        eff.push({ kind: 'AddCountersPermanent', id: t.id, counterType, amount });
       }
       break;
     }

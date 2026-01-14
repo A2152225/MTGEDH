@@ -2752,7 +2752,7 @@ function landEntersTapped(card: any): boolean {
   }
   
   // Check for explicit "enters the battlefield tapped" without conditions
-  if (oracleText.includes('enters the battlefield tapped') && 
+  if ((oracleText.includes('enters the battlefield tapped') || oracleText.includes('enters tapped')) && 
       !oracleText.includes('unless') && 
       !oracleText.includes('you may pay')) {
     return true;

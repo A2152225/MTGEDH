@@ -2524,6 +2524,118 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
         };
 
+        // Additional costs (CR 601.2b) — handle Blight additional-cost patterns via Resolution Queue.
+        // IMPORTANT: We do this before mode/target selection so costs happen in the correct order.
+        const additionalCost = detectAdditionalCost(oracleText);
+        if (additionalCost?.type === 'blight') {
+          const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+          if (!pendingCast) {
+            debugWarn(1, `[requestCastSpell] Missing pendingSpellCasts for effectId ${effectId} (blight additional cost)`);
+          } else {
+            const blightIsX = Boolean((additionalCost as any).blightIsX);
+            const blightN = Number((additionalCost as any).blightN || 0);
+            const blightOrPayCost = String((additionalCost as any).blightOrPayCost || '').trim() || undefined;
+            const blightIsOptional = Boolean((additionalCost as any).blightIsOptional);
+
+            if (blightIsX) {
+              // Conservative: requestCastSpell flow doesn't have a generic numeric input UX here.
+              delete (game.state as any).pendingSpellCasts[effectId];
+              socket.emit('error', {
+                code: 'UNSUPPORTED_ADDITIONAL_COST',
+                message: `Additional cost "Blight X" is not supported yet for ${cardName}.`,
+              });
+              return;
+            }
+
+            const battlefieldNow = game.state?.battlefield || [];
+            const validBlightTargets = battlefieldNow
+              .filter((p: any) => p && String(p.controller || '') === String(playerId))
+              .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+              .map((p: any) => ({
+                id: p.id,
+                label: p.card?.name || 'Creature',
+                description: p.card?.type_line || 'creature',
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              }));
+
+            // Default: not paid unless explicitly completed.
+            pendingCast.additionalCostPaid = false;
+            pendingCast.additionalCostMethod = 'none';
+
+            if (blightOrPayCost) {
+              // Choice between blighting or paying extra mana.
+              ResolutionQueueManager.addStep(gameId, {
+                type: ResolutionStepType.OPTION_CHOICE,
+                playerId: playerId as PlayerID,
+                description: `Additional cost for ${cardName}: Choose how to pay`,
+                mandatory: true,
+                sourceId: effectId,
+                sourceName: cardName,
+                sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                options: [
+                  {
+                    id: 'blight_cost',
+                    label: `Blight ${blightN}`,
+                    description: `Put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on a creature you control.`,
+                  },
+                  {
+                    id: 'pay_mana_cost',
+                    label: `Pay ${blightOrPayCost}`,
+                    description: `Pay ${blightOrPayCost} as the additional cost.`,
+                  },
+                ],
+                minSelections: 1,
+                maxSelections: 1,
+
+                spellAdditionalCostBlightOrPay: true,
+                spellAdditionalCostEffectId: effectId,
+                spellAdditionalCostCardName: cardName,
+                spellAdditionalCostBlightN: blightN,
+                spellAdditionalCostOrPay: blightOrPayCost,
+              } as any);
+            } else {
+              // Pure blight additional cost (mandatory or optional)
+              if (validBlightTargets.length === 0) {
+                if (blightIsOptional) {
+                  pendingCast.additionalCostPaid = false;
+                  pendingCast.additionalCostMethod = 'none';
+                } else {
+                  delete (game.state as any).pendingSpellCasts[effectId];
+                  socket.emit('error', {
+                    code: 'CANNOT_PAY_COST',
+                    message: `Cannot cast ${cardName}: You must blight ${blightN}, but you control no creatures.`,
+                  });
+                  return;
+                }
+              } else {
+                ResolutionQueueManager.addStep(gameId, {
+                  type: ResolutionStepType.TARGET_SELECTION,
+                  playerId: playerId as PlayerID,
+                  description: `Additional cost for ${cardName}: Blight ${blightN}${blightIsOptional ? ' (optional)' : ''}`,
+                  mandatory: !blightIsOptional,
+                  sourceId: effectId,
+                  sourceName: cardName,
+                  sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                  validTargets: validBlightTargets,
+                  targetTypes: ['creature'],
+                  minTargets: 1,
+                  maxTargets: 1,
+                  targetDescription: 'creature you control',
+
+                  // Custom payload consumed by the Blight hook in server/socket/resolution.ts
+                  keywordBlight: true,
+                  keywordBlightStage: 'cast_additional_cost',
+                  keywordBlightController: playerId,
+                  keywordBlightN: blightN,
+                  keywordBlightSourceName: `${cardName} — Additional Cost (Blight ${blightN})`,
+                  keywordBlightEffectId: effectId,
+                  keywordBlightOptional: blightIsOptional,
+                } as any);
+              }
+            }
+          }
+        }
+
         // Many spells require mode/choice selection before targets (CR 601.2b -> 601.2c).
         // We only auto-enqueue a mode selection prompt for a safe subset of modal spells:
         // - Oracle has a "Choose one/two/..." block
@@ -2593,11 +2705,133 @@ export function registerGameActions(io: Server, socket: Socket) {
         debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
         debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets via Resolution Queue) ========`);
       } else {
-        // No targets needed - go directly to payment
-        // Calculate cost reduction and convoke options
+        // No targets needed — still need to handle additional costs before payment (CR 601.2b -> 601.2h).
         const costReduction = calculateCostReduction(game, playerId, cardInHand);
         const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
-        
+
+        (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+        (game.state as any).pendingSpellCasts[effectId] = {
+          cardId,
+          cardName,
+          manaCost,
+          playerId,
+          faceIndex,
+          validTargetIds: [],
+          targets: [],
+          card: { ...cardInHand },
+          noTargets: true,
+          pendingPaymentAfterAdditionalCost: false,
+          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+          convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+        };
+
+        const additionalCost = detectAdditionalCost(oracleText);
+        if (additionalCost?.type === 'blight') {
+          const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+          pendingCast.pendingPaymentAfterAdditionalCost = true;
+
+          const blightIsX = Boolean((additionalCost as any).blightIsX);
+          const blightN = Number((additionalCost as any).blightN || 0);
+          const blightOrPayCost = String((additionalCost as any).blightOrPayCost || '').trim() || undefined;
+          const blightIsOptional = Boolean((additionalCost as any).blightIsOptional);
+
+          if (blightIsX) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+            socket.emit('error', {
+              code: 'UNSUPPORTED_ADDITIONAL_COST',
+              message: `Additional cost "Blight X" is not supported yet for ${cardName}.`,
+            });
+            return;
+          }
+
+          const battlefieldNow = game.state?.battlefield || [];
+          const validBlightTargets = battlefieldNow
+            .filter((p: any) => p && String(p.controller || '') === String(playerId))
+            .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+            .map((p: any) => ({
+              id: p.id,
+              label: p.card?.name || 'Creature',
+              description: p.card?.type_line || 'creature',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+
+          pendingCast.additionalCostPaid = false;
+          pendingCast.additionalCostMethod = 'none';
+
+          if (blightOrPayCost) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.OPTION_CHOICE,
+              playerId: playerId as PlayerID,
+              description: `Additional cost for ${cardName}: Choose how to pay`,
+              mandatory: true,
+              sourceId: effectId,
+              sourceName: cardName,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              options: [
+                {
+                  id: 'blight_cost',
+                  label: `Blight ${blightN}`,
+                  description: `Put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on a creature you control.`,
+                },
+                {
+                  id: 'pay_mana_cost',
+                  label: `Pay ${blightOrPayCost}`,
+                  description: `Pay ${blightOrPayCost} as the additional cost.`,
+                },
+              ],
+              minSelections: 1,
+              maxSelections: 1,
+              spellAdditionalCostBlightOrPay: true,
+              spellAdditionalCostEffectId: effectId,
+              spellAdditionalCostCardName: cardName,
+              spellAdditionalCostBlightN: blightN,
+              spellAdditionalCostOrPay: blightOrPayCost,
+            } as any);
+            debug(2, `[requestCastSpell] Queued Blight additional-cost choice for no-target spell ${cardName}`);
+            return;
+          }
+
+          if (validBlightTargets.length === 0) {
+            if (blightIsOptional) {
+              pendingCast.additionalCostPaid = false;
+              pendingCast.additionalCostMethod = 'none';
+              // Fall through: no cost step needed, request payment immediately.
+            } else {
+              delete (game.state as any).pendingSpellCasts[effectId];
+              socket.emit('error', {
+                code: 'CANNOT_PAY_COST',
+                message: `Cannot cast ${cardName}: You must blight ${blightN}, but you control no creatures.`,
+              });
+              return;
+            }
+          } else {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: playerId as PlayerID,
+              description: `Additional cost for ${cardName}: Blight ${blightN}${blightIsOptional ? ' (optional)' : ''}`,
+              mandatory: !blightIsOptional,
+              sourceId: effectId,
+              sourceName: cardName,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              validTargets: validBlightTargets,
+              targetTypes: ['creature'],
+              minTargets: 1,
+              maxTargets: 1,
+              targetDescription: 'creature you control',
+              keywordBlight: true,
+              keywordBlightStage: 'cast_additional_cost',
+              keywordBlightController: playerId,
+              keywordBlightN: blightN,
+              keywordBlightSourceName: `${cardName} — Additional Cost (Blight ${blightN})`,
+              keywordBlightEffectId: effectId,
+              keywordBlightOptional: blightIsOptional,
+            } as any);
+            debug(2, `[requestCastSpell] Queued Blight additional-cost target selection for no-target spell ${cardName}`);
+            return;
+          }
+        }
+
+        // No additional cost (or optional cost skipped) — go directly to payment.
         socket.emit("paymentRequired", {
           gameId,
           cardId,
@@ -2608,7 +2842,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
           convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         });
-        
         debug(2, `[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
         if (costReduction.messages.length > 0) {
           debug(1, `[requestCastSpell] Cost reductions: ${costReduction.messages.join(', ')}`);
@@ -2730,6 +2963,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check timing restrictions for sorcery-speed spells
       const oracleText = (cardInHand.oracle_text || "").toLowerCase();
+
+      // Carry over additional-cost payment state from requestCastSpell -> completeCastSpell.
+      // Many resolution paths check this flag on the card object.
+      (cardInHand as any).additionalCostPaid = (targets as any)?.additionalCostPaid === true;
+      (cardInHand as any).additionalCostMethod = (targets as any)?.additionalCostMethod;
+
       let hasFlash = oracleText.includes("flash");
       const isInstant = typeLine.includes("instant");
       const isInstantOrSorcery = isInstant || typeLine.includes("sorcery");
@@ -4651,6 +4890,12 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Fallback: use client-sent targets if no pending targets
           finalTargets = targets || [];
           debug(1, `[completeCastSpell] Using client-sent targets: ${finalTargets?.join(',') || 'none'}`);
+        }
+
+        // Preserve additional-cost payment flag from requestCastSpell flow.
+        if (finalTargets) {
+          (finalTargets as any).additionalCostPaid = pendingCast.additionalCostPaid === true;
+          (finalTargets as any).additionalCostMethod = pendingCast.additionalCostMethod;
         }
         
         // CRITICAL FIX: Validate that spell has required targets before allowing cast

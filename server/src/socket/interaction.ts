@@ -649,7 +649,7 @@ export function detectTutorEffect(oracleText: string): TutorInfo {
     // SPECIAL CASE: Kodama's Reach / Cultivate pattern
     // "put one onto the battlefield tapped and the other into your hand"
     if (text.includes('put one onto the battlefield') && text.includes('the other into your hand')) {
-      const entersTapped = text.includes('battlefield tapped');
+      const entersTapped = text.includes('battlefield tapped') || text.includes('enters tapped');
       return {
         isTutor: true,
         searchCriteria,
@@ -665,7 +665,7 @@ export function detectTutorEffect(oracleText: string): TutorInfo {
     // SPECIAL CASE: Three Visits / Nature's Lore pattern  
     // "put that card onto the battlefield tapped"
     if (text.includes('forest card') && text.includes('put that card onto the battlefield')) {
-      const entersTapped = text.includes('battlefield tapped');
+      const entersTapped = text.includes('battlefield tapped') || text.includes('enters tapped');
       return {
         isTutor: true,
         searchCriteria: 'forest card',
@@ -688,7 +688,8 @@ export function detectTutorEffect(oracleText: string): TutorInfo {
     else if (text.includes('put it onto the battlefield') || 
              text.includes('put that card onto the battlefield') ||
              text.includes('put onto the battlefield') ||
-             text.includes('enters the battlefield')) {
+             text.includes('enters the battlefield') ||
+             text.includes('enters tapped')) {
       destination = 'battlefield';
     }
     // Graveyard patterns (Entomb, Buried Alive)

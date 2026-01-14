@@ -447,7 +447,7 @@ function detectTutorSpell(oracleText: string): {
   // SPECIAL CASE: Kodama's Reach / Cultivate pattern
   // "put one onto the battlefield tapped and the other into your hand"
   if (text.includes('put one onto the battlefield') && text.includes('the other into your hand')) {
-    const entersTapped = text.includes('battlefield tapped');
+    const entersTapped = text.includes('battlefield tapped') || text.includes('enters tapped');
     return {
       isTutor: true,
       searchCriteria,
@@ -474,7 +474,8 @@ function detectTutorSpell(oracleText: string): {
   else if (text.includes('put it onto the battlefield') || 
            text.includes('put that card onto the battlefield') ||
            text.includes('put onto the battlefield') ||
-           text.includes('enters the battlefield')) {
+           text.includes('enters the battlefield') ||
+           text.includes('enters tapped')) {
     destination = 'battlefield';
   }
   // Graveyard patterns (Entomb, Buried Alive)
@@ -8057,6 +8058,192 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       } catch (err) {
         debugWarn(1, `[resolveSpell] ${spellName} queue surveil failed:`, err);
       }
+      break;
+    }
+    case 'QueueBlight': {
+      const playerId = (effect as any).playerId as PlayerID;
+      const count = Math.max(0, Number((effect as any).count ?? 0));
+      const gameId = (ctx as any).gameId;
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
+
+      const battlefield = state.battlefield || [];
+      const validTargets = battlefield
+        .filter((p: any) => p && String(p.controller || '') === String(playerId))
+        .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+        .map((p: any) => ({
+          id: p.id,
+          label: p.card?.name || 'Creature',
+          description: p.card?.type_line || 'creature',
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
+
+      if (validTargets.length === 0) {
+        debug(2, `[resolveSpell] ${spellName} QueueBlight: ${playerId} has no creatures to blight`);
+        break;
+      }
+
+      try {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId,
+          description: `${spellName}: Blight ${count} — choose a creature you control to put ${count} -1/-1 counter${count === 1 ? '' : 's'} on it.`,
+          mandatory: true,
+          sourceName: spellName,
+          validTargets,
+          targetTypes: ['creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'creature you control',
+
+          // Consumed by the generic Blight hook in socket/resolution.ts
+          keywordBlight: true,
+          keywordBlightStage: 'select_target',
+          keywordBlightController: playerId,
+          keywordBlightN: count,
+          keywordBlightSourceName: `${spellName}: Blight ${count}`,
+        } as any);
+        debug(2, `[resolveSpell] ${spellName} queued blight ${count} for ${playerId}`);
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} queue blight failed:`, err);
+      }
+      break;
+    }
+    case 'QueueBlightEachOpponent': {
+      const count = Math.max(0, Number((effect as any).count ?? 0));
+      const gameId = (ctx as any).gameId;
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
+
+      const players = (state as any).players || [];
+      const turnOrder: PlayerID[] = players.map((p: any) => p?.id).filter((id: any) => typeof id === 'string') as any;
+      const activePlayerId: PlayerID =
+        (state as any).turnPlayer ||
+        (state as any).activePlayerId ||
+        players[(state as any).activePlayerIndex || 0]?.id ||
+        caster;
+
+      const battlefield = state.battlefield || [];
+
+      const configs: any[] = [];
+      for (const pr of players) {
+        if (!pr?.id) continue;
+        if (String(pr.id) === String(caster)) continue;
+        if ((pr as any).hasLost) continue;
+
+        const validTargets = battlefield
+          .filter((p: any) => p && String(p.controller || '') === String(pr.id))
+          .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+          .map((p: any) => ({
+            id: p.id,
+            label: p.card?.name || 'Creature',
+            description: p.card?.type_line || 'creature',
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
+
+        if (validTargets.length === 0) continue;
+
+        configs.push({
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pr.id,
+          description: `${spellName}: Blight ${count} — choose a creature you control to put ${count} -1/-1 counter${count === 1 ? '' : 's'} on it.`,
+          mandatory: true,
+          sourceName: spellName,
+          validTargets,
+          targetTypes: ['creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'creature you control',
+          priority: 0,
+
+          keywordBlight: true,
+          keywordBlightStage: 'select_target',
+          keywordBlightController: pr.id,
+          keywordBlightN: count,
+          keywordBlightSourceName: `${spellName}: Blight ${count}`,
+        });
+      }
+
+      if (configs.length === 0) {
+        debug(2, `[resolveSpell] ${spellName} QueueBlightEachOpponent: no opponents had creatures to blight`);
+        break;
+      }
+
+      try {
+        ResolutionQueueManager.addStepsWithAPNAP(gameId, configs as any, turnOrder as any, activePlayerId as any);
+        debug(2, `[resolveSpell] ${spellName} queued blight ${count} for ${configs.length} opponent(s)`);
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} queue blight(each opponent) failed:`, err);
+      }
+
+      break;
+    }
+    case 'QueueBlightEachPlayer': {
+      const count = Math.max(0, Number((effect as any).count ?? 0));
+      const gameId = (ctx as any).gameId;
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
+
+      const players = (state as any).players || [];
+      const turnOrder: PlayerID[] = players.map((p: any) => p?.id).filter((id: any) => typeof id === 'string') as any;
+      const activePlayerId: PlayerID =
+        (state as any).turnPlayer ||
+        (state as any).activePlayerId ||
+        players[(state as any).activePlayerIndex || 0]?.id ||
+        caster;
+
+      const battlefield = state.battlefield || [];
+
+      const configs: any[] = [];
+      for (const pr of players) {
+        if (!pr?.id) continue;
+        if ((pr as any).hasLost) continue;
+
+        const validTargets = battlefield
+          .filter((p: any) => p && String(p.controller || '') === String(pr.id))
+          .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+          .map((p: any) => ({
+            id: p.id,
+            label: p.card?.name || 'Creature',
+            description: p.card?.type_line || 'creature',
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
+
+        if (validTargets.length === 0) continue;
+
+        configs.push({
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pr.id,
+          description: `${spellName}: Blight ${count} — choose a creature you control to put ${count} -1/-1 counter${count === 1 ? '' : 's'} on it.`,
+          mandatory: true,
+          sourceName: spellName,
+          validTargets,
+          targetTypes: ['creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'creature you control',
+          priority: 0,
+
+          keywordBlight: true,
+          keywordBlightStage: 'select_target',
+          keywordBlightController: pr.id,
+          keywordBlightN: count,
+          keywordBlightSourceName: `${spellName}: Blight ${count}`,
+        });
+      }
+
+      if (configs.length === 0) {
+        debug(2, `[resolveSpell] ${spellName} QueueBlightEachPlayer: no players had creatures to blight`);
+        break;
+      }
+
+      try {
+        ResolutionQueueManager.addStepsWithAPNAP(gameId, configs as any, turnOrder as any, activePlayerId as any);
+        debug(2, `[resolveSpell] ${spellName} queued blight ${count} for ${configs.length} player(s)`);
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} queue blight(each player) failed:`, err);
+      }
+
       break;
     }
     case 'MillCards': {

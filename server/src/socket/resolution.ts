@@ -30,6 +30,7 @@ import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
 import { creatureHasHaste } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
+import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 
 /**
  * Handle AI player resolution steps automatically
@@ -1281,6 +1282,28 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             delete pending[effectId];
           }
         }
+
+        // Ward—Blight N: cancelling means "didn't pay", so counter the spell/ability.
+        if ((cancelledStep as any)?.keywordBlight === true && String((cancelledStep as any)?.keywordBlightStage || '') === 'ward_payment') {
+          const stackId = String((cancelledStep as any)?.keywordBlightTriggeredBy || (cancelledStep as any)?.sourceId || '');
+          if (stackId) {
+            const ctx = {
+              state: game.state,
+              bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+              zones: game.state?.zones,
+              gameId,
+            } as unknown as GameContext;
+
+            counterStackItem(ctx, stackId, String((cancelledStep as any)?.keywordBlightWardController || 'system'));
+            io.to(gameId).emit('chat', {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: 'system',
+              message: `Ward — Blight: ${getPlayerName(game, pid)} didn't pay ward; the spell/ability was countered.`,
+              ts: Date.now(),
+            });
+          }
+        }
         broadcastGame(io, game, gameId);
       }
     }
@@ -1769,7 +1792,11 @@ async function handleStepResponse(
   response: ResolutionStepResponse
 ): Promise<void> {
   if (response.cancelled) {
-    // Step was cancelled - no action needed
+    // Most cancelled steps are a no-op. Some TARGET_SELECTION steps are intentionally cancellable
+    // (e.g. Ward payment or optional additional-cost payments) and need custom cancellation semantics.
+    if (step.type === ResolutionStepType.TARGET_SELECTION) {
+      await handleTargetSelectionResponse(io, game, gameId, step, response);
+    }
     return;
   }
   
@@ -2557,7 +2584,7 @@ async function handleStepResponse(
       break;
       
     case ResolutionStepType.TARGET_SELECTION:
-      handleTargetSelectionResponse(io, game, gameId, step, response);
+      void handleTargetSelectionResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.TRIGGER_ORDER:
@@ -2989,13 +3016,13 @@ function handleCommanderZoneResponse(
 /**
  * Handle target selection response
  */
-function handleTargetSelectionResponse(
+async function handleTargetSelectionResponse(
   io: Server,
   game: any,
   gameId: string,
   step: ResolutionStep,
   response: ResolutionStepResponse
-): void {
+): Promise<void> {
   const pid = response.playerId;
   const selections = response.selections as string[];
   
@@ -3009,6 +3036,84 @@ function handleTargetSelectionResponse(
   const validTargets = targetStepData.validTargets || [];
   const minTargets = targetStepData.minTargets || 0;
   const maxTargets = targetStepData.maxTargets || Infinity;
+
+  const emitPendingCastPaymentIfNeeded = (effectId: string, payerId: string) => {
+    if (!effectId) return;
+    const pendingCast = (game.state as any)?.pendingSpellCasts?.[effectId];
+    if (!pendingCast) return;
+    if (!pendingCast.noTargets) return;
+    if (!pendingCast.pendingPaymentAfterAdditionalCost) return;
+
+    const baseManaCost = String(pendingCast.manaCost || '');
+    const extraTax = String(pendingCast.additionalCostTax || '');
+    const finalManaCost = baseManaCost + extraTax;
+
+    emitToPlayer(io, payerId, 'paymentRequired', {
+      gameId,
+      cardId: pendingCast.cardId,
+      cardName: pendingCast.cardName,
+      manaCost: finalManaCost,
+      effectId,
+      imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
+      costReduction: pendingCast.costReduction,
+      convokeOptions: pendingCast.convokeOptions,
+    });
+
+    pendingCast.pendingPaymentAfterAdditionalCost = false;
+    debug(2, `[Resolution] Additional-cost flow complete for no-target spell ${pendingCast.cardName}; requesting payment (${finalManaCost})`);
+  };
+
+  // Cancellation-aware handling for special TARGET_SELECTION steps.
+  if (response.cancelled) {
+    const stepAny = step as any;
+    if (stepAny?.keywordBlight === true) {
+      const stage = String(stepAny?.keywordBlightStage || '');
+      const controllerId = String(stepAny?.keywordBlightController || pid);
+      const n = Number(stepAny?.keywordBlightN || 0);
+      const sourceName = String(stepAny?.keywordBlightSourceName || step.sourceName || 'Blight');
+
+      // Ward—Blight N cancellation means ward wasn't paid and the spell/ability is countered.
+      if (stage === 'ward_payment') {
+        const sourceId = step.sourceId;
+        const wardController = String(stepAny?.keywordBlightWardController || '');
+        const ctx = {
+          state: game.state,
+          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+          zones: game.state?.zones,
+          gameId,
+        } as unknown as GameContext;
+
+        if (sourceId) {
+          counterStackItem(ctx, sourceId, wardController || 'system');
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${sourceName}: ${getPlayerName(game, controllerId)} declined to pay ward and the spell/ability was countered.`,
+            ts: Date.now(),
+          });
+        }
+
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      // Spell additional-cost blight cancellation = additional cost not paid.
+      if (stage === 'cast_additional_cost') {
+        const effectId = String(stepAny?.keywordBlightEffectId || '');
+        if (effectId && (game.state as any)?.pendingSpellCasts?.[effectId]) {
+          (game.state as any).pendingSpellCasts[effectId].additionalCostPaid = false;
+          (game.state as any).pendingSpellCasts[effectId].additionalCostMethod = 'none';
+        }
+        emitPendingCastPaymentIfNeeded(effectId, controllerId);
+        return;
+      }
+    }
+
+    // Default cancelled TARGET_SELECTION: no-op.
+    return;
+  }
 
   // Disallow selecting the same target multiple times.
   // The client already prevents duplicates via Set-based selection, but enforce server-side as well.
@@ -3045,10 +3150,21 @@ function handleTargetSelectionResponse(
   }
 
   // ===== LORWYN ECLIPSED: Blight N (generic hook) =====
-  if ((step as any)?.keywordBlight === true && String((step as any)?.keywordBlightStage || '') === 'select_target') {
+  if (
+    (step as any)?.keywordBlight === true &&
+    ['select_target', 'ward_payment', 'cast_additional_cost'].includes(String((step as any)?.keywordBlightStage || ''))
+  ) {
     const controllerId = String((step as any).keywordBlightController || pid);
     const n = Number((step as any).keywordBlightN || 0);
     const sourceName = String((step as any).keywordBlightSourceName || step.sourceName || 'Blight');
+    const stage = String((step as any)?.keywordBlightStage || '');
+    const effectId = String((step as any)?.keywordBlightEffectId || '');
+    if (selections.length === 0) {
+      // Some templates allow "up to one target". In that case, selecting no target is a valid no-op.
+      debug(2, `[Resolution] Blight: no target selected (no-op)`);
+      return;
+    }
+
     const targetId = selections[0];
 
     const targetPerm = (game.state?.battlefield || []).find((p: any) => p && p.id === targetId);
@@ -3057,20 +3173,141 @@ function handleTargetSelectionResponse(
       return;
     }
 
-    targetPerm.counters = targetPerm.counters || {};
-    targetPerm.counters['-1/-1'] = (targetPerm.counters['-1/-1'] || 0) + (Number.isFinite(n) ? n : 0);
+    const safeN = Number.isFinite(n) ? n : 0;
+    if (safeN <= 0) return;
+
+    const targetName = targetPerm.card?.name || 'a creature';
+    try {
+      const { updateCounters } = await import('../state/modules/counters_tokens.js');
+      const ctx = {
+        state: game.state,
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+        zones: game.state?.zones,
+        gameId,
+      } as any;
+
+      updateCounters(ctx, targetId, { '-1/-1': safeN });
+    } catch (err) {
+      // Defensive fallback: apply counter directly if the counters module can't be loaded.
+      debugWarn(1, `[Resolution] Blight: updateCounters failed, falling back to direct counter mutation`, err);
+      targetPerm.counters = targetPerm.counters || {};
+      targetPerm.counters['-1/-1'] = (targetPerm.counters['-1/-1'] || 0) + safeN;
+    }
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${n} -1/-1 counter${n === 1 ? '' : 's'} on ${targetPerm.card?.name || 'a creature'}.`,
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${safeN} -1/-1 counter${safeN === 1 ? '' : 's'} on ${targetName}.`,
       ts: Date.now(),
     });
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
     broadcastGame(io, game, gameId);
+
+    if (stage === 'cast_additional_cost') {
+      if (effectId && (game.state as any)?.pendingSpellCasts?.[effectId]) {
+        (game.state as any).pendingSpellCasts[effectId].additionalCostPaid = true;
+        (game.state as any).pendingSpellCasts[effectId].additionalCostMethod = 'blight';
+      }
+      emitPendingCastPaymentIfNeeded(effectId, controllerId);
+    }
     return;
+  }
+
+  // ===== WARD: Ward—Blight N =====
+  // If the completed step selected a warded permanent with Ward—Blight N, enqueue a payment step.
+  // (Conservative: only supports the custom Blight N ward cost.)
+  if (!(step as any)?.keywordBlight && step.type === ResolutionStepType.TARGET_SELECTION) {
+    const sourceId = (step as any)?.sourceId as string | undefined;
+    if (sourceId && game.state?.stack) {
+      const stackItem = game.state.stack.find((item: any) => item && item.id === sourceId);
+      const casterId = String(stackItem?.controller || pid);
+
+      // Only meaningful if the step belongs to the casting/activating player.
+      if (casterId) {
+        const battlefield = game.state?.battlefield || [];
+
+        const parseBlightN = (cost: string): number | null => {
+          const m = String(cost || '').match(/\bblight\s*(\d+)\b/i);
+          if (!m) return null;
+          const n = Number.parseInt(m[1], 10);
+          return Number.isFinite(n) ? n : null;
+        };
+
+        for (const targetId of selections) {
+          const targetPerm = battlefield.find((p: any) => p && p.id === targetId);
+          if (!targetPerm) continue;
+
+          const wardCost = getWardCost(targetPerm.card);
+          if (!wardCost) continue;
+
+          const blightN = parseBlightN(wardCost);
+          if (!blightN) continue;
+
+          // Ward triggers only for opponents; if we're targeting our own permanent, ignore.
+          if (String(targetPerm.controller || '') === casterId) continue;
+
+          const validTargets = battlefield
+            .filter((p: any) => p && String(p.controller || '') === casterId)
+            .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+            .map((p: any) => ({
+              id: p.id,
+              label: p.card?.name || 'Creature',
+              description: p.card?.type_line || 'creature',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+
+          if (validTargets.length === 0) {
+            // If the player can't pay, ward will counter the spell/ability.
+            const ctx = {
+              state: game.state,
+              bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+              zones: game.state?.zones,
+              gameId,
+            } as unknown as GameContext;
+
+            counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+            io.to(gameId).emit('chat', {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: 'system',
+              message: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
+              ts: Date.now(),
+            });
+
+            if (typeof game.bumpSeq === 'function') game.bumpSeq();
+            return;
+          }
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: casterId as any,
+            status: ResolutionStepStatus.PENDING,
+            sourceId,
+            sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+            description: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}: Choose a creature you control to put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on it (or cancel to be countered).`,
+            mandatory: false,
+            createdAt: Date.now(),
+            priority: 0,
+            validTargets,
+            targetTypes: ['creature'],
+            minTargets: 1,
+            maxTargets: 1,
+            targetDescription: 'creature you control',
+
+            // Custom payload consumed by the Blight hook above.
+            keywordBlight: true,
+            keywordBlightStage: 'ward_payment',
+            keywordBlightController: casterId,
+            keywordBlightN: blightN,
+            keywordBlightSourceName: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}`,
+            keywordBlightTriggeredBy: sourceId,
+            keywordBlightWardController: String(targetPerm.controller || ''),
+          } as any);
+        }
+      }
+    }
   }
 
   // ===== GENERIC: Sacrifice "When you do" follow-up =====
@@ -3983,6 +4220,10 @@ function handleTargetSelectionResponse(
       }
       
       // Update the pending cast with the final cost
+      // Apply extra mana-based additional costs (e.g. "Blight N or pay {X}")
+      if (pendingCast.additionalCostTax) {
+        finalManaCost = finalManaCost + String(pendingCast.additionalCostTax);
+      }
       pendingCast.finalManaCost = finalManaCost;
       
       // Emit payment required event
@@ -8223,6 +8464,112 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  // ===== SPELL CASTING: Additional cost — "Blight N or pay {X}" =====
+  if (stepData?.spellAdditionalCostBlightOrPay === true) {
+    const choiceId = extractId(selectedOption);
+    const effectId = String(stepData?.spellAdditionalCostEffectId || stepData?.sourceId || '');
+    const blightN = Number(stepData?.spellAdditionalCostBlightN || 0) || 0;
+    const orPay = String(stepData?.spellAdditionalCostOrPay || '').trim();
+
+    if (!choiceId) {
+      debugWarn(1, `[Resolution] spellAdditionalCostBlightOrPay: missing choice id`);
+      return;
+    }
+
+    const pendingCast = effectId ? (game.state as any)?.pendingSpellCasts?.[effectId] : undefined;
+    if (!pendingCast) {
+      debugWarn(1, `[Resolution] spellAdditionalCostBlightOrPay: pendingSpellCasts missing for effectId ${effectId}`);
+      return;
+    }
+
+    const emitPendingCastPaymentIfNeeded = () => {
+      if (!pendingCast.noTargets) return;
+      if (!pendingCast.pendingPaymentAfterAdditionalCost) return;
+
+      const baseManaCost = String(pendingCast.manaCost || '');
+      const extraTax = String(pendingCast.additionalCostTax || '');
+      const finalManaCost = baseManaCost + extraTax;
+
+      emitToPlayer(io, playerId, 'paymentRequired', {
+        gameId,
+        cardId: pendingCast.cardId,
+        cardName: pendingCast.cardName,
+        manaCost: finalManaCost,
+        effectId,
+        imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
+        costReduction: pendingCast.costReduction,
+        convokeOptions: pendingCast.convokeOptions,
+      });
+
+      pendingCast.pendingPaymentAfterAdditionalCost = false;
+      debug(2, `[Resolution] Additional-cost choice complete for no-target spell ${pendingCast.cardName}; requesting payment (${finalManaCost})`);
+    };
+
+    if (choiceId === 'pay_mana_cost') {
+      pendingCast.additionalCostPaid = true;
+      pendingCast.additionalCostMethod = 'pay_mana';
+      pendingCast.additionalCostTax = orPay;
+      emitPendingCastPaymentIfNeeded();
+      return;
+    }
+
+    if (choiceId !== 'blight_cost') {
+      debugWarn(1, `[Resolution] spellAdditionalCostBlightOrPay: unexpected choice '${choiceId}'`);
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    const validTargets = battlefield
+      .filter((p: any) => p && String(p.controller || '') === String(playerId))
+      .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+      .map((p: any) => ({
+        id: p.id,
+        label: p.card?.name || 'Creature',
+        description: p.card?.type_line || 'creature',
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+      }));
+
+    if (validTargets.length === 0) {
+      delete (game.state as any).pendingSpellCasts[effectId];
+      emitToPlayer(io, playerId, 'error', {
+        code: 'CANNOT_PAY_COST',
+        message: `Cannot cast ${pendingCast.cardName}: You must blight ${blightN}, but you control no creatures.`,
+      });
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    pendingCast.additionalCostPaid = false;
+    pendingCast.additionalCostMethod = 'blight';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: playerId as any,
+      description: `Additional cost for ${pendingCast.cardName}: Blight ${blightN}`,
+      mandatory: true,
+      sourceId: effectId,
+      sourceName: pendingCast.cardName,
+      sourceImage: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
+      validTargets,
+      targetTypes: ['creature'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'creature you control',
+      priority: -1,
+
+      keywordBlight: true,
+      keywordBlightStage: 'cast_additional_cost',
+      keywordBlightController: playerId,
+      keywordBlightN: blightN,
+      keywordBlightSourceName: `${pendingCast.cardName} — Additional Cost (Blight ${blightN})`,
+      keywordBlightEffectId: effectId,
+      keywordBlightOptional: false,
+    } as any);
+
+    debug(2, `[Resolution] Enqueued blight payment step for additional-cost choice (effectId=${effectId})`);
+    return;
+  }
 
   // ===== COMBAT: ATTACK TAX (Ghostly Prison / Propaganda style) =====
   // This is queued from server/socket/combat.ts when an attack requires paying a generic tax.

@@ -121,6 +121,22 @@ function scanRows(sourceLabel: string, sourcePath: string, rows: ScanRow[]): Sca
 }
 
 const PATTERNS: PatternDef[] = [
+  // General ETB wording (post-Bloomburrow often omits "the battlefield")
+  {
+    id: 'etb_when_enters',
+    label: 'When … enters (the battlefield)',
+    regex: /\bwhen\s+[^.]{0,80}\benters(?:\s+the\s+battlefield)?\b/i,
+  },
+  {
+    id: 'etb_as_enters',
+    label: 'As … enters (the battlefield)',
+    regex: /\bas\s+[^.]{0,80}\benters(?:\s+the\s+battlefield)?\b/i,
+  },
+  {
+    id: 'etb_whenever_enters',
+    label: 'Whenever … enters (the battlefield)',
+    regex: /\bwhenever\s+[^.]{0,80}\benters(?:\s+the\s+battlefield)?\b/i,
+  },
   {
     id: 'attacking_or_blocking',
     label: 'target attacking or blocking creature',
@@ -146,6 +162,38 @@ const PATTERNS: PatternDef[] = [
     id: 'dealt_damage_to_you',
     label: 'target creature that dealt damage to you this turn',
     regex: /\btarget\s+creature\s+that\s+dealt\s+(?:combat\s+)?damage\s+to\s+you\s+this\s+turn\b/i,
+  },
+
+  // Counter placement (common oracle targeting templates)
+  {
+    id: 'p1p1_on_up_to_one_target_creature',
+    label: 'Put a +1/+1 counter on up to one target creature',
+    regex: /\bput\s+a\s+\+1\/\+1\s+counter\s+on\s+up\s+to\s+one\s+target\s+creature\b/i,
+  },
+  {
+    id: 'm1m1_on_up_to_one_target_creature',
+    label: 'Put a -1/-1 counter on up to one target creature',
+    regex: /\bput\s+a\s+-1\/-1\s+counter\s+on\s+up\s+to\s+one\s+target\s+creature\b/i,
+  },
+  {
+    id: 'p1p1_on_up_to_n_target_creatures',
+    label: 'Put a +1/+1 counter on up to N target creatures',
+    regex: /\bput\s+a\s+\+1\/\+1\s+counter\s+on\s+up\s+to\s+(?:one|two|three|four|five|\d+)\s+target\s+creatures\b/i,
+  },
+  {
+    id: 'm1m1_on_up_to_n_target_creatures',
+    label: 'Put a -1/-1 counter on up to N target creatures',
+    regex: /\bput\s+a\s+-1\/-1\s+counter\s+on\s+up\s+to\s+(?:one|two|three|four|five|\d+)\s+target\s+creatures\b/i,
+  },
+  {
+    id: 'p1p1_on_target_creature_entered_this_turn',
+    label: 'Put a +1/+1 counter on target creature that entered (the battlefield) this turn',
+    regex: /\bput\s+a\s+\+1\/\+1\s+counter\s+on\s+target\s+creature\s+that\s+entered(?:\s+(?:the\s+)?battlefield)?\s+this\s+turn\b/i,
+  },
+  {
+    id: 'm1m1_on_target_creature_entered_this_turn',
+    label: 'Put a -1/-1 counter on target creature that entered (the battlefield) this turn',
+    regex: /\bput\s+a\s+-1\/-1\s+counter\s+on\s+target\s+creature\s+that\s+entered(?:\s+(?:the\s+)?battlefield)?\s+this\s+turn\b/i,
   },
 ];
 

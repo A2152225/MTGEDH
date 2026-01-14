@@ -69,11 +69,88 @@ describe('Oracle templates: draw/discard/counters/damage', () => {
     expect(spec?.amount).toBe(1);
   });
 
+  it('categorizeSpell: "Put a +1/+1 counter on up to one target creature." -> ADD_COUNTERS_TARGET (optional)', () => {
+    const spec = categorizeSpell('The Wandering Emperor (line)', 'Put a +1/+1 counter on up to one target creature.');
+    expect(spec?.op).toBe('ADD_COUNTERS_TARGET');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(1);
+    expect(spec?.counterType).toBe('+1/+1');
+    expect(spec?.amount).toBe(1);
+  });
+
   it('categorizeSpell: "Put a -1/-1 counter on target creature." -> ADD_COUNTERS_TARGET', () => {
     const spec = categorizeSpell('Instill Infection', 'Put a -1/-1 counter on target creature.');
     expect(spec?.op).toBe('ADD_COUNTERS_TARGET');
     expect(spec?.counterType).toBe('-1/-1');
     expect(spec?.amount).toBe(1);
+  });
+
+  it('categorizeSpell: "Put a -1/-1 counter on up to one target creature." -> ADD_COUNTERS_TARGET (optional)', () => {
+    const spec = categorizeSpell('Some -1/-1 thing', 'Put a -1/-1 counter on up to one target creature.');
+    expect(spec?.op).toBe('ADD_COUNTERS_TARGET');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(1);
+    expect(spec?.counterType).toBe('-1/-1');
+    expect(spec?.amount).toBe(1);
+  });
+
+  it('categorizeSpell: "Put a +1/+1 counter on target creature that entered this turn." -> ADD_COUNTERS_TARGET + restriction', () => {
+    const spec = categorizeSpell('Cathedral Acolyte', 'Put a +1/+1 counter on target creature that entered this turn.');
+    expect(spec?.op).toBe('ADD_COUNTERS_TARGET');
+    expect(spec?.counterType).toBe('+1/+1');
+    expect(spec?.amount).toBe(1);
+    expect(spec?.targetRestriction?.type).toBe('entered_this_turn');
+  });
+
+  it('evaluateTargeting: entered_this_turn restriction filters legal targets', () => {
+    const g = createInitialGameState('t_add_counters_entered_this_turn');
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+
+    g.state.battlefield = [
+      {
+        id: 'creature_entered',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        enteredThisTurn: true,
+        card: { id: 'c_entered', name: 'Bear', type_line: 'Creature — Bear', oracle_text: '' },
+      } as any,
+      {
+        id: 'creature_old',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        enteredThisTurn: false,
+        card: { id: 'c_old', name: 'Wolf', type_line: 'Creature — Wolf', oracle_text: '' },
+      } as any,
+    ];
+
+    const spec = categorizeSpell('Cathedral Acolyte', 'Put a +1/+1 counter on target creature that entered this turn.')!;
+    const targets = evaluateTargeting(g.state, p1, spec);
+    expect(targets).toEqual([{ kind: 'permanent', id: 'creature_entered' } as TargetRef]);
+  });
+
+  it('evaluateTargeting: up to one target creature still enumerates legal creatures', () => {
+    const g = createInitialGameState('t_add_counters_up_to_one');
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+
+    g.state.battlefield = [
+      {
+        id: 'creature_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: { id: 'c1', name: 'Bear', type_line: 'Creature — Bear', oracle_text: '' },
+      } as any,
+    ];
+
+    const spec = categorizeSpell('The Wandering Emperor (line)', 'Put a +1/+1 counter on up to one target creature.')!;
+    const targets = evaluateTargeting(g.state, p1, spec);
+    expect(targets).toEqual([{ kind: 'permanent', id: 'creature_1' } as TargetRef]);
   });
 
   it('categorizeSpell: "Put a +1/+1 counter on each of up to two target creatures." -> multi-target ADD_COUNTERS_TARGET', () => {
@@ -82,6 +159,15 @@ describe('Oracle templates: draw/discard/counters/damage', () => {
     expect(spec?.minTargets).toBe(0);
     expect(spec?.maxTargets).toBe(2);
     expect(spec?.counterType).toBe('+1/+1');
+    expect(spec?.amount).toBe(1);
+  });
+
+  it('categorizeSpell: "Put a -1/-1 counter on each of up to two target creatures." -> multi-target ADD_COUNTERS_TARGET', () => {
+    const spec = categorizeSpell('Sample -1/-1', 'Put a -1/-1 counter on each of up to two target creatures.');
+    expect(spec?.op).toBe('ADD_COUNTERS_TARGET');
+    expect(spec?.minTargets).toBe(0);
+    expect(spec?.maxTargets).toBe(2);
+    expect(spec?.counterType).toBe('-1/-1');
     expect(spec?.amount).toBe(1);
   });
 

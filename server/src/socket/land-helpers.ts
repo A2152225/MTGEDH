@@ -31,12 +31,18 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad' | 'strive';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad' | 'strive' | 'blight';
   amount: number;
   filter?: string;
   cost?: string;
   canPayMultipleTimes?: boolean;
   costPerTarget?: boolean;  // For strive - indicates cost is per target beyond first
+
+  // Blight additional-cost support
+  blightN?: number;
+  blightIsOptional?: boolean;
+  blightOrPayCost?: string;
+  blightIsX?: boolean;
 }
 
 /**
@@ -50,6 +56,32 @@ export interface AdditionalCostResult {
  */
 export function detectAdditionalCost(oracleText: string): AdditionalCostResult | null {
   const lowerText = (oracleText || "").toLowerCase();
+
+  // Blight as an additional cost (new keyword-action cost)
+  // Patterns observed in dataset:
+  // - "As an additional cost to cast this spell, blight 1 or pay {3}."
+  // - "As an additional cost to cast this spell, you may blight 1."
+  // - "As an additional cost to cast this spell, blight X. ..."
+  const blightMatch = (oracleText || '').match(/\bas an additional cost to cast this spell,\s*(you may\s+)?blight\s*(\d+|x)\b([^.]*)\./i);
+  if (blightMatch) {
+    const optional = Boolean(blightMatch[1]);
+    const rawN = String(blightMatch[2] || '').trim();
+    const isX = /^x$/i.test(rawN);
+    const n = !isX ? Number.parseInt(rawN, 10) : NaN;
+
+    // Optional "or pay {N}" clause
+    const tail = String(blightMatch[3] || '');
+    const orPay = tail.match(/\bor\s+pay\s+(\{[^}]+\})/i);
+
+    return {
+      type: 'blight',
+      amount: 0,
+      blightIsOptional: optional,
+      blightIsX: isX,
+      blightN: Number.isFinite(n) ? n : undefined,
+      blightOrPayCost: orPay ? orPay[1].trim() : undefined,
+    };
+  }
   
   // Strive: "Strive — This spell costs {X}{Y} more to cast for each target beyond the first"
   // Pattern: "Strive — This spell costs {cost} more to cast for each target beyond the first"
