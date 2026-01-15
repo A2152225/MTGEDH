@@ -12,12 +12,11 @@ import { registerJudgeHandlers } from "./judge.js";
 import { registerAIHandlers } from "./ai.js";
 import { registerCreatureTypeHandlers } from "./creature-type.js";
 import { registerColorChoiceHandlers } from "./color-choice.js";
-import { registerPlayerSelectionHandlers } from "./player-selection.js";
+// Player selection is handled via the Resolution Queue (ResolutionStepType.PLAYER_CHOICE)
 import { registerCombatHandlers } from "./combat.js";
 import { registerTriggerHandlers } from "./triggers.js";
 import { registerOpeningHandHandlers } from "./opening-hand.js";
 import { registerUndoHandlers } from "./undo.js";
-import { registerJoinForcesHandlers } from "./join-forces.js";
 import { registerAutomationHandlers } from "./automation.js";
 import { registerGameManagementHandlers } from "./game-management.js";
 import { registerRandomnessHandlers } from "./randomness.js";
@@ -57,12 +56,10 @@ export function registerSocketHandlers(
     registerAIHandlers(io, socket);
     registerCreatureTypeHandlers(io, socket);
     registerColorChoiceHandlers(io, socket);
-    registerPlayerSelectionHandlers(io, socket);
     registerCombatHandlers(io, socket);
     registerTriggerHandlers(io, socket);
     registerOpeningHandHandlers(io, socket);
     registerUndoHandlers(io, socket);
-    registerJoinForcesHandlers(io, socket);
     registerAutomationHandlers(io, socket);
     registerGameManagementHandlers(io, socket);
     registerRandomnessHandlers(io, socket);

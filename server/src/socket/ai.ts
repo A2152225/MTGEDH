@@ -13,7 +13,7 @@
 import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
-import { ensureGame, broadcastGame } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
@@ -21,7 +21,6 @@ import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
 import { hasPendingColorChoices } from "./color-choice.js";
-import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
 import { hasPendingCreatureTypeSelections } from "./creature-type.js";
 import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
@@ -4754,10 +4753,6 @@ async function executePassPriority(
         debug(2, `[AI] Stack resolved for game ${gameId}`);
       }
       
-      // Check for pending control change activations (Vislor Turlough, Xantcha, etc.)
-      // For AI players, we auto-select an opponent to give control to
-      await handlePendingControlChangesAfterResolution(io, game, gameId);
-      
       // Persist the resolution event
       try {
         await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
@@ -6130,131 +6125,9 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
   if (hasPendingCreatureTypeSelections(gameId)) {
     return { hasPending: true, reason: 'players have pending creature type selection modals' };
   }
-  if (hasPendingJoinForcesOrOffers(gameId)) {
-    return { hasPending: true, reason: 'players have pending Join Forces or Tempting Offer modals' };
-  }
   return { hasPending: false };
 }
 
-/**
- * Handle pending library search effects after stack resolution.
- * For AI players, auto-selects the best card; for human players, emits the request.
- */
-/**
- * Handle pending control change activations after stack resolution for AI players.
- * This handles cards like Vislor Turlough, Xantcha, Akroan Horse that have ETB control change effects.
- * AI players need to auto-select an opponent to give control to.
- */
-async function handlePendingControlChangesAfterResolution(
-  io: Server,
-  game: any,
-  gameId: string
-): Promise<void> {
-  try {
-    const pendingActivations = (game.state as any)?.pendingControlChangeActivations;
-    if (!pendingActivations || typeof pendingActivations !== 'object') return;
-    
-    const activationIds = Object.keys(pendingActivations);
-    if (activationIds.length === 0) return;
-    
-    for (const activationId of activationIds) {
-      const pending = pendingActivations[activationId];
-      if (!pending) continue;
-      
-      const playerId = pending.playerId;
-      
-      // Only handle AI players
-      if (!isAIPlayer(gameId, playerId)) continue;
-      
-      debug(2, `[AI] Handling pending control change for ${pending.cardName} (activation: ${activationId})`);
-      
-      // Find the permanent on battlefield
-      const permanent = game.state.battlefield?.find((p: any) => p?.id === pending.permanentId);
-      if (!permanent) {
-        // Permanent no longer exists - clean up
-        delete pendingActivations[activationId];
-        continue;
-      }
-      
-      // Get available opponents
-      const players = game.state?.players || [];
-      const opponents = players.filter((p: any) => 
-        p && p.id !== playerId && !(p as any).hasLost && !(p as any).eliminated
-      );
-      
-      if (opponents.length === 0) {
-        // No valid opponents - clean up
-        delete pendingActivations[activationId];
-        continue;
-      }
-      
-      // For optional control changes (Vislor Turlough), AI decides whether to give control
-      if (pending.isOptional) {
-        // AI typically wants to keep creatures, but Vislor's goad effect is beneficial
-        const shouldGiveControl = pending.goadsOnChange || Math.random() < AI_OPTIONAL_GIVE_CONTROL_PROBABILITY;
-        
-        if (!shouldGiveControl) {
-          // AI declines to give control
-          delete pendingActivations[activationId];
-          debug(2, `[AI] Declined to give control of ${pending.cardName}`);
-          continue;
-        }
-      }
-      
-      // AI selects a random opponent
-      const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
-      
-      // Apply control change
-      const oldController = permanent.controller;
-      permanent.controller = randomOpponent.id;
-      
-      // Apply goad if needed
-      if (pending.goadsOnChange) {
-        permanent.goadedBy = permanent.goadedBy || [];
-        if (!permanent.goadedBy.includes(playerId)) {
-          permanent.goadedBy.push(playerId);
-        }
-      }
-      
-      // Apply attack restrictions
-      if (pending.mustAttackEachCombat) {
-        permanent.mustAttackEachCombat = true;
-      }
-      if (pending.cantAttackOwner) {
-        permanent.cantAttackOwner = true;
-        permanent.ownerId = playerId;
-      }
-      
-      // Clean up pending activation
-      delete pendingActivations[activationId];
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.${pending.goadsOnChange ? ` ${pending.cardName} is goaded.` : ''}`,
-        ts: Date.now(),
-      });
-      
-      debug(2, `[AI] Auto-gave control of ${pending.cardName} to ${randomOpponent.name || randomOpponent.id}`);
-      
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
-    }
-    
-    broadcastGame(io, game, gameId);
-  } catch (err) {
-    debugWarn(1, '[handlePendingControlChangesAfterResolution] Error:', err);
-  }
-}
 
-/**
- * Get player display name
- */
-function getPlayerName(game: any, playerId: string): string {
-  const player = game.state?.players?.find((p: any) => p?.id === playerId);
-  return player?.name || playerId;
-}
 
 

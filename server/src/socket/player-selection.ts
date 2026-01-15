@@ -3,6 +3,8 @@ import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import type { PlayerID } from "../../../shared/src/types";
+import { ResolutionQueueManager } from "../state/resolution/index.js";
+import { ResolutionStepType } from "../state/resolution/types.js";
 
 /**
  * Generic player selection system
@@ -54,25 +56,8 @@ export interface PlayerSelectionEffectData {
 /**
  * Pending player selection request
  */
-interface PendingPlayerSelection {
-  gameId: string;
-  playerId: PlayerID;
-  cardName: string;
-  description: string;
-  allowOpponentsOnly: boolean;
-  isOptional: boolean; // If true, player can decline (minTargets = 0)
-  effectData: PlayerSelectionEffectData;
-  timeout: NodeJS.Timeout | null;
-}
-
-const pendingSelections: Map<string, PendingPlayerSelection> = new Map();
-
-/**
- * Create a unique selection ID
- */
-function createSelectionId(): string {
-  return `psel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
+// NOTE: Legacy socket-based pending selection maps were removed.
+// Player selection now flows through the Resolution Queue as ResolutionStepType.PLAYER_CHOICE.
 
 /**
  * Request player selection from a player
@@ -97,117 +82,66 @@ export function requestPlayerSelection(
   allowOpponentsOnly: boolean = false,
   isOptional: boolean = false
 ): string {
-  // Check for duplicate requests for same permanent/spell
-  for (const [existingId, pending] of pendingSelections.entries()) {
-    const sameTarget = 
-      (effectData.permanentId && pending.effectData.permanentId === effectData.permanentId) ||
-      (effectData.spellId && pending.effectData.spellId === effectData.spellId);
-    
-    if (sameTarget && pending.gameId === gameId) {
-      debug(2, `[playerSelection] Selection already pending for ${cardName} (${existingId})`);
-      return existingId;
-    }
-  }
-  
-  const selectionId = createSelectionId();
-  
-  // Store pending selection
-  const pending: PendingPlayerSelection = {
-    gameId,
-    playerId,
-    cardName,
-    description,
-    allowOpponentsOnly,
-    isOptional,
-    effectData,
-    timeout: null,
-  };
-  
-  // Set timeout (60 seconds)
-  const TIMEOUT_MS = 60000;
-  pending.timeout = setTimeout(() => {
-    const p = pendingSelections.get(selectionId);
-    if (p) {
-      pendingSelections.delete(selectionId);
-      debugWarn(2, `[playerSelection] Selection timed out for ${cardName} (${selectionId})`);
-      
-      // Auto-select randomly (or decline if optional)
-      if (isOptional) {
-        handleDeclinedSelection(io, gameId, playerId, cardName, effectData);
-      } else {
-        autoSelectRandomPlayer(io, gameId, selectionId, playerId, cardName, effectData, allowOpponentsOnly);
-      }
-    }
-  }, TIMEOUT_MS);
-  
-  pendingSelections.set(selectionId, pending);
-  
-  // Get available players
   const game = ensureGame(gameId);
   if (!game) {
     debugError(1, `[playerSelection] Game not found: ${gameId}`);
-    return selectionId;
+    return '';
   }
   
   const players = game.state?.players || [];
   const validPlayers = allowOpponentsOnly
     ? players.filter((p: any) => p && p.id !== playerId && !p.hasLost)
     : players.filter((p: any) => p && !p.hasLost);
-  
-  // Emit request to player's sockets
-  for (const s of io.sockets.sockets.values()) {
-    if (s.data?.playerId === playerId && !s.data?.spectator) {
-      s.emit("playerSelectionRequest", {
-        selectionId,
-        gameId,
-        cardName,
-        description,
-        allowOpponentsOnly,
-        isOptional,
-        players: validPlayers.map((p: any) => ({
-          id: p.id,
-          name: p.name || p.id,
-          life: game.state?.life?.[p.id] ?? 40,
-          libraryCount: (game.state?.zones?.[p.id] as any)?.libraryCount ?? 0,
-        })),
-      });
-    }
+
+  // De-dupe per permanent/spell
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const existing = queue.steps.find((s: any) => {
+    if (s.type !== ResolutionStepType.PLAYER_CHOICE) return false;
+    if (s.playerId !== playerId) return false;
+
+    const samePermanent = effectData.permanentId && s.permanentId === effectData.permanentId;
+    const sameSpell = effectData.spellId && s.spellId === effectData.spellId;
+    return Boolean(samePermanent || sameSpell);
+  });
+
+  if (existing) {
+    debug(2, `[playerSelection] Step already pending for ${cardName} (${existing.id})`);
+    return existing.id;
   }
-  
-  debug(2, `[playerSelection] Requested selection for ${cardName} (${selectionId}) from ${playerId}`);
-  return selectionId;
+
+  const step = ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.PLAYER_CHOICE,
+    playerId,
+    description,
+    mandatory: !isOptional,
+    sourceId: effectData.permanentId || effectData.spellId,
+    sourceName: cardName,
+    permanentId: effectData.permanentId,
+    spellId: effectData.spellId,
+    opponentOnly: allowOpponentsOnly,
+    isOptional,
+    effectData,
+    players: validPlayers.map((p: any) => ({
+      id: p.id,
+      name: p.name || p.id,
+      life: game.state?.life?.[p.id] ?? 40,
+      libraryCount: (game.state?.zones?.[p.id] as any)?.libraryCount ?? 0,
+      isOpponent: p.id !== playerId,
+      isSelf: p.id === playerId,
+    })),
+  });
+
+  debug(2, `[playerSelection] Queued player choice for ${cardName} (${step.id}) from ${playerId}`);
+  return step.id;
 }
 
 /**
  * Auto-select a random player when timeout occurs
  */
-function autoSelectRandomPlayer(
-  io: Server,
-  gameId: string,
-  selectionId: string,
-  choosingPlayerId: PlayerID,
-  cardName: string,
-  effectData: PlayerSelectionEffectData,
-  allowOpponentsOnly: boolean
-): void {
-  const game = ensureGame(gameId);
-  if (!game) return;
-  
-  const players = game.state?.players || [];
-  const validPlayers = allowOpponentsOnly
-    ? players.filter((p: any) => p && p.id !== choosingPlayerId && !p.hasLost)
-    : players.filter((p: any) => p && !p.hasLost);
-  
-  if (validPlayers.length > 0) {
-    const randomPlayer = validPlayers[Math.floor(Math.random() * validPlayers.length)];
-    executePlayerSelectionEffect(io, gameId, choosingPlayerId, randomPlayer.id, cardName, effectData, true);
-  }
-}
-
 /**
  * Handle declined optional selection
  */
-function handleDeclinedSelection(
+export function handleDeclinedPlayerSelection(
   io: Server,
   gameId: string,
   playerId: PlayerID,
@@ -240,13 +174,13 @@ function handleDeclinedSelection(
     game.bumpSeq();
   }
   
-  broadcastGame(io, game, gameId);
+  // Broadcast is handled by the caller (Resolution Queue flow)
 }
 
 /**
  * Execute the effect after player selection
  */
-function executePlayerSelectionEffect(
+export function applyPlayerSelectionEffect(
   io: Server,
   gameId: string,
   choosingPlayerId: PlayerID,
@@ -267,6 +201,7 @@ function executePlayerSelectionEffect(
         const permanent = battlefield.find((p: any) => p && p.id === effectData.permanentId);
         if (permanent) {
           (permanent as any).chosenPlayer = selectedPlayerId;
+          delete (permanent as any).pendingPlayerSelection;
           debug(2, `[playerSelection] Set chosenPlayer for ${cardName} to ${selectedPlayerId}`);
         }
       }
@@ -279,6 +214,7 @@ function executePlayerSelectionEffect(
         const permanent = battlefield.find((p: any) => p && p.id === effectData.permanentId);
         if (permanent) {
           permanent.controller = selectedPlayerId;
+          delete (permanent as any).pendingPlayerSelection;
           
           // Apply goad if specified
           if (effectData.goadsOnChange) {
@@ -295,15 +231,39 @@ function executePlayerSelectionEffect(
             }
           }
           
-          // Draw cards if specified (Humble Defector)
+          // Draw cards if specified (Humble Defector draws for the activating player)
           if (effectData.drawCards && effectData.drawCards > 0) {
-            const zones = game.state?.zones?.[selectedPlayerId];
-            if ((zones as any)?.library && zones?.hand) {
-              for (let i = 0; i < effectData.drawCards; i++) {
-                const card = (zones as any).library.shift();
-                if (card) (zones as any).hand.push(card);
+            if (typeof (game as any).drawCards === 'function') {
+              (game as any).drawCards(choosingPlayerId, effectData.drawCards);
+            } else {
+              const lib = (game as any).libraries?.get(choosingPlayerId) || [];
+              const zones = (game.state as any).zones || {};
+              const z = zones[choosingPlayerId] = zones[choosingPlayerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+              z.hand = z.hand || [];
+              for (let i = 0; i < effectData.drawCards && lib.length > 0; i++) {
+                const drawn = lib.shift();
+                if (drawn) (z.hand as any[]).push({ ...drawn, zone: 'hand' });
               }
+              z.handCount = z.hand.length;
+              z.libraryCount = lib.length;
             }
+
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, choosingPlayerId)} draws ${effectData.drawCards} card${effectData.drawCards !== 1 ? 's' : ''}.`,
+              ts: Date.now(),
+            });
+          }
+
+          // Apply attack restrictions (Xantcha style)
+          if (effectData.mustAttackEachCombat) {
+            (permanent as any).mustAttackEachCombat = true;
+          }
+          if (effectData.cantAttackOwner) {
+            (permanent as any).cantAttackOwner = true;
+            (permanent as any).ownerId = choosingPlayerId;
           }
           
           debug(2, `[playerSelection] Transferred control of ${cardName} to ${selectedPlayerId}`);
@@ -360,118 +320,13 @@ function executePlayerSelectionEffect(
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
   }
-  
-  broadcastGame(io, game, gameId);
+  // Broadcast is handled by the caller (Resolution Queue flow)
 }
 
 /**
  * Register socket handlers for player selection
  */
-export function registerPlayerSelectionHandlers(io: Server, socket: Socket) {
-  /**
-   * Player confirms their selection
-   */
-  socket.on("confirmPlayerSelection", ({ 
-    gameId, 
-    selectionId,
-    selectedPlayerId,
-  }: { 
-    gameId: string; 
-    selectionId: string;
-    selectedPlayerId?: string; // Optional if declining
-  }) => {
-    try {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      
-      const pending = pendingSelections.get(selectionId);
-      if (!pending) {
-        socket.emit("error", { 
-          code: "INVALID_SELECTION", 
-          message: "Invalid or expired player selection" 
-        });
-        return;
-      }
-      
-      if (pending.playerId !== pid || pending.gameId !== gameId) {
-        socket.emit("error", { 
-          code: "NOT_YOUR_SELECTION", 
-          message: "This is not your selection" 
-        });
-        return;
-      }
-      
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-      
-      // Handle decline (for optional selections)
-      if (!selectedPlayerId && pending.isOptional) {
-        if (pending.timeout) clearTimeout(pending.timeout);
-        pendingSelections.delete(selectionId);
-        handleDeclinedSelection(io, gameId, pid, pending.cardName, pending.effectData);
-        return;
-      }
-      
-      // Validate selected player
-      if (!selectedPlayerId) {
-        socket.emit("error", { 
-          code: "NO_PLAYER_SELECTED", 
-          message: "Must select a player" 
-        });
-        return;
-      }
-      
-      const players = game.state?.players || [];
-      const validPlayers = pending.allowOpponentsOnly
-        ? players.filter((p: any) => p && p.id !== pid && !p.hasLost)
-        : players.filter((p: any) => p && !p.hasLost);
-      
-      if (!validPlayers.find((p: any) => p.id === selectedPlayerId)) {
-        socket.emit("error", { 
-          code: "INVALID_PLAYER", 
-          message: "Invalid player selection" 
-        });
-        return;
-      }
-      
-      // Clear timeout and execute effect
-      if (pending.timeout) clearTimeout(pending.timeout);
-      pendingSelections.delete(selectionId);
-      
-      executePlayerSelectionEffect(
-        io, 
-        gameId, 
-        pid, 
-        selectedPlayerId, 
-        pending.cardName, 
-        pending.effectData, 
-        false
-      );
-      
-    } catch (err) {
-      debugError(1, `[playerSelection] confirmPlayerSelection failed:`, err);
-      socket.emit("error", { 
-        code: "SELECTION_FAILED", 
-        message: "Failed to confirm selection" 
-      });
-    }
-  });
-}
-
-/**
- * Check if there are pending selections for a player
- */
-export function hasPendingPlayerSelections(gameId: string, playerId: PlayerID): boolean {
-  for (const pending of pendingSelections.values()) {
-    if (pending.gameId === gameId && pending.playerId === playerId) {
-      return true;
-    }
-  }
-  return false;
-}
+// Legacy register/hasPending functions removed; Resolution Queue owns pending tracking.
 
 /**
  * Detect if a card requires player selection on ETB

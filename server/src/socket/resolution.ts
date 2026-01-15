@@ -27,10 +27,13 @@ import type { GameContext } from "../state/context.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
+import { getTokenImageUrls } from "../services/tokens.js";
+import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
+import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 
 /**
  * Handle AI player resolution steps automatically
@@ -1272,6 +1275,15 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       
       const game = ensureGame(gameId);
       if (game) {
+        // Optional PLAYER_CHOICE: cancelling means "declined".
+        if (cancelledStep.type === ResolutionStepType.PLAYER_CHOICE) {
+          const effectData = (cancelledStep as any)?.effectData;
+          if (effectData) {
+            const cardName = (cancelledStep as any)?.sourceName || 'Choose Player';
+            handleDeclinedPlayerSelection(io, gameId, pid as PlayerID, cardName, effectData);
+          }
+        }
+
         // If this cancelled step was part of an in-progress spell cast, clean up pending state
         if (cancelledStep.type === ResolutionStepType.TARGET_SELECTION) {
           const effectId =
@@ -1611,6 +1623,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('contextValue' in step) fields.contextValue = step.contextValue;
       if ('entersTapped' in step) fields.entersTapped = step.entersTapped;
       if ('filter' in step) fields.filter = (step as any).filter;
+      if ('targetPlayerId' in step) fields.targetPlayerId = (step as any).targetPlayerId;
       if ('splitDestination' in step) fields.splitDestination = (step as any).splitDestination;
       if ('toBattlefield' in step) fields.toBattlefield = (step as any).toBattlefield;
       if ('toHand' in step) fields.toHand = (step as any).toHand;
@@ -5595,16 +5608,6 @@ function applyJoinForcesEffect(
       ts: Date.now(),
     });
   }
-  
-  // Emit Join Forces complete event
-  io.to(gameId).emit("joinForcesComplete", {
-    id: `jf_${Date.now()}`,
-    gameId,
-    cardName,
-    contributions: byPlayer,
-    totalContributions,
-    initiator,
-  });
 }
 
 /**
@@ -5769,6 +5772,152 @@ function applyTemptingOfferEffect(
       ts: Date.now(),
     });
   }
+  // Tempt with Vengeance: Create hasty Elemental tokens (X is approximated)
+  else if (cardNameLower.includes('vengeance')) {
+    // NOTE: True X should come from the spell's X value; this matches the prior legacy behavior.
+    const xValue = 3;
+
+    const elementalImageUrls = getTokenImageUrls('Elemental', 1, 1, ['R']);
+    const ctx = { state: game.state } as any;
+
+    const createdTokens: Array<{ token: any; controller: string }> = [];
+
+    const initiatorTokenCount = xValue * initiatorBonusCount;
+    for (let i = 0; i < initiatorTokenCount; i++) {
+      const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${i}`;
+      const token = {
+        id: tokenId,
+        controller: initiator,
+        owner: initiator,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        summoningSickness: false,
+        card: {
+          id: tokenId,
+          name: 'Elemental',
+          type_line: 'Token Creature — Elemental',
+          power: '1',
+          toughness: '1',
+          colors: ['R'],
+          oracle_text: 'Haste',
+          keywords: ['Haste'],
+          image_uris: elementalImageUrls,
+        },
+      };
+      battlefield.push(token);
+      createdTokens.push({ token, controller: initiator });
+    }
+
+    for (const opponentId of acceptedBy) {
+      for (let i = 0; i < xValue; i++) {
+        const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_opp_${i}`;
+        const token = {
+          id: tokenId,
+          controller: opponentId,
+          owner: opponentId,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          summoningSickness: false,
+          card: {
+            id: tokenId,
+            name: 'Elemental',
+            type_line: 'Token Creature — Elemental',
+            power: '1',
+            toughness: '1',
+            colors: ['R'],
+            oracle_text: 'Haste',
+            keywords: ['Haste'],
+            image_uris: elementalImageUrls,
+          },
+        };
+        battlefield.push(token);
+        createdTokens.push({ token, controller: opponentId });
+      }
+    }
+
+    for (const { token, controller } of createdTokens) {
+      triggerETBEffectsForToken(ctx, token, controller);
+    }
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🔥 Tempt with Vengeance: ${getPlayerName(game, initiator)} creates ${initiatorTokenCount} hasty 1/1 Elemental tokens!${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) each get ${xValue} tokens.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Bunnies: Create Rabbit tokens
+  else if (cardNameLower.includes('bunnies')) {
+    const rabbitImageUrls = getTokenImageUrls('Rabbit', 1, 1, ['W']);
+    const ctx = { state: game.state } as any;
+
+    const createdTokens: Array<{ token: any; controller: string }> = [];
+
+    for (let i = 0; i < initiatorBonusCount; i++) {
+      const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_${i}`;
+      const token = {
+        id: tokenId,
+        controller: initiator,
+        owner: initiator,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        summoningSickness: true,
+        card: {
+          id: tokenId,
+          name: 'Rabbit',
+          type_line: 'Token Creature — Rabbit',
+          power: '1',
+          toughness: '1',
+          colors: ['W'],
+          oracle_text: '',
+          image_uris: rabbitImageUrls,
+        },
+      };
+      battlefield.push(token);
+      createdTokens.push({ token, controller: initiator });
+    }
+
+    for (const opponentId of acceptedBy) {
+      const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_opp`;
+      const token = {
+        id: tokenId,
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        summoningSickness: true,
+        card: {
+          id: tokenId,
+          name: 'Rabbit',
+          type_line: 'Token Creature — Rabbit',
+          power: '1',
+          toughness: '1',
+          colors: ['W'],
+          oracle_text: '',
+          image_uris: rabbitImageUrls,
+        },
+      };
+      battlefield.push(token);
+      createdTokens.push({ token, controller: opponentId });
+    }
+
+    for (const { token, controller } of createdTokens) {
+      triggerETBEffectsForToken(ctx, token, controller);
+    }
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🐰 Tempt with Bunnies: ${getPlayerName(game, initiator)} creates ${initiatorBonusCount} 1/1 Rabbit token(s)!${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) each get 1 token.` : ''}`,
+      ts: Date.now(),
+    });
+  }
   // Add more Tempting Offer cards as needed (Reflections, Vengeance, Immortality, Bunnies, Mayhem)
   else {
     io.to(gameId).emit("chat", {
@@ -5779,16 +5928,6 @@ function applyTemptingOfferEffect(
       ts: Date.now(),
     });
   }
-  
-  // Emit Tempting Offer complete event
-  io.to(gameId).emit("temptingOfferComplete", {
-    id: `tempt_${Date.now()}`,
-    gameId,
-    cardName,
-    acceptedBy,
-    initiator,
-    initiatorBonusCount,
-  });
 }
 
 /**
@@ -8830,6 +8969,38 @@ async function handlePlayerChoiceResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
+  const stepData = step as any;
+
+  // Resolution Queue player choice used by legacy player-selection effects (Stuffy Doll, Xantcha, Vislor, etc.)
+  if (stepData?.effectData) {
+    if (response.cancelled) {
+      const cardName = stepData.sourceName || 'Choose Player';
+      handleDeclinedPlayerSelection(io, gameId, response.playerId as PlayerID, cardName, stepData.effectData);
+      return;
+    }
+
+    let selectedPlayerId: string;
+    if (typeof response.selections === 'string') {
+      selectedPlayerId = response.selections;
+    } else if (Array.isArray(response.selections) && response.selections.length > 0) {
+      selectedPlayerId = response.selections[0];
+    } else {
+      debugError(1, `[Resolution] Invalid player choice response: ${JSON.stringify(response.selections)}`);
+      return;
+    }
+
+    applyPlayerSelectionEffect(
+      io,
+      gameId,
+      response.playerId as PlayerID,
+      selectedPlayerId as PlayerID,
+      stepData.sourceName || 'Choose Player',
+      stepData.effectData,
+      false
+    );
+    return;
+  }
+
   // Handle different types of selections
   let selectedPlayerId: string;
   if (typeof response.selections === 'string') {
@@ -8840,8 +9011,6 @@ async function handlePlayerChoiceResponse(
     debugError(1, `[Resolution] Invalid player choice response: ${JSON.stringify(response.selections)}`);
     return;
   }
-  
-  const stepData = step as any;
   
   debug(2, `[Resolution] Player choice response: selected player ${selectedPlayerId}`);
   

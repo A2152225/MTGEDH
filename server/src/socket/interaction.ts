@@ -29,6 +29,7 @@ import { creatureHasHaste } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { parseTargetRequirements } from "../rules-engine/targeting.js";
+import { requestPlayerSelection } from "./player-selection.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -1503,22 +1504,38 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       finalDescription = `${finalDescription ? finalDescription + " " : ""}(Must pay ${searchCheck.paymentRequired.amount} to ${searchCheck.paymentRequired.cardName})`;
     }
     
-    socket.emit("librarySearchRequest", {
-      gameId,
-      cards: searchableCards,
-      title: title || "Search Library",
+    // Migrate legacy librarySearchRequest flow to Resolution Queue.
+    const moveToStr = String(moveTo || 'hand');
+    const entersTapped = moveToStr === 'battlefield_tapped' || moveToStr.endsWith('_tapped');
+    const destination: any = moveToStr.startsWith('battlefield') ? 'battlefield'
+      : moveToStr === 'graveyard' ? 'graveyard'
+      : moveToStr === 'exile' ? 'exile'
+      : moveToStr === 'top' ? 'top'
+      : moveToStr === 'bottom' ? 'bottom'
+      : 'hand';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId: pid as PlayerID,
+      sourceName: title || 'Search Library',
       description: finalDescription || undefined,
-      filter,
+      searchCriteria: title || 'Search your library',
+      minSelections: 0,
       maxSelections: maxSelections || 1,
-      moveTo: moveTo || "hand",
+      mandatory: false,
+      destination,
+      reveal: false,
       shuffleAfter: shuffleAfter !== false,
+      availableCards: searchableCards,
+      entersTapped,
+      filter,
       searchRestrictions: {
         limitedToTop: searchCheck.limitToTop,
         paymentRequired: searchCheck.paymentRequired,
         triggerEffects: searchCheck.triggerEffects,
         controlledBy: searchCheck.controlledBy,
       },
-    });
+    } as any);
   });
 
   // Handle graveyard ability activation
@@ -1778,34 +1795,30 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
         const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
         
-        // Handle split-destination effects (Kodama's Reach, Cultivate)
-        if (tutorInfo.splitDestination) {
-          socket.emit("librarySearchRequest", {
-            gameId,
-            cards: library,
-            title: `${cardName}`,
-            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-            filter,
-            maxSelections: tutorInfo.maxSelections || 2,
-            moveTo: "split",
-            splitDestination: true,
-            toBattlefield: tutorInfo.toBattlefield || 1,
-            toHand: tutorInfo.toHand || 1,
-            entersTapped: tutorInfo.entersTapped,
-            shuffleAfter: true,
-          });
-        } else {
-          socket.emit("librarySearchRequest", {
-            gameId,
-            cards: library,
-            title: `${cardName}`,
-            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-            filter,
-            maxSelections: tutorInfo.maxSelections || 1,
-            moveTo: tutorInfo.destination || "hand",
-            shuffleAfter: true,
-          });
-        }
+        // Queue library search via Resolution Queue
+        const isSplit = tutorInfo.splitDestination === true;
+        const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
+          : (tutorInfo.destination === 'exile') ? 'exile'
+          : 'hand';
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.LIBRARY_SEARCH,
+          playerId: pid as PlayerID,
+          sourceName: `${cardName}`,
+          description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+          searchCriteria: tutorInfo.searchCriteria || 'any card',
+          minSelections: 0,
+          maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
+          mandatory: false,
+          destination,
+          reveal: false,
+          shuffleAfter: true,
+          availableCards: library,
+          filter,
+          splitDestination: isSplit,
+          toBattlefield: tutorInfo.toBattlefield || 1,
+          toHand: tutorInfo.toHand || 1,
+          entersTapped: tutorInfo.entersTapped || false,
+        } as any);
         
         broadcastGame(io, game, gameId);
         return;
@@ -2060,34 +2073,30 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
         const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
         
-        // Handle split-destination effects (Kodama's Reach, Cultivate)
-        if (tutorInfo.splitDestination) {
-          socket.emit("librarySearchRequest", {
-            gameId,
-            cards: library,
-            title: `${cardName}`,
-            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-            filter,
-            maxSelections: tutorInfo.maxSelections || 2,
-            moveTo: "split",
-            splitDestination: true,
-            toBattlefield: tutorInfo.toBattlefield || 1,
-            toHand: tutorInfo.toHand || 1,
-            entersTapped: tutorInfo.entersTapped,
-            shuffleAfter: true,
-          });
-        } else {
-          socket.emit("librarySearchRequest", {
-            gameId,
-            cards: library,
-            title: `${cardName}`,
-            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-            filter,
-            maxSelections: tutorInfo.maxSelections || 1,
-            moveTo: tutorInfo.destination || "hand",
-            shuffleAfter: true,
-          });
-        }
+        // Queue library search via Resolution Queue
+        const isSplit = tutorInfo.splitDestination === true;
+        const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
+          : (tutorInfo.destination === 'exile') ? 'exile'
+          : 'hand';
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.LIBRARY_SEARCH,
+          playerId: pid as PlayerID,
+          sourceName: `${cardName}`,
+          description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+          searchCriteria: tutorInfo.searchCriteria || 'any card',
+          minSelections: 0,
+          maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
+          mandatory: false,
+          destination,
+          reveal: false,
+          shuffleAfter: true,
+          availableCards: library,
+          filter,
+          splitDestination: isSplit,
+          toBattlefield: tutorInfo.toBattlefield || 1,
+          toHand: tutorInfo.toHand || 1,
+          entersTapped: tutorInfo.entersTapped || false,
+        } as any);
         
         broadcastGame(io, game, gameId);
         return;
@@ -2970,17 +2979,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Get full library for search
       const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
       
-      // Send library search request to the player
-      socket.emit("librarySearchRequest", {
-        gameId,
-        cards: library,
-        title: `${cardName}`,
+      // Queue library search via Resolution Queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: pid as PlayerID,
+        sourceName: `${cardName}`,
         description: searchDescription,
-        filter,
+        searchCriteria: searchDescription,
+        minSelections: 0,
         maxSelections: 1,
-        moveTo: "battlefield",
+        mandatory: false,
+        destination: 'battlefield',
+        reveal: false,
         shuffleAfter: true,
-      });
+        availableCards: library,
+        filter,
+        entersTapped: false,
+      } as any);
     }
     
     broadcastGame(io, game, gameId);
@@ -4014,149 +4029,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (requiresTap) {
         (permanent as any).tapped = true;
       }
-      
-      // Generate activation ID
-      const activationId = `control_change_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Store pending control change activation
-      if (!game.state.pendingControlChangeActivations) {
-        game.state.pendingControlChangeActivations = {};
-      }
-      game.state.pendingControlChangeActivations[activationId] = {
-        playerId: pid,
-        permanentId: permanentId,
-        cardName: cardName,
-        drawCards: drawCount, // Cards to draw from registry/oracle text
-      };
-      
-      // Get available opponents
-      const players = game.state?.players || [];
-      const opponents = players.filter((p: any) => p && p.id !== pid && !(p as any).hasLost && !(p as any).eliminated).map((p: any) => ({
-        id: p.id,
-        name: p.name || p.id,
-        life: game.state.life?.[p.id] ?? 40,
-        libraryCount: game.state.zones?.[p.id]?.libraryCount ?? 0,
-        isOpponent: true,
-      }));
-      
-      // Emit opponent selection request to client
-      socket.emit("controlChangeOpponentRequest", {
+
+      // Queue opponent selection via Resolution Queue (ResolutionStepType.PLAYER_CHOICE)
+      // The queued step carries effectData so the response can apply the control change.
+      requestPlayerSelection(
+        io,
         gameId,
-        activationId,
-        source: {
-          id: permanentId,
-          name: cardName,
-          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        pid as any,
+        cardName,
+        oracleText,
+        {
+          type: 'control_change',
+          permanentId,
+          drawCards: drawCount,
         },
-        opponents,
-        title: `${cardName} - Choose Opponent`,
-        description: oracleText,
-      });
-      
-      // Auto-select opponent for AI players
-      if (isAIPlayer(gameId, pid)) {
-        // AI should select randomly from available opponents
-        // In a real implementation, AI could be smarter about target selection
-        // For now, just pick a random valid opponent
-        const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
-        
-        if (randomOpponent) {
-          // Delay slightly for more natural behavior
-          setTimeout(() => {
-            // Retrieve pending activation
-            const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
-            if (!pending || pending.playerId !== pid) {
-              debugWarn(2, '[AI] Control change activation expired or invalid');
-              return;
-            }
-            
-            // Clean up pending activation
-            delete (game.state as any).pendingControlChangeActivations[activationId];
-            
-            // Find the permanent
-            const battlefield = game.state?.battlefield || [];
-            const permanent = battlefield.find((p: any) => p && p.id === pending.permanentId);
-            
-            if (!permanent) {
-              debugWarn(2, '[AI] Permanent not found for control change');
-              return;
-            }
-            
-            // Draw cards if applicable
-            if (pending.drawCards && pending.drawCards > 0) {
-              // Try using the game's drawCards function first
-              if (typeof (game as any).drawCards === 'function') {
-                (game as any).drawCards(pid, pending.drawCards);
-                
-                io.to(gameId).emit("chat", {
-                  id: `m_${Date.now()}`,
-                  gameId,
-                  from: "system",
-                  message: `🤖 ${getPlayerName(game, pid)} draws ${pending.drawCards} card${pending.drawCards !== 1 ? 's' : ''}.`,
-                  ts: Date.now(),
-                });
-              } else {
-                // Fallback: manually draw from libraries Map
-                const lib = (game as any).libraries?.get(pid) || [];
-                const zones = (game.state as any).zones || {};
-                const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-                z.hand = z.hand || [];
-                
-                let drawnCount = 0;
-                for (let i = 0; i < pending.drawCards && lib.length > 0; i++) {
-                  const drawn = lib.shift();
-                  if (drawn) {
-                    (z.hand as any[]).push({ ...drawn, zone: 'hand' });
-                    drawnCount++;
-                  }
-                }
-                z.handCount = z.hand.length;
-                z.libraryCount = lib.length;
-                
-                io.to(gameId).emit("chat", {
-                  id: `m_${Date.now()}`,
-                  gameId,
-                  from: "system",
-                  message: `🤖 ${getPlayerName(game, pid)} draws ${drawnCount} card${drawnCount !== 1 ? 's' : ''}.`,
-                  ts: Date.now(),
-                });
-              }
-            }
-            
-            // Change control
-            const oldController = permanent.controller;
-            permanent.controller = randomOpponent.id;
-            
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.`,
-              ts: Date.now(),
-            });
-            
-            if (typeof game.bumpSeq === "function") {
-              game.bumpSeq();
-            }
-            
-            try {
-              appendEvent(gameId, (game as any).seq ?? 0, "aiControlChangeOpponent", {
-                playerId: pid,
-                activationId,
-                permanentId: pending.permanentId,
-                cardName: pending.cardName,
-                oldController,
-                newController: randomOpponent.id,
-                drewCards: pending.drawCards || 0,
-              });
-            } catch (e) {
-              debugWarn(1, '[AI] Failed to persist AI control change event:', e);
-            }
-            
-            broadcastGame(io, game, gameId);
-          }, 500); // 500ms delay for AI thinking
-        }
-      }
+        true,
+        false
+      );
       
       debug(2, `[activateBattlefieldAbility] Control change ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}${requiresTap ? 'tapped, ' : ''}prompting for opponent selection`);
       broadcastGame(io, game, gameId);
@@ -6347,35 +6236,30 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           })),
         });
         
-        // Emit library search request
-        if (tutorInfo.splitDestination) {
-          socket.emit("librarySearchRequest", {
-            gameId,
-            cards: library,
-            title: `${cardName}`,
-            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-            filter,
-            maxSelections: tutorInfo.maxSelections || 2,
-            moveTo: "split",
-            splitDestination: true,
-            toBattlefield: tutorInfo.toBattlefield || 1,
-            toHand: tutorInfo.toHand || 1,
-            entersTapped: tutorInfo.entersTapped,
-            shuffleAfter: true,
-          });
-        } else {
-          socket.emit("librarySearchRequest", {
-            gameId,
-            cards: library,
-            title: `${cardName}`,
-            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-            filter,
-            maxSelections: tutorInfo.maxSelections || 1,
-            moveTo: tutorInfo.destination || "hand",
-            entersTapped: tutorInfo.entersTapped,
-            shuffleAfter: true,
-          });
-        }
+        // Queue library search via Resolution Queue
+        const isSplit = tutorInfo.splitDestination === true;
+        const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
+          : (tutorInfo.destination === 'exile') ? 'exile'
+          : 'hand';
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.LIBRARY_SEARCH,
+          playerId: pid as PlayerID,
+          sourceName: `${cardName}`,
+          description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+          searchCriteria: tutorInfo.searchCriteria || 'any card',
+          minSelections: 0,
+          maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
+          mandatory: false,
+          destination,
+          reveal: false,
+          shuffleAfter: true,
+          availableCards: library,
+          filter,
+          splitDestination: isSplit,
+          toBattlefield: tutorInfo.toBattlefield || 1,
+          toHand: tutorInfo.toHand || 1,
+          entersTapped: tutorInfo.entersTapped || false,
+        } as any);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -9268,202 +9152,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       playerId: pid,
       activationId,
       targetOpponentId,
-    });
-
-    broadcastGame(io, game, gameId);
-  });
-
-  // ==========================================================================
-  // CONTROL CHANGE CONFIRMATION (Humble Defector, etc.)
-  // ==========================================================================
-  
-  /**
-   * Handle control change opponent confirmation for activated abilities
-   */
-  socket.on("confirmControlChangeOpponent", ({
-    gameId,
-    activationId,
-    targetOpponentId,
-  }: {
-    gameId: string;
-    activationId: string;
-    targetOpponentId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    // Retrieve pending activation
-    const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
-    if (!pending) {
-      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired control change activation" });
-      return;
-    }
-
-    // Verify it's the right player
-    if (pending.playerId !== pid) {
-      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your activation" });
-      return;
-    }
-
-    // Handle declined optional control change (empty targetOpponentId)
-    if (!targetOpponentId && pending.isOptional) {
-      // Player declined to give control - clean up and notify
-      delete (game.state as any).pendingControlChangeActivations[activationId];
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} chose not to give control of ${pending.cardName}.`,
-        ts: Date.now(),
-      });
-      
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      
-      appendEvent(gameId, (game as any).seq ?? 0, "declinedControlChange", {
-        playerId: pid,
-        activationId,
-        permanentId: pending.permanentId,
-        cardName: pending.cardName,
-      });
-      
-      broadcastGame(io, game, gameId);
-      return;
-    }
-
-    // Verify target opponent is valid
-    const players = game.state?.players || [];
-    const validOpponent = players.find((p: any) => p && p.id === targetOpponentId && p.id !== pid);
-    if (!validOpponent) {
-      socket.emit("error", { code: "INVALID_TARGET", message: "Invalid target opponent" });
-      return;
-    }
-
-    // Clean up pending activation
-    delete (game.state as any).pendingControlChangeActivations[activationId];
-
-    // Find the permanent
-    const battlefield = game.state?.battlefield || [];
-    const permanent = battlefield.find((p: any) => p && p.id === pending.permanentId);
-    
-    if (!permanent) {
-      socket.emit("error", { code: "PERMANENT_NOT_FOUND", message: "Permanent not found" });
-      return;
-    }
-
-    // Draw cards if applicable (Humble Defector draws 2 cards)
-    if (pending.drawCards && pending.drawCards > 0) {
-      // Try using the game's drawCards function first
-      if (typeof (game as any).drawCards === 'function') {
-        const drawn = (game as any).drawCards(pid, pending.drawCards);
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} draws ${pending.drawCards} card${pending.drawCards !== 1 ? 's' : ''}.`,
-          ts: Date.now(),
-        });
-      } else {
-        // Fallback: manually draw from libraries Map
-        const lib = (game as any).libraries?.get(pid) || [];
-        const zones = (game.state as any).zones || {};
-        const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-        z.hand = z.hand || [];
-        
-        let drawnCount = 0;
-        for (let i = 0; i < pending.drawCards && lib.length > 0; i++) {
-          const drawn = lib.shift();
-          if (drawn) {
-            (z.hand as any[]).push({ ...drawn, zone: 'hand' });
-            drawnCount++;
-          }
-        }
-        z.handCount = z.hand.length;
-        z.libraryCount = lib.length;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} draws ${drawnCount} card${drawnCount !== 1 ? 's' : ''}.`,
-          ts: Date.now(),
-        });
-      }
-    }
-
-    // Change control of the permanent
-    const oldController = permanent.controller;
-    permanent.controller = targetOpponentId;
-    
-    // Apply goad if the control change goads the creature (Vislor Turlough)
-    if (pending.goadsOnChange) {
-      permanent.goadedBy = permanent.goadedBy || [];
-      if (!permanent.goadedBy.includes(pid)) {
-        permanent.goadedBy.push(pid);
-      }
-      // Goad until the original owner's next turn (track this)
-      // Create a new object for the readonly record
-      const newGoadedUntil: Record<string, number> = {
-        ...(permanent.goadedUntil || {}),
-        [pid]: (game.state as any).turnNumber + 1, // Approximate - lasts until next owner's turn
-      };
-      permanent.goadedUntil = newGoadedUntil;
-      
-      debug(2, `[confirmControlChangeOpponent] ${pending.cardName} is goaded by ${pid}`);
-    }
-    
-    // Apply attack restrictions (Xantcha - must attack each combat, can't attack owner)
-    if (pending.mustAttackEachCombat) {
-      (permanent as any).mustAttackEachCombat = true;
-      debug(2, `[confirmControlChangeOpponent] ${pending.cardName} must attack each combat`);
-    }
-    
-    if (pending.cantAttackOwner) {
-      (permanent as any).cantAttackOwner = true;
-      (permanent as any).ownerId = pending.playerId; // Track original owner for attack restriction
-      debug(2, `[confirmControlChangeOpponent] ${pending.cardName} can't attack its owner (${pending.playerId})`);
-    }
-    
-    // Remove summoning sickness if the new controller already had control this turn
-    // (For now, creature keeps summoning sickness when changing control)
-    
-    let messageText = `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, targetOpponentId)}.`;
-    if (pending.goadsOnChange) {
-      messageText += ` ${pending.cardName} is goaded.`;
-    }
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: messageText,
-      ts: Date.now(),
-    });
-
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-
-    appendEvent(gameId, (game as any).seq ?? 0, "confirmControlChangeOpponent", {
-      playerId: pid,
-      activationId,
-      permanentId: pending.permanentId,
-      cardName: pending.cardName,
-      oldController,
-      newController: targetOpponentId,
-      drewCards: pending.drawCards || 0,
-      goaded: pending.goadsOnChange || false,
-      mustAttackEachCombat: pending.mustAttackEachCombat || false,
-      cantAttackOwner: pending.cantAttackOwner || false,
     });
 
     broadcastGame(io, game, gameId);

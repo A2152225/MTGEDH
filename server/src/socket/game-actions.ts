@@ -5,8 +5,8 @@ import { processPendingCascades, processPendingScry, processPendingProliferate, 
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
-import { requiresCreatureTypeSelection, requestCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
-import { requiresColorChoice, requestColorChoice } from "./color-choice";
+import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
+import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
@@ -308,6 +308,7 @@ function checkCreatureTypeSelectionForNewPermanents(
   gameId: string
 ): void {
   const battlefield = game.state?.battlefield || [];
+  const queue = ResolutionQueueManager.getQueue(gameId);
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
@@ -323,29 +324,34 @@ function checkCreatureTypeSelectionForNewPermanents(
       const cardName = permanent.card.name || "Unknown";
       const permanentId = permanent.id;
       const isAI = isAIPlayer(game, controller);
-      const step = ResolutionQueueManager.addStep(gameId, {
+
+      // Avoid queueing duplicate steps if this scan runs multiple times
+      const alreadyQueued = queue.steps.some(
+        (s: any) => s.type === ResolutionStepType.CREATURE_TYPE_CHOICE && s.permanentId === permanentId
+      );
+      if (alreadyQueued) continue;
+
+      // For AI players, resolve immediately without queueing a step.
+      // (The global Resolution Queue AI handler would also handle this, but this path
+      // chooses a smarter creature type via deck analysis.)
+      if (isAI) {
+        const chosenType = getDominantCreatureType(game, controller);
+        applyCreatureTypeSelection(io, game, gameId, controller, permanentId, cardName, chosenType, true);
+        continue;
+      }
+
+      ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.CREATURE_TYPE_CHOICE,
         playerId: controller as any,
         description: reason || `Choose a creature type for ${cardName}`,
         mandatory: true,
         sourceId: permanentId,
         sourceName: cardName,
+        sourceImage: permanent.card?.image_uris?.normal,
         permanentId,
         cardName,
         reason,
       });
-      
-      // Auto-resolve for AI players to avoid blocking the queue
-      if (isAI && step) {
-        const chosenType = getDominantCreatureType(game, controller);
-        ResolutionQueueManager.completeStep(gameId, step.id, {
-          stepId: step.id,
-          playerId: controller,
-          selections: [chosenType],
-          cancelled: false,
-          timestamp: Date.now(),
-        });
-      }
       
       debug(2, `[game-actions] Queued creature type selection for ${cardName} (${permanentId}) from ${controller}`);
     }
@@ -364,6 +370,7 @@ function checkColorChoiceForNewPermanents(
   gameId: string
 ): void {
   const battlefield = game.state?.battlefield || [];
+  const queue = ResolutionQueueManager.getQueue(gameId);
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
@@ -378,16 +385,26 @@ function checkColorChoiceForNewPermanents(
       const controller = permanent.controller;
       const cardName = permanent.card.name || "Unknown";
       const permanentId = permanent.id;
-      
-      // Request color choice from the controller
-      requestColorChoice(
-        io,
-        gameId,
-        controller,
+
+      // Avoid queueing duplicate steps if this scan runs multiple times
+      const alreadyQueued = queue.steps.some(
+        (s: any) => s.type === ResolutionStepType.COLOR_CHOICE && s.permanentId === permanentId
+      );
+      if (alreadyQueued) continue;
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.COLOR_CHOICE,
+        playerId: controller as any,
+        description: reason || `Choose a color for ${cardName}`,
+        mandatory: true,
+        sourceId: permanentId,
+        sourceName: cardName,
+        sourceImage: permanent.card?.image_uris?.normal,
+        permanentId,
         cardName,
         reason,
-        permanentId
-      );
+        colors: ['white', 'blue', 'black', 'red', 'green'],
+      });
       
       debug(2, `[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
     }
@@ -408,12 +425,13 @@ function checkPlayerSelectionForNewPermanents(
   gameId: string
 ): void {
   const battlefield = game.state?.battlefield || [];
+  const queue = ResolutionQueueManager.getQueue(gameId);
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
     
-    // Skip if already has chosen player or pending selection
-    if (permanent.chosenPlayer || permanent.pendingPlayerSelection) continue;
+    // Skip if already has chosen player
+    if (permanent.chosenPlayer) continue;
     
     // Detect if this card requires player selection
     const detection = detectETBPlayerSelection(permanent.card);
@@ -422,9 +440,12 @@ function checkPlayerSelectionForNewPermanents(
       const controller = permanent.controller;
       const cardName = permanent.card.name || "Unknown";
       const permanentId = permanent.id;
-      
-      // Mark as pending to avoid duplicate requests
-      (permanent as any).pendingPlayerSelection = true;
+
+      // Avoid queueing duplicate steps if this scan runs multiple times
+      const alreadyQueued = queue.steps.some(
+        (s: any) => s.type === ResolutionStepType.PLAYER_CHOICE && s.permanentId === permanentId
+      );
+      if (alreadyQueued) continue;
       
       // Set permanentId in effect data
       detection.effectData.permanentId = permanentId;
@@ -480,19 +501,24 @@ function checkEnchantmentETBTriggers(
         
         const topCards = zones.library.slice(0, 4);
         
-        // Emit library search request to show top 4, filter for creatures
-        emitToPlayer(io, controller, "librarySearchRequest", {
-          gameId,
-          cards: topCards,
-          title: "Growing Rites of Itlimoc",
-          description: "Look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.",
-          filter: { type: "creature" },
+        // Queue top-of-library look + optional take + bottom ordering via Resolution Queue
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.LIBRARY_SEARCH,
+          playerId: controller as PlayerID,
+          sourceName: 'Growing Rites of Itlimoc',
+          description: 'Look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.',
+          searchCriteria: 'Top 4 cards — choose a creature',
+          minSelections: 0,
           maxSelections: 1,
-          moveTo: "hand",
+          mandatory: false,
+          destination: 'hand',
+          reveal: true,
           shuffleAfter: false,
-          revealSelection: true,
-          putRestOnBottom: true,
-        });
+          availableCards: topCards,
+          filter: { type: 'creature' },
+          remainderDestination: 'bottom',
+          remainderPlayerChoosesOrder: true,
+        } as any);
         
         debug(2, `[game-actions] Growing Rites of Itlimoc ETB trigger for ${controller}`);
       }
@@ -509,17 +535,23 @@ function checkEnchantmentETBTriggers(
         const zones = game.state.zones?.[controller];
         if (!zones || !Array.isArray(zones.library)) continue;
         
-        // Emit library search request for Forest
-        emitToPlayer(io, controller, "librarySearchRequest", {
-          gameId,
-          cards: zones.library,
-          title: "Casal, Lurkwood Pathfinder",
-          description: "Search your library for a Forest card, put it onto the battlefield tapped, then shuffle.",
-          filter: { subtype: "Forest" },
+        // Queue library tutor via Resolution Queue
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.LIBRARY_SEARCH,
+          playerId: controller as PlayerID,
+          sourceName: 'Casal, Lurkwood Pathfinder',
+          description: 'Search your library for a Forest card, put it onto the battlefield tapped, then shuffle.',
+          searchCriteria: 'Forest card',
+          minSelections: 0,
           maxSelections: 1,
-          moveTo: "battlefield_tapped",
+          mandatory: false,
+          destination: 'battlefield',
+          reveal: false,
           shuffleAfter: true,
-        });
+          availableCards: zones.library,
+          filter: { subtype: 'Forest' },
+          entersTapped: true,
+        } as any);
         
         debug(2, `[game-actions] Casal, Lurkwood Pathfinder ETB trigger for ${controller}`);
       }
@@ -5083,35 +5115,30 @@ export function registerGameActions(io: Server, socket: Socket) {
                 // Find the socket for the controller and send library search request
                 for (const s of io.sockets.sockets.values()) {
                   if (s.data?.playerId === resolvedController && !s.data?.spectator) {
-                    // Check if this is a split-destination effect (Cultivate, Kodama's Reach)
-                    if (tutorInfo.splitDestination) {
-                      s.emit("librarySearchRequest", {
-                        gameId,
-                        cards: library,
-                        title: cardName,
-                        description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
-                        filter,
-                        maxSelections: tutorInfo.maxSelections || 2,
-                        moveTo: 'split',
-                        splitDestination: true,
-                        toBattlefield: tutorInfo.toBattlefield || 1,
-                        toHand: tutorInfo.toHand || 1,
-                        entersTapped: tutorInfo.entersTapped || false,
-                        shuffleAfter: true,
-                      });
-                    } else {
-                      // Regular tutor effect
-                      s.emit("librarySearchRequest", {
-                        gameId,
-                        cards: library,
-                        title: cardName,
-                        description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
-                        filter,
-                        maxSelections: tutorInfo.maxSelections || 1,
-                        moveTo: tutorInfo.destination || 'hand',
-                        shuffleAfter: true,
-                      });
-                    }
+                    // Queue library search via Resolution Queue
+                    const isSplit = tutorInfo.splitDestination === true;
+                    const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
+                      : (tutorInfo.destination === 'exile') ? 'exile'
+                      : 'hand';
+                    ResolutionQueueManager.addStep(gameId, {
+                      type: ResolutionStepType.LIBRARY_SEARCH,
+                      playerId: resolvedController as PlayerID,
+                      sourceName: cardName,
+                      description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+                      searchCriteria: tutorInfo.searchCriteria || 'any card',
+                      minSelections: 0,
+                      maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
+                      mandatory: false,
+                      destination,
+                      reveal: false,
+                      shuffleAfter: true,
+                      availableCards: library,
+                      filter,
+                      splitDestination: isSplit,
+                      toBattlefield: tutorInfo.toBattlefield || 1,
+                      toHand: tutorInfo.toHand || 1,
+                      entersTapped: tutorInfo.entersTapped || false,
+                    } as any);
                     break;
                   }
                 }

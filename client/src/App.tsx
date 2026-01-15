@@ -799,25 +799,19 @@ export function App() {
     description: string;
   } | null>(null);
   
-  // Control Change Opponent Selection Modal state - for Humble Defector, Xantcha, Vislor Turlough, etc.
-  const [controlChangeOpponentModalOpen, setControlChangeOpponentModalOpen] = useState(false);
-  const [controlChangeOpponentModalData, setControlChangeOpponentModalData] = useState<{
-    activationId: string;
-    source: {
-      id: string;
+  // Resolution Queue Player Choice modal state
+  const [resolutionPlayerChoiceModalOpen, setResolutionPlayerChoiceModalOpen] = useState(false);
+  const [resolutionPlayerChoiceModalData, setResolutionPlayerChoiceModalData] = useState<{
+    stepId: string;
+    title: string;
+    description?: string;
+    source?: {
       name: string;
       imageUrl?: string;
     };
-    opponents: Array<{
-      id: string;
-      name: string;
-      life: number;
-      libraryCount?: number;
-      isOpponent: boolean;
-    }>;
-    title: string;
-    description: string;
-    isOptional?: boolean; // For Vislor Turlough - "may" give control
+    players: PlayerTarget[];
+    opponentOnly?: boolean;
+    isOptional?: boolean;
   } | null>(null);
   
   // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
@@ -1868,31 +1862,6 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Creature type selection listener (for Cavern of Souls, Kindred Discovery, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      confirmId: string;
-      gameId: string;
-      permanentId: string;
-      cardName: string;
-      reason: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setCreatureTypeModalData({
-          confirmId: payload.confirmId,
-          permanentId: payload.permanentId,
-          cardName: payload.cardName,
-          reason: payload.reason,
-        });
-        setCreatureTypeModalOpen(true);
-      }
-    };
-    socket.on("creatureTypeSelectionRequest", handler);
-    return () => {
-      socket.off("creatureTypeSelectionRequest", handler);
-    };
-  }, [safeView?.id]);
-
   // Life payment request listener (for Toxic Deluge, Hatred, etc.)
   React.useEffect(() => {
     const handler = (payload: {
@@ -2082,49 +2051,6 @@ export function App() {
   }, [safeView?.id]);
 
   // Color choice request listener - for Caged Sun, Gauntlet of Power, etc.
-  React.useEffect(() => {
-    const handler = (payload: {
-      confirmId: string;
-      gameId: string;
-      permanentId?: string;
-      spellId?: string;
-      cardName: string;
-      reason: string;
-      colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        // Find card image if available
-        let imageUrl: string | undefined;
-        if (payload.permanentId) {
-          const permanent = (safeView.battlefield || []).find((p: BattlefieldPermanent) => p.id === payload.permanentId);
-          if (permanent && (permanent.card as KnownCardRef)?.image_uris?.normal) {
-            imageUrl = (permanent.card as KnownCardRef).image_uris?.normal;
-          }
-        } else if (payload.spellId) {
-          const spell = ((safeView as any).stack || []).find((s: any) => s.id === payload.spellId);
-          if (spell && (spell.card as KnownCardRef)?.image_uris?.normal) {
-            imageUrl = (spell.card as KnownCardRef).image_uris?.normal;
-          }
-        }
-        
-        setColorChoiceModalData({
-          confirmId: payload.confirmId,
-          permanentId: payload.permanentId,
-          spellId: payload.spellId,
-          cardName: payload.cardName,
-          reason: payload.reason,
-          imageUrl,
-          colors: payload.colors,
-        });
-        setColorChoiceModalOpen(true);
-      }
-    };
-    socket.on("colorChoiceRequest", handler);
-    return () => {
-      socket.off("colorChoiceRequest", handler);
-    };
-  }, [safeView?.id, safeView?.battlefield]);
-
   // Any color mana choice listener (for Birds of Paradise, Chromatic Lantern, etc.)
   React.useEffect(() => {
     const handler = (payload: {
@@ -2507,45 +2433,6 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Control change opponent selection listener (for Humble Defector, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      activationId: string;
-      source: {
-        id: string;
-        name: string;
-        imageUrl?: string;
-      };
-      opponents: Array<{
-        id: string;
-        name: string;
-        life: number;
-        libraryCount?: number;
-        isOpponent: boolean;
-      }>;
-      title: string;
-      description: string;
-      isOptional?: boolean;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setControlChangeOpponentModalData({
-          activationId: payload.activationId,
-          source: payload.source,
-          opponents: payload.opponents,
-          title: payload.title,
-          description: payload.description,
-          isOptional: payload.isOptional,
-        });
-        setControlChangeOpponentModalOpen(true);
-      }
-    };
-    socket.on("controlChangeOpponentRequest", handler);
-    return () => {
-      socket.off("controlChangeOpponentRequest", handler);
-    };
-  }, [safeView?.id]);
-
   // Undo request listener
   React.useEffect(() => {
     const handleUndoRequest = (payload: any) => {
@@ -2676,94 +2563,6 @@ export function App() {
     socket.emit("getUndoCount", { gameId: safeView.id });
     socket.emit("getSmartUndoCounts", { gameId: safeView.id });
   }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
-
-  // Join Forces socket event handlers
-  React.useEffect(() => {
-    const handleJoinForcesRequest = (payload: JoinForcesRequest) => {
-      if (payload.gameId === safeView?.id) {
-        setJoinForcesRequest(payload);
-        setJoinForcesContributions({});
-        setJoinForcesResponded([]);
-        setJoinForcesModalOpen(true);
-      }
-    };
-    
-    const handleJoinForcesUpdate = (payload: {
-      id: string;
-      playerId: string;
-      contribution: number;
-      responded: string[];
-      contributions: Record<string, number>;
-    }) => {
-      if (joinForcesRequest?.id === payload.id) {
-        setJoinForcesResponded(payload.responded);
-        setJoinForcesContributions(payload.contributions);
-      }
-    };
-    
-    const handleJoinForcesComplete = (payload: { id: string }) => {
-      if (joinForcesRequest?.id === payload.id) {
-        setJoinForcesModalOpen(false);
-        setJoinForcesRequest(null);
-        setJoinForcesContributions({});
-        setJoinForcesResponded([]);
-      }
-    };
-    
-    socket.on("joinForcesRequest", handleJoinForcesRequest);
-    socket.on("joinForcesUpdate", handleJoinForcesUpdate);
-    socket.on("joinForcesComplete", handleJoinForcesComplete);
-    
-    return () => {
-      socket.off("joinForcesRequest", handleJoinForcesRequest);
-      socket.off("joinForcesUpdate", handleJoinForcesUpdate);
-      socket.off("joinForcesComplete", handleJoinForcesComplete);
-    };
-  }, [safeView?.id, joinForcesRequest?.id]);
-
-  // Tempting Offer socket event handlers
-  React.useEffect(() => {
-    const handleTemptingOfferRequest = (payload: TemptingOfferRequest) => {
-      if (payload.gameId === safeView?.id) {
-        setTemptingOfferRequest(payload);
-        setTemptingOfferResponded([]);
-        setTemptingOfferAcceptedBy([]);
-        setTemptingOfferModalOpen(true);
-      }
-    };
-    
-    const handleTemptingOfferUpdate = (payload: {
-      id: string;
-      playerId: string;
-      accepted: boolean;
-      responded: string[];
-      acceptedBy: string[];
-    }) => {
-      if (temptingOfferRequest?.id === payload.id) {
-        setTemptingOfferResponded(payload.responded);
-        setTemptingOfferAcceptedBy(payload.acceptedBy);
-      }
-    };
-    
-    const handleTemptingOfferComplete = (payload: { id: string }) => {
-      if (temptingOfferRequest?.id === payload.id) {
-        setTemptingOfferModalOpen(false);
-        setTemptingOfferRequest(null);
-        setTemptingOfferResponded([]);
-        setTemptingOfferAcceptedBy([]);
-      }
-    };
-    
-    socket.on("temptingOfferRequest", handleTemptingOfferRequest);
-    socket.on("temptingOfferUpdate", handleTemptingOfferUpdate);
-    socket.on("temptingOfferComplete", handleTemptingOfferComplete);
-    
-    return () => {
-      socket.off("temptingOfferRequest", handleTemptingOfferRequest);
-      socket.off("temptingOfferUpdate", handleTemptingOfferUpdate);
-      socket.off("temptingOfferComplete", handleTemptingOfferComplete);
-    };
-  }, [safeView?.id, temptingOfferRequest?.id]);
   
   // Resolution Queue system handler for Kynaios, Join Forces, Tempting Offer, and Bounce Land
   // Listens for resolution step prompts and opens the appropriate modals
@@ -2854,16 +2653,19 @@ export function App() {
       
       // Handle Join Forces resolution step
       else if (step.type === 'join_forces') {
+        const allPlayers = (safeView?.players || []).map(p => p.id);
+        const initiatorPlayer = (safeView?.players || []).find(p => p.id === step.initiator);
+
         // Convert to JoinForcesRequest and open the modal
         const request: JoinForcesRequest = {
           id: step.id,
           gameId: payload.gameId,
           initiator: step.initiator,
-          initiatorName: step.isInitiator ? 'You' : '',  // Will be filled in by modal
+          initiatorName: step.isInitiator ? 'You' : (initiatorPlayer?.name || step.initiator),
           cardName: step.cardName || step.sourceName || 'Join Forces',
           effectDescription: step.effectDescription || step.description || '',
           cardImageUrl: step.cardImageUrl || step.sourceImage,
-          players: [],  // Not needed for single-player prompt
+          players: allPlayers,
           timeoutMs: step.timeoutMs || 60000,
         };
         
@@ -2873,21 +2675,26 @@ export function App() {
         (request as any).availableMana = step.availableMana;
         
         setJoinForcesRequest(request);
+        setJoinForcesContributions({});
+        setJoinForcesResponded([]);
         setJoinForcesModalOpen(true);
       }
       
       // Handle Tempting Offer resolution step
       else if (step.type === 'tempting_offer') {
+        const opponents = (safeView?.players || []).map(p => p.id).filter(pid => pid !== step.initiator);
+        const initiatorPlayer = (safeView?.players || []).find(p => p.id === step.initiator);
+
         // Convert to TemptingOfferRequest and open the modal
         const request: TemptingOfferRequest = {
           id: step.id,
           gameId: payload.gameId,
           initiator: step.initiator,
-          initiatorName: '',  // Will be filled in by modal
+          initiatorName: step.initiator === you ? 'You' : (initiatorPlayer?.name || step.initiator),
           cardName: step.cardName || step.sourceName || 'Tempting Offer',
           effectDescription: step.effectDescription || step.description || '',
           cardImageUrl: step.cardImageUrl || step.sourceImage,
-          opponents: [],  // Not needed for single-player prompt
+          opponents,
           timeoutMs: step.timeoutMs || 60000,
         };
         
@@ -2896,7 +2703,33 @@ export function App() {
         (request as any).isOpponent = step.isOpponent;
         
         setTemptingOfferRequest(request);
+        setTemptingOfferResponded([]);
+        setTemptingOfferAcceptedBy([]);
         setTemptingOfferModalOpen(true);
+      }
+
+      // Handle Player Choice resolution step (generic player selection)
+      else if (step.type === 'player_choice') {
+        setResolutionPlayerChoiceModalData({
+          stepId: step.id,
+          title: step.sourceName || 'Choose Player',
+          description: step.description || '',
+          source: {
+            name: step.sourceName || 'Choose Player',
+            imageUrl: step.sourceImage,
+          },
+          players: (step.players || []).map((p: any) => ({
+            id: p.id,
+            name: p.name || p.id,
+            life: p.life ?? 0,
+            libraryCount: p.libraryCount,
+            isOpponent: Boolean(p.isOpponent),
+            isSelf: Boolean(p.isSelf),
+          })),
+          opponentOnly: Boolean(step.opponentOnly),
+          isOptional: Boolean(step.isOptional) || step.mandatory === false,
+        });
+        setResolutionPlayerChoiceModalOpen(true);
       }
       
       // Handle Cascade resolution step
@@ -3010,15 +2843,28 @@ export function App() {
       
       // Handle Library Search resolution step
       else if (step.type === 'library_search') {
+        const isSplit = (step as any).splitDestination === true;
+        const destinationRaw = String((step as any).destination || 'hand');
+        const entersTapped = Boolean((step as any).entersTapped);
+        const moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split' = isSplit
+          ? 'split'
+          : (destinationRaw === 'battlefield' || destinationRaw === 'hand' || destinationRaw === 'top' || destinationRaw === 'graveyard')
+            ? destinationRaw
+            : 'hand';
+
         setLibrarySearchData({
           cards: step.availableCards || [],
           title: step.sourceName || 'Search Library',
           description: step.description || step.searchCriteria || 'Search your library',
           filter: step.filter || {},
           maxSelections: step.maxSelections || 1,
-          moveTo: step.destination || 'hand',
+          moveTo,
           shuffleAfter: step.shuffleAfter !== false,
-          entersTapped: step.entersTapped || false,
+          targetPlayerId: (step as any).targetPlayerId || step.playerId,
+          splitDestination: (step as any).splitDestination || false,
+          toBattlefield: (step as any).toBattlefield || 0,
+          toHand: (step as any).toHand || 0,
+          entersTapped,
           stepId: step.id,  // Store for resolution response
         });
         setLibrarySearchModalOpen(true);
@@ -4876,6 +4722,34 @@ export function App() {
     setSplitCardData(null);
   };
 
+  const handleViewGraveyard = (playerId: string) => {
+    setGraveyardModalPlayerId(playerId);
+    setGraveyardModalOpen(true);
+  };
+
+  const handleViewExile = (playerId: string) => {
+    setExileModalPlayerId(playerId);
+    setExileModalOpen(true);
+  };
+
+  const handleGraveyardAbility = (cardId: string, abilityId: string) => {
+    if (!safeView?.id) return;
+    socket.emit('activateGraveyardAbility', {
+      gameId: safeView.id,
+      cardId,
+      abilityId,
+    });
+  };
+
+  const handleExileAbility = (cardId: string, _abilityId: string) => {
+    if (!safeView?.id) return;
+    // Most "cast/play from exile" permissions are handled via the normal cast request.
+    socket.emit('requestCastSpell', {
+      gameId: safeView.id,
+      cardId,
+    });
+  };
+
   // Join Forces contribution handler
   // Now uses the unified Resolution Queue system when stepId is present
   const handleJoinForcesContribute = (amount: number) => {
@@ -4884,25 +4758,17 @@ export function App() {
     // Check if this is using the new resolution system (has stepId)
     const stepId = (joinForcesRequest as any).stepId;
     
-    if (stepId) {
-      // Use the new resolution system
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId,
-        selections: { amount },
-        cancelled: false,
-      });
-      // Close modal after responding
-      setJoinForcesModalOpen(false);
-      setJoinForcesRequest(null);
-    } else {
-      // Fall back to legacy event for backward compatibility
-      socket.emit("contributeJoinForces", {
-        gameId: safeView.id,
-        joinForcesId: joinForcesRequest.id,
-        amount,
-      });
-    }
+    if (!stepId) return;
+
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId,
+      selections: { amount },
+      cancelled: false,
+    });
+    // Close modal after responding
+    setJoinForcesModalOpen(false);
+    setJoinForcesRequest(null);
   };
 
   // Tempting Offer response handler
@@ -4913,25 +4779,17 @@ export function App() {
     // Check if this is using the new resolution system (has stepId)
     const stepId = (temptingOfferRequest as any).stepId;
     
-    if (stepId) {
-      // Use the new resolution system
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId,
-        selections: { accept },
-        cancelled: false,
-      });
-      // Close modal after responding
-      setTemptingOfferModalOpen(false);
-      setTemptingOfferRequest(null);
-    } else {
-      // Fall back to legacy event for backward compatibility
-      socket.emit("respondTemptingOffer", {
-        gameId: safeView.id,
-        temptingOfferId: temptingOfferRequest.id,
-        accept,
-      });
-    }
+    if (!stepId) return;
+
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId,
+      selections: { accept },
+      cancelled: false,
+    });
+    // Close modal after responding
+    setTemptingOfferModalOpen(false);
+    setTemptingOfferRequest(null);
   };
   
   // Kynaios Choice response handler (Kynaios and Tiro of Meletis style)
@@ -4941,98 +4799,35 @@ export function App() {
     
     // Check if this is using the new resolution system (has stepId)
     const stepId = kynaiosChoiceRequest.stepId;
-    
-    if (stepId) {
-      // Use the new resolution system
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId,
-        selections: { choice, landCardId },
-        cancelled: false,
-      });
-    } else {
-      // Fall back to legacy event for backward compatibility
-      socket.emit("kynaiosChoiceResponse", {
-        gameId: safeView.id,
-        sourceController: kynaiosChoiceRequest.sourceController,
-        choice,
-        landCardId,
-      });
-    }
-    
+
+    if (!stepId) return;
+
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId,
+      selections: { choice, landCardId },
+      cancelled: false,
+    });
+
     // Close modal after responding
     setKynaiosChoiceModalOpen(false);
     setKynaiosChoiceRequest(null);
   };
 
-  // Generic Option Choice response handler (scalable for all option choice effects)
   const handleOptionChoiceRespond = (selections: string[]) => {
-    if (!safeView || !optionChoiceRequest) return;
-    
-    const stepId = optionChoiceRequest.stepId;
-    
-    // Use the resolution system to submit response
-    socket.emit("submitResolutionResponse", {
+    if (!safeView?.id || !optionChoiceRequest) return;
+
+    socket.emit('submitResolutionResponse', {
       gameId: safeView.id,
-      stepId,
+      stepId: optionChoiceRequest.stepId,
       selections,
       cancelled: false,
     });
-    
-    // Close modal after responding
+
     setOptionChoiceModalOpen(false);
     setOptionChoiceRequest(null);
   };
 
-  // Graveyard view handler
-  const handleViewGraveyard = (playerId: string) => {
-    setGraveyardModalPlayerId(playerId);
-    setGraveyardModalOpen(true);
-  };
-
-  // Graveyard ability activation handler
-  const handleGraveyardAbility = (cardId: string, abilityId: string, card: KnownCardRef) => {
-    if (!safeView) return;
-    
-    // Emit the graveyard ability activation to the server
-    socket.emit("activateGraveyardAbility", {
-      gameId: safeView.id,
-      cardId,
-      abilityId,
-    });
-    
-    setGraveyardModalOpen(false);
-  };
-  
-  // Exile view handler
-  const handleViewExile = (playerId: string) => {
-    setExileModalPlayerId(playerId);
-    setExileModalOpen(true);
-  };
-
-  // Exile ability activation handler
-  const handleExileAbility = (cardId: string, abilityId: string, card: KnownCardRef) => {
-    if (!safeView) return;
-    
-    // Emit the exile ability activation to the server
-    socket.emit("activateExileAbility", {
-      gameId: safeView.id,
-      cardId,
-      abilityId,
-    });
-    
-    setExileModalOpen(false);
-  };
-
-  /**
-   * Check if a creature can attack (considering summoning sickness).
-   * Rule 302.6: A creature can't attack unless it's been continuously controlled 
-   * since the turn began, or it has haste.
-   * Also checks for defender keyword which prevents attacking.
-   * 
-   * @param perm The battlefield permanent to check
-   * @returns true if the creature can attack
-   */
   const canCreatureAttack = (perm: BattlefieldPermanent): boolean => {
     const card = perm.card as KnownCardRef;
     if (!card) return false;
@@ -6176,58 +5971,56 @@ export function App() {
         }}
       />
 
-      {/* Control Change Opponent Selection Modal (Humble Defector, Xantcha, Vislor Turlough, etc.) */}
+      {/* Resolution Queue Player Choice Modal */}
       <PlayerTargetSelectionModal
-        open={controlChangeOpponentModalOpen}
-        title={controlChangeOpponentModalData?.title || "Choose Opponent"}
-        description={controlChangeOpponentModalData?.description}
+        open={resolutionPlayerChoiceModalOpen}
+        title={resolutionPlayerChoiceModalData?.title || 'Choose Player'}
+        description={resolutionPlayerChoiceModalData?.description}
         source={{
-          name: controlChangeOpponentModalData?.source?.name || "",
-          imageUrl: controlChangeOpponentModalData?.source?.imageUrl,
+          name: resolutionPlayerChoiceModalData?.source?.name || '',
+          imageUrl: resolutionPlayerChoiceModalData?.source?.imageUrl,
         }}
-        players={(controlChangeOpponentModalData?.opponents || []).map(opp => ({
-          id: opp.id,
-          name: opp.name,
-          life: opp.life,
-          libraryCount: opp.libraryCount,
-          isOpponent: true,
-          isSelf: false,
-        }))}
-        opponentOnly={true}
-        minTargets={controlChangeOpponentModalData?.isOptional ? 0 : 1}
+        players={resolutionPlayerChoiceModalData?.players || []}
+        opponentOnly={Boolean(resolutionPlayerChoiceModalData?.opponentOnly)}
+        minTargets={resolutionPlayerChoiceModalData?.isOptional ? 0 : 1}
         maxTargets={1}
         onConfirm={(selectedPlayerIds) => {
-          if (controlChangeOpponentModalData && safeView) {
-            if (selectedPlayerIds.length > 0) {
-              // Player chose an opponent to give control
-              socket.emit("confirmControlChangeOpponent", {
+          if (!safeView || !resolutionPlayerChoiceModalData) return;
+          const stepId = resolutionPlayerChoiceModalData.stepId;
+
+          if (selectedPlayerIds.length === 0) {
+            if (resolutionPlayerChoiceModalData.isOptional) {
+              socket.emit('cancelResolutionStep', {
                 gameId: safeView.id,
-                activationId: controlChangeOpponentModalData.activationId,
-                targetOpponentId: selectedPlayerIds[0],
+                stepId,
               });
-            } else if (controlChangeOpponentModalData.isOptional) {
-              // Player chose not to give control (for "may" effects like Vislor Turlough)
-              socket.emit("confirmControlChangeOpponent", {
-                gameId: safeView.id,
-                activationId: controlChangeOpponentModalData.activationId,
-                targetOpponentId: "", // Empty means declined
-              });
+              setResolutionPlayerChoiceModalOpen(false);
+              setResolutionPlayerChoiceModalData(null);
             }
-            setControlChangeOpponentModalOpen(false);
-            setControlChangeOpponentModalData(null);
+            return;
           }
+
+          socket.emit('submitResolutionResponse', {
+            gameId: safeView.id,
+            stepId,
+            selections: selectedPlayerIds,
+            cancelled: false,
+          });
+
+          setResolutionPlayerChoiceModalOpen(false);
+          setResolutionPlayerChoiceModalData(null);
         }}
         onCancel={() => {
-          // For optional effects, canceling is the same as declining
-          if (controlChangeOpponentModalData?.isOptional && safeView) {
-            socket.emit("confirmControlChangeOpponent", {
-              gameId: safeView.id,
-              activationId: controlChangeOpponentModalData.activationId,
-              targetOpponentId: "", // Empty means declined
-            });
-          }
-          setControlChangeOpponentModalOpen(false);
-          setControlChangeOpponentModalData(null);
+          if (!safeView || !resolutionPlayerChoiceModalData) return;
+          if (!resolutionPlayerChoiceModalData.isOptional) return;
+
+          socket.emit('cancelResolutionStep', {
+            gameId: safeView.id,
+            stepId: resolutionPlayerChoiceModalData.stepId,
+          });
+
+          setResolutionPlayerChoiceModalOpen(false);
+          setResolutionPlayerChoiceModalData(null);
         }}
       />
 
@@ -6916,10 +6709,11 @@ export function App() {
         colors={colorChoiceModalData?.colors}
         onConfirm={(selectedColor) => {
           if (safeView?.id && colorChoiceModalData) {
-            socket.emit("submitColorChoice", {
+            socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
-              confirmId: colorChoiceModalData.confirmId,
-              selectedColor,
+              stepId: colorChoiceModalData.confirmId,
+              selections: selectedColor,
+              cancelled: false,
             });
             setColorChoiceModalOpen(false);
             setColorChoiceModalData(null);
