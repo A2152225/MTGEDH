@@ -3409,39 +3409,43 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Store pending equip activation for when target is chosen
-      // IMPORTANT: Preserve permanent/card info to prevent issues during target > pay workflow
-      const effectId = `equip_${permanentId}_${Date.now()}`;
-      (game.state as any).pendingEquipActivations = (game.state as any).pendingEquipActivations || {};
-      (game.state as any).pendingEquipActivations[effectId] = {
-        equipmentId: permanentId,
-        equipmentName: cardName,
-        equipCost,
-        equipType, // Store the type restriction for logging
-        playerId: pid,
-        permanent: { ...permanent }, // Copy full permanent object
-        validTargetIds: validTargets.map((c: any) => c.id),
-      };
-      
-      // Send target selection prompt
-      socket.emit("selectEquipTarget", {
-        gameId,
-        equipmentId: permanentId,
-        equipmentName: cardName,
-        equipCost,
-        equipType, // Include type restriction for display
-        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        effectId, // Include effectId for tracking
-        validTargets: validTargets.map((c: any) => ({
-          id: c.id,
-          name: c.card?.name || "Creature",
-          power: c.card?.power || c.basePower || "0",
-          toughness: c.card?.toughness || c.baseToughness || "0",
-          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
-        })),
-      });
-      
-      debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: cost=${equipCost}, type=${equipType || 'any'}, prompting for target selection (effectId: ${effectId})`);
+      // Unified Resolution Queue prompt
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.equipAbility === true && String((s as any)?.equipmentId || s?.sourceId) === String(permanentId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `Choose a creature to equip ${cardName} to (${equipType ? `equip ${equipType} creature ` : ''}${equipCost}).`,
+          mandatory: false,
+          validTargets: validTargets.map((c: any) => ({
+            id: c.id,
+            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            description: c.card?.type_line || 'Creature',
+            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+          })),
+          targetTypes: ['equip_target'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: equipType ? `${equipType} creature you control` : 'creature you control',
+
+          // Custom payload consumed by socket/resolution.ts
+          equipAbility: true,
+          equipmentId: permanentId,
+          equipmentName: cardName,
+          equipCost,
+          equipType,
+          targetsOpponentCreatures: false,
+        } as any);
+      }
+
+      debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: queued TARGET_SELECTION (cost=${equipCost}, type=${equipType || 'any'})`);
+      broadcastGame(io, game, gameId);
       return;
     }
     
@@ -3488,40 +3492,42 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
-      
-      // Store pending ability activation for when target is chosen
-      const effectId = `grant_ability_${permanentId}_${Date.now()}`;
-      (game.state as any).pendingAbilityGrants = (game.state as any).pendingAbilityGrants || {};
-      (game.state as any).pendingAbilityGrants[effectId] = {
-        sourceId: permanentId,
-        sourceName: cardName,
-        cost: costStr,
-        abilityGranted,
-        playerId: pid,
-        permanent: { ...permanent },
-        validTargetIds: validTargets.map((c: any) => c.id),
-        targetsOpponentCreatures,
-      };
-      
-      // Send target selection prompt
-      socket.emit("selectAbilityTarget", {
-        gameId,
-        sourceId: permanentId,
-        sourceName: cardName,
-        cost: costStr,
-        abilityGranted,
-        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        effectId,
-        validTargets: validTargets.map((c: any) => ({
-          id: c.id,
-          name: c.card?.name || "Creature",
-          power: c.card?.power || c.basePower || "0",
-          toughness: c.card?.toughness || c.baseToughness || "0",
-          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
-        })),
-      });
-      
-      debug(2, `[activateBattlefieldAbility] Ability grant on ${cardName}: ability="${abilityGranted}", prompting for target selection (effectId: ${effectId})`);
+
+      // Unified Resolution Queue prompt
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.grantAbility === true && String(s?.sourceId) === String(permanentId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `${cardName}: Choose a target creature ${targetsOpponentCreatures ? 'an opponent controls' : 'you control'} to gain ${abilityGranted} until end of turn.`,
+          mandatory: false,
+          validTargets: validTargets.map((c: any) => ({
+            id: c.id,
+            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            description: c.card?.type_line || 'Creature',
+            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+          })),
+          targetTypes: ['ability_grant_target'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: targetsOpponentCreatures ? "creature an opponent controls" : "creature you control",
+
+          // Custom payload consumed by socket/resolution.ts
+          grantAbility: true,
+          grantAbilityCost: costStr,
+          abilityGranted,
+          targetsOpponentCreatures,
+        } as any);
+      }
+
+      debug(2, `[activateBattlefieldAbility] Ability grant on ${cardName}: queued TARGET_SELECTION (ability="${abilityGranted}")`);
+      broadcastGame(io, game, gameId);
       return;
     }
     
@@ -4020,24 +4026,41 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
-      
-      // Send crew selection prompt
-      socket.emit("selectCrewCreatures", {
-        gameId,
-        vehicleId: permanentId,
-        vehicleName: cardName,
-        crewPower,
-        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        validCrewers: validCrewers.map((c: any) => ({
-          id: c.id,
-          name: c.card?.name || "Creature",
-          power: getEffectivePower(c),
-          toughness: getEffectiveToughness(c),
-          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
-        })),
-      });
-      
-      debug(2, `[activateBattlefieldAbility] Crew ability on ${cardName}: prompting for creature selection (need power ${crewPower})`);
+
+      // Unified Resolution Queue prompt
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.crewAbility === true && String(s?.sourceId) === String(permanentId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `Crew ${crewPower} — Tap any number of untapped creatures you control with total power ${crewPower} or more.`,
+          mandatory: false,
+          validTargets: validCrewers.map((c: any) => ({
+            id: c.id,
+            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            description: c.card?.type_line || 'Creature',
+            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+          })),
+          targetTypes: ['crew_creature'],
+          minTargets: 1,
+          maxTargets: validCrewers.length,
+          targetDescription: 'creatures you control to crew',
+
+          // Custom payload consumed by socket/resolution.ts
+          crewAbility: true,
+          vehicleId: permanentId,
+          crewPower,
+        } as any);
+      }
+
+      debug(2, `[activateBattlefieldAbility] Crew ability on ${cardName}: queued TARGET_SELECTION (need power ${crewPower})`);
+      broadcastGame(io, game, gameId);
       return;
     }
     
@@ -5427,46 +5450,50 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
-      
-      // Store pending ability activation and emit sacrifice selection request
-      const pendingAbilityId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      (game.state as any).pendingSacrificeAbility = (game.state as any).pendingSacrificeAbility || {};
-      (game.state as any).pendingSacrificeAbility[pid] = {
-        pendingId: pendingAbilityId,
-        permanentId,
-        abilityIndex,
-        cardName,
-        abilityText,
-        manaCost,
-        requiresTap,
-        sacrificeType,
-        sacrificeSubtype,
-        sacrificeCount,
-        mustBeOther,
-        effect: abilityText,
-      };
-      
-      // Emit sacrifice selection request
+
       const sacrificeTargets = eligiblePermanents.map((p: any) => ({
         id: p.id,
-        type: 'permanent' as const,
-        name: p.card?.name || 'Unknown',
+        label: p.card?.name || 'Unknown',
+        description: p.card?.type_line || 'Permanent',
         imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-        typeLine: p.card?.type_line,
       }));
-      
-      emitToPlayer(io, pid, "abilitySacrificeRequest", {
-        gameId,
-        pendingId: pendingAbilityId,
-        permanentId,
-        cardName,
-        abilityEffect: abilityText,
-        sacrificeType: sacrificeLabel, // Use the more specific label
-        sacrificeCount,
-        eligibleTargets: sacrificeTargets,
-      });
-      
-      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of ${sacrificeCount} ${sacrificeLabel}(s). Waiting for selection from ${pid}`);
+
+      // Unified Resolution Queue prompt
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.sacrificeAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `${cardName}: Sacrifice ${sacrificeCount} ${sacrificeLabelPlural} to activate: ${abilityText}`,
+          mandatory: false,
+          validTargets: sacrificeTargets,
+          targetTypes: ['sacrifice_cost'],
+          minTargets: sacrificeCount,
+          maxTargets: sacrificeCount,
+          targetDescription: `${sacrificeLabelPlural} you control`,
+
+          // Custom payload consumed by socket/resolution.ts
+          sacrificeAbilityAsCost: true,
+          permanentId,
+          cardName,
+          abilityText,
+          oracleText: (card?.oracle_text || oracleText || ''),
+          requiresTap,
+          sacrificeType,
+          sacrificeSubtype,
+          sacrificeCount,
+          mustBeOther,
+        } as any);
+      }
+
+      debug(2, `[activateBattlefieldAbility] ${cardName} requires sacrifice of ${sacrificeCount} ${sacrificeLabel}(s). Queued TARGET_SELECTION.`);
+      broadcastGame(io, game, gameId);
       return;
     }
     
@@ -6119,365 +6146,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // ========================================================================
 
   // ============================================================================
-  // Crew Ability Confirmation (for Vehicles)
-  // ============================================================================
-
-  /**
-   * Handle crew selection confirmation for vehicles
-   * Player selects creatures to tap with total power >= crew requirement
-   */
-  socket.on("crewConfirm", ({
-    gameId,
-    vehicleId,
-    creatureIds,
-  }: {
-    gameId: string;
-    vehicleId: string;
-    creatureIds: string[];
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", {
-        code: "GAME_NOT_FOUND",
-        message: "Game not found",
-      });
-      return;
-    }
-
-    const battlefield = game.state.battlefield || [];
-    
-    // Find the vehicle
-    const vehicle = battlefield.find((p: any) => p.id === vehicleId && p.controller === pid);
-    if (!vehicle) {
-      socket.emit("error", {
-        code: "VEHICLE_NOT_FOUND",
-        message: "Vehicle not found",
-      });
-      return;
-    }
-
-    const vehicleName = (vehicle as any).card?.name || "Vehicle";
-    const oracleText = ((vehicle as any).card?.oracle_text || "").toLowerCase();
-    
-    // Parse crew power requirement
-    const crewMatch = oracleText.match(/crew\s*(\d+)/i);
-    const crewPower = crewMatch ? parseInt(crewMatch[1], 10) : 0;
-
-    // Find and validate selected creatures
-    let totalPower = 0;
-    const crewingCreatures: any[] = [];
-    
-    for (const creatureId of creatureIds) {
-      const creature = battlefield.find((p: any) => 
-        p.id === creatureId && p.controller === pid
-      );
-      
-      if (!creature) {
-        socket.emit("error", {
-          code: "CREATURE_NOT_FOUND",
-          message: "One or more selected creatures not found",
-        });
-        return;
-      }
-      
-      const typeLine = ((creature as any).card?.type_line || "").toLowerCase();
-      if (!typeLine.includes("creature")) {
-        socket.emit("error", {
-          code: "NOT_A_CREATURE",
-          message: `${(creature as any).card?.name} is not a creature`,
-        });
-        return;
-      }
-      
-      if ((creature as any).tapped) {
-        socket.emit("error", {
-          code: "CREATURE_TAPPED",
-          message: `${(creature as any).card?.name} is already tapped`,
-        });
-        return;
-      }
-      
-      totalPower += getEffectivePower(creature);
-      crewingCreatures.push(creature);
-    }
-
-    // Validate total power meets requirement
-    if (totalPower < crewPower) {
-      socket.emit("error", {
-        code: "INSUFFICIENT_POWER",
-        message: `Total power ${totalPower} is less than crew requirement ${crewPower}`,
-      });
-      return;
-    }
-
-    // Tap all crewing creatures
-    const creatureNames: string[] = [];
-    for (const creature of crewingCreatures) {
-      (creature as any).tapped = true;
-      creatureNames.push((creature as any).card?.name || "Creature");
-    }
-
-    // Mark vehicle as crewed (becomes a creature until end of turn)
-    (vehicle as any).crewed = true;
-    (vehicle as any).grantedTypes = (vehicle as any).grantedTypes || [];
-    if (!(vehicle as any).grantedTypes.includes('Creature')) {
-      (vehicle as any).grantedTypes.push('Creature');
-    }
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `🚗 ${getPlayerName(game, pid)} crewed ${vehicleName} with ${creatureNames.join(', ')} (total power: ${totalPower}). ${vehicleName} is now a creature until end of turn.`,
-      ts: Date.now(),
-    });
-
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-
-    broadcastGame(io, game, gameId);
-  });
-
-  // ============================================================================
   // Phyrexian Mana Payment Choice
   // ============================================================================
 
   // Legacy phyrexianManaConfirm handler removed - now using resolution queue system
   // See resolution.ts MANA_PAYMENT_CHOICE handling
-
-  // ============================================================================
-  // Ability Sacrifice Selection (for Ashnod's Altar, Phyrexian Altar, etc.)
-  // ============================================================================
-
-  /**
-   * Handle sacrifice selection for activated abilities that require sacrificing a permanent
-   * This is used when abilities like "Sacrifice a creature: Add {C}{C}" need to know
-   * which creature to sacrifice
-   */
-  socket.on("abilitySacrificeConfirm", ({
-    gameId,
-    pendingId,
-    sacrificeTargetId,
-    sacrificeTargetIds,
-  }: {
-    gameId: string;
-    pendingId: string;
-    sacrificeTargetId: string; // For backward compatibility (single sacrifice)
-    sacrificeTargetIds?: string[]; // New field for multiple sacrifices
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", {
-        code: "GAME_NOT_FOUND",
-        message: "Game not found",
-      });
-      return;
-    }
-
-    // Get the pending ability activation
-    const pending = (game.state as any).pendingSacrificeAbility?.[pid];
-    if (!pending || pending.pendingId !== pendingId) {
-      socket.emit("error", {
-        code: "INVALID_PENDING_ABILITY",
-        message: "No pending ability activation found",
-      });
-      return;
-    }
-
-    // Clear the pending state
-    delete (game.state as any).pendingSacrificeAbility[pid];
-
-    const battlefield = game.state.battlefield || [];
-    
-    // Use sacrificeTargetIds if provided, otherwise fall back to single target
-    const targetIds = sacrificeTargetIds || [sacrificeTargetId];
-    const requiredCount = pending.sacrificeCount || 1;
-    
-    if (targetIds.length !== requiredCount) {
-      socket.emit("error", {
-        code: "WRONG_SACRIFICE_COUNT",
-        message: `Expected ${requiredCount} sacrifice target(s), got ${targetIds.length}`,
-      });
-      return;
-    }
-    
-    const sacrificedNames: string[] = [];
-    
-    // Find and remove all sacrificed permanents
-    for (const targetId of targetIds) {
-      const sacrificeIndex = battlefield.findIndex((p: any) => p.id === targetId && p.controller === pid);
-      if (sacrificeIndex === -1) {
-        socket.emit("error", {
-          code: "SACRIFICE_TARGET_NOT_FOUND",
-          message: `Sacrifice target ${targetId} not found`,
-        });
-        return;
-      }
-
-      const sacrificed = battlefield.splice(sacrificeIndex, 1)[0];
-      const sacrificedCard = (sacrificed as any).card;
-      const sacrificedName = sacrificedCard?.name || "Unknown";
-      sacrificedNames.push(sacrificedName);
-
-      // Move sacrificed permanent to graveyard
-      const zones = game.state.zones?.[pid];
-      if (zones) {
-        zones.graveyard = zones.graveyard || [];
-        (zones.graveyard as any[]).push({ ...sacrificedCard, zone: 'graveyard' });
-        zones.graveyardCount = (zones.graveyard as any[]).length;
-      }
-    }
-
-    // Find the source permanent and tap it if required
-    const sourcePerm = battlefield.find((p: any) => p.id === pending.permanentId);
-    if (sourcePerm && pending.requiresTap && !(sourcePerm as any).tapped) {
-      (sourcePerm as any).tapped = true;
-    }
-
-    // Check if this is a mana ability (doesn't use the stack)
-    const oracleText = (sourcePerm as any)?.card?.oracle_text || pending.effect || "";
-    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(oracleText);
-    
-    // Check if this is a Dominus indestructible counter ability
-    const isDominusAbility = /put\s+an?\s+indestructible\s+counter/i.test(oracleText);
-
-    if (isDominusAbility) {
-      // Dominus ability - put an indestructible counter on the source
-      if (sourcePerm) {
-        (sourcePerm as any).counters = (sourcePerm as any).counters || {};
-        (sourcePerm as any).counters.indestructible = ((sourcePerm as any).counters.indestructible || 0) + 1;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `🛡️ ${getPlayerName(game, pid)} sacrificed ${sacrificedNames.join(' and ')} to put an indestructible counter on ${pending.cardName}!`,
-          ts: Date.now(),
-        });
-      }
-    } else if (!isManaAbility) {
-      // Put the ability on the stack
-      const stackItem = {
-        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        type: 'ability' as const,
-        controller: pid,
-        source: pending.permanentId,
-        sourceName: pending.cardName,
-        description: pending.abilityText,
-        sacrificedPermanents: targetIds.map((id, i) => ({
-          id,
-          name: sacrificedNames[i],
-        })),
-      } as any;
-
-      game.state.stack = game.state.stack || [];
-      game.state.stack.push(stackItem);
-
-      // Emit stack update
-      io.to(gameId).emit("stackUpdate", {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `⚡ ${getPlayerName(game, pid)} activated ${pending.cardName}'s ability (sacrificed ${sacrificedNames.join(', ')}): ${pending.abilityText}`,
-        ts: Date.now(),
-      });
-    } else {
-      // Mana ability - handle immediately without stack
-      // Extract mana production and add to mana pool
-      const manaMatch = oracleText.match(/add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      if (manaMatch) {
-        const manaStr = manaMatch[1];
-        (game.state as any).manaPool = (game.state as any).manaPool || {};
-        (game.state as any).manaPool[pid] = (game.state as any).manaPool[pid] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-        
-        // Parse and add mana
-        const manaRegex = /\{([WUBRGC])\}/gi;
-        let manaSymbol;
-        while ((manaSymbol = manaRegex.exec(manaStr)) !== null) {
-          const color = manaSymbol[1].toUpperCase();
-          if ((game.state as any).manaPool[pid][color] !== undefined) {
-            (game.state as any).manaPool[pid][color]++;
-          }
-        }
-      }
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} activated ${pending.cardName} (sacrificed ${sacrificedNames.join(', ')}) for mana.`,
-        ts: Date.now(),
-      });
-    }
-
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-
-    appendEvent(gameId, (game as any).seq ?? 0, "abilitySacrificeConfirm", {
-      playerId: pid,
-      pendingId,
-      permanentId: pending.permanentId,
-      sacrificeTargetIds: targetIds,
-      sacrificedNames,
-    });
-
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Cancel ability activation that required sacrifice
-   */
-  socket.on("abilitySacrificeCancel", ({
-    gameId,
-    pendingId,
-  }: {
-    gameId: string;
-    pendingId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) return;
-
-    // Clear the pending state
-    if ((game.state as any).pendingSacrificeAbility?.[pid]?.pendingId === pendingId) {
-      const pending = (game.state as any).pendingSacrificeAbility[pid];
-      delete (game.state as any).pendingSacrificeAbility[pid];
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} cancelled ${pending.cardName}'s ability activation.`,
-        ts: Date.now(),
-      });
-    }
-
-    broadcastGame(io, game, gameId);
-  });
 
   // ============================================================================
   // Sacrifice Selection (for Grave Pact, Dictate of Erebos, etc.)
@@ -6628,346 +6301,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       customOrder,
     });
 
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Handle equipment target selection (attach equipment to creature)
-   */
-  socket.on("equipTargetChosen", ({
-    gameId,
-    equipmentId,
-    targetCreatureId,
-    manaPaid,
-    effectId,
-    payment,
-  }: {
-    gameId: string;
-    equipmentId: string;
-    targetCreatureId: string;
-    manaPaid?: Record<string, number>;
-    effectId?: string;
-    payment?: Array<{ permanentId: string; mana: string; count: number }>;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    
-    // Check and clean up pending equip activation
-    // IMPORTANT: Use the stored equipCost from pending activation to support multiple equip costs
-    // (e.g., "Equip legendary creature {3}" vs "Equip {7}")
-    let storedEquipCost: string | null = null;
-    let storedEquipType: string | null = null;
-    if (effectId && (game.state as any).pendingEquipActivations?.[effectId]) {
-      const pendingEquip = (game.state as any).pendingEquipActivations[effectId];
-      
-      // Validate that the target is in the valid list
-      const validTargetIds = pendingEquip.validTargetIds || [];
-      if (!validTargetIds.includes(targetCreatureId)) {
-        debugWarn(2, `[equipTargetChosen] Invalid target selected: ${targetCreatureId} for ${pendingEquip.equipmentName}`);
-        socket.emit("error", {
-          code: "INVALID_TARGET",
-          message: `Invalid target selected for ${pendingEquip.equipmentName}`,
-        });
-        return;
-      }
-      
-      // CRITICAL: Store the equip cost BEFORE deleting the pending state
-      // This ensures we use the correct cost for conditional equip abilities
-      storedEquipCost = pendingEquip.equipCost || null;
-      storedEquipType = pendingEquip.equipType || null;
-      
-      // Clean up pending state
-      delete (game.state as any).pendingEquipActivations[effectId];
-      debug(2, `[equipTargetChosen] Using preserved equip data from effectId: ${effectId}, cost: ${storedEquipCost}, type: ${storedEquipType}`);
-    }
-
-    const battlefield = game.state?.battlefield || [];
-    
-    // Find the equipment
-    const equipment = battlefield.find((p: any) => p?.id === equipmentId && p?.controller === pid);
-    if (!equipment) {
-      socket.emit("error", {
-        code: "EQUIPMENT_NOT_FOUND",
-        message: "Equipment not found or not controlled by you",
-      });
-      return;
-    }
-    
-    // Find the target creature
-    const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId && p?.controller === pid);
-    if (!targetCreature) {
-      socket.emit("error", {
-        code: "INVALID_TARGET",
-        message: "Target creature not found or not controlled by you",
-      });
-      return;
-    }
-    
-    // Verify target is a creature
-    const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
-    if (!targetTypeLine.includes("creature")) {
-      socket.emit("error", {
-        code: "INVALID_TARGET",
-        message: "Target must be a creature",
-      });
-      return;
-    }
-    
-    // Use the stored equip cost from pending activation if available
-    // This is critical for equipment with multiple equip costs (e.g., Blackblade Reforged)
-    // Fallback: Parse the FIRST equip cost from oracle text (which may be wrong for conditional equip)
-    let equipCost: string;
-    if (storedEquipCost) {
-      equipCost = storedEquipCost;
-    } else {
-      // Fallback parsing - only used if pending activation wasn't found
-      const oracleText = equipment.card?.oracle_text || "";
-      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
-      debugWarn(2, `[equipTargetChosen] No stored equipCost found, using fallback parse: ${equipCost}`);
-    }
-    
-    // Validate and consume mana payment
-    const parsedCost = parseManaCost(equipCost);
-    const pool = getOrInitManaPool(game.state, pid);
-    
-    const hasColoredMana = Object.values(parsedCost.colors).some(v => v > 0);
-    const hasCost = parsedCost.generic > 0 || hasColoredMana;
-    
-    if (hasCost) {
-      // Check if payment was provided (from mana source tapping)
-      if (payment && payment.length > 0) {
-        // Process payment from mana sources
-        for (const p of payment) {
-          const manaPerm = battlefield.find((perm: any) => perm?.id === p.permanentId);
-          if (manaPerm && !manaPerm.tapped) {
-            manaPerm.tapped = true;
-            // Add mana to pool
-            for (let i = 0; i < p.count; i++) {
-              const manaColor = p.mana.toLowerCase();
-              if (manaColor === 'w') pool.white += 1;
-              else if (manaColor === 'u') pool.blue += 1;
-              else if (manaColor === 'b') pool.black += 1;
-              else if (manaColor === 'r') pool.red += 1;
-              else if (manaColor === 'g') pool.green += 1;
-              else pool.colorless += 1;
-            }
-          }
-        }
-        debug(2, `[equipTargetChosen] Added mana from ${payment.length} sources`);
-      }
-      
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      
-      if (validationError) {
-        // Emit payment required - player needs to tap mana sources
-        const paymentEffectId = `equip_payment_${equipmentId}_${Date.now()}`;
-        
-        // Store pending equip payment
-        (game.state as any).pendingEquipPayments = (game.state as any).pendingEquipPayments || {};
-        (game.state as any).pendingEquipPayments[paymentEffectId] = {
-          equipmentId,
-          targetCreatureId,
-          equipCost,
-          playerId: pid,
-          equipmentName: equipment.card?.name,
-          targetCreatureName: targetCreature.card?.name,
-        };
-        
-        socket.emit("paymentRequired", {
-          gameId,
-          cardId: equipmentId,
-          cardName: equipment.card?.name || "Equipment",
-          manaCost: equipCost,
-          effectId: paymentEffectId,
-          abilityType: 'equip',
-          targets: [targetCreatureId],
-          imageUrl: equipment.card?.image_uris?.small || equipment.card?.image_uris?.normal,
-        });
-        
-        debug(2, `[equipTargetChosen] Payment required for ${equipment.card?.name} equip cost ${equipCost}`);
-        return;
-      }
-      
-      // Consume mana from pool
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[equipTargetChosen]');
-    }
-    
-    // CRITICAL FIX: Put equip ability on the stack instead of directly attaching
-    // This allows players to respond to equip activations
-    const equipAbilityId = `equip_ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    
-    game.state.stack = game.state.stack || [];
-    game.state.stack.push({
-      id: equipAbilityId,
-      type: 'ability',
-      controller: pid,
-      source: equipmentId,
-      sourceName: equipment.card?.name || "Equipment",
-      description: `Equip ${equipment.card?.name} to ${targetCreature.card?.name}`,
-      abilityType: 'equip',
-      // Store equip parameters for when the ability resolves
-      equipParams: {
-        equipmentId,
-        targetCreatureId,
-        equipmentName: equipment.card?.name,
-        targetCreatureName: targetCreature.card?.name,
-      },
-    } as any);
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    // Emit chat message
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} activated equip ability: ${equipment.card?.name} targeting ${targetCreature.card?.name}. Ability on the stack.`,
-      ts: Date.now(),
-    });
-    
-    debug(2, `[equipTargetChosen] Equip ability on stack: ${equipment.card?.name} → ${targetCreature.card?.name}`);
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "equipTarget", {
-      playerId: pid,
-      equipmentId,
-      targetCreatureId,
-      equipCost,
-    });
-    
-    // Broadcast updated game state
-    broadcastGame(io, game, gameId);
-  });
-
-  // Ability target selection handler (for effects that grant abilities to creatures)
-  socket.on("abilityTargetChosen", ({
-    gameId,
-    targetCreatureId,
-    effectId,
-  }: {
-    gameId: string;
-    targetCreatureId: string;
-    effectId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    
-    // Retrieve pending ability grant
-    const pendingGrants = (game.state as any).pendingAbilityGrants || {};
-    const pendingGrant = pendingGrants[effectId];
-    
-    if (!pendingGrant) {
-      socket.emit("error", {
-        code: "INVALID_EFFECT",
-        message: "Ability grant effect not found or expired",
-      });
-      return;
-    }
-    
-    // Validate target
-    if (!pendingGrant.validTargetIds.includes(targetCreatureId)) {
-      socket.emit("error", {
-        code: "INVALID_TARGET",
-        message: "Invalid target for ability grant",
-      });
-      return;
-    }
-    
-    const battlefield = game.state?.battlefield || [];
-    const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
-    
-    if (!targetCreature) {
-      socket.emit("error", {
-        code: "TARGET_NOT_FOUND",
-        message: "Target creature not found",
-      });
-      delete pendingGrants[effectId];
-      return;
-    }
-    
-    // Parse and pay the cost
-    const cost = pendingGrant.cost;
-    const parsedCost = parseManaCost(cost);
-    const pool = getOrInitManaPool(game.state, pid);
-    const totalAvailable = calculateTotalAvailableMana(pool, []);
-    
-    // Validate mana payment
-    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-    if (validationError) {
-      socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
-      delete pendingGrants[effectId];
-      return;
-    }
-    
-    // Consume mana
-    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[abilityTargetChosen]');
-    
-    // Tap the source permanent if it has {T} in the cost
-    const sourceId = pendingGrant.sourceId;
-    const sourcePermanent = battlefield.find((p: any) => p.id === sourceId);
-    if (sourcePermanent && cost.toLowerCase().includes('{t}')) {
-      sourcePermanent.tapped = true;
-    }
-    
-    // Grant the ability to the target creature until end of turn
-    const abilityText = pendingGrant.abilityGranted;
-    if (!targetCreature.grantedAbilities) {
-      targetCreature.grantedAbilities = [];
-    }
-    
-    // Add the ability with an expiration marker
-    const grantedAbility = `${abilityText} (until end of turn)`;
-    if (!targetCreature.grantedAbilities.includes(grantedAbility)) {
-      targetCreature.grantedAbilities.push(grantedAbility);
-    }
-    
-    // Track temporary abilities for cleanup at end of turn
-    if (!(game.state as any).temporaryAbilities) {
-      (game.state as any).temporaryAbilities = [];
-    }
-    (game.state as any).temporaryAbilities.push({
-      creatureId: targetCreatureId,
-      ability: grantedAbility,
-      expiresAt: 'end_of_turn',
-      grantedBy: sourceId,
-    });
-    
-    // Clean up pending state
-    delete pendingGrants[effectId];
-    
-    // Bump seq
-    if (typeof (game as any).bumpSeq === "function") {
-      (game as any).bumpSeq();
-    }
-    
-    // Log to chat
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} activated ${pendingGrant.sourceName}: ${targetCreature.card?.name} gains ${abilityText} until end of turn`,
-      ts: Date.now(),
-    });
-    
-    debug(2, `[abilityTargetChosen] ${targetCreature.card?.name} granted "${abilityText}" from ${pendingGrant.sourceName}`);
-    
-    // Broadcast updated game state
-    broadcastManaPoolUpdate(io, gameId, pid, pool as any, 'Ability activated', game);
     broadcastGame(io, game, gameId);
   });
 

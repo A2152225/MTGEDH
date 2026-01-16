@@ -448,10 +448,6 @@ export interface ClientToServerEvents {
   
   // Sacrifice selection (for effects that require sacrificing)
   sacrificeSelected: (payload: { gameId: GameID; permanentIds?: string[]; permanentId?: string; triggerId?: string }) => void;
-  
-  // Ability sacrifice confirm/cancel (for sacrifice-as-cost abilities)
-  abilitySacrificeConfirm: (payload: { gameId: GameID; pendingId: string; sacrificeTargetId: string }) => void;
-  abilitySacrificeCancel: (payload: { gameId: GameID; pendingId: string }) => void;
 
   // ===== MANA POOL MANIPULATION =====
   

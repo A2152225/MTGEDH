@@ -306,39 +306,6 @@ export function App() {
   
   // NOTE: sacrifice-unless-pay and reveal-land ETB interactions are now handled
   // by the Resolution Queue via generic option-choice steps.
-
-  // Equip target selection modal state
-  const [equipTargetModalOpen, setEquipTargetModalOpen] = useState(false);
-  const [equipTargetData, setEquipTargetData] = useState<{
-    equipmentId: string;
-    equipmentName: string;
-    equipCost: string;
-    imageUrl?: string;
-    effectId?: string;
-    validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
-  } | null>(null);
-
-  // Ability target selection modal state (for granting abilities to creatures)
-  const [abilityTargetModalOpen, setAbilityTargetModalOpen] = useState(false);
-  const [abilityTargetData, setAbilityTargetData] = useState<{
-    sourceId: string;
-    sourceName: string;
-    cost: string;
-    abilityGranted: string;
-    imageUrl?: string;
-    effectId: string;
-    validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
-  } | null>(null);
-
-  // Crew selection modal state (for Vehicles)
-  const [crewModalOpen, setCrewModalOpen] = useState(false);
-  const [crewData, setCrewData] = useState<{
-    vehicleId: string;
-    vehicleName: string;
-    crewPower: number;
-    imageUrl?: string;
-    validCrewers: { id: string; name: string; power: number; toughness: string; imageUrl?: string }[];
-  } | null>(null);
   
   // Triggered ability modal state
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
@@ -443,22 +410,7 @@ export function App() {
   } | null>(null);
   
   // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
-  const [abilitySacrificeModalOpen, setAbilitySacrificeModalOpen] = useState(false);
-  const [abilitySacrificeData, setAbilitySacrificeData] = useState<{
-    pendingId: string;
-    permanentId: string;
-    cardName: string;
-    abilityEffect: string;
-    sacrificeType: string;
-    sacrificeCount?: number;
-    eligibleTargets: Array<{
-      id: string;
-      type: 'permanent';
-      name: string;
-      imageUrl?: string;
-      typeLine?: string;
-    }>;
-  } | null>(null);
+  // (Legacy abilitySacrificeRequest flow removed; sacrifice-as-cost uses Resolution Queue TARGET_SELECTION)
   
   // Undo request modal state
   const [undoModalOpen, setUndoModalOpen] = useState(false);
@@ -1426,69 +1378,6 @@ export function App() {
     }
   }, [safeView, you, combatModalOpen, autoPassSteps, autoPassForTurn, phaseNavigatorAdvancing, pendingTriggers]);
 
-  // Equip target selection listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setEquipTargetData({
-          equipmentId: payload.equipmentId,
-          equipmentName: payload.equipmentName,
-          equipCost: payload.equipCost,
-          imageUrl: payload.imageUrl,
-          effectId: payload.effectId,
-          validTargets: payload.validTargets || [],
-        });
-        setEquipTargetModalOpen(true);
-      }
-    };
-    socket.on("selectEquipTarget", handler);
-    return () => {
-      socket.off("selectEquipTarget", handler);
-    };
-  }, [safeView?.id]);
-
-  // Ability target selection listener (for granting abilities)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setAbilityTargetData({
-          sourceId: payload.sourceId,
-          sourceName: payload.sourceName,
-          cost: payload.cost,
-          abilityGranted: payload.abilityGranted,
-          imageUrl: payload.imageUrl,
-          effectId: payload.effectId,
-          validTargets: payload.validTargets || [],
-        });
-        setAbilityTargetModalOpen(true);
-      }
-    };
-    socket.on("selectAbilityTarget", handler);
-    return () => {
-      socket.off("selectAbilityTarget", handler);
-    };
-  }, [safeView?.id]);
-
-  // Crew selection prompt listener (for Vehicles)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setCrewData({
-          vehicleId: payload.vehicleId,
-          vehicleName: payload.vehicleName,
-          crewPower: payload.crewPower,
-          imageUrl: payload.imageUrl,
-          validCrewers: payload.validCrewers || [],
-        });
-        setCrewModalOpen(true);
-      }
-    };
-    socket.on("selectCrewCreatures", handler);
-    return () => {
-      socket.off("selectCrewCreatures", handler);
-    };
-  }, [safeView?.id]);
-
   // Mulligan bottom selection prompt listener (London Mulligan)
   // (Legacy mulliganBottomPrompt removed; mulligan bottom uses Resolution Queue HAND_TO_BOTTOM)
 
@@ -2003,43 +1892,6 @@ export function App() {
     socket.on("sacrificeSelectionRequest", handler);
     return () => {
       socket.off("sacrificeSelectionRequest", handler);
-    };
-  }, [safeView?.id]);
-
-  // Ability sacrifice request listener (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      pendingId: string;
-      permanentId: string;
-      cardName: string;
-      abilityEffect: string;
-      sacrificeType: string;
-      sacrificeCount?: number;
-      eligibleTargets: Array<{
-        id: string;
-        type: 'permanent';
-        name: string;
-        imageUrl?: string;
-        typeLine?: string;
-      }>;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setAbilitySacrificeData({
-          pendingId: payload.pendingId,
-          permanentId: payload.permanentId,
-          cardName: payload.cardName,
-          abilityEffect: payload.abilityEffect,
-          sacrificeType: payload.sacrificeType,
-          sacrificeCount: payload.sacrificeCount,
-          eligibleTargets: payload.eligibleTargets,
-        });
-        setAbilitySacrificeModalOpen(true);
-      }
-    };
-    socket.on("abilitySacrificeRequest", handler);
-    return () => {
-      socket.off("abilitySacrificeRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -3981,49 +3833,6 @@ export function App() {
     
     setVoteModalOpen(false);
     setVoteData(null);
-  };
-
-  // Equip target handlers
-  const handleEquipTarget = (targetId: string | null) => {
-    if (!safeView || !equipTargetData) return;
-    if (targetId) {
-      socket.emit("equipTargetChosen", {
-        gameId: safeView.id,
-        equipmentId: equipTargetData.equipmentId,
-        targetCreatureId: targetId,
-        effectId: (equipTargetData as any).effectId, // Include effectId for server tracking
-      });
-    }
-    setEquipTargetModalOpen(false);
-    setEquipTargetData(null);
-  };
-
-  // Ability target handlers (for granting abilities)
-  const handleAbilityTarget = (targetId: string | null) => {
-    if (!safeView || !abilityTargetData) return;
-    if (targetId) {
-      socket.emit("abilityTargetChosen", {
-        gameId: safeView.id,
-        targetCreatureId: targetId,
-        effectId: abilityTargetData.effectId,
-      });
-    }
-    setAbilityTargetModalOpen(false);
-    setAbilityTargetData(null);
-  };
-
-  // Crew selection handlers (for Vehicles)
-  const handleCrewConfirm = (selectedCreatureIds: string[]) => {
-    if (!safeView || !crewData) return;
-    if (selectedCreatureIds.length > 0) {
-      socket.emit("crewConfirm", {
-        gameId: safeView.id,
-        vehicleId: crewData.vehicleId,
-        creatureIds: selectedCreatureIds,
-      });
-    }
-    setCrewModalOpen(false);
-    setCrewData(null);
   };
 
   // Trigger handlers
@@ -5972,74 +5781,6 @@ export function App() {
         />
       )}
 
-      {/* Equip Target Selection Modal */}
-      <CardSelectionModal
-        open={equipTargetModalOpen}
-        title={`Equip ${equipTargetData?.equipmentName || 'Equipment'}`}
-        subtitle={`Pay ${equipTargetData?.equipCost || '{0}'} to attach to target creature`}
-        sourceCardName={equipTargetData?.equipmentName}
-        sourceCardImageUrl={equipTargetData?.imageUrl}
-        options={(equipTargetData?.validTargets || []).map(t => ({
-          id: t.id,
-          name: `${t.name} (${t.power}/${t.toughness})`,
-          imageUrl: t.imageUrl,
-        }))}
-        minSelections={1}
-        maxSelections={1}
-        canCancel={true}
-        confirmButtonText="Equip"
-        cancelButtonText="Cancel"
-        onConfirm={(selectedIds) => handleEquipTarget(selectedIds[0])}
-        onCancel={() => handleEquipTarget(null)}
-      />
-
-      {/* Ability Target Selection Modal (for granting abilities) */}
-      <CardSelectionModal
-        open={abilityTargetModalOpen}
-        title={abilityTargetData?.sourceName || 'Grant Ability'}
-        subtitle={`Pay ${abilityTargetData?.cost || '{0}'} to grant ${abilityTargetData?.abilityGranted || 'ability'} to target creature`}
-        sourceCardName={abilityTargetData?.sourceName}
-        sourceCardImageUrl={abilityTargetData?.imageUrl}
-        options={(abilityTargetData?.validTargets || []).map(t => ({
-          id: t.id,
-          name: `${t.name} (${t.power}/${t.toughness})`,
-          imageUrl: t.imageUrl,
-        }))}
-        minSelections={1}
-        maxSelections={1}
-        canCancel={true}
-        confirmButtonText="Grant Ability"
-        cancelButtonText="Cancel"
-        onConfirm={(selectedIds) => handleAbilityTarget(selectedIds[0])}
-        onCancel={() => handleAbilityTarget(null)}
-      />
-
-      {/* Crew Selection Modal (for Vehicles) */}
-      <CardSelectionModal
-        open={crewModalOpen}
-        title={`Crew ${crewData?.vehicleName || 'Vehicle'}`}
-        subtitle={`Tap creatures with total power ${crewData?.crewPower || 0}+ to crew`}
-        sourceCardName={crewData?.vehicleName}
-        sourceCardImageUrl={crewData?.imageUrl}
-        options={useMemo(() => {
-          if (!crewData) return [];
-          const sorted = [...(crewData.validCrewers || [])].sort((a, b) => b.power - a.power);
-          return sorted.map(c => ({
-            id: c.id,
-            name: `${c.name} (Power: ${c.power})`,
-            imageUrl: c.imageUrl,
-            description: `Toughness: ${c.toughness}`,
-          }));
-        }, [crewData])}
-        minSelections={1}
-        maxSelections={crewData?.validCrewers?.length || 10}
-        canCancel={true}
-        confirmButtonText="Crew"
-        cancelButtonText="Cancel"
-        onConfirm={(selectedIds) => handleCrewConfirm(selectedIds)}
-        onCancel={() => { setCrewModalOpen(false); setCrewData(null); }}
-      />
-
       {/* Game Over Overlay */}
       {gameOverModalOpen && gameOverData && (
         <div
@@ -6315,45 +6056,6 @@ export function App() {
         onCancel={() => {
           // Sacrifice is mandatory - inform the user they must select
           alert("You must sacrifice a creature to this triggered ability.");
-        }}
-      />
-
-      {/* Ability Sacrifice Selection Modal (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.) */}
-      <TargetSelectionModal
-        open={abilitySacrificeModalOpen}
-        title={`Sacrifice ${abilitySacrificeData?.sacrificeCount || 1} ${abilitySacrificeData?.sacrificeType || 'permanent'}${(abilitySacrificeData?.sacrificeCount || 1) !== 1 ? 's' : ''}`}
-        description={abilitySacrificeData ? `${abilitySacrificeData.cardName}: ${abilitySacrificeData.abilityEffect}` : undefined}
-        targets={abilitySacrificeData?.eligibleTargets.map(t => ({
-          id: t.id,
-          type: 'permanent' as const,
-          name: t.name,
-          imageUrl: t.imageUrl,
-          typeLine: t.typeLine,
-        })) || []}
-        minTargets={abilitySacrificeData?.sacrificeCount || 1}
-        maxTargets={abilitySacrificeData?.sacrificeCount || 1}
-        onConfirm={(selectedIds) => {
-          const requiredCount = abilitySacrificeData?.sacrificeCount || 1;
-          if (selectedIds.length === requiredCount && abilitySacrificeData && safeView?.id) {
-            socket.emit("abilitySacrificeConfirm", {
-              gameId: safeView.id,
-              pendingId: abilitySacrificeData.pendingId,
-              sacrificeTargetId: selectedIds[0], // For backward compatibility
-              sacrificeTargetIds: selectedIds, // New field for multiple sacrifices
-            } as any); // Type assertion for backward compatibility with new field
-            setAbilitySacrificeModalOpen(false);
-            setAbilitySacrificeData(null);
-          }
-        }}
-        onCancel={() => {
-          if (abilitySacrificeData && safeView?.id) {
-            socket.emit("abilitySacrificeCancel", {
-              gameId: safeView.id,
-              pendingId: abilitySacrificeData.pendingId,
-            });
-            setAbilitySacrificeModalOpen(false);
-            setAbilitySacrificeData(null);
-          }
         }}
       />
 
