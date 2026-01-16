@@ -18,6 +18,7 @@ import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
 import { recalculatePlayerEffects, applyCombatDamageReplacement, clearTemporaryLandBonuses } from "./game-state-effects.js";
+import { detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
 import { 
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
@@ -44,6 +45,95 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
   return new Date().toISOString();
+}
+
+function processPendingFlickerReturnsAtBeginningOfEndStep(ctx: GameContext, turnPlayer: PlayerID) {
+  try {
+    const state = (ctx as any).state;
+    if (!state) return;
+
+    const pending = (state as any).pendingFlickerReturns;
+    if (!Array.isArray(pending) || pending.length === 0) return;
+
+    const zones = (state as any).zones || {};
+    const battlefield = (state as any).battlefield || [];
+
+    const remaining: any[] = [];
+    let returnedCount = 0;
+
+    for (const entry of pending) {
+      if (!entry || entry.kind !== 'return_from_exile_to_battlefield') {
+        remaining.push(entry);
+        continue;
+      }
+
+      const ownerId = entry.ownerId as PlayerID | undefined;
+      const cardId = entry.cardId as string | undefined;
+      const returnAt = String(entry.returnAt || '');
+
+      if (!ownerId || !cardId) {
+        continue;
+      }
+
+      // Only process "owner's next end step" when that player is the active player.
+      if (returnAt === 'owners_next_end_step' && ownerId !== turnPlayer) {
+        remaining.push(entry);
+        continue;
+      }
+
+      const exile = Array.isArray(zones?.[ownerId]?.exile) ? zones[ownerId].exile : [];
+      const exileIdx = exile.findIndex((c: any) => c?.id === cardId);
+      if (exileIdx < 0) {
+        // Card is no longer in exile (commander replacement, moved elsewhere, etc.)
+        continue;
+      }
+
+      const card = exile.splice(exileIdx, 1)[0];
+      if (!card) {
+        continue;
+      }
+
+      const entersWithCounters = detectEntersWithCounters(card);
+      const isPlaneswalker = String(card?.type_line || '').toLowerCase().includes('planeswalker');
+
+      const newPermanent: any = {
+        id: uid('perm'),
+        card,
+        controller: ownerId,
+        owner: ownerId,
+        tapped: false,
+        summoning_sickness: String(card?.type_line || '').toLowerCase().includes('creature') || false,
+        counters: entersWithCounters && Object.keys(entersWithCounters).length > 0 ? entersWithCounters : {},
+        attachedTo: undefined,
+      };
+
+      if (isPlaneswalker && card?.loyalty) {
+        const loyaltyValue = parseInt(String(card.loyalty), 10);
+        if (!Number.isNaN(loyaltyValue)) {
+          newPermanent.counters = { ...newPermanent.counters, loyalty: loyaltyValue };
+          newPermanent.loyalty = loyaltyValue;
+          newPermanent.baseLoyalty = loyaltyValue;
+        }
+      }
+
+      battlefield.push(newPermanent);
+      returnedCount += 1;
+
+      try {
+        triggerETBEffectsForPermanent(ctx as any, newPermanent, ownerId);
+      } catch (err) {
+        debugWarn(1, `${ts()} [processPendingFlickerReturns] Failed to trigger ETBs for ${card?.name || cardId}:`, err);
+      }
+    }
+
+    (state as any).pendingFlickerReturns = remaining;
+    if (returnedCount > 0) {
+      debug(2, `${ts()} [processPendingFlickerReturns] Returned ${returnedCount} card(s) from exile during END step for ${turnPlayer}`);
+      (ctx as any).bumpSeq?.();
+    }
+  } catch (err) {
+    debugWarn(1, `${ts()} [processPendingFlickerReturns] Failed:`, err);
+  }
 }
 
 /**
@@ -178,22 +268,89 @@ function checkPendingInteractions(ctx: GameContext): {
     }
     
     // =========================================================================
-    // Keep legacy checks for state that is NOT yet migrated to Resolution Queue
-    // These should eventually be migrated as well.
+    // Migrate legacy pending state to Resolution Queue (one-time, best-effort)
     // =========================================================================
-    
-    // Check for pending discard selection (cleanup step)
-    if (state.pendingDiscardSelection && Object.keys(state.pendingDiscardSelection).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('discard_selection');
-      result.details.pendingDiscardSelection = state.pendingDiscardSelection;
+
+    // Convert legacy pendingDiscardSelection -> ResolutionStepType.DISCARD_SELECTION (cleanup)
+    // This prevents older game states from blocking step advancement forever.
+    if (gameId && state.pendingDiscardSelection && Object.keys(state.pendingDiscardSelection).length > 0) {
+      try {
+        const legacy = state.pendingDiscardSelection as Record<string, any>;
+        let createdAny = false;
+
+        for (const [pid, pending] of Object.entries(legacy)) {
+          if (!pending || typeof pending !== 'object') continue;
+
+          const discardCount = Number(pending.count || 0);
+          const maxHandSize = Number(pending.maxHandSize || 7);
+
+          if (!Number.isFinite(discardCount) || discardCount <= 0) {
+            delete legacy[pid];
+            continue;
+          }
+
+          // Avoid creating duplicates if a discard step already exists.
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .find(s => s.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.reason === 'cleanup');
+          if (existing) {
+            delete legacy[pid];
+            continue;
+          }
+
+          const zones = state.zones?.[pid];
+          const handCards = Array.isArray(zones?.hand) ? zones.hand : [];
+          const handOptions = handCards
+            .filter((c: any) => c && c.id)
+            .map((c: any) => ({
+              id: String(c.id),
+              label: String(c.name || 'Unknown'),
+              imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
+            }));
+
+          // If we can't build a hand list, keep legacy state (older clients).
+          if (handOptions.length === 0) {
+            continue;
+          }
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.DISCARD_SELECTION,
+            playerId: pid as any,
+            sourceName: 'Cleanup Step',
+            description: `Cleanup: discard ${discardCount} card(s) to maximum hand size.`,
+            mandatory: true,
+            hand: handOptions,
+            discardCount,
+            currentHandSize: handOptions.length,
+            maxHandSize,
+            reason: 'cleanup',
+            priority: -10,
+          } as any);
+
+          delete legacy[pid];
+          createdAny = true;
+        }
+
+        if (Object.keys(legacy).length === 0) {
+          delete state.pendingDiscardSelection;
+        }
+
+        if (createdAny) {
+          result.hasPending = true;
+          if (!result.pendingTypes.includes('discard_selection')) {
+            result.pendingTypes.push('discard_selection');
+          }
+          result.details.pendingDiscardSelection = 'migrated_to_resolution_queue';
+        }
+      } catch (err) {
+        debugWarn(1, `${ts()} [checkPendingInteractions] Failed to migrate pendingDiscardSelection:`, err);
+      }
     }
     
-    // Check for pending commander zone choice (destruction/exile)
+    // Clean up deprecated pendingCommanderZoneChoice (now handled by Resolution Queue COMMANDER_ZONE_CHOICE)
     if (state.pendingCommanderZoneChoice && Object.keys(state.pendingCommanderZoneChoice).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('commander_zone_choice');
-      result.details.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingCommanderZoneChoice state - cleaning up`);
+      delete state.pendingCommanderZoneChoice;
     }
     
     // Clean up deprecated pendingTriggerOrdering (now handled by Resolution Queue TRIGGER_ORDER)
@@ -208,55 +365,43 @@ function checkPendingInteractions(ctx: GameContext): {
       delete state.pendingEntrapmentManeuver;
     }
     
-    // Check for pending modal choices (Retreat to Emeria, Abiding Grace, etc.)
+    // Clean up deprecated pendingModalChoice (now handled by Resolution Queue MODAL_CHOICE)
     if (state.pendingModalChoice && Object.keys(state.pendingModalChoice).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('modal_choice');
-      result.details.pendingModalChoice = state.pendingModalChoice;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingModalChoice state - cleaning up`);
+      delete state.pendingModalChoice;
     }
     
-    // Check for pending mana color selection (Cryptolith Rite style)
+    // Clean up deprecated pendingManaColorSelection (now handled by Resolution Queue MANA_COLOR_SELECTION)
     if (state.pendingManaColorSelection && Object.keys(state.pendingManaColorSelection).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('mana_color_selection');
-      result.details.pendingManaColorSelection = state.pendingManaColorSelection;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingManaColorSelection state - cleaning up`);
+      delete state.pendingManaColorSelection;
     }
     
-    // Check for pending creature type selection (Maskwood Nexus, etc.)
+    // Clean up deprecated pendingCreatureTypeSelection (now handled by Resolution Queue CREATURE_TYPE_CHOICE)
     if (state.pendingCreatureTypeSelection && Object.keys(state.pendingCreatureTypeSelection).length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('creature_type_selection');
-      result.details.pendingCreatureTypeSelection = state.pendingCreatureTypeSelection;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingCreatureTypeSelection state - cleaning up`);
+      delete state.pendingCreatureTypeSelection;
     }
     
-    // Check for pending flicker returns (end of turn delayed triggers)
-    if (state.pendingFlickerReturns && state.pendingFlickerReturns.length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('flicker_returns');
-      result.details.pendingFlickerReturns = state.pendingFlickerReturns;
+    // pendingFlickerReturns is processed during the END step (best-effort automation).
+    // It should not block auto-advance.
+
+    // Clean up deprecated pendingLinkedExileReturns (linked-exile is handled by triggers/linked-exile.ts)
+    if (Array.isArray(state.pendingLinkedExileReturns) && state.pendingLinkedExileReturns.length > 0) {
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingLinkedExileReturns state - cleaning up`);
+      state.pendingLinkedExileReturns = [];
     }
     
-    // Check for pending linked exile returns (Oblivion Ring style)
-    if (state.pendingLinkedExileReturns && state.pendingLinkedExileReturns.length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('linked_exile_returns');
-      result.details.pendingLinkedExileReturns = state.pendingLinkedExileReturns;
-    }
-    
-    // Check for pending Join Forces effects (now handled by Resolution Queue)
-    // These are stored as arrays that are populated when effects resolve
+    // Clean up deprecated pendingJoinForces (now handled by Resolution Queue JOIN_FORCES)
     if (Array.isArray(state.pendingJoinForces) && state.pendingJoinForces.length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('join_forces');
-      result.details.pendingJoinForces = state.pendingJoinForces;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingJoinForces state - cleaning up`);
+      state.pendingJoinForces = [];
     }
     
-    // Check for pending Tempting Offer effects (now handled by Resolution Queue)
-    // These are stored as arrays that are populated when effects resolve
+    // Clean up deprecated pendingTemptingOffer (now handled by Resolution Queue TEMPTING_OFFER)
     if (Array.isArray(state.pendingTemptingOffer) && state.pendingTemptingOffer.length > 0) {
-      result.hasPending = true;
-      result.pendingTypes.push('tempting_offer');
-      result.details.pendingTemptingOffer = state.pendingTemptingOffer;
+      debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingTemptingOffer state - cleaning up`);
+      state.pendingTemptingOffer = [];
     }
     
     // Check for non-empty stack (spells/abilities waiting to resolve)
@@ -2263,15 +2408,25 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
   try {
     const state = (ctx as any).state;
     if (!state) return { needsInteraction: false, discardCount: 0 };
+
+    const gameId = (ctx as any).gameId;
+    if (!gameId) return { needsInteraction: false, discardCount: 0 };
     
     const maxHandSize = getMaxHandSize(ctx, playerId);
     if (maxHandSize === Infinity) {
       return { needsInteraction: false, discardCount: 0 }; // No maximum hand size
     }
     
-    // Check if there's already a pending discard selection
-    if (state.pendingDiscardSelection?.[playerId]) {
-      return { needsInteraction: true, discardCount: state.pendingDiscardSelection[playerId].count };
+    // If a cleanup discard step is already queued, don't create another.
+    try {
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find(s => s.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.reason === 'cleanup');
+      if (existing) {
+        return { needsInteraction: true, discardCount: Number((existing as any).discardCount || 0) };
+      }
+    } catch {
+      // Best-effort only
     }
     
     // Get player's hand from state.zones (authoritative source)
@@ -2283,25 +2438,7 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
     }
     
     if (hand.length === 0) {
-      // Try handCount as a fallback (some views only sync count, not full hand)
-      const handCount = playerZones?.handCount ?? 0;
-      if (handCount <= maxHandSize) {
-        return { needsInteraction: false, discardCount: 0 };
-      }
-      const discardCount = handCount - maxHandSize;
-      
-      state.pendingDiscardSelection = state.pendingDiscardSelection || {};
-      state.pendingDiscardSelection[playerId] = {
-        count: discardCount,
-        maxHandSize,
-        handSize: handCount,
-      };
-      
-      debug(2, 
-        `${ts()} [setupCleanupDiscard] Player ${playerId} needs to discard ${discardCount} cards (handCount: ${handCount}, max: ${maxHandSize})`
-      );
-      
-      return { needsInteraction: true, discardCount };
+      return { needsInteraction: false, discardCount: 0 };
     }
     
     const handSize = hand.length;
@@ -2312,84 +2449,39 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
     
     const discardCount = handSize - maxHandSize;
     
-    // Set up pending discard selection for interactive choice
-    state.pendingDiscardSelection = state.pendingDiscardSelection || {};
-    state.pendingDiscardSelection[playerId] = {
-      count: discardCount,
+    const handOptions = hand
+      .filter((c: any) => c && c.id)
+      .map((c: any) => ({
+        id: String(c.id),
+        label: String(c.name || 'Unknown'),
+        imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
+      }));
+
+    if (handOptions.length === 0) {
+      return { needsInteraction: false, discardCount: 0 };
+    }
+
+    // Queue cleanup discard selection via Resolution Queue
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: playerId as any,
+      sourceName: 'Cleanup Step',
+      description: `Cleanup: discard ${discardCount} card(s) to maximum hand size (${maxHandSize}).`,
+      mandatory: true,
+      hand: handOptions,
+      discardCount,
+      currentHandSize: handOptions.length,
       maxHandSize,
-      handSize,
-    };
+      reason: 'cleanup',
+      priority: -10,
+    } as any);
     
-    debug(2, 
-      `${ts()} [setupCleanupDiscard] Player ${playerId} needs to discard ${discardCount} cards (hand: ${handSize}, max: ${maxHandSize})`
-    );
+    debug(2, `${ts()} [setupCleanupDiscard] Queued cleanup discard step for ${playerId}: discard ${discardCount} (hand: ${handSize}, max: ${maxHandSize})`);
     
     return { needsInteraction: true, discardCount };
   } catch (err) {
     debugWarn(1, `${ts()} setupCleanupDiscard failed:`, err);
     return { needsInteraction: false, discardCount: 0 };
-  }
-}
-
-/**
- * Execute the actual discard for cleanup step with player-selected cards.
- * Called when player confirms their discard selection.
- */
-export function executeCleanupDiscard(ctx: GameContext, playerId: string, cardIds: string[]): boolean {
-  try {
-    const state = (ctx as any).state;
-    if (!state) return false;
-    
-    const pendingDiscard = state.pendingDiscardSelection?.[playerId];
-    if (!pendingDiscard) {
-      debugWarn(2, `${ts()} [executeCleanupDiscard] No pending discard for player ${playerId}`);
-      return false;
-    }
-    
-    if (cardIds.length !== pendingDiscard.count) {
-      debugWarn(2, `${ts()} [executeCleanupDiscard] Wrong number of cards: expected ${pendingDiscard.count}, got ${cardIds.length}`);
-      return false;
-    }
-    
-    // Get player's hand
-    const zones = state.zones?.[playerId];
-    if (!zones || !Array.isArray(zones.hand)) {
-      return false;
-    }
-    
-    const hand = zones.hand;
-    const discardedCards = [];
-    
-    // Discard selected cards
-    for (const cardId of cardIds) {
-      const idx = hand.findIndex((c: any) => c?.id === cardId);
-      if (idx !== -1) {
-        const [card] = hand.splice(idx, 1);
-        discardedCards.push(card);
-        
-        // Move card to graveyard
-        zones.graveyard = zones.graveyard || [];
-        card.zone = "graveyard";
-        zones.graveyard.push(card);
-      }
-    }
-    
-    // Update counts
-    zones.handCount = hand.length;
-    zones.graveyardCount = zones.graveyard.length;
-    
-    // Clear the pending discard state
-    delete state.pendingDiscardSelection[playerId];
-    
-    debug(2, 
-      `${ts()} [executeCleanupDiscard] Player ${playerId} discarded ${discardedCards.length} cards`
-    );
-    
-    ctx.bumpSeq();
-    return true;
-  } catch (err) {
-    debugWarn(1, `${ts()} executeCleanupDiscard failed:`, err);
-    return false;
   }
 }
 
@@ -3040,6 +3132,9 @@ export function nextStep(ctx: GameContext) {
         else if (nextStep === "END") {
           const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
           pushTriggersToStack(endStepTriggers, 'end_step', 'endstep');
+
+          // Best-effort delayed return processing (planeswalker templates, etc.)
+          processPendingFlickerReturnsAtBeginningOfEndStep(ctx, turnPlayer);
         }
         
         // Give priority to active player based on step type
@@ -3440,7 +3535,6 @@ export default {
   setTurnDirection,
   nextTurn,
   nextStep,
-  executeCleanupDiscard,
   scheduleStepsAfterCurrent,
   scheduleStepsAtEndOfTurn,
   clearScheduledSteps,

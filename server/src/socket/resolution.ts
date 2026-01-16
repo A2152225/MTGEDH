@@ -16,6 +16,7 @@ import {
   type TargetSelectionStep,
 } from "../state/resolution/index.js";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
+import { checkAndPromptOpeningHandActions } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -58,6 +59,39 @@ async function handleAIResolutionStep(
     let response: ResolutionStepResponse | null = null;
     
     switch (step.type) {
+      case ResolutionStepType.HAND_TO_BOTTOM: {
+        const stepData = step as any;
+        const cardsToBottom = Number(stepData.cardsToBottom || 0);
+        if (cardsToBottom <= 0) break;
+
+        const hand: any[] = Array.isArray(stepData.hand)
+          ? stepData.hand
+          : (Array.isArray((game.state as any)?.zones?.[step.playerId]?.hand)
+              ? (game.state as any).zones[step.playerId].hand
+              : []);
+
+        const ids = hand
+          .map((c: any) => c?.id)
+          .filter((id: any) => typeof id === 'string' && id.length > 0);
+
+        if (ids.length < cardsToBottom) {
+          debugWarn(1, `[Resolution] AI HAND_TO_BOTTOM: not enough cards in hand (${ids.length} < ${cardsToBottom})`);
+          break;
+        }
+
+        // Simple AI: take the last N cards (deterministic)
+        const selected = ids.slice(-cardsToBottom);
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: selected,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        break;
+      }
+
       case ResolutionStepType.BOUNCE_LAND_CHOICE: {
         const stepData = step as any;
         const landsToChoose = stepData.landsToChoose || [];
@@ -1574,6 +1608,12 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
   const fields: Record<string, any> = {};
   
   switch (step.type) {
+    case ResolutionStepType.HAND_TO_BOTTOM:
+      if ('hand' in step) fields.hand = (step as any).hand;
+      if ('cardsToBottom' in step) fields.cardsToBottom = (step as any).cardsToBottom;
+      if ('reason' in step) fields.reason = (step as any).reason;
+      break;
+
     case ResolutionStepType.TARGET_SELECTION:
       if ('validTargets' in step) fields.validTargets = step.validTargets;
       if ('targetTypes' in step) fields.targetTypes = step.targetTypes;
@@ -1601,6 +1641,8 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('commanderId' in step) fields.commanderId = step.commanderId;
       if ('commanderName' in step) fields.commanderName = step.commanderName;
       if ('fromZone' in step) fields.fromZone = step.fromZone;
+      if ('libraryPosition' in step) fields.libraryPosition = (step as any).libraryPosition;
+      if ('exileTag' in step) fields.exileTag = (step as any).exileTag;
       if ('card' in step) fields.card = step.card;
       break;
       
@@ -1820,6 +1862,125 @@ async function handleStepResponse(
   const pid = response.playerId;
   
   switch (step.type) {
+    case ResolutionStepType.HAND_TO_BOTTOM: {
+      // Currently used for London Mulligan: put N chosen cards from hand on bottom in random order.
+      const stepData = step as any;
+      const selected = response.selections as any;
+
+      const mulliganState = (game.state as any).mulliganState?.[pid];
+      const pendingBottomCount = Number(mulliganState?.pendingBottomCount || 0);
+      const expected = pendingBottomCount > 0
+        ? pendingBottomCount
+        : Number(stepData.cardsToBottom || 0);
+
+      if (!Array.isArray(selected) || !selected.every((x: any) => typeof x === 'string')) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SELECTION',
+          message: 'Invalid selection format for HAND_TO_BOTTOM',
+        });
+        break;
+      }
+
+      const cardIds = selected as string[];
+      if (expected <= 0 || cardIds.length !== expected) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SELECTION',
+          message: `Must select exactly ${expected} card${expected === 1 ? '' : 's'} to put to bottom`,
+        });
+        break;
+      }
+
+      const zones = (game.state as any)?.zones?.[pid];
+      if (!zones || !Array.isArray(zones.hand)) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'NO_HAND',
+          message: 'Hand not found',
+        });
+        break;
+      }
+
+      // Validate that all selected cards are in hand
+      const hand = zones.hand as any[];
+      const handIds = new Set(hand.map((c: any) => c?.id));
+      for (const cardId of cardIds) {
+        if (!handIds.has(cardId)) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'CARD_NOT_IN_HAND',
+            message: 'Selected card not found in hand',
+          });
+          return;
+        }
+      }
+
+      // Remove selected cards from hand
+      const cardsToBottom: any[] = [];
+      for (const cardId of cardIds) {
+        const idx = hand.findIndex((c: any) => c?.id === cardId);
+        if (idx !== -1) {
+          const [card] = hand.splice(idx, 1);
+          cardsToBottom.push(card);
+        }
+      }
+
+      // Shuffle the cards before putting to bottom (random order)
+      for (let i = cardsToBottom.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cardsToBottom[i], cardsToBottom[j]] = [cardsToBottom[j], cardsToBottom[i]];
+      }
+
+      // Get the library and add cards to the bottom
+      const lib = typeof game.libraries?.get === 'function'
+        ? game.libraries.get(pid) || []
+        : [];
+
+      for (const card of cardsToBottom) {
+        card.zone = 'library';
+        lib.push(card);
+      }
+
+      if (typeof game.libraries?.set === 'function') {
+        game.libraries.set(pid, lib);
+      }
+
+      // Update zone counts
+      zones.handCount = hand.length;
+      zones.libraryCount = lib.length;
+
+      // Mark mulligan as complete
+      const mulligansTaken = Number(mulliganState?.mulligansTaken || 0);
+      (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+      (game.state as any).mulliganState[pid] = {
+        hasKeptHand: true,
+        mulligansTaken,
+      };
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'mulliganPutToBottom', {
+          playerId: pid,
+          cardIds,
+          mulligansTaken,
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(mulliganPutToBottom) failed:', e);
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} keeps their hand (${hand.length} cards, put ${cardsToBottom.length} to bottom).`,
+        ts: Date.now(),
+      });
+
+      // Check for opening hand actions (Leylines) and prompt if any exist
+      checkAndPromptOpeningHandActions(io, game, gameId, pid);
+      break;
+    }
+
     case ResolutionStepType.MODE_SELECTION: {
       const selected = (response.selections as any);
       const selectedMode = Array.isArray(selected) ? selected[0] : selected;
@@ -2915,6 +3076,18 @@ function handleDiscardResponse(
       });
     }
   }
+
+  // Cleanup-step integration: after the discard is applied, advance through the
+  // normal cleanup/turn transition logic (clears damage, ends EOT effects, Sundial pause).
+  if ((step as any)?.reason === 'cleanup') {
+    try {
+      if (typeof (game as any).nextStep === 'function') {
+        (game as any).nextStep();
+      }
+    } catch (err) {
+      debugWarn(1, `[Resolution] Failed to advance after cleanup discard:`, err);
+    }
+  }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
@@ -2943,7 +3116,12 @@ function handleCommanderZoneResponse(
   const stepData = step as any;
   const commanderId = stepData.commanderId;
   const commanderName = stepData.commanderName || 'Commander';
-  const fromZone = stepData.fromZone || 'graveyard';
+  const destinationZone = (stepData.destinationZone || stepData.fromZone || 'graveyard') as
+    | 'graveyard'
+    | 'exile'
+    | 'hand'
+    | 'library';
+  const libraryPosition = (stepData.libraryPosition || 'shuffle') as 'top' | 'bottom' | 'shuffle';
   const card = stepData.card;
   const exileTag = stepData.exileTag as
     | {
@@ -2954,17 +3132,39 @@ function handleCommanderZoneResponse(
     | undefined;
   
   if (goToCommandZone) {
+    // Update commander tracking so it can be cast from the command zone.
+    // This is the authoritative source for whether a commander is in the command zone.
+    try {
+      if (typeof (game as any).moveCommanderToCZ === 'function' && commanderId) {
+        (game as any).moveCommanderToCZ(pid, commanderId);
+      } else {
+        const commanderInfo = (game.state as any)?.commandZone?.[pid];
+        if (commanderInfo) {
+          const inCommandZone = ((commanderInfo as any).inCommandZone as string[]) || [];
+          if (commanderId && !inCommandZone.includes(commanderId)) {
+            inCommandZone.push(commanderId);
+            (commanderInfo as any).inCommandZone = inCommandZone;
+            if ((game.state as any)?.commandZone) {
+              (game.state as any).commandZone[pid] = commanderInfo;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      debugWarn(1, `[Resolution] Failed to mark commander in command zone:`, err);
+    }
+
     // Actually move commander to command zone
     const zones = game.state?.zones?.[pid];
     if (zones && card) {
       // Remove from source zone
-      const sourceZone = zones[fromZone];
+      const sourceZone = (zones as any)[destinationZone];
       if (Array.isArray(sourceZone)) {
         const cardIndex = sourceZone.findIndex((c: any) => c.id === commanderId || c.id === card.id);
         if (cardIndex !== -1) {
           sourceZone.splice(cardIndex, 1);
           // Update zone count
-          const countKey = `${fromZone}Count` as keyof typeof zones;
+          const countKey = `${destinationZone}Count` as keyof typeof zones;
           if (typeof zones[countKey] === 'number') {
             (zones[countKey] as number)--;
           }
@@ -2986,7 +3186,7 @@ function handleCommanderZoneResponse(
       battlefield.splice(permIndex, 1);
     }
     
-    debug(2, `[Resolution] Moved ${commanderName} from ${fromZone} to command zone`);
+    debug(2, `[Resolution] Moved ${commanderName} from ${destinationZone} to command zone`);
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -2996,50 +3196,77 @@ function handleCommanderZoneResponse(
       ts: Date.now(),
     });
   } else {
-    // IMPORTANT: If this was a deferred commander replacement (graveyard/exile),
+    // IMPORTANT: If this was a deferred commander replacement,
     // the card was removed from the battlefield but NOT yet put into the destination zone.
     // Ensure it actually ends up in the chosen zone.
-    const zones = game.state?.zones?.[pid];
-    if (zones && card) {
-      const destZoneName = fromZone;
-      const destZone = (zones as any)[destZoneName];
 
-      // If the card isn't already in the destination zone, add it.
-      if (Array.isArray(destZone)) {
-        const alreadyThere = destZone.some((c: any) => c?.id === commanderId || c?.id === card.id);
-        if (!alreadyThere) {
-          const zoneValue = destZoneName === 'exile' ? 'exile' : destZoneName;
-          destZone.push({
-            ...card,
-            ...(destZoneName === 'exile' && exileTag ? { ...exileTag } : null),
-            zone: zoneValue,
-          });
-          const countKey = `${destZoneName}Count` as keyof typeof zones;
-          if (typeof zones[countKey] === 'number') {
-            (zones[countKey] as number)++;
+    if (destinationZone === 'library') {
+      try {
+        const cardToInsert = { ...(card as any), zone: 'library' };
+
+        if (libraryPosition === 'top') {
+          if (typeof (game as any).putCardsOnTopOfLibrary === 'function') {
+            (game as any).putCardsOnTopOfLibrary(pid, [cardToInsert]);
+          }
+        } else if (libraryPosition === 'bottom') {
+          if (typeof (game as any).putCardsOnBottomOfLibrary === 'function') {
+            (game as any).putCardsOnBottomOfLibrary(pid, [cardToInsert]);
+          }
+        } else {
+          // Shuffle: insert then shuffle for a uniform position.
+          if (typeof (game as any).putCardsOnTopOfLibrary === 'function') {
+            (game as any).putCardsOnTopOfLibrary(pid, [cardToInsert]);
+          }
+          if (typeof (game as any).shuffleLibrary === 'function') {
+            (game as any).shuffleLibrary(pid);
           }
         }
-      } else {
-        // If destination zone container doesn't exist, create as array.
-        (zones as any)[destZoneName] = [
-          {
-            ...card,
-            ...(destZoneName === 'exile' && exileTag ? { ...exileTag } : null),
-            zone: destZoneName === 'exile' ? 'exile' : destZoneName,
-          },
-        ];
-        const countKey = `${destZoneName}Count`;
-        (zones as any)[countKey] = 1;
+      } catch (err) {
+        debugWarn(1, `[Resolution] Failed to place ${commanderName} into library:`, err);
+      }
+    } else {
+      const zones = game.state?.zones?.[pid];
+      if (zones && card) {
+        const destZoneName = destinationZone;
+        const destZone = (zones as any)[destZoneName];
+
+        // If the card isn't already in the destination zone, add it.
+        if (Array.isArray(destZone)) {
+          const alreadyThere = destZone.some((c: any) => c?.id === commanderId || c?.id === card.id);
+          if (!alreadyThere) {
+            const zoneValue = destZoneName === 'exile' ? 'exile' : destZoneName;
+            destZone.push({
+              ...card,
+              ...(destZoneName === 'exile' && exileTag ? { ...exileTag } : null),
+              zone: zoneValue,
+            });
+            const countKey = `${destZoneName}Count` as keyof typeof zones;
+            if (typeof zones[countKey] === 'number') {
+              (zones[countKey] as number)++;
+            }
+          }
+        } else {
+          // If destination zone container doesn't exist, create as array.
+          (zones as any)[destZoneName] = [
+            {
+              ...card,
+              ...(destZoneName === 'exile' && exileTag ? { ...exileTag } : null),
+              zone: destZoneName === 'exile' ? 'exile' : destZoneName,
+            },
+          ];
+          const countKey = `${destZoneName}Count`;
+          (zones as any)[countKey] = 1;
+        }
       }
     }
 
-    debug(2, `[Resolution] ${commanderName} stays in ${fromZone}`);
+    debug(2, `[Resolution] ${commanderName} stays in ${destinationZone}`);
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${getPlayerName(game, pid)} let ${commanderName} go to ${fromZone}.`,
+      message: `${getPlayerName(game, pid)} let ${commanderName} go to ${destinationZone}.`,
       ts: Date.now(),
     });
   }
@@ -7691,23 +7918,39 @@ async function putCardOntoBattlefield(
   const isLand = tl.includes('land');
   const cardName = card.name || "Unknown";
   if (isLand && isShockLand(cardName) && io && gameId) {
-    // Shock land detected - emit prompt to player
+    // Shock land detected - queue choice to player
     const currentLife = (game.state as any)?.life?.[controller] || 
                        (game as any)?.life?.[controller] || 40;
     
     // Get card image URL
     const imageUrl = card.image_uris?.small || card.image_uris?.normal;
-    
-    // Emit shock land prompt (land enters untapped by default, prompt lets player tap it or pay life)
-    emitToPlayer(io, controller, "shockLandPrompt", {
-      gameId,
-      permanentId: newPermanent.id,
-      cardName,
-      imageUrl,
-      currentLife,
-    });
-    
-    debug(2, `[putCardOntoBattlefield] Shock land ${cardName} entering - prompt sent to ${controller}`);
+
+    const existing = ResolutionQueueManager
+      .getStepsForPlayer(gameId, controller as any)
+      .find((s: any) => (s as any)?.shockLandChoice === true && String((s as any)?.permanentId || '') === String(newPermanent.id));
+    if (!existing) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: controller as any,
+        sourceName: cardName,
+        sourceId: newPermanent.id,
+        sourceImage: imageUrl,
+        description: `${cardName}: You may pay 2 life. If you don't, it enters tapped. (Life: ${currentLife})`,
+        mandatory: true,
+        options: [
+          { id: 'enter_tapped', label: 'Have it enter tapped' },
+          { id: 'pay_2_life', label: 'Pay 2 life (enter untapped)' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        shockLandChoice: true,
+        permanentId: newPermanent.id,
+        payLifeAmount: 2,
+        cardName,
+      } as any);
+    }
+
+    debug(2, `[putCardOntoBattlefield] Shock land ${cardName} entering - queued choice for ${controller}`);
   }
   
   // Self ETB triggers
@@ -9174,6 +9417,375 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  // ===== SHOCK LANDS: pay 2 life or enter tapped =====
+  if (stepData?.shockLandChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const permanentId = String(stepData?.permanentId || '').trim();
+    const payLifeAmount = Number(stepData?.payLifeAmount || 2);
+    if (!permanentId) {
+      debugWarn(1, `[Resolution] shockLandChoice: missing permanentId`);
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p && p.id === permanentId);
+    if (!permanent) {
+      debugWarn(1, `[Resolution] shockLandChoice: permanent not found (${permanentId})`);
+      return;
+    }
+
+    const cardName = String(stepData?.cardName || permanent?.card?.name || 'Land');
+
+    // Treat cancel/unknown as choosing to enter tapped.
+    const normalized = String(choiceId || '').toLowerCase();
+    const shouldPayLife = !response.cancelled && normalized === 'pay_2_life';
+
+    if (shouldPayLife) {
+      // Ensure life object exists before accessing
+      if (!(game.state as any).life) {
+        (game.state as any).life = {};
+      }
+
+      const currentLife = (game.state as any).life[playerId] ?? (game as any).life?.[playerId] ?? 40;
+      if (typeof currentLife !== 'number' || currentLife < payLifeAmount) {
+        debugWarn(1, `[Resolution] shockLandChoice: insufficient life to pay ${payLifeAmount} (life=${currentLife}), entering tapped`);
+        (permanent as any).tapped = true;
+      } else {
+        const newLife = currentLife - payLifeAmount;
+        (game.state as any).life[playerId] = newLife;
+        if ((game as any).life) {
+          (game as any).life[playerId] = newLife;
+        }
+
+        const players = game.state?.players || [];
+        const player = players.find((p: any) => p.id === playerId);
+        if (player) {
+          (player as any).life = newLife;
+        }
+
+        (permanent as any).tapped = false;
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, playerId)} pays ${payLifeAmount} life for ${cardName} to enter untapped. (${currentLife} → ${newLife})`,
+          ts: Date.now(),
+        });
+      }
+    } else {
+      (permanent as any).tapped = true;
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)}'s ${cardName} enters the battlefield tapped.`,
+        ts: Date.now(),
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'shockLandChoice', {
+        playerId,
+        permanentId,
+        payLife: shouldPayLife,
+        cardName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist shockLandChoice event:', e);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== REVEAL LANDS (Snarl lands): reveal a matching land from hand or enter tapped =====
+  if (stepData?.revealLandChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const permanentId = String(stepData?.permanentId || '').trim();
+    if (!permanentId) {
+      debugWarn(1, `[Resolution] revealLandChoice: missing permanentId`);
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p && p.id === permanentId);
+    if (!permanent) {
+      debugWarn(1, `[Resolution] revealLandChoice: permanent not found (${permanentId})`);
+      return;
+    }
+
+    const cardName = String(stepData?.cardName || permanent?.card?.name || 'Land');
+    const normalized = String(choiceId || '').toLowerCase();
+    const revealCardId = !response.cancelled && choiceId && normalized !== 'decline_reveal' ? String(choiceId) : null;
+
+    let revealedName: string | null = null;
+    if (revealCardId) {
+      const zones = game.state?.zones?.[playerId];
+      const hand = zones && Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : [];
+      const revealedCard = hand.find((c: any) => c && String(c.id) === String(revealCardId));
+      revealedName = revealedCard?.name ? String(revealedCard.name) : null;
+    }
+
+    if (revealedName) {
+      (permanent as any).tapped = false;
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} reveals ${revealedName}. ${cardName} enters untapped.`,
+        ts: Date.now(),
+      });
+    } else {
+      (permanent as any).tapped = true;
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)}'s ${cardName} enters tapped (didn't reveal a card).`,
+        ts: Date.now(),
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'revealLandChoice', {
+        playerId,
+        permanentId,
+        revealCardId: revealedName ? revealCardId : null,
+        cardName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist revealLandChoice event:', e);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== SACRIFICE UNLESS YOU PAY (Transguild Promenade style) =====
+  if (stepData?.sacrificeUnlessPayChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const permanentId = String(stepData?.permanentId || '').trim();
+    const manaCost = String(stepData?.manaCost || '{1}').trim();
+    if (!permanentId) {
+      debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: missing permanentId`);
+      return;
+    }
+
+    // Default to sacrificing unless the player explicitly pays.
+    const normalized = String(choiceId || '').toLowerCase();
+    const shouldPay = !response.cancelled && normalized === 'pay_cost';
+
+    game.state = (game.state || {}) as any;
+    game.state.battlefield = game.state.battlefield || [];
+
+    const battlefield = game.state.battlefield as any[];
+    const permIndex = battlefield.findIndex((p: any) => p && p.id === permanentId);
+    if (permIndex === -1) {
+      debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: permanent not found (${permanentId})`);
+      return;
+    }
+
+    const permanent = battlefield[permIndex];
+    const cardName = String(stepData?.cardName || permanent?.card?.name || 'Permanent');
+
+    let paid = false;
+    if (shouldPay) {
+      if (!/\{[^}]+\}/.test(manaCost)) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Unsupported cost (${manaCost || 'unknown'}) for ${cardName}.`,
+        });
+      } else {
+        try {
+          const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+          const parsed = parseManaCost(manaCost);
+          const pool = getOrInitManaPool(game.state, playerId) as any;
+          const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+          const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+
+          if (validationError) {
+            emitToPlayer(io, playerId, 'error', {
+              code: 'INSUFFICIENT_MANA',
+              message: validationError,
+            });
+          } else {
+            consumeManaFromPool(pool, parsed.colors, parsed.generic);
+            paid = true;
+            io.to(gameId).emit('chat', {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: 'system',
+              message: `${getPlayerName(game, playerId)} pays ${manaCost} for ${cardName}.`,
+              ts: Date.now(),
+            });
+          }
+        } catch (err) {
+          debugError(1, `[Resolution] sacrificeUnlessPayChoice: failed to process mana payment`, err);
+          emitToPlayer(io, playerId, 'error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Failed to process payment (${manaCost || 'unknown'}) for ${cardName}.`,
+          });
+        }
+      }
+    }
+
+    if (!paid) {
+      // Sacrifice the permanent.
+      const card = (permanent as any).card;
+      battlefield.splice(permIndex, 1);
+
+      const zones = game.state?.zones?.[playerId];
+      if (zones) {
+        (zones as any).graveyard = (zones as any).graveyard || [];
+        ((zones as any).graveyard as any[]).push({ ...card, zone: 'graveyard' });
+        (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} sacrifices ${cardName} (didn't pay ${manaCost}).`,
+        ts: Date.now(),
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+        playerId,
+        permanentId,
+        payMana: paid,
+        cardName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist sacrificeUnlessPayChoice event:', e);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== MOX DIAMOND (replacement effect): discard a land or it goes to graveyard =====
+  if (stepData?.moxDiamondChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const stackItemId = String(stepData?.stackItemId || step.sourceId || '').trim();
+    if (!stackItemId) {
+      debugWarn(1, `[Resolution] moxDiamondChoice: missing stackItemId/sourceId`);
+      return;
+    }
+
+    game.state = (game.state || {}) as any;
+    game.state.stack = game.state.stack || [];
+    game.state.battlefield = game.state.battlefield || [];
+
+    const stack = game.state.stack as any[];
+    const stackIndex = stack.findIndex((it: any) => it && String(it.id) === String(stackItemId) && String(it.controller) === String(playerId));
+    if (stackIndex === -1) {
+      debugWarn(1, `[Resolution] moxDiamondChoice: stack item not found (${stackItemId})`);
+      return;
+    }
+
+    const stackItem = stack[stackIndex];
+    const moxCard = stackItem?.card;
+    const moxName = String(moxCard?.name || step.sourceName || 'Mox Diamond');
+
+    // Remove from stack - we'll either put it onto battlefield or into graveyard.
+    stack.splice(stackIndex, 1);
+
+    const normalized = String(choiceId || '').toLowerCase();
+    const discardLandId = !response.cancelled && choiceId && normalized !== 'decline_mox_diamond' ? String(choiceId) : null;
+
+    const zones = (game.state as any).zones = (game.state as any).zones || {};
+    zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    const playerZones = zones[playerId] as any;
+    playerZones.hand = playerZones.hand || [];
+    playerZones.graveyard = playerZones.graveyard || [];
+
+    let discardedLandName: string | null = null;
+
+    if (discardLandId) {
+      const handIndex = (playerZones.hand as any[]).findIndex((c: any) => c && String(c.id) === String(discardLandId));
+      const handCard = handIndex >= 0 ? (playerZones.hand as any[])[handIndex] : null;
+
+      if (!handCard || !/\bland\b/i.test(String(handCard?.type_line || ''))) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'LAND_NOT_IN_HAND',
+          message: 'Selected land card not found in hand (or not a land).',
+        });
+      } else {
+        // Discard land
+        (playerZones.hand as any[]).splice(handIndex, 1);
+        playerZones.handCount = (playerZones.hand as any[]).length;
+        playerZones.graveyard.push({ ...handCard, zone: 'graveyard' });
+        playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+        discardedLandName = String(handCard?.name || 'a land');
+
+        // Put Mox Diamond onto battlefield
+        const permanent = {
+          id: stackItemId, // reuse stack id for determinism
+          controller: playerId,
+          owner: playerId,
+          card: moxCard,
+          tapped: false,
+        };
+        (game.state.battlefield as any[]).push(permanent);
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, playerId)} discards ${discardedLandName}. ${moxName} enters the battlefield.`,
+          ts: Date.now(),
+        });
+      }
+    }
+
+    if (!discardedLandName) {
+      // Put Mox Diamond into graveyard.
+      playerZones.graveyard.push({ ...(moxCard || {}), zone: 'graveyard' });
+      playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} declines to discard. ${moxName} goes to the graveyard.`,
+        ts: Date.now(),
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'moxDiamondChoice', {
+        playerId,
+        stackItemId,
+        discardLandId: discardedLandName ? discardLandId : null,
+        cardName: moxName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist moxDiamondChoice event:', e);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   // ===== WARD: Pay ward cost (mana + common non-mana) =====
   if (stepData?.wardPayment === true) {

@@ -3700,12 +3700,16 @@ function executeTriggerEffect(
             // Commander Replacement Effect (Rule 903.9a):
             // If a commander would be put into graveyard from anywhere,
             // its owner may put it into the command zone instead.
-            state.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice || {};
-            state.pendingCommanderZoneChoice[owner] = state.pendingCommanderZoneChoice[owner] || [];
-            state.pendingCommanderZoneChoice[owner].push({
+            ResolutionQueueManager.addStep(ctx.gameId, {
+              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+              playerId: owner,
+              sourceId: destroyedPermanentId,
+              sourceName: card.name,
+              description: `Your commander ${card.name} would be put into your graveyard. Move it to the command zone instead?`,
+              mandatory: true,
               commanderId: card.id,
               commanderName: card.name,
-              destinationZone: 'graveyard',
+              fromZone: 'graveyard',
               card: {
                 id: card.id,
                 name: card.name,
@@ -3715,9 +3719,9 @@ function executeTriggerEffect(
                 mana_cost: card.mana_cost,
                 power: card.power,
                 toughness: card.toughness,
-              },
-            });
-            debug(2, `[executeTriggerEffect] Commander ${card.name} destroyed - DEFERRING zone change for player choice`);
+              } as any,
+            } as any);
+            debug(2, `[executeTriggerEffect] Commander ${card.name} destroyed - queued commander zone choice step`);
           } else {
             // Non-commander - move directly to graveyard
             const ownerZones = state.zones?.[targetPerm.owner];
@@ -3769,12 +3773,16 @@ function executeTriggerEffect(
           
           if (isCommander && card) {
             // Defer zone change - let player choose command zone or hand
-            state.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice || {};
-            state.pendingCommanderZoneChoice[owner] = state.pendingCommanderZoneChoice[owner] || [];
-            state.pendingCommanderZoneChoice[owner].push({
+            ResolutionQueueManager.addStep(ctx.gameId, {
+              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+              playerId: owner,
+              sourceId: bouncedPermanentId,
+              sourceName: card.name,
+              description: `Your commander ${card.name} would be returned to your hand. Move it to the command zone instead?`,
+              mandatory: true,
               commanderId: card.id,
               commanderName: card.name,
-              destinationZone: 'hand',
+              fromZone: 'hand',
               card: {
                 id: card.id,
                 name: card.name,
@@ -3784,9 +3792,9 @@ function executeTriggerEffect(
                 mana_cost: card.mana_cost,
                 power: card.power,
                 toughness: card.toughness,
-              },
-            });
-            debug(2, `[executeTriggerEffect] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
+              } as any,
+            } as any);
+            debug(2, `[executeTriggerEffect] Commander ${card.name} would go to hand - queued commander zone choice step`);
           } else {
             // Non-commander - move directly to hand
             const ownerZones = state.zones?.[owner];
@@ -7204,14 +7212,18 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         
         if (isCommander && targetCard) {
-          // Defer zone change - let player choose command zone or library
-          // Use object keyed by player ID for consistency with rest of codebase
-          (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
-          (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
-          (state as any).pendingCommanderZoneChoice[owner].push({
+          // Defer zone change - let player choose command zone or library via Resolution Queue
+          ResolutionQueueManager.addStep(ctx.gameId, {
+            type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+            playerId: owner,
+            sourceId: targetPermId,
+            sourceName: targetCard.name,
+            description: `Your commander ${targetCard.name} would be shuffled into your library. Move it to the command zone instead?`,
+            mandatory: true,
             commanderId: targetCard.id,
             commanderName: targetCard.name,
-            destinationZone: 'library',
+            fromZone: 'library',
+            libraryPosition: 'shuffle',
             card: {
               id: targetCard.id,
               name: targetCard.name,
@@ -7221,9 +7233,9 @@ export function resolveTopOfStack(ctx: GameContext) {
               mana_cost: targetCard.mana_cost,
               power: targetCard.power,
               toughness: targetCard.toughness,
-            },
-          });
-          debug(2, `[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - DEFERRING zone change for player choice`);
+            } as any,
+          } as any);
+          debug(2, `[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - queued commander zone choice step`);
           
           // Still reveal and potentially put a card onto battlefield
           // (but the commander choice happens separately)

@@ -9,7 +9,6 @@ import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, app
 import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
-import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
@@ -53,64 +52,50 @@ import {
 function getMaxHandSizeForPlayer(gameState: any, playerId: string): number {
   try {
     if (!gameState) return 7;
-    
-    // Check player-specific overrides first (set by spells like Praetor's Counsel)
-    // Praetor's Counsel: "You have no maximum hand size for the rest of the game."
+
     const playerMaxHandSize = gameState.maxHandSize?.[playerId];
     if (playerMaxHandSize === Infinity || playerMaxHandSize === Number.POSITIVE_INFINITY) {
       return Infinity;
     }
-    
-    // Check for "no maximum hand size" flags set by resolved spells
-    // This handles Praetor's Counsel and similar effects
+    if (typeof playerMaxHandSize === 'number' && playerMaxHandSize > 0) {
+      return playerMaxHandSize;
+    }
+
     const noMaxHandSize = gameState.noMaximumHandSize?.[playerId];
     if (noMaxHandSize === true) {
       return Infinity;
     }
-    
-    // Check player effects array for hand size modifications
+
     const playerEffects = gameState.playerEffects?.[playerId] || [];
     for (const effect of playerEffects) {
-      if (effect && (effect.type === 'no_maximum_hand_size' || 
-                     effect.effect === 'no_maximum_hand_size')) {
+      if (effect && (effect.type === 'no_maximum_hand_size' || effect.effect === 'no_maximum_hand_size')) {
         return Infinity;
       }
     }
-    
-    // Check for battlefield permanents that grant "no maximum hand size"
-    // Examples: Reliquary Tower, Thought Vessel, Spellbook, Venser's Journal, Library of Leng
-    const battlefield = gameState.battlefield || [];
+
+    const battlefield = Array.isArray(gameState.battlefield) ? gameState.battlefield : [];
     for (const perm of battlefield) {
       if (perm && perm.controller === playerId) {
-        const oracle = (perm.card?.oracle_text || "").toLowerCase();
-        // Check for "no maximum hand size" text
-        if (oracle.includes("you have no maximum hand size") || 
-            oracle.includes("no maximum hand size")) {
+        const oracle = String(perm.card?.oracle_text || '').toLowerCase();
+        if (oracle.includes('you have no maximum hand size') || oracle.includes('no maximum hand size')) {
           return Infinity;
         }
       }
     }
-    
-    // Check emblems controlled by the player
-    const emblems = gameState.emblems || [];
+
+    const emblems = Array.isArray(gameState.emblems) ? gameState.emblems : [];
     for (const emblem of emblems) {
       if (emblem && emblem.controller === playerId) {
-        const effect = (emblem.effect || emblem.text || "").toLowerCase();
-        if (effect.includes("no maximum hand size")) {
+        const effectText = String(emblem.effect || emblem.text || '').toLowerCase();
+        if (effectText.includes('no maximum hand size')) {
           return Infinity;
         }
       }
     }
-    
-    // Check for a numeric override (e.g., effects that set a specific hand size)
-    if (typeof playerMaxHandSize === "number" && playerMaxHandSize > 0) {
-      return playerMaxHandSize;
-    }
-    
-    // Default maximum hand size
+
     return 7;
   } catch (err) {
-    debugWarn(1, "[getMaxHandSizeForPlayer] Error:", err);
+    debugWarn(1, `[getMaxHandSizeForPlayer] failed:`, err);
     return 7;
   }
 }
@@ -121,16 +106,16 @@ function getMaxHandSizeForPlayer(gameState: any, playerId: string): number {
  */
 function handHasNoLandsOrAllLands(hand: any[]): boolean {
   if (!Array.isArray(hand) || hand.length === 0) return false;
-  
+
   let landCount = 0;
   for (const card of hand) {
     if (!card) continue;
-    const typeLine = (card.type_line || '').toLowerCase();
+    const typeLine = String(card.type_line || "").toLowerCase();
     if (/\bland\b/.test(typeLine)) {
       landCount++;
     }
   }
-  
+
   // No lands or all lands
   return landCount === 0 || landCount === hand.length;
 }
@@ -143,13 +128,13 @@ function checkAllHumanPlayersMulliganed(game: any): boolean {
   try {
     const players = game.state?.players || [];
     const mulliganState = (game.state as any)?.mulliganState || {};
-    
-    const humanPlayers = players.filter((p: any) => 
-      p && !p.spectator && !p.isAI && p.id && !p.id.startsWith('ai_')
+
+    const humanPlayers = players.filter((p: any) =>
+      p && !p.spectator && !p.isAI && p.id && !String(p.id).startsWith("ai_")
     );
-    
+
     if (humanPlayers.length === 0) return false;
-    
+
     // Check if all human players have mulliganed at least once
     for (const player of humanPlayers) {
       const playerMulliganState = mulliganState[player.id];
@@ -157,7 +142,7 @@ function checkAllHumanPlayersMulliganed(game: any): boolean {
         return false;
       }
     }
-    
+
     return true;
   } catch (err) {
     debugWarn(1, "checkAllHumanPlayersMulliganed failed:", err);
@@ -168,42 +153,35 @@ function checkAllHumanPlayersMulliganed(game: any): boolean {
 /**
  * Calculate the effective mulligan count for a player based on game rules.
  * This determines how many cards they need to put back when keeping their hand.
- * 
- * In multiplayer games (3+ players), the first mulligan is always free per 
+ *
+ * In multiplayer games (3+ players), the first mulligan is always free per
  * official Commander/multiplayer rules (rule 103.5a). This is now baseline behavior.
- * 
- * @param actualMulligans - The actual number of mulligans taken
- * @param game - The game state
- * @param playerId - The player ID
- * @returns The effective mulligan count (cards to put back)
  */
 function calculateEffectiveMulliganCount(
-  actualMulligans: number, 
-  game: any, 
+  actualMulligans: number,
+  game: any,
   playerId: string
 ): number {
   if (actualMulligans === 0) return 0;
-  
+
   const houseRules = game.state?.houseRules || {};
   const players = game.state?.players || [];
   const isMultiplayer = players.filter((p: any) => p && !p.spectator).length > 2;
-  
+
   let effectiveCount = actualMulligans;
-  
+
   // Free first mulligan in multiplayer (Commander rule 103.5a)
-  // This is now BASELINE behavior for multiplayer games - always enabled
-  // The house rule flag is kept for backward compatibility but is no longer required
   if (isMultiplayer && actualMulligans >= 1) {
     effectiveCount = Math.max(0, actualMulligans - 1);
     debug(1, `[mulligan] Free first mulligan applied for ${playerId} (multiplayer baseline): ${actualMulligans} -> ${effectiveCount}`);
   }
-  
+
   // Group mulligan discount: if enabled and all human players mulliganed, reduce by 1
   if (houseRules.groupMulliganDiscount && checkAllHumanPlayersMulliganed(game)) {
     effectiveCount = Math.max(0, effectiveCount - 1);
     debug(1, `[mulligan] Group mulligan discount applied for ${playerId}: effective count now ${effectiveCount}`);
   }
-  
+
   return effectiveCount;
 }
 
@@ -2117,17 +2095,34 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         if (permanent) {
           // Get player's current life
-          const currentLife = (game.state as any)?.life?.[playerId] || 
-                             (game as any)?.life?.[playerId] || 40;
-          
-          // Emit shock land prompt to the player
-          emitToPlayer(io, playerId as string, "shockLandPrompt", {
-            gameId,
-            permanentId: permanent.id,
-            cardName,
-            imageUrl: cardImageUrl,
-            currentLife,
-          });
+          const currentLife = (game.state as any)?.life?.[playerId] || (game as any)?.life?.[playerId] || 40;
+
+          // Queue shock land replacement choice via Resolution Queue.
+          // AI will handle this via generic option-choice handling.
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => (s as any)?.shockLandChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.OPTION_CHOICE,
+              playerId: playerId as any,
+              sourceName: cardName,
+              sourceId: permanent.id,
+              sourceImage: cardImageUrl,
+              description: `${cardName}: You may pay 2 life. If you don't, it enters tapped. (Life: ${currentLife})`,
+              mandatory: true,
+              options: [
+                { id: 'enter_tapped', label: 'Have it enter tapped' },
+                { id: 'pay_2_life', label: 'Pay 2 life (enter untapped)' },
+              ],
+              minSelections: 1,
+              maxSelections: 1,
+              shockLandChoice: true,
+              permanentId: permanent.id,
+              payLifeAmount: 2,
+              cardName,
+            } as any);
+          }
         }
       }
 
@@ -2222,15 +2217,48 @@ export function registerGameActions(io: Server, socket: Socket) {
           debug(2, `[playLand] ${cardName} conditional ETB: ${evaluation.reason}`);
           
           if (evaluation.requiresRevealPrompt && evaluation.canReveal) {
-            // Land can be revealed - prompt the player
-            emitToPlayer(io, playerId as string, "revealLandPrompt", {
-              gameId,
-              permanentId: permanent.id,
-              cardName,
-              imageUrl: cardImageUrl,
-              revealTypes: evaluation.revealTypes,
-              message: `You may reveal a ${evaluation.revealTypes?.join(' or ')} card from your hand. If you don't, ${cardName} enters tapped.`,
-            });
+            // Land can be revealed - queue choice via Resolution Queue.
+            // Use OPTION_CHOICE with one option per eligible card + a decline option.
+            const revealTypes: string[] = Array.isArray(evaluation.revealTypes) ? evaluation.revealTypes : [];
+            const eligible = playerHand
+              .filter((c: any) => {
+                const typeLine = String(c?.type_line || '');
+                if (!/\bland\b/i.test(typeLine)) return false;
+                if (revealTypes.length === 0) return true;
+                return revealTypes.some((t) => new RegExp(`\\b${String(t).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i').test(typeLine));
+              })
+              .map((c: any) => ({
+                id: String(c?.id || ''),
+                label: String(c?.name || 'Card'),
+                description: String(c?.type_line || ''),
+                imageUrl: c?.image_uris?.small || c?.image_uris?.normal,
+              }))
+              .filter((o: any) => o.id);
+
+            const existing = ResolutionQueueManager
+              .getStepsForPlayer(gameId, playerId as any)
+              .find((s: any) => (s as any)?.revealLandChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
+            if (!existing) {
+              ResolutionQueueManager.addStep(gameId, {
+                type: ResolutionStepType.OPTION_CHOICE,
+                playerId: playerId as any,
+                sourceName: cardName,
+                sourceId: permanent.id,
+                sourceImage: cardImageUrl,
+                description: `You may reveal a ${revealTypes.join(' or ')} card from your hand. If you don't, ${cardName} enters tapped.`,
+                mandatory: true,
+                options: [
+                  ...eligible,
+                  { id: 'decline_reveal', label: "Don't reveal (enter tapped)" },
+                ],
+                minSelections: 1,
+                maxSelections: 1,
+                revealLandChoice: true,
+                permanentId: permanent.id,
+                cardName,
+                revealTypes,
+              } as any);
+            }
           } else if (evaluation.shouldEnterTapped && !permanent.tapped) {
             // Land should enter tapped based on condition check
             permanent.tapped = true;
@@ -2279,16 +2307,32 @@ export function registerGameActions(io: Server, socket: Socket) {
         );
         
         if (permanent) {
-          // Emit sacrifice-unless-pay prompt to the player
-          emitSacrificeUnlessPayPrompt(
-            io,
-            gameId,
-            playerId as string,
-            permanent.id,
-            cardName,
-            sacrificeCost,
-            cardImageUrl
-          );
+          // Queue sacrifice-unless-pay via Resolution Queue.
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => (s as any)?.sacrificeUnlessPayChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.OPTION_CHOICE,
+              playerId: playerId as any,
+              sourceName: cardName,
+              sourceId: permanent.id,
+              sourceImage: cardImageUrl,
+              description: `${cardName}: Sacrifice it unless you pay ${sacrificeCost}. (Float mana first, then choose Pay.)`,
+              mandatory: true,
+              options: [
+                { id: 'pay_cost', label: `Pay ${sacrificeCost}` },
+                { id: 'sacrifice', label: `Don't pay (sacrifice ${cardName})` },
+              ],
+              minSelections: 1,
+              maxSelections: 1,
+              sacrificeUnlessPayChoice: true,
+              permanentId: permanent.id,
+              cardName,
+              manaCost: sacrificeCost,
+            } as any);
+          }
           debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
         }
       }
@@ -5041,8 +5085,18 @@ export function registerGameActions(io: Server, socket: Socket) {
             .map((c: any) => ({
               id: c.id,
               label: `Discard ${c.name || 'Land'}`,
-              image: c.image_uris?.small || c.image_uris?.normal,
+              imageUrl: c.image_uris?.small || c.image_uris?.normal,
             }));
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, resolvedController as any)
+            .find((s: any) => (s as any)?.moxDiamondChoice === true && String((s as any)?.stackItemId || '') === String(topItem.id));
+          if (existing) {
+            debug(2, `[passPriority] Mox Diamond replacement effect: step already exists for ${resolvedController}`);
+            if (typeof game.bumpSeq === 'function') game.bumpSeq();
+            broadcastGame(io, game, gameId);
+            return;
+          }
           
           ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
@@ -5053,11 +5107,12 @@ export function registerGameActions(io: Server, socket: Socket) {
             sourceName: resolvedCard.name || 'Mox Diamond',
             options: [
               ...landCardsInHand,
-              { id: 'DECLINE', label: 'Don’t discard (put Mox Diamond into graveyard)' },
+              { id: 'decline_mox_diamond', label: 'Don’t discard (put Mox Diamond into graveyard)' },
             ],
             minSelections: 1,
             maxSelections: 1,
-            action: 'mox_diamond_choice',
+            moxDiamondChoice: true,
+            stackItemId: topItem.id,
           } as any);
           
           debug(2, `[passPriority] Mox Diamond replacement effect: queued option choice for ${resolvedController}`);
@@ -6511,7 +6566,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Handle CLEANUP phase specially - need to check for discard and auto-advance to next turn
       const isCleanupPhase = targetStepUpper === "CLEANUP";
-      let needsDiscardSelection = false;
+      let queuedCleanupDiscard = false;
 
       if (isCleanupPhase && turnPlayer) {
         // Rule 514.1: Check if the active player needs to discard to maximum hand size
@@ -6529,22 +6584,41 @@ export function registerGameActions(io: Server, socket: Socket) {
             const discardCount = Math.max(0, hand.length - maxHandSize);
 
             if (discardCount > 0) {
-              // Player needs to choose cards to discard - set pending state
-              (game.state as any).pendingDiscardSelection = (game.state as any).pendingDiscardSelection || {};
-              (game.state as any).pendingDiscardSelection[turnPlayer] = {
-                count: discardCount,
-                maxHandSize: maxHandSize,
-              };
-              needsDiscardSelection = true;
-              debug(2, `[skipToPhase] Player ${turnPlayer} needs to discard ${discardCount} cards during cleanup`);
+              const handOptions = hand
+                .filter((c: any) => c && c.id)
+                .map((c: any) => ({
+                  id: String(c.id),
+                  label: String(c.name || 'Unknown'),
+                  imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
+                }));
+
+              if (handOptions.length > 0) {
+                ResolutionQueueManager.addStep(gameId, {
+                  type: ResolutionStepType.DISCARD_SELECTION,
+                  playerId: turnPlayer as any,
+                  sourceName: 'Cleanup Step',
+                  description: `Cleanup: discard ${discardCount} card(s) to maximum hand size (${maxHandSize}).`,
+                  mandatory: true,
+                  hand: handOptions,
+                  discardCount,
+                  currentHandSize: handOptions.length,
+                  maxHandSize,
+                  reason: 'cleanup',
+                  priority: -10,
+                } as any);
+                queuedCleanupDiscard = true;
+                debug(2, `[skipToPhase] Queued cleanup discard step for ${turnPlayer}: discard ${discardCount}`);
+              } else {
+                debugWarn(1, `[skipToPhase] Cannot queue cleanup discard step - hand is empty/unknown for ${turnPlayer}`);
+              }
             }
           }
         } catch (err) {
           debugWarn(1, `[skipToPhase] Failed to check discard during cleanup:`, err);
         }
 
-        // If no discard needed, clear damage from permanents and end temporary effects
-        if (!needsDiscardSelection) {
+        // If no discard needed, clear damage from permanents and advance via normal nextStep logic
+        if (!queuedCleanupDiscard) {
           try {
             // Rule 514.2: Clear damage from all permanents
             const battlefield = (game.state as any)?.battlefield;
@@ -6560,14 +6634,14 @@ export function registerGameActions(io: Server, socket: Socket) {
             debugWarn(1, `[skipToPhase] Failed to clear damage during cleanup:`, err);
           }
 
-          // Auto-advance to next turn since no discard is needed
+          // Auto-advance through cleanup using the canonical turn logic (handles EOT cleanup and Sundial pause)
           try {
-            if (typeof (game as any).nextTurn === "function") {
-              (game as any).nextTurn();
-              debug(2, `[skipToPhase] Cleanup complete, advanced to next turn for game ${gameId}`);
+            if (typeof (game as any).nextStep === "function") {
+              (game as any).nextStep();
+              debug(2, `[skipToPhase] Cleanup complete, advanced via nextStep for game ${gameId}`);
             }
           } catch (err) {
-            debugWarn(1, `[skipToPhase] Failed to advance to next turn after cleanup:`, err);
+            debugWarn(1, `[skipToPhase] Failed to advance after cleanup:`, err);
           }
         }
       }
@@ -6595,7 +6669,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Different message based on whether we're going to cleanup or regular phase
       const chatMessage = isCleanupPhase 
-        ? (needsDiscardSelection 
+        ? (queuedCleanupDiscard 
             ? `${getPlayerName(game, playerId)} moved to cleanup. Discard to hand size.`
             : `${getPlayerName(game, playerId)} ended their turn.`)
         : `${getPlayerName(game, playerId)} skipped to ${targetPhase} phase.`;
@@ -6921,6 +6995,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // If we already asked the player to put cards on bottom, avoid creating duplicate steps
+      if (mulliganState?.pendingBottomCount && mulliganState.pendingBottomCount > 0) {
+        socket.emit("error", {
+          code: "PENDING_BOTTOM_SELECTION",
+          message: "You must finish choosing cards to put on the bottom",
+        });
+        return;
+      }
+
       // Get current mulligan count
       const mulligansTaken = mulliganState?.mulligansTaken || 0;
       
@@ -6935,22 +7018,30 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (effectiveMulliganCount > 0) {
         // London Mulligan: player must put back cards equal to effective number of mulligans
         // (after applying house rule discounts like free first mulligan or group mulligan)
+        const zones = (game.state as any)?.zones?.[playerId];
+        const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+
+        const resolutionStep = ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.HAND_TO_BOTTOM,
+          playerId,
+          description: `London Mulligan: Put ${effectiveMulliganCount} card${effectiveMulliganCount > 1 ? 's' : ''} on the bottom of your library (random order).`,
+          mandatory: true,
+          cardsToBottom: effectiveMulliganCount,
+          hand,
+          reason: 'mulligan',
+        });
+
         (game.state as any).mulliganState[playerId] = {
           hasKeptHand: false, // Not fully kept yet - need to put cards back
           mulligansTaken,
           pendingBottomCount: effectiveMulliganCount, // Cards to put to bottom after house rule discounts
+          pendingBottomStepId: resolutionStep.id,
         };
 
         // Bump sequence
         if (typeof game.bumpSeq === "function") {
           game.bumpSeq();
         }
-
-        // Emit the bottom selection prompt to the player
-        emitToPlayer(io, playerId as string, "mulliganBottomPrompt", {
-          gameId,
-          cardsToBottom: effectiveMulliganCount,
-        });
 
         // Build message with house rule info
         let message = `${getPlayerName(game, playerId)} is choosing ${effectiveMulliganCount} card${effectiveMulliganCount > 1 ? 's' : ''} to put on the bottom of their library`;
@@ -7010,133 +7101,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       debugError(1, `keepHand error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "KEEP_HAND_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
-  // Complete London Mulligan - put selected cards to bottom of library in random order
-  socket.on("mulliganPutToBottom", ({ gameId, cardIds }: { gameId: string; cardIds: string[] }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      // Validate the mulligan state
-      const mulliganState = (game.state as any).mulliganState?.[playerId];
-      if (!mulliganState || mulliganState.hasKeptHand) {
-        socket.emit("error", {
-          code: "INVALID_STATE",
-          message: "No pending mulligan bottom selection",
-        });
-        return;
-      }
-
-      const pendingBottomCount = mulliganState.pendingBottomCount || 0;
-      if (!cardIds || cardIds.length !== pendingBottomCount) {
-        socket.emit("error", {
-          code: "INVALID_SELECTION",
-          message: `Must select exactly ${pendingBottomCount} cards to put to bottom`,
-        });
-        return;
-      }
-
-      // Get the player's hand
-      const zones = game.state?.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", {
-          code: "NO_HAND",
-          message: "Hand not found",
-        });
-        return;
-      }
-
-      // Validate that all selected cards are in hand
-      const hand = zones.hand as any[];
-      const handIds = new Set(hand.map((c: any) => c?.id));
-      for (const cardId of cardIds) {
-        if (!handIds.has(cardId)) {
-          socket.emit("error", {
-            code: "CARD_NOT_IN_HAND",
-            message: "Selected card not found in hand",
-          });
-          return;
-        }
-      }
-
-      // Remove selected cards from hand
-      const cardsToBottom: any[] = [];
-      for (const cardId of cardIds) {
-        const idx = hand.findIndex((c: any) => c?.id === cardId);
-        if (idx !== -1) {
-          const [card] = hand.splice(idx, 1);
-          cardsToBottom.push(card);
-        }
-      }
-
-      // Shuffle the cards before putting to bottom (random order as per rules)
-      for (let i = cardsToBottom.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [cardsToBottom[i], cardsToBottom[j]] = [cardsToBottom[j], cardsToBottom[i]];
-      }
-
-      // Get the library and add cards to the bottom
-      const lib = typeof game.libraries?.get === "function" 
-        ? game.libraries.get(playerId) || []
-        : [];
-      
-      for (const card of cardsToBottom) {
-        card.zone = "library";
-        lib.push(card);
-      }
-
-      // Update library
-      if (typeof game.libraries?.set === "function") {
-        game.libraries.set(playerId, lib);
-      }
-
-      // Update zone counts
-      zones.handCount = hand.length;
-      zones.libraryCount = lib.length;
-
-      // Mark mulligan as complete
-      (game.state as any).mulliganState[playerId] = {
-        hasKeptHand: true,
-        mulligansTaken: mulliganState.mulligansTaken,
-      };
-
-      // Bump sequence
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-
-      // Persist the event
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "mulliganPutToBottom", { 
-          playerId, 
-          cardIds,
-          mulligansTaken: mulliganState.mulligansTaken,
-        });
-      } catch (e) {
-        debugWarn(1, "appendEvent(mulliganPutToBottom) failed:", e);
-      }
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} keeps their hand (${hand.length} cards, put ${cardsToBottom.length} to bottom).`,
-        ts: Date.now(),
-      });
-
-      // Check for opening hand actions (Leylines) and prompt if any exist
-      checkAndPromptOpeningHandActions(io, game, gameId, playerId);
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `mulliganPutToBottom error for game ${gameId}:`, err);
-      socket.emit("error", {
-        code: "MULLIGAN_BOTTOM_ERROR",
         message: err?.message ?? String(err),
       });
     }
@@ -7263,122 +7227,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       debugError(1, `mulligan error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "MULLIGAN_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
-  // Cleanup step discard - player selects which cards to discard when over max hand size
-  socket.on("cleanupDiscard", ({ gameId, cardIds }: { gameId: string; cardIds: string[] }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      // Validate the pending discard state
-      const pendingDiscard = (game.state as any).pendingDiscardSelection?.[playerId];
-      if (!pendingDiscard) {
-        socket.emit("error", {
-          code: "INVALID_STATE",
-          message: "No pending discard selection",
-        });
-        return;
-      }
-
-      if (!cardIds || cardIds.length !== pendingDiscard.count) {
-        socket.emit("error", {
-          code: "INVALID_SELECTION",
-          message: `Must select exactly ${pendingDiscard.count} cards to discard`,
-        });
-        return;
-      }
-
-      // Get the player's hand
-      const zones = game.state?.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", {
-          code: "NO_HAND",
-          message: "Hand not found",
-        });
-        return;
-      }
-
-      // Validate that all selected cards are in hand
-      const hand = zones.hand as any[];
-      const handIds = new Set(hand.map((c: any) => c?.id));
-      for (const cardId of cardIds) {
-        if (!handIds.has(cardId)) {
-          socket.emit("error", {
-            code: "CARD_NOT_IN_HAND",
-            message: "Selected card not found in hand",
-          });
-          return;
-        }
-      }
-
-      // Discard selected cards
-      const discardedCards: any[] = [];
-      for (const cardId of cardIds) {
-        const idx = hand.findIndex((c: any) => c?.id === cardId);
-        if (idx !== -1) {
-          const [card] = hand.splice(idx, 1);
-          discardedCards.push(card);
-          
-          // Move card to graveyard
-          zones.graveyard = zones.graveyard || [];
-          card.zone = "graveyard";
-          zones.graveyard.push(card);
-        }
-      }
-
-      // Update counts
-      zones.handCount = hand.length;
-      zones.graveyardCount = zones.graveyard.length;
-
-      // Clear the pending discard state (with safe check)
-      if ((game.state as any).pendingDiscardSelection) {
-        delete (game.state as any).pendingDiscardSelection[playerId];
-      }
-
-      // Bump sequence
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-
-      // Persist the event
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "cleanupDiscard", { 
-          playerId, 
-          cardIds,
-          discardCount: discardedCards.length,
-        });
-      } catch (e) {
-        debugWarn(1, "appendEvent(cleanupDiscard) failed:", e);
-      }
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} discards ${discardedCards.length} card${discardedCards.length !== 1 ? 's' : ''} to maximum hand size.`,
-        ts: Date.now(),
-      });
-
-      // Now continue to advance the turn since discard is complete
-      try {
-        if (typeof (game as any).nextTurn === "function") {
-          (game as any).nextTurn();
-          debug(2, `[cleanupDiscard] Advanced to next turn for game ${gameId}`);
-        }
-      } catch (e) {
-        debugWarn(1, "[cleanupDiscard] Failed to advance to next turn:", e);
-      }
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `cleanupDiscard error for game ${gameId}:`, err);
-      socket.emit("error", {
-        code: "CLEANUP_DISCARD_ERROR",
         message: err?.message ?? String(err),
       });
     }

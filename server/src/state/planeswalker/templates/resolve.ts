@@ -68,7 +68,7 @@ function restartGameWithKarnExemptions(
   state.extraTurns = [];
   state.playableFromExile = {};
   state.blockersDeclaredBy = undefined;
-  state.pendingCommanderZoneChoice = {};
+  delete (state as any).pendingCommanderZoneChoice;
   state.stepAdvanceBlocked = undefined;
   state.noncreatureSpellsCastThisTurn = {};
   state.autoPassForTurn = {};

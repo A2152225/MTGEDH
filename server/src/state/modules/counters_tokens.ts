@@ -6,6 +6,8 @@ import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { ResolutionQueueManager } from "../resolution/index.js";
+import { ResolutionStepType } from "../resolution/types.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -476,13 +478,16 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
   
   if (isCommander && card) {
-    // Set up pending choice - DO NOT move to graveyard yet
-    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
-    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
-    (state as any).pendingCommanderZoneChoice[owner].push({
+    ResolutionQueueManager.addStep(ctx.gameId, {
+      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      playerId: owner,
+      sourceId: perm.id,
+      sourceName: card.name,
+      description: `Your commander ${card.name} would be put into your graveyard. Move it to the command zone instead?`,
+      mandatory: true,
       commanderId: card.id,
       commanderName: card.name,
-      destinationZone: 'graveyard',
+      fromZone: 'graveyard',
       card: {
         id: card.id,
         name: card.name,
@@ -492,45 +497,9 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         mana_cost: card.mana_cost,
         power: card.power,
         toughness: card.toughness,
-      },
-    });
-    debug(2, `[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - DEFERRING zone change for player choice`);
-    
-    // Add to resolution queue for modal display
-    try {
-      // Dynamically import ResolutionQueueManager to avoid circular dependencies
-      import('../../state/resolution/index.js').then(({ ResolutionQueueManager }) => {
-        import('../../state/resolution/types.js').then(({ ResolutionStepType }) => {
-          const gameId = (ctx as any).gameId || (state as any).gameId;
-          if (gameId) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
-              playerId: owner,
-              description: `Choose where to put ${card.name}`,
-              mandatory: true,
-              commanderId: card.id,
-              commanderName: card.name,
-              fromZone: 'graveyard',
-              card: {
-                id: card.id,
-                name: card.name,
-                type_line: card.type_line,
-                oracle_text: card.oracle_text,
-                image_uris: card.image_uris,
-                mana_cost: card.mana_cost,
-                power: card.power,
-                toughness: card.toughness,
-              },
-            });
-            debug(2, `[movePermanentToGraveyard] Added commander zone choice to resolution queue for ${card.name}`);
-          }
-        });
-      }).catch(err => {
-        debugWarn(1, '[movePermanentToGraveyard] Failed to add commander choice to resolution queue:', err);
-      });
-    } catch (err) {
-      debugWarn(1, '[movePermanentToGraveyard] Failed to import ResolutionQueueManager:', err);
-    }
+      } as any,
+    } as any);
+    debug(2, `[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - queued commander zone choice step`);
     
     // Remove from battlefield but DON'T add to graveyard yet - wait for player choice
     bumpSeq();
@@ -643,15 +612,23 @@ export function movePermanentToExile(
   const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
   
   if (isCommander && card) {
-    // Add to pending commander zone choices for the owner to decide
-    // The player will be prompted to choose whether to move to command zone or exile
-    // DO NOT move to exile yet - wait for player choice
-    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
-    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
-    (state as any).pendingCommanderZoneChoice[owner].push({
+    const exileTag = {
+      ...(options?.exiledWithSourceId ? { exiledWithSourceId: options.exiledWithSourceId } : {}),
+      ...(options?.exiledWithOracleId ? { exiledWithOracleId: options.exiledWithOracleId } : {}),
+      ...(options?.exiledWithSourceName ? { exiledWithSourceName: options.exiledWithSourceName } : {}),
+    };
+
+    ResolutionQueueManager.addStep(ctx.gameId, {
+      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      playerId: owner,
+      sourceId: perm.id,
+      sourceName: card.name,
+      description: `Your commander ${card.name} would be put into exile. Move it to the command zone instead?`,
+      mandatory: true,
       commanderId: card.id,
       commanderName: card.name,
-      destinationZone: 'exile',
+      fromZone: 'exile',
+      exileTag,
       card: {
         id: card.id,
         name: card.name,
@@ -661,45 +638,9 @@ export function movePermanentToExile(
         mana_cost: card.mana_cost,
         power: card.power,
         toughness: card.toughness,
-      },
-    });
-    debug(2, `[movePermanentToExile] Commander ${card.name} would go to exile - DEFERRING zone change for player choice`);
-    
-    // Add to resolution queue for modal display
-    try {
-      // Dynamically import ResolutionQueueManager to avoid circular dependencies
-      import('../../state/resolution/index.js').then(({ ResolutionQueueManager }) => {
-        import('../../state/resolution/types.js').then(({ ResolutionStepType }) => {
-          const gameId = (ctx as any).gameId || (state as any).gameId;
-          if (gameId) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
-              playerId: owner,
-              description: `Choose where to put ${card.name}`,
-              mandatory: true,
-              commanderId: card.id,
-              commanderName: card.name,
-              fromZone: 'exile',
-              card: {
-                id: card.id,
-                name: card.name,
-                type_line: card.type_line,
-                oracle_text: card.oracle_text,
-                image_uris: card.image_uris,
-                mana_cost: card.mana_cost,
-                power: card.power,
-                toughness: card.toughness,
-              },
-            });
-            debug(2, `[movePermanentToExile] Added commander zone choice to resolution queue for ${card.name}`);
-          }
-        });
-      }).catch(err => {
-        debugWarn(1, '[movePermanentToExile] Failed to add commander choice to resolution queue:', err);
-      });
-    } catch (err) {
-      debugWarn(1, '[movePermanentToExile] Failed to import ResolutionQueueManager:', err);
-    }
+      } as any,
+    } as any);
+    debug(2, `[movePermanentToExile] Commander ${card.name} would go to exile - queued commander zone choice step`);
     
     bumpSeq();
     return; // Zone change deferred for commander - don't add to exile yet

@@ -21,9 +21,7 @@ import { ClashModal } from "./components/ClashModal";
 import { VoteModal } from "./components/VoteModal";
 import { CastSpellModal } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
-import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
 import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
-import { SacrificeUnlessPayModal } from "./components/SacrificeUnlessPayModal";
 import { CardSelectionModal } from "./components/CardSelectionModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { MulliganBottomModal } from "./components/MulliganBottomModal";
@@ -33,7 +31,6 @@ import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { ProliferateModal, type ProliferateTarget } from "./components/ProliferateModal";
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
-import { MoxDiamondModal } from "./components/MoxDiamondModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
@@ -238,22 +235,8 @@ export function App() {
   const [combatModalError, setCombatModalError] = useState<string | null>(null);
   const lastCombatErrorSeenRef = useRef<string | null>(null);
   
-  // Shock land choice modal state
-  const [shockLandModalOpen, setShockLandModalOpen] = useState(false);
-  const [shockLandData, setShockLandData] = useState<{
-    permanentId: string;
-    cardName: string;
-    imageUrl?: string;
-    currentLife?: number;
-  } | null>(null);
-  
-  // Mox Diamond replacement effect modal state
-  const [moxDiamondModalOpen, setMoxDiamondModalOpen] = useState(false);
-  const [moxDiamondData, setMoxDiamondData] = useState<{
-    stackItemId: string;
-    cardImageUrl?: string;
-    landCardsInHand: Array<{ id: string; name: string; imageUrl?: string }>;
-  } | null>(null);
+  // NOTE: Mox Diamond replacement-effect interaction is now handled by the
+  // Resolution Queue via a generic option-choice step.
   
   // Bounce land choice modal state
   const [bounceLandModalOpen, setBounceLandModalOpen] = useState(false);
@@ -311,24 +294,8 @@ export function App() {
     sourceName: string;
   } | null>(null);
   
-  // Sacrifice unless pay modal state (Transguild Promenade, Gateway Plaza, etc.)
-  const [sacrificeUnlessPayModalOpen, setSacrificeUnlessPayModalOpen] = useState(false);
-  const [sacrificeUnlessPayData, setSacrificeUnlessPayData] = useState<{
-    permanentId: string;
-    cardName: string;
-    manaCost: string;
-    imageUrl?: string;
-  } | null>(null);
-  
-  // Reveal land modal state (Furycalm Snarl, etc.)
-  const [revealLandModalOpen, setRevealLandModalOpen] = useState(false);
-  const [revealLandData, setRevealLandData] = useState<{
-    permanentId: string;
-    cardName: string;
-    imageUrl?: string;
-    revealTypes: string[];
-    message: string;
-  } | null>(null);
+  // NOTE: sacrifice-unless-pay and reveal-land ETB interactions are now handled
+  // by the Resolution Queue via generic option-choice steps.
 
   // Equip target selection modal state
   const [equipTargetModalOpen, setEquipTargetModalOpen] = useState(false);
@@ -380,11 +347,16 @@ export function App() {
   // Mulligan bottom selection modal state (London Mulligan)
   const [mulliganBottomModalOpen, setMulliganBottomModalOpen] = useState(false);
   const [mulliganBottomCount, setMulliganBottomCount] = useState(0);
+  const [mulliganBottomStepId, setMulliganBottomStepId] = useState<string | null>(null);
 
    // Cleanup discard selection modal state
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
   const [discardCount, setDiscardCount] = useState(0);
   const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
+  const [discardResolutionStepId, setDiscardResolutionStepId] = useState<string | null>(null);
+  const [discardResolutionReason, setDiscardResolutionReason] = useState<'cleanup' | 'effect'>('cleanup');
+  const [discardResolutionTitle, setDiscardResolutionTitle] = useState<string | null>(null);
+  const [discardResolutionDescription, setDiscardResolutionDescription] = useState<string | null>(null);
   
   // Game over notification state
   const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
@@ -1427,101 +1399,6 @@ export function App() {
     }
   }, [safeView, you, combatModalOpen, autoPassSteps, autoPassForTurn, phaseNavigatorAdvancing, pendingTriggers]);
 
-  // Shock land prompt listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setShockLandData({
-          permanentId: payload.permanentId,
-          cardName: payload.cardName,
-          imageUrl: payload.imageUrl,
-          currentLife: payload.currentLife,
-        });
-        setShockLandModalOpen(true);
-      }
-    };
-    socket.on("shockLandPrompt", handler);
-    return () => {
-      socket.off("shockLandPrompt", handler);
-    };
-  }, [safeView?.id]);
-
-  // Mox Diamond prompt listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setMoxDiamondData({
-          stackItemId: payload.stackItemId,
-          cardImageUrl: payload.cardImageUrl,
-          landCardsInHand: payload.landCardsInHand || [],
-        });
-        setMoxDiamondModalOpen(true);
-      }
-    };
-    socket.on("moxDiamondPrompt", handler);
-    return () => {
-      socket.off("moxDiamondPrompt", handler);
-    };
-  }, [safeView?.id]);
-
-  // Proliferate prompt listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setProliferateData({
-          proliferateId: payload.proliferateId,
-          sourceName: payload.sourceName,
-          imageUrl: payload.imageUrl,
-          validTargets: payload.validTargets,
-        });
-        setProliferateModalOpen(true);
-      }
-    };
-    socket.on("proliferatePrompt", handler);
-    return () => {
-      socket.off("proliferatePrompt", handler);
-    };
-  }, [safeView?.id]);
-
-  // Sacrifice unless pay prompt listener (Transguild Promenade, Gateway Plaza, Rupture Spire)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setSacrificeUnlessPayData({
-          permanentId: payload.permanentId,
-          cardName: payload.cardName,
-          manaCost: payload.manaCost,
-          imageUrl: payload.imageUrl,
-        });
-        setSacrificeUnlessPayModalOpen(true);
-      }
-    };
-    socket.on("sacrificeUnlessPayPrompt", handler);
-    return () => {
-      socket.off("sacrificeUnlessPayPrompt", handler);
-    };
-  }, [safeView?.id]);
-
-  // Reveal land prompt listener (Furycalm Snarl, etc.)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setRevealLandData({
-          permanentId: payload.permanentId,
-          cardName: payload.cardName,
-          imageUrl: payload.imageUrl,
-          revealTypes: payload.revealTypes || [],
-          message: payload.message || 'Reveal a card to enter untapped',
-        });
-        setRevealLandModalOpen(true);
-      }
-    };
-    socket.on("revealLandPrompt", handler);
-    return () => {
-      socket.off("revealLandPrompt", handler);
-    };
-  }, [safeView?.id]);
-
   // Equip target selection listener
   React.useEffect(() => {
     const handler = (payload: any) => {
@@ -1586,18 +1463,7 @@ export function App() {
   }, [safeView?.id]);
 
   // Mulligan bottom selection prompt listener (London Mulligan)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id && payload.cardsToBottom > 0) {
-        setMulliganBottomCount(payload.cardsToBottom);
-        setMulliganBottomModalOpen(true);
-      }
-    };
-    socket.on("mulliganBottomPrompt", handler);
-    return () => {
-      socket.off("mulliganBottomPrompt", handler);
-    };
-  }, [safeView?.id]);
+  // (Legacy mulliganBottomPrompt removed; mulligan bottom uses Resolution Queue HAND_TO_BOTTOM)
 
   // Triggered ability prompt listener
   React.useEffect(() => {
@@ -2571,9 +2437,38 @@ export function App() {
       if (payload.gameId !== safeView?.id) return;
       
       const step = payload.step;
+
+      // Handle Discard Selection resolution step (cleanup discard and discard effects)
+      if (step.type === 'discard_selection') {
+        const discardCount = Number(step.discardCount || 0);
+        if (discardCount > 0) {
+          const reason: 'cleanup' | 'effect' = step.reason === 'effect' ? 'effect' : 'cleanup';
+          setDiscardCount(discardCount);
+          setDiscardMaxHandSize(Number(step.maxHandSize || 7));
+          setDiscardResolutionStepId(String(step.id));
+          setDiscardResolutionReason(reason);
+          setDiscardResolutionTitle(
+            reason === 'cleanup'
+              ? 'Cleanup Step - Discard to Hand Size'
+              : String(step.sourceName || 'Discard')
+          );
+          setDiscardResolutionDescription(String(step.description || ''));
+          setDiscardModalOpen(true);
+        }
+      }
+
+      // Handle London mulligan bottom selection via Resolution Queue
+      else if (step.type === 'hand_to_bottom' && step.reason === 'mulligan') {
+        const cardsToBottom = Number(step.cardsToBottom || 0);
+        if (cardsToBottom > 0) {
+          setMulliganBottomCount(cardsToBottom);
+          setMulliganBottomStepId(String(step.id));
+          setMulliganBottomModalOpen(true);
+        }
+      }
       
       // Handle Kynaios choice resolution step
-      if (step.type === 'kynaios_choice') {
+      else if (step.type === 'kynaios_choice') {
         // Convert resolution step to KynaiosChoiceRequest format
         const request: KynaiosChoiceRequest = {
           gameId: payload.gameId,
@@ -2645,6 +2540,7 @@ export function App() {
           commanderId: step.commanderId,
           commanderName: step.commanderName,
           destinationZone: step.fromZone,
+          libraryPosition: step.libraryPosition,
           card: step.card,
           exileTag: step.exileTag,
         };
@@ -3026,20 +2922,10 @@ export function App() {
       }
     };
     
-    // Also listen for the legacy kynaiosChoice event for backward compatibility
-    const handleLegacyKynaiosChoice = (payload: KynaiosChoiceRequest) => {
-      if (payload.gameId === safeView?.id) {
-        setKynaiosChoiceRequest(payload);
-        setKynaiosChoiceModalOpen(true);
-      }
-    };
-    
     socket.on("resolutionStepPrompt", handleResolutionStepPrompt);
-    socket.on("kynaiosChoice", handleLegacyKynaiosChoice);
     
     return () => {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
-      socket.off("kynaiosChoice", handleLegacyKynaiosChoice);
     };
   }, [safeView?.id]);
 
@@ -3446,28 +3332,22 @@ export function App() {
   const mulligansTaken = mulliganState?.mulligansTaken || 0;
   const pendingBottomCount = mulliganState?.pendingBottomCount || 0;
 
-  // Detect pending discard selection for cleanup step
-  const pendingDiscardSelection = useMemo(() => {
-    if (!safeView || !you) return null;
-    return (safeView as any).pendingDiscardSelection?.[you] || null;
-  }, [safeView, you]);
-
-  // Auto-open discard modal when pending discard detected
-  React.useEffect(() => {
-    if (pendingDiscardSelection && pendingDiscardSelection.count > 0) {
-      setDiscardCount(pendingDiscardSelection.count);
-      setDiscardMaxHandSize(pendingDiscardSelection.maxHandSize || 7);
-      setDiscardModalOpen(true);
-    }
-  }, [pendingDiscardSelection]);
-
   // Auto-open mulligan bottom modal when pending bottom selection detected (from state)
   React.useEffect(() => {
     if (pendingBottomCount > 0 && !hasKeptHand) {
       setMulliganBottomCount(pendingBottomCount);
+      const stepIdFromState = (mulliganState as any)?.pendingBottomStepId;
+      if (typeof stepIdFromState === 'string' && stepIdFromState.length > 0) {
+        setMulliganBottomStepId(stepIdFromState);
+      } else {
+        // Best-effort fallback: ask server for the next resolution step
+        if (safeView?.id) {
+          socket.emit('getMyNextResolutionStep', { gameId: safeView.id });
+        }
+      }
       setMulliganBottomModalOpen(true);
     }
-  }, [pendingBottomCount, hasKeptHand]);
+  }, [pendingBottomCount, hasKeptHand, mulliganState, safeView?.id]);
 
   // Show mulligan buttons if player hasn't kept their hand yet
   // This should work even if we've moved past PRE_GAME (e.g., to UNTAP)
@@ -3578,7 +3458,7 @@ export function App() {
     
     // Don't auto-advance during cleanup if we have pending discard selection
     const isCleanup = step === 'cleanup' || phase.includes('cleanup');
-    if (isCleanup && pendingDiscardSelection && pendingDiscardSelection.count > 0) return;
+    if (isCleanup && discardModalOpen && discardCount > 0) return;
     
     // Phases/steps that can be auto-advanced:
     // - untap step (no player usually needs to respond)
@@ -4156,52 +4036,6 @@ export function App() {
     }
   };
 
-  // Shock land handlers
-  const handleShockLandPayLife = () => {
-    if (!safeView || !shockLandData) return;
-    socket.emit("shockLandChoice", {
-      gameId: safeView.id,
-      permanentId: shockLandData.permanentId,
-      payLife: true,
-    });
-    setShockLandModalOpen(false);
-    setShockLandData(null);
-  };
-
-  const handleShockLandTapped = () => {
-    if (!safeView || !shockLandData) return;
-    socket.emit("shockLandChoice", {
-      gameId: safeView.id,
-      permanentId: shockLandData.permanentId,
-      payLife: false,
-    });
-    setShockLandModalOpen(false);
-    setShockLandData(null);
-  };
-
-  // Mox Diamond handlers
-  const handleMoxDiamondDiscardLand = (landCardId: string) => {
-    if (!safeView || !moxDiamondData) return;
-    socket.emit("moxDiamondChoice", {
-      gameId: safeView.id,
-      stackItemId: moxDiamondData.stackItemId,
-      discardLandId: landCardId,
-    });
-    setMoxDiamondModalOpen(false);
-    setMoxDiamondData(null);
-  };
-
-  const handleMoxDiamondPutInGraveyard = () => {
-    if (!safeView || !moxDiamondData) return;
-    socket.emit("moxDiamondChoice", {
-      gameId: safeView.id,
-      stackItemId: moxDiamondData.stackItemId,
-      discardLandId: null,
-    });
-    setMoxDiamondModalOpen(false);
-    setMoxDiamondData(null);
-  };
-
   // Bounce land handler - player selects which land to return
   const handleBounceLandSelect = (permanentId: string) => {
     if (!safeView || !bounceLandData) return;
@@ -4288,41 +4122,6 @@ export function App() {
     
     setVoteModalOpen(false);
     setVoteData(null);
-  };
-
-  // Sacrifice unless pay handlers (Transguild Promenade, Gateway Plaza, etc.)
-  const handleSacrificeUnlessPayMana = () => {
-    if (!safeView || !sacrificeUnlessPayData) return;
-    socket.emit("sacrificeUnlessPayChoice", {
-      gameId: safeView.id,
-      permanentId: sacrificeUnlessPayData.permanentId,
-      payMana: true,
-    });
-    setSacrificeUnlessPayModalOpen(false);
-    setSacrificeUnlessPayData(null);
-  };
-
-  const handleSacrificeUnlessPaySacrifice = () => {
-    if (!safeView || !sacrificeUnlessPayData) return;
-    socket.emit("sacrificeUnlessPayChoice", {
-      gameId: safeView.id,
-      permanentId: sacrificeUnlessPayData.permanentId,
-      payMana: false,
-    });
-    setSacrificeUnlessPayModalOpen(false);
-    setSacrificeUnlessPayData(null);
-  };
-
-  // Reveal land handlers (Furycalm Snarl, etc.)
-  const handleRevealLand = (cardId: string | null) => {
-    if (!safeView || !revealLandData) return;
-    socket.emit("revealLandChoice", {
-      gameId: safeView.id,
-      permanentId: revealLandData.permanentId,
-      revealCardId: cardId,
-    });
-    setRevealLandModalOpen(false);
-    setRevealLandData(null);
   };
 
   // Equip target handlers
@@ -6158,25 +5957,6 @@ export function App() {
         onCancel={combatMode === 'attackers' ? () => setCombatModalOpen(false) : undefined}
       />
 
-      {/* Shock Land Choice Modal */}
-      <ShockLandChoiceModal
-        open={shockLandModalOpen}
-        cardName={shockLandData?.cardName || ''}
-        cardImageUrl={shockLandData?.imageUrl}
-        currentLife={shockLandData?.currentLife}
-        onPayLife={handleShockLandPayLife}
-        onEnterTapped={handleShockLandTapped}
-      />
-
-      {/* Mox Diamond Replacement Effect Modal */}
-      <MoxDiamondModal
-        open={moxDiamondModalOpen}
-        cardImageUrl={moxDiamondData?.cardImageUrl}
-        landCardsInHand={moxDiamondData?.landCardsInHand || []}
-        onDiscardLand={handleMoxDiamondDiscardLand}
-        onPutInGraveyard={handleMoxDiamondPutInGraveyard}
-      />
-
       {/* Bounce Land Choice Modal */}
       <BounceLandChoiceModal
         open={bounceLandModalOpen}
@@ -6238,49 +6018,6 @@ export function App() {
           onConfirm={handleVoteConfirm}
         />
       )}
-
-      {/* Sacrifice Unless Pay Modal (Transguild Promenade, Gateway Plaza, etc.) */}
-      <SacrificeUnlessPayModal
-        open={sacrificeUnlessPayModalOpen}
-        cardName={sacrificeUnlessPayData?.cardName || ''}
-        cardImageUrl={sacrificeUnlessPayData?.imageUrl}
-        manaCost={sacrificeUnlessPayData?.manaCost || '{1}'}
-        onPayMana={handleSacrificeUnlessPayMana}
-        onSacrifice={handleSacrificeUnlessPaySacrifice}
-      />
-
-      {/* Reveal Land Modal (Furycalm Snarl, etc.) */}
-      <CardSelectionModal
-        open={revealLandModalOpen}
-        title={`Reveal for ${revealLandData?.cardName || 'Land'}`}
-        subtitle={revealLandData?.message}
-        sourceCardName={revealLandData?.cardName}
-        sourceCardImageUrl={revealLandData?.imageUrl}
-        options={useMemo(() => {
-          if (!safeView || !you || !revealLandData) return [];
-          const zones = safeView.zones?.[you];
-          const hand = zones?.hand || [];
-          const revealTypes = revealLandData.revealTypes.map(t => t.toLowerCase());
-          return hand
-            .filter((c: any) => {
-              if (!c?.type_line) return false;
-              const typeLine = c.type_line.toLowerCase();
-              return revealTypes.some(t => typeLine.includes(t));
-            })
-            .map((c: any) => ({
-              id: c.id,
-              name: c.name || 'Card',
-              imageUrl: c.image_uris?.small || c.image_uris?.normal,
-            }));
-        }, [safeView, you, revealLandData])}
-        minSelections={0}
-        maxSelections={1}
-        canCancel={true}
-        confirmButtonText="Reveal"
-        cancelButtonText="Don't Reveal (Enter Tapped)"
-        onConfirm={(selectedIds) => handleRevealLand(selectedIds[0] || null)}
-        onCancel={() => handleRevealLand(null)}
-      />
 
       {/* Equip Target Selection Modal */}
       <CardSelectionModal
@@ -6437,10 +6174,20 @@ export function App() {
         cardsToBottom={mulliganBottomCount}
         onConfirm={(cardIds) => {
           if (safeView) {
-            socket.emit("mulliganPutToBottom", { gameId: safeView.id, cardIds });
+            if (!mulliganBottomStepId) {
+              console.warn('[mulligan] Missing resolution stepId; cannot submit HAND_TO_BOTTOM selection.');
+              return;
+            }
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: mulliganBottomStepId,
+              selections: cardIds,
+              cancelled: false,
+            });
           }
           setMulliganBottomModalOpen(false);
           setMulliganBottomCount(0);
+          setMulliganBottomStepId(null);
         }}
         onCancel={() => {
           // Can't cancel - must select cards
@@ -6460,12 +6207,29 @@ export function App() {
         }, [safeView, you])}
         discardCount={discardCount}
         maxHandSize={discardMaxHandSize}
+        reason={discardResolutionReason}
+        title={discardResolutionTitle ?? undefined}
+        description={discardResolutionDescription ?? undefined}
         onConfirm={(cardIds) => {
           if (safeView) {
-            socket.emit("cleanupDiscard", { gameId: safeView.id, cardIds });
+            if (!discardResolutionStepId) {
+              console.warn('[discard] Missing resolution stepId; cannot submit discard selection.');
+              return;
+            }
+
+            socket.emit("submitResolutionResponse", {
+              gameId: safeView.id,
+              stepId: discardResolutionStepId,
+              selections: cardIds,
+              cancelled: false,
+            });
           }
           setDiscardModalOpen(false);
           setDiscardCount(0);
+          setDiscardResolutionStepId(null);
+          setDiscardResolutionReason('cleanup');
+          setDiscardResolutionTitle(null);
+          setDiscardResolutionDescription(null);
         }}
       />
 
@@ -7260,22 +7024,6 @@ export function App() {
               cancelled: false,
             });
             setResolutionCommanderZoneChoice(null);
-          }}
-        />
-      )}
-
-      {safeView?.pendingCommanderZoneChoice && safeView.pendingCommanderZoneChoice.length > 0 && (
-        <CommanderZoneChoiceModal
-          choice={safeView.pendingCommanderZoneChoice[0]}
-          onChoice={(moveToCommandZone) => {
-            if (!safeView?.id) return;
-            const choice = safeView.pendingCommanderZoneChoice?.[0];
-            if (!choice) return;
-            socket.emit("commanderZoneChoice", {
-              gameId: safeView.id,
-              commanderId: choice.commanderId,
-              moveToCommandZone,
-            });
           }}
         />
       )}

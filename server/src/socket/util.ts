@@ -1652,30 +1652,6 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
     const turnPlayer = (game.state as any)?.turnPlayer;
     const players = (game.state as any)?.players || [];
     
-    // Special case: CLEANUP step with pending discard selection
-    // During cleanup, no priority is granted, but AI needs to handle discards
-    if (currentStep === 'CLEANUP' && turnPlayer) {
-      const pendingDiscard = (game.state as any).pendingDiscardSelection?.[turnPlayer];
-      if (pendingDiscard && pendingDiscard.count > 0) {
-        const turnPlayerObj = players.find((p: any) => p?.id === turnPlayer);
-        
-        if (turnPlayerObj && turnPlayerObj.isAI) {
-          // Trigger AI to handle cleanup discard
-          setTimeout(async () => {
-            try {
-              const aiModule = await import('./ai.js');
-              if (typeof aiModule.handleAIGameFlow === 'function') {
-                await aiModule.handleAIGameFlow(io, gameId, turnPlayer);
-              }
-            } catch (e) {
-              debugError(1, '[util] Failed to trigger AI handler for cleanup:', { gameId, playerId: turnPlayer, error: e });
-            }
-          }, AI_REACTION_DELAY_MS);
-          return; // Exit early - we've handled the cleanup case
-        }
-      }
-    }
-    
     // Special case: Kynaios and Tiro style choices
     // These can affect any player (not just the one with priority)
     // Check if any AI player needs to make a Kynaios choice

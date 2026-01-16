@@ -9,6 +9,8 @@ import type { GameContext } from "../context.js";
 import { uid } from "../utils.js";
 import { checkEmptyLibraryDraw, hasDrawWinReplacement, hasCantLoseEffect } from "./game-state-effects.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { ResolutionQueueManager } from "../resolution/index.js";
+import { ResolutionStepType } from "../resolution/types.js";
 
 /* ===== core zone operations ===== */
 
@@ -698,15 +700,18 @@ export function movePermanentToLibrary(
   if (isCommander && card) {
     // Cast card as any to access properties safely
     const cardAny = card as any;
-    // Defer zone change - let player choose command zone or library
-    // Use object keyed by player ID for consistency
-    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
-    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
-    (state as any).pendingCommanderZoneChoice[owner].push({
+    // Defer zone change - let player choose command zone or library via Resolution Queue
+    ResolutionQueueManager.addStep(ctx.gameId, {
+      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      playerId: owner,
+      sourceId: permanentId,
+      sourceName: cardAny.name || 'Unknown Commander',
+      description: `Your commander ${cardAny.name || 'Unknown Commander'} would be put into your library (${position}). Move it to the command zone instead?`,
+      mandatory: true,
       commanderId: cardAny.id,
       commanderName: cardAny.name || 'Unknown Commander',
-      destinationZone: 'library',
-      libraryPosition: position, // Store where it would go if player chooses library
+      fromZone: 'library',
+      libraryPosition: position,
       card: {
         id: cardAny.id,
         name: cardAny.name || 'Unknown Commander',
@@ -716,9 +721,9 @@ export function movePermanentToLibrary(
         mana_cost: cardAny.mana_cost,
         power: cardAny.power,
         toughness: cardAny.toughness,
-      },
-    });
-    debug(2, `[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - DEFERRING zone change for player choice`);
+      } as any,
+    } as any);
+    debug(2, `[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - queued commander zone choice step`);
     bumpSeq();
     return true;
   }
@@ -787,12 +792,17 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   
   if (isCommander && card) {
     // Defer zone change - let player choose command zone or hand
-    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
-    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
-    (state as any).pendingCommanderZoneChoice[owner].push({
+    // Defer zone change - let player choose command zone or hand via Resolution Queue
+    ResolutionQueueManager.addStep(ctx.gameId, {
+      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      playerId: owner,
+      sourceId: permanentId,
+      sourceName: card.name,
+      description: `Your commander ${card.name} would be returned to your hand. Move it to the command zone instead?`,
+      mandatory: true,
       commanderId: card.id,
       commanderName: card.name,
-      destinationZone: 'hand',
+      fromZone: 'hand',
       card: {
         id: card.id,
         name: card.name,
@@ -802,9 +812,9 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
         mana_cost: card.mana_cost,
         power: card.power,
         toughness: card.toughness,
-      },
-    });
-    debug(2, `[movePermanentToHand] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
+      } as any,
+    } as any);
+    debug(2, `[movePermanentToHand] Commander ${card.name} would go to hand - queued commander zone choice step`);
     bumpSeq();
     return true;
   }

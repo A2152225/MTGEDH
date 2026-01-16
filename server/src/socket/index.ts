@@ -10,8 +10,6 @@ import { registerPriorityHandlers } from "./priority.js";
 import { registerDisconnectHandlers } from "./disconnect.js";
 import { registerJudgeHandlers } from "./judge.js";
 import { registerAIHandlers } from "./ai.js";
-import { registerCreatureTypeHandlers } from "./creature-type.js";
-import { registerColorChoiceHandlers } from "./color-choice.js";
 // Player selection is handled via the Resolution Queue (ResolutionStepType.PLAYER_CHOICE)
 import { registerCombatHandlers } from "./combat.js";
 import { registerTriggerHandlers } from "./triggers.js";
@@ -54,8 +52,6 @@ export function registerSocketHandlers(
     registerDisconnectHandlers(io, socket);
 	registerJudgeHandlers(io, socket);
     registerAIHandlers(io, socket);
-    registerCreatureTypeHandlers(io, socket);
-    registerColorChoiceHandlers(io, socket);
     registerCombatHandlers(io, socket);
     registerTriggerHandlers(io, socket);
     registerOpeningHandHandlers(io, socket);

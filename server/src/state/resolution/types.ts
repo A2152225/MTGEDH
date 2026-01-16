@@ -252,6 +252,14 @@ export interface CommanderZoneChoiceStep extends BaseResolutionStep {
   readonly commanderId: string;
   readonly commanderName: string;
   readonly fromZone: 'graveyard' | 'exile' | 'library' | 'hand';
+  /** For library destination: where the commander would go if not sent to command zone */
+  readonly libraryPosition?: 'top' | 'bottom' | 'shuffle';
+  /** Extra metadata for exile moves (e.g., linked exile) */
+  readonly exileTag?: {
+    exiledWithSourceId?: string;
+    exiledWithOracleId?: string;
+    exiledWithSourceName?: string;
+  };
   readonly card: KnownCardRef;
 }
 

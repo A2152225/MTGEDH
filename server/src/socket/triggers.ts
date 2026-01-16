@@ -6,457 +6,17 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getOrInitManaPool, calculateTotalAvailableMana, consumeManaFromPool } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
- * List of shock lands and similar "pay life or enter tapped" lands
- */
-const SHOCK_LANDS = new Set([
-  "blood crypt",
-  "breeding pool",
-  "godless shrine",
-  "hallowed fountain",
-  "overgrown tomb",
-  "sacred foundry",
-  "steam vents",
-  "stomping ground",
-  "temple garden",
-  "watery grave",
-]);
-
-/**
- * Card name for Mox Diamond (ETB replacement effect card)
- * This constant is used for matching the card when resolving its replacement effect.
- */
-const MOX_DIAMOND_NAME = "mox diamond";
-
-/**
- * Check if a card is Mox Diamond
- */
-function isMoxDiamond(cardName: string): boolean {
-  return (cardName || "").toLowerCase().trim() === MOX_DIAMOND_NAME;
-}
-
-/**
- * Check if a card is a shock land or similar
- */
-function isShockLand(cardName: string): boolean {
-  return SHOCK_LANDS.has((cardName || "").toLowerCase().trim());
-}
-
-/**
  * Register trigger and ETB socket handlers
  */
 export function registerTriggerHandlers(io: Server, socket: Socket): void {
-  /**
-   * Handle shock land ETB choice - pay 2 life for untapped or enter tapped
-   */
-  socket.on("shockLandChoice", async ({
-    gameId,
-    permanentId,
-    payLife,
-  }: {
-    gameId: string;
-    permanentId: string;
-    payLife: boolean;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "SHOCK_LAND_ERROR",
-          message: "Game not found or player not identified",
-        });
-        return;
-      }
-
-      // Find the permanent
-      const battlefield = game.state?.battlefield || [];
-      const permanent = battlefield.find((p: any) => 
-        p.id === permanentId && p.controller === playerId
-      );
-      
-      if (!permanent) {
-        socket.emit("error", {
-          code: "PERMANENT_NOT_FOUND",
-          message: "Permanent not found on battlefield",
-        });
-        return;
-      }
-
-      const cardName = (permanent as any).card?.name || "Land";
-
-      if (payLife) {
-        // Pay 2 life to enter untapped
-        // Ensure life object exists before accessing
-        if (!(game.state as any).life) {
-          (game.state as any).life = {};
-        }
-        const currentLife = (game.state as any).life[playerId] ?? 
-                           (game as any).life?.[playerId] ?? 40;
-        const newLife = currentLife - 2;
-        
-        // Update life total in all locations
-        (game.state as any).life[playerId] = newLife;
-        if ((game as any).life) {
-          (game as any).life[playerId] = newLife;
-        }
-        
-        // Also update the player object in game.state.players
-        // This is critical for the UI to display the updated life total
-        const players = game.state?.players || [];
-        const player = players.find((p: any) => p.id === playerId);
-        if (player) {
-          (player as any).life = newLife;
-        }
-        
-        // Ensure permanent is untapped
-        (permanent as any).tapped = false;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} pays 2 life for ${cardName} to enter untapped. (${currentLife} → ${newLife})`,
-          ts: Date.now(),
-        });
-      } else {
-        // Enter tapped
-        (permanent as any).tapped = true;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)}'s ${cardName} enters the battlefield tapped.`,
-          ts: Date.now(),
-        });
-      }
-
-      // Persist the event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, "shockLandChoice", {
-          playerId,
-          permanentId,
-          payLife,
-          cardName,
-        });
-      } catch (e) {
-        debugWarn(1, "[triggers] Failed to persist shockLandChoice event:", e);
-      }
-
-      // Bump sequence and broadcast
-      if (typeof (game as any).bumpSeq === "function") {
-        (game as any).bumpSeq();
-      }
-
-      broadcastGame(io, game, gameId);
-      
-      debug(2, `[triggers] ${payLife ? "Paid life for" : "Tapped"} ${cardName} for player ${playerId} in game ${gameId}`);
-      
-    } catch (err: any) {
-      debugError(1, `[triggers] shockLandChoice error:`, err);
-      socket.emit("error", {
-        code: "SHOCK_LAND_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
-  /**
-   * Handle Mox Diamond ETB replacement effect
-   * "If Mox Diamond would enter the battlefield, you may discard a land card instead.
-   * If you do, put Mox Diamond onto the battlefield. If you don't, put it into its owner's graveyard."
-   */
-  socket.on("moxDiamondChoice", async ({
-    gameId,
-    stackItemId,
-    discardLandId,
-  }: {
-    gameId: string;
-    stackItemId: string;
-    discardLandId: string | null; // null means put Mox Diamond in graveyard
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "MOX_DIAMOND_ERROR",
-          message: "Game not found or player not identified",
-        });
-        return;
-      }
-
-      // Ensure game state exists
-      game.state = (game.state || {}) as any;
-      game.state.battlefield = game.state.battlefield || [];
-      game.state.stack = game.state.stack || [];
-      
-      // Find the Mox Diamond on the stack (waiting to resolve)
-      const stack = game.state.stack;
-      const moxDiamondIndex = stack.findIndex((item: any) => 
-        item.id === stackItemId && 
-        item.controller === playerId &&
-        isMoxDiamond(item.card?.name)
-      );
-      
-      if (moxDiamondIndex === -1) {
-        socket.emit("error", {
-          code: "MOX_DIAMOND_NOT_FOUND",
-          message: "Mox Diamond not found on stack",
-        });
-        return;
-      }
-      
-      const moxDiamondItem = stack[moxDiamondIndex];
-      const moxCard = moxDiamondItem.card;
-      
-      // Remove Mox Diamond from the stack (it's about to resolve or be put in graveyard)
-      stack.splice(moxDiamondIndex, 1);
-      
-      // Get zones for player
-      const zones = game.state.zones = game.state.zones || {};
-      zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any;
-      const playerZones = zones[playerId] as any;
-      playerZones.hand = playerZones.hand || [];
-      playerZones.graveyard = playerZones.graveyard || [];
-      
-      const cardName = moxCard?.name || 'Mox Diamond';
-      const cardImageUrl = moxCard?.image_uris?.normal || moxCard?.image_uris?.small;
-      
-      if (discardLandId) {
-        // Player chose to discard a land - find it in hand
-        const hand = playerZones.hand;
-        const landIndex = hand.findIndex((c: any) => c?.id === discardLandId);
-        
-        if (landIndex === -1) {
-          socket.emit("error", {
-            code: "LAND_NOT_IN_HAND",
-            message: "Selected land card not found in hand",
-          });
-          // Put Mox Diamond back on stack since we can't complete the action
-          stack.push(moxDiamondItem);
-          return;
-        }
-        
-        // Verify it's actually a land
-        const landCard = hand[landIndex];
-        const landTypeLine = (landCard?.type_line || '').toLowerCase();
-        if (!landTypeLine.includes('land')) {
-          socket.emit("error", {
-            code: "NOT_A_LAND",
-            message: "Selected card is not a land",
-          });
-          stack.push(moxDiamondItem);
-          return;
-        }
-        
-        const landName = landCard?.name || 'land';
-        
-        // Remove land from hand and put it in graveyard
-        const [discardedLand] = hand.splice(landIndex, 1);
-        playerZones.handCount = hand.length;
-        playerZones.graveyard.push({ ...discardedLand, zone: 'graveyard' });
-        playerZones.graveyardCount = playerZones.graveyard.length;
-        
-        // Put Mox Diamond onto the battlefield
-        const permId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const newPermanent = {
-          id: permId,
-          controller: playerId,
-          owner: playerId,
-          tapped: false,
-          counters: {},
-          card: { ...moxCard, zone: 'battlefield' },
-        } as any;
-        game.state.battlefield.push(newPermanent);
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} discards ${landName} to put ${cardName} onto the battlefield.`,
-          ts: Date.now(),
-        });
-        
-        debug(2, `[triggers] Mox Diamond: ${playerId} discarded ${landName}, Mox Diamond enters battlefield`);
-        
-      } else {
-        // Player chose not to discard - put Mox Diamond in graveyard
-        playerZones.graveyard.push({ ...moxCard, zone: 'graveyard' });
-        playerZones.graveyardCount = playerZones.graveyard.length;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} doesn't discard a land. ${cardName} is put into the graveyard.`,
-          ts: Date.now(),
-        });
-        
-        debug(2, `[triggers] Mox Diamond: ${playerId} didn't discard, Mox Diamond goes to graveyard`);
-      }
-      
-      // Persist the event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, "moxDiamondChoice", {
-          playerId,
-          stackItemId,
-          discardLandId,
-          cardName,
-        });
-      } catch (e) {
-        debugWarn(1, "[triggers] Failed to persist moxDiamondChoice event:", e);
-      }
-      
-      // Bump sequence and broadcast
-      if (typeof (game as any).bumpSeq === "function") {
-        (game as any).bumpSeq();
-      }
-      
-      broadcastGame(io, game, gameId);
-      
-    } catch (err: any) {
-      debugError(1, `[triggers] moxDiamondChoice error:`, err);
-      socket.emit("error", {
-        code: "MOX_DIAMOND_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
-  /**
-   * Handle bounce land ETB choice - player selects which land to return to hand
-   */
-  socket.on("bounceLandChoice", async ({
-    gameId,
-    bounceLandId,
-    returnPermanentId,
-    stackItemId,
-  }: {
-    gameId: string;
-    bounceLandId: string;
-    returnPermanentId: string;
-    stackItemId?: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "BOUNCE_LAND_ERROR",
-          message: "Game not found or player not identified",
-        });
-        return;
-      }
-
-      // Ensure game state and battlefield exist
-      game.state = (game.state || {}) as any;
-      game.state.battlefield = game.state.battlefield || [];
-      
-      // Find the bounce land permanent
-      const battlefield = game.state.battlefield;
-      const bounceLand = battlefield.find((p: any) => 
-        p.id === bounceLandId && p.controller === playerId
-      );
-      
-      if (!bounceLand) {
-        socket.emit("error", {
-          code: "PERMANENT_NOT_FOUND",
-          message: "Bounce land not found on battlefield",
-        });
-        return;
-      }
-
-      // Find the land to return
-      const landToReturn = battlefield.find((p: any) => 
-        p.id === returnPermanentId && p.controller === playerId
-      );
-      
-      if (!landToReturn) {
-        socket.emit("error", {
-          code: "PERMANENT_NOT_FOUND",
-          message: "Land to return not found on battlefield",
-        });
-        return;
-      }
-
-      const bounceLandName = (bounceLand as any).card?.name || "Bounce Land";
-      const returnedLandName = (landToReturn as any).card?.name || "Land";
-
-      // Remove the land from battlefield
-      const idx = battlefield.indexOf(landToReturn);
-      if (idx !== -1) {
-        battlefield.splice(idx, 1);
-      }
-
-      // Add the land to player's hand
-      const zones = game.state?.zones?.[playerId];
-      if (zones) {
-        zones.hand = zones.hand || [];
-        const returnedCard = { ...(landToReturn as any).card, zone: 'hand' };
-        (zones.hand as any[]).push(returnedCard);
-        zones.handCount = (zones.hand as any[]).length;
-      }
-      
-      // If this was triggered from the stack, remove the stack item
-      if (stackItemId) {
-        const stack = (game.state as any).stack || [];
-        const stackIndex = stack.findIndex((item: any) => item.id === stackItemId);
-        if (stackIndex !== -1) {
-          stack.splice(stackIndex, 1);
-          debug(2, `[triggers] Removed bounce land trigger from stack (id: ${stackItemId})`);
-        }
-      }
-      
-      // Send chat message
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)}'s ${bounceLandName} returns ${returnedLandName} to hand.`,
-        ts: Date.now(),
-      });
-
-      // Persist the event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, "bounceLandChoice", {
-          playerId,
-          bounceLandId,
-          returnPermanentId,
-          bounceLandName,
-          returnedLandName,
-          stackItemId,
-        });
-      } catch (e) {
-        debugWarn(1, "[triggers] Failed to persist bounceLandChoice event:", e);
-      }
-
-      // Bump sequence and broadcast
-      if (typeof (game as any).bumpSeq === "function") {
-        (game as any).bumpSeq();
-      }
-
-      broadcastGame(io, game, gameId);
-      
-      debug(2, `[triggers] ${bounceLandName} returned ${returnedLandName} to hand for player ${playerId} in game ${gameId}`);
-      
-    } catch (err: any) {
-      debugError(1, `[triggers] bounceLandChoice error:`, err);
-      socket.emit("error", {
-        code: "BOUNCE_LAND_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
+  // NOTE: Legacy handlers for Mox Diamond and bounce lands have been removed.
+  // These interactions are now handled via the Resolution Queue.
 
   /**
    * Handle triggered ability resolution
@@ -473,7 +33,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId as PlayerID | undefined;
-      
+
       if (!game || !playerId) {
         return;
       }
@@ -481,7 +41,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       // Find the trigger in the trigger queue
       const triggerQueue = (game.state as any)?.triggerQueue || [];
       const triggerIndex = triggerQueue.findIndex((t: any) => t.id === triggerId);
-      
+
       if (triggerIndex === -1) {
         socket.emit("error", {
           code: "TRIGGER_NOT_FOUND",
@@ -491,12 +51,12 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       }
 
       const trigger = triggerQueue[triggerIndex];
-      
+
       // Handle based on choice
-      if (choice.accepted === false) {
+      if (choice?.accepted === false) {
         // Player declined "may" trigger - remove it
         triggerQueue.splice(triggerIndex, 1);
-        
+
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
@@ -509,23 +69,23 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         // For now, just put it on the stack
         const stackItem = {
           id: `stack_trigger_${Date.now()}`,
-          type: 'ability',
+          type: "ability",
           controller: playerId,
           card: {
             id: trigger.sourceId,
             name: `${trigger.sourceName} (trigger)`,
-            type_line: 'Triggered Ability',
+            type_line: "Triggered Ability",
             oracle_text: trigger.effect,
           },
-          targets: choice.targets || trigger.targets || [],
+          targets: choice?.targets || trigger.targets || [],
         };
-        
-        game.state.stack = game.state.stack || [];
-        game.state.stack.push(stackItem as any);
-        
+
+        (game.state as any).stack = (game.state as any).stack || [];
+        (game.state as any).stack.push(stackItem);
+
         // Remove from trigger queue
         triggerQueue.splice(triggerIndex, 1);
-        
+
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
@@ -552,7 +112,6 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       }
 
       broadcastGame(io, game, gameId);
-      
     } catch (err: any) {
       debugError(1, `[triggers] resolveTrigger error:`, err);
       socket.emit("error", {
@@ -575,18 +134,18 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId as PlayerID | undefined;
-      
+
       if (!game || !playerId) {
         return;
       }
 
       const triggerQueue = (game.state as any)?.triggerQueue || [];
       const triggerIndex = triggerQueue.findIndex((t: any) => t.id === triggerId);
-      
+
       if (triggerIndex !== -1) {
         const trigger = triggerQueue[triggerIndex];
         triggerQueue.splice(triggerIndex, 1);
-        
+
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
@@ -602,7 +161,6 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       }
 
       broadcastGame(io, game, gameId);
-      
     } catch (err: any) {
       debugError(1, `[triggers] skipTrigger error:`, err);
     }
@@ -614,280 +172,11 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
   // via submitResolutionResponse. See resolution.ts handleTriggerOrderResponse.
   // ========================================================================
 
-  /**
-   * Handle "sacrifice unless you pay" ETB choice (Transguild Promenade, Gateway Plaza, Rupture Spire)
-   * Player can either pay the mana cost or sacrifice the permanent
-   */
-  socket.on("sacrificeUnlessPayChoice", async ({
-    gameId,
-    permanentId,
-    payMana,
-  }: {
-    gameId: string;
-    permanentId: string;
-    payMana: boolean;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "SACRIFICE_UNLESS_PAY_ERROR",
-          message: "Game not found or player not identified",
-        });
-        return;
-      }
-
-      // Ensure game state exists
-      game.state = (game.state || {}) as any;
-      game.state.battlefield = game.state.battlefield || [];
-      
-      // Find the permanent
-      const battlefield = game.state.battlefield;
-      const permIndex = battlefield.findIndex((p: any) => 
-        p.id === permanentId && p.controller === playerId
-      );
-      
-      if (permIndex === -1) {
-        socket.emit("error", {
-          code: "PERMANENT_NOT_FOUND",
-          message: "Permanent not found on battlefield",
-        });
-        return;
-      }
-
-      const permanent = battlefield[permIndex];
-      const cardName = (permanent as any).card?.name || "Permanent";
-
-      if (payMana) {
-        // Player chose to pay {1} - use proper mana consumption
-        const manaPool = getOrInitManaPool(game.state, playerId);
-        const totalAvailableByColor = calculateTotalAvailableMana(manaPool, []);
-        const totalMana = Object.values(totalAvailableByColor).reduce((sum, val) => sum + val, 0);
-        
-        if (totalMana < 1) {
-          socket.emit("error", {
-            code: "INSUFFICIENT_MANA",
-            message: `Cannot pay {1} for ${cardName} - insufficient mana available`,
-          });
-          return;
-        }
-        
-        // Consume {1} generic mana from pool
-        consumeManaFromPool(manaPool, {}, 1, `[sacrificeUnlessPayChoice:${cardName}]`);
-        
-        // Permanent stays on battlefield
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} pays {1} for ${cardName}.`,
-          ts: Date.now(),
-        });
-      } else {
-        // Player chose not to pay - sacrifice the permanent
-        const card = (permanent as any).card;
-        
-        // Remove from battlefield
-        battlefield.splice(permIndex, 1);
-        
-        // Move to graveyard
-        const zones = game.state?.zones?.[playerId];
-        if (zones) {
-          zones.graveyard = zones.graveyard || [];
-          (zones.graveyard as any[]).push({ ...card, zone: 'graveyard' });
-          zones.graveyardCount = (zones.graveyard as any[]).length;
-        }
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} sacrifices ${cardName} (didn't pay {1}).`,
-          ts: Date.now(),
-        });
-      }
-
-      // Persist the event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, "sacrificeUnlessPayChoice", {
-          playerId,
-          permanentId,
-          payMana,
-          cardName,
-        });
-      } catch (e) {
-        debugWarn(1, "[triggers] Failed to persist sacrificeUnlessPayChoice event:", e);
-      }
-
-      // Bump sequence and broadcast
-      if (typeof (game as any).bumpSeq === "function") {
-        (game as any).bumpSeq();
-      }
-
-      broadcastGame(io, game, gameId);
-      
-      debug(2, `[triggers] ${payMana ? "Paid for" : "Sacrificed"} ${cardName} for player ${playerId} in game ${gameId}`);
-      
-    } catch (err: any) {
-      debugError(1, `[triggers] sacrificeUnlessPayChoice error:`, err);
-      socket.emit("error", {
-        code: "SACRIFICE_UNLESS_PAY_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
-  /**
-   * Handle reveal land ETB choice (Furycalm Snarl, etc.)
-   * Player can reveal a matching card from hand to have the land enter untapped
-   */
-  socket.on("revealLandChoice", async ({
-    gameId,
-    permanentId,
-    revealCardId,
-  }: {
-    gameId: string;
-    permanentId: string;
-    revealCardId: string | null; // null means don't reveal, land enters tapped
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "REVEAL_LAND_ERROR",
-          message: "Game not found or player not identified",
-        });
-        return;
-      }
-
-      // Ensure game state exists
-      game.state = (game.state || {}) as any;
-      game.state.battlefield = game.state.battlefield || [];
-      
-      // Find the permanent
-      const battlefield = game.state.battlefield;
-      const permanent = battlefield.find((p: any) => 
-        p.id === permanentId && p.controller === playerId
-      );
-      
-      if (!permanent) {
-        socket.emit("error", {
-          code: "PERMANENT_NOT_FOUND",
-          message: "Land not found on battlefield",
-        });
-        return;
-      }
-
-      const cardName = (permanent as any).card?.name || "Land";
-
-      if (revealCardId) {
-        // Player chose to reveal - find the card in hand
-        const zones = game.state?.zones?.[playerId];
-        if (!zones || !Array.isArray(zones.hand)) {
-          socket.emit("error", {
-            code: "NO_HAND",
-            message: "Hand not found",
-          });
-          return;
-        }
-        
-        const revealedCard = (zones.hand as any[]).find((c: any) => c?.id === revealCardId);
-        if (!revealedCard) {
-          socket.emit("error", {
-            code: "CARD_NOT_IN_HAND",
-            message: "Card to reveal not found in hand",
-          });
-          return;
-        }
-        
-        const revealedName = revealedCard.name || "card";
-        
-        // Land enters untapped
-        (permanent as any).tapped = false;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} reveals ${revealedName}. ${cardName} enters untapped.`,
-          ts: Date.now(),
-        });
-        
-        debug(2, `[triggers] ${playerId} revealed ${revealedName} for ${cardName} to enter untapped`);
-        
-      } else {
-        // Player chose not to reveal - land enters tapped
-        (permanent as any).tapped = true;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)}'s ${cardName} enters tapped (didn't reveal a card).`,
-          ts: Date.now(),
-        });
-        
-        debug(2, `[triggers] ${cardName} enters tapped for ${playerId} (no reveal)`);
-      }
-
-      // Persist the event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, "revealLandChoice", {
-          playerId,
-          permanentId,
-          revealCardId,
-          cardName,
-        });
-      } catch (e) {
-        debugWarn(1, "[triggers] Failed to persist revealLandChoice event:", e);
-      }
-
-      // Bump sequence and broadcast
-      if (typeof (game as any).bumpSeq === "function") {
-        (game as any).bumpSeq();
-      }
-
-      broadcastGame(io, game, gameId);
-      
-    } catch (err: any) {
-      debugError(1, `[triggers] revealLandChoice error:`, err);
-      socket.emit("error", {
-        code: "REVEAL_LAND_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
   // ========================================================================
   // NOTE: The legacy kynaiosChoiceResponse handler has been removed.
   // Kynaios and Tiro choices are now handled by the Resolution Queue system
   // via submitResolutionResponse. See resolution.ts handleKynaiosChoiceResponse.
   // ========================================================================
-}
-
-/**
- * Emit shock land prompt to a player
- */
-export function emitShockLandPrompt(
-  io: Server,
-  gameId: string,
-  playerId: PlayerID,
-  permanentId: string,
-  cardName: string,
-  imageUrl?: string,
-  currentLife?: number
-): void {
-  emitToPlayer(io, playerId, "shockLandPrompt", {
-    gameId,
-    permanentId,
-    cardName,
-    imageUrl,
-    currentLife,
-  });
 }
 
 /**
@@ -911,28 +200,6 @@ export function emitTriggerPrompt(
   emitToPlayer(io, playerId, "triggerPrompt", {
     gameId,
     trigger,
-  });
-}
-
-/**
- * Emit "sacrifice unless you pay" prompt to a player
- * Used for cards like Transguild Promenade, Gateway Plaza, Rupture Spire
- */
-export function emitSacrificeUnlessPayPrompt(
-  io: Server,
-  gameId: string,
-  playerId: PlayerID,
-  permanentId: string,
-  cardName: string,
-  manaCost: string,
-  imageUrl?: string
-): void {
-  emitToPlayer(io, playerId, "sacrificeUnlessPayPrompt", {
-    gameId,
-    permanentId,
-    cardName,
-    manaCost,
-    imageUrl,
   });
 }
 

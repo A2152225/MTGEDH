@@ -11,6 +11,9 @@ export interface DiscardSelectionModalProps {
   hand: KnownCardRef[];
   discardCount: number; // How many cards must be discarded
   maxHandSize: number;
+  reason?: 'cleanup' | 'effect';
+  title?: string;
+  description?: string;
   onConfirm: (cardIds: string[]) => void;
   onCancel?: () => void; // Optional - during cleanup, player must discard
 }
@@ -20,6 +23,9 @@ export function DiscardSelectionModal({
   hand,
   discardCount,
   maxHandSize,
+  reason = 'cleanup',
+  title,
+  description,
   onConfirm,
   onCancel,
 }: DiscardSelectionModalProps) {
@@ -51,6 +57,9 @@ export function DiscardSelectionModal({
 
   if (!open) return null;
 
+  const headerText =
+    title || (reason === 'cleanup' ? 'Cleanup Step - Discard to Hand Size' : 'Discard');
+
   return (
     <div
       style={{
@@ -73,12 +82,21 @@ export function DiscardSelectionModal({
           color: '#fff',
         }}
       >
-        <h3 style={{ margin: '0 0 12px 0', color: '#fc8181' }}>
-          Cleanup Step - Discard to Hand Size
-        </h3>
+        <h3 style={{ margin: '0 0 12px 0', color: '#fc8181' }}>{headerText}</h3>
         <p style={{ fontSize: 14, color: '#a0aec0', marginBottom: 16 }}>
-          You have {hand.length} cards in hand. Maximum hand size is {maxHandSize}.
-          <br />
+          {reason === 'cleanup' ? (
+            <>
+              You have {hand.length} cards in hand. Maximum hand size is {maxHandSize}.
+              <br />
+            </>
+          ) : (
+            description ? (
+              <>
+                {description}
+                <br />
+              </>
+            ) : null
+          )}
           Select {discardCount} card{discardCount !== 1 ? 's' : ''} to discard.
           <br />
           Selected: {selected.length} / {discardCount}

@@ -20,8 +20,6 @@ import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../se
 import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
-import { hasPendingColorChoices } from "./color-choice.js";
-import { hasPendingCreatureTypeSelections } from "./creature-type.js";
 import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
@@ -2221,31 +2219,23 @@ export async function handleAIPriority(
       // Mark that we're processing cleanup for this AI
       (game.state as any)._aiProcessingCleanup = (game.state as any)._aiProcessingCleanup || {};
       (game.state as any)._aiProcessingCleanup[playerId] = true;
-      
-      // CRITICAL: Check pendingDiscardSelection first (set by game engine during nextStep)
-      // This is the authoritative source for cleanup discard requirements
-      const pendingDiscard = (game.state as any).pendingDiscardSelection?.[playerId];
-      let discardCount = 0;
-      
-      if (pendingDiscard && pendingDiscard.count > 0) {
-        debug(1, '[AI] Cleanup step - AI has pending discard selection:', pendingDiscard.count, 'cards');
-        discardCount = pendingDiscard.count;
-      } else {
-        // Fallback: calculate discard need independently (in case pendingDiscardSelection wasn't set)
-        const { needsDiscard, discardCount: calculatedCount } = needsToDiscard(game, playerId);
-        if (needsDiscard) {
-          debug(1, '[AI] Cleanup step - AI needs to discard', calculatedCount, 'cards (calculated independently)');
-          discardCount = calculatedCount;
+
+      // Cleanup discard (and any other prompted interactions) are handled via Resolution Queue.
+      // If a step exists for this AI, resolve it instead of using legacy pending* state.
+      try {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        const aiStep = queue?.steps?.find((s: any) => s?.playerId === playerId);
+        if (aiStep) {
+          debug(1, `[AI] Cleanup step - resolving queued step: ${aiStep.type}`);
+          await handleAIResolutionStep(io, gameId, playerId, aiStep);
+
+          if ((game.state as any)._aiProcessingCleanup) {
+            delete (game.state as any)._aiProcessingCleanup[playerId];
+          }
+          return;
         }
-      }
-      
-      if (discardCount > 0) {
-        await executeAIDiscard(io, gameId, playerId, discardCount);
-        // Clear the processing flag after discard
-        if ((game.state as any)._aiProcessingCleanup) {
-          delete (game.state as any)._aiProcessingCleanup[playerId];
-        }
-        return;
+      } catch {
+        // Best-effort only
       }
       
       // No discard needed - cleanup is complete, auto-advance
@@ -4130,85 +4120,6 @@ async function resolveAISpell(
 }
 
 /**
- * Execute AI discarding cards
- */
-async function executeAIDiscard(
-  io: Server,
-  gameId: string,
-  playerId: PlayerID,
-  discardCount: number
-): Promise<void> {
-  const game = ensureGame(gameId);
-  if (!game) return;
-  
-  debug(1, '[AI] Discarding', discardCount, 'cards');
-  
-  try {
-    const cardsToDiscard = chooseCardsToDiscard(game, playerId, discardCount);
-    
-    // Get zones
-    const zones = game.state?.zones?.[playerId];
-    if (!zones || !Array.isArray(zones.hand)) {
-      debugWarn(2, '[AI] No hand found for discard');
-      return;
-    }
-    
-    const hand = zones.hand as any[];
-    const discardedCards: any[] = [];
-    
-    for (const cardId of cardsToDiscard) {
-      const idx = hand.findIndex((c: any) => c?.id === cardId);
-      if (idx !== -1) {
-        const [card] = hand.splice(idx, 1);
-        discardedCards.push(card);
-        
-        // Move to graveyard
-        zones.graveyard = zones.graveyard || [];
-        card.zone = 'graveyard';
-        (zones.graveyard as any[]).push(card);
-      }
-    }
-    
-    // Update counts
-    zones.handCount = hand.length;
-    zones.graveyardCount = (zones.graveyard as any[]).length;
-    
-    // Clear any pending discard state
-    if ((game.state as any).pendingDiscardSelection) {
-      delete (game.state as any).pendingDiscardSelection[playerId];
-    }
-    
-    // Persist event
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, 'cleanupDiscard', { 
-        playerId, 
-        cardIds: cardsToDiscard,
-        discardCount: discardedCards.length,
-        isAI: true,
-      });
-    } catch (e) {
-      debugWarn(1, '[AI] Failed to persist discard event:', e);
-    }
-    
-    // Bump sequence
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    
-    // Broadcast
-    broadcastGame(io, game, gameId);
-    
-    // After discarding, advance to next turn
-    setTimeout(() => {
-      executeAdvanceStep(io, gameId, playerId).catch(err => debugError(1, err));
-    }, AI_REACTION_DELAY_MS);
-    
-  } catch (error) {
-    debugError(1, '[AI] Error discarding:', error);
-  }
-}
-
-/**
  * Execute advancing to the next step (AI's turn only)
  */
 async function executeAdvanceStep(
@@ -4432,6 +4343,26 @@ async function handleAIResolutionStep(
         debug(1, `[AI] Target selection: Selected ${targetsToSelect.length} target(s)`);
         break;
       }
+
+      case 'discard_selection': {
+        const discardCount = Number(step.discardCount || 0);
+        if (!discardCount || discardCount <= 0) {
+          debug(1, `[AI] Discard selection: no discardCount specified, skipping`);
+          ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+          break;
+        }
+
+        const cardIds = chooseCardsToDiscard(game, playerId, discardCount);
+        if (!Array.isArray(cardIds) || cardIds.length !== discardCount) {
+          debugWarn(1, `[AI] Discard selection: could not choose ${discardCount} cards, chosen=${cardIds?.length || 0}`);
+          ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+          break;
+        }
+
+        debug(1, `[AI] Discard selection: discarding ${cardIds.length} card(s)`);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(cardIds));
+        break;
+      }
       
       default: {
         // For unknown step types, try to decline or provide empty response
@@ -4439,266 +4370,15 @@ async function handleAIResolutionStep(
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
       }
     }
-    
+
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }
-    
+
     broadcastGame(io, game, gameId);
-    
+
   } catch (err) {
     debugError(1, `[AI] Error handling Resolution Queue step: ${step.type}`, err);
-  }
-}
-
-/**
- * Execute AI trigger ordering - automatically order triggers on the stack
- * DEPRECATED: This function is kept for backward compatibility but trigger ordering
- * is now handled by handleAIResolutionStep via the Resolution Queue.
- */
-async function executeAITriggerOrdering(
-  io: Server,
-  gameId: string,
-  playerId: PlayerID
-): Promise<void> {
-  const game = ensureGame(gameId);
-  if (!game) return;
-  
-  debug(1, '[AI] Executing trigger ordering:', { gameId, playerId });
-  
-  try {
-    // Get triggers from the trigger queue that belong to this player
-    const triggerQueue = (game.state as any).triggerQueue || [];
-    const aiTriggers = triggerQueue.filter((t: any) => 
-      t.controllerId === playerId && t.type === 'order'
-    );
-    
-    if (aiTriggers.length === 0) {
-      debug(1, '[AI] No triggers to order, clearing pending state');
-      // Clear the pending trigger ordering state
-      if ((game.state as any).pendingTriggerOrdering) {
-        delete (game.state as any).pendingTriggerOrdering[playerId];
-        if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
-          delete (game.state as any).pendingTriggerOrdering;
-        }
-      }
-      broadcastGame(io, game, gameId);
-      return;
-    }
-    
-    debug(1, `[AI] Found ${aiTriggers.length} triggers to order`);
-    
-    // Remove triggers from the queue
-    (game.state as any).triggerQueue = triggerQueue.filter((t: any) => 
-      !(t.controllerId === playerId && t.type === 'order')
-    );
-    
-    // Put triggers on the stack in the order they were created
-    // (First trigger goes on stack first, resolves last - this is the default)
-    game.state.stack = game.state.stack || [];
-    
-    const orderedTriggerIds: string[] = [];
-    for (const trigger of aiTriggers) {
-      const stackItem = {
-        id: `stack_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        type: 'ability',
-        controller: playerId,
-        card: {
-          id: trigger.sourceId,
-          name: `${trigger.sourceName} (trigger)`,
-          type_line: 'Triggered Ability',
-          oracle_text: trigger.effect,
-          image_uris: trigger.imageUrl ? { small: trigger.imageUrl, normal: trigger.imageUrl } : undefined,
-        },
-        targets: trigger.targets || [],
-      };
-      
-      game.state.stack.push(stackItem as any);
-      orderedTriggerIds.push(trigger.id);
-      debug(1, `[AI] ⚡ Pushed trigger to stack: ${trigger.sourceName} - ${trigger.effect}`);
-    }
-    
-    // Clear the pending trigger ordering state - CRITICAL to break the loop
-    if ((game.state as any).pendingTriggerOrdering) {
-      delete (game.state as any).pendingTriggerOrdering[playerId];
-      if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
-        delete (game.state as any).pendingTriggerOrdering;
-      }
-    }
-    
-    // Also clear the prompt tracking set since triggers have been ordered
-    if ((game.state as any)._triggerOrderingPromptedPlayers) {
-      delete (game.state as any)._triggerOrderingPromptedPlayers;
-    }
-    
-    // Send chat message about the triggers being put on the stack
-    const triggerNames = aiTriggers.map((t: any) => t.sourceName).join(', ');
-    try {
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `AI orders ${aiTriggers.length} triggered abilities on the stack: ${triggerNames}`,
-        ts: Date.now(),
-      });
-    } catch (e) {
-      // Non-critical
-    }
-    
-    // Persist the event
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, 'orderTriggers', {
-        playerId,
-        orderedTriggerIds,
-        isAI: true,
-      });
-    } catch (e) {
-      debugWarn(1, '[AI] Failed to persist orderTriggers event:', e);
-    }
-    
-    // Bump sequence and broadcast
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    
-    broadcastGame(io, game, gameId);
-    
-    debug(1, `[AI] Successfully ordered ${aiTriggers.length} triggers onto stack`);
-    
-  } catch (error) {
-    debugError(1, '[AI] Error ordering triggers:', error);
-    // On error, still try to clear the pending state to prevent infinite loop
-    if ((game.state as any).pendingTriggerOrdering) {
-      delete (game.state as any).pendingTriggerOrdering[playerId];
-      if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
-        delete (game.state as any).pendingTriggerOrdering;
-      }
-    }
-    broadcastGame(io, game, gameId);
-  }
-}
-
-/**
- * Execute AI decision for Kynaios and Tiro of Meletis style choice
- * AI will play a land if it has one, otherwise decline (controller) or draw (opponent)
- */
-async function executeAIKynaiosChoice(
-  io: Server,
-  gameId: string,
-  playerId: PlayerID,
-  sourceController: string,
-  choiceData: any
-): Promise<void> {
-  const game = ensureGame(gameId);
-  if (!game) return;
-  
-  debug(1, '[AI] Executing Kynaios choice:', { gameId, playerId, sourceController });
-  
-  try {
-    // Initialize tracking arrays if needed
-    choiceData.playersWhoPlayedLand = choiceData.playersWhoPlayedLand || [];
-    choiceData.playersWhoDeclined = choiceData.playersWhoDeclined || [];
-    
-    const isController = playerId === sourceController;
-    
-    // Check if AI has lands in hand
-    const zones = (game.state as any).zones?.[playerId];
-    const hand = zones?.hand || [];
-    const landsInHand = hand.filter((card: any) => 
-      card && (card.type_line || '').toLowerCase().includes('land')
-    );
-    
-    if (landsInHand.length > 0) {
-      // AI has lands - play the first one
-      const landCard = landsInHand[0];
-      const cardIndex = hand.findIndex((c: any) => c?.id === landCard.id);
-      const cardName = landCard.name || "Land";
-      
-      // Remove from hand
-      hand.splice(cardIndex, 1);
-      zones.handCount = hand.length;
-      
-      // Put onto battlefield
-      game.state.battlefield = game.state.battlefield || [];
-      const permanentId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Check if land enters tapped
-      const oracleText = (landCard.oracle_text || '').toLowerCase();
-      const entersTapped = oracleText.includes('enters tapped') || 
-                          oracleText.includes('enters the battlefield tapped');
-      
-      const permanent = {
-        id: permanentId,
-        card: landCard,
-        owner: playerId,
-        controller: playerId,
-        tapped: entersTapped,
-        summoningSickness: false,
-        zone: 'battlefield',
-      };
-      
-      game.state.battlefield.push(permanent as any);
-      
-      // Track that AI played a land
-      choiceData.playersWhoPlayedLand.push(playerId);
-      
-      // Chat message
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `AI ${playerId} puts ${cardName} onto the battlefield (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
-        ts: Date.now(),
-      });
-      
-      debug(1, `[AI] AI ${playerId} played land ${cardName} via Kynaios choice`);
-      
-    } else {
-      // No lands - decline (controller will just skip, opponent will draw later)
-      choiceData.playersWhoDeclined.push(playerId);
-      
-      const action = isController ? "declines to play a land" : "chooses to draw a card";
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `AI ${playerId} ${action} (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
-        ts: Date.now(),
-      });
-      
-      debug(1, `[AI] AI ${playerId} ${action} via Kynaios choice`);
-    }
-    
-    // Persist event
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, 'kynaiosChoice', {
-        playerId,
-        sourceController,
-        choice: landsInHand.length > 0 ? 'play_land' : (isController ? 'decline' : 'draw_card'),
-        landCardId: landsInHand.length > 0 ? landsInHand[0].id : undefined,
-        isAI: true,
-      });
-    } catch (e) {
-      debugWarn(1, '[AI] Failed to persist kynaiosChoice event:', e);
-    }
-    
-    // Bump sequence and broadcast
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    
-    broadcastGame(io, game, gameId);
-    
-    debug(1, `[AI] Successfully made Kynaios choice`);
-    
-  } catch (error) {
-    debugError(1, '[AI] Error making Kynaios choice:', error);
-    // On error, mark as declined to prevent infinite loop
-    choiceData.playersWhoDeclined = choiceData.playersWhoDeclined || [];
-    if (!choiceData.playersWhoDeclined.includes(playerId)) {
-      choiceData.playersWhoDeclined.push(playerId);
-    }
-    broadcastGame(io, game, gameId);
   }
 }
 
@@ -6116,14 +5796,6 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
   if (pendingInteractions.hasPending) {
     const pendingTypes = pendingInteractions.pendingTypes.join(', ');
     return { hasPending: true, reason: `players have pending interactions: ${pendingTypes}` };
-  }
-  
-  // Check legacy pending* fields that haven't been migrated yet
-  if (hasPendingColorChoices(gameId)) {
-    return { hasPending: true, reason: 'players have pending color choice modals' };
-  }
-  if (hasPendingCreatureTypeSelections(gameId)) {
-    return { hasPending: true, reason: 'players have pending creature type selection modals' };
   }
   return { hasPending: false };
 }
