@@ -15,7 +15,20 @@ import {
   type ResolutionStepResponse,
   type TargetSelectionStep,
 } from "../state/resolution/index.js";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, appendGameEvent } from "./util.js";
+import {
+  ensureGame,
+  broadcastGame,
+  getPlayerName,
+  emitToPlayer,
+  getEffectivePower,
+  appendGameEvent,
+  parseManaCost,
+  getOrInitManaPool,
+  calculateTotalAvailableMana,
+  validateManaPayment,
+  consumeManaFromPool,
+  broadcastManaPoolUpdate,
+} from "./util.js";
 import { checkAndPromptOpeningHandActions } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
@@ -1731,6 +1744,42 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           const pending = (game.state as any)?.pendingSpellCasts;
           if (effectId && pending?.[effectId]) {
             delete pending[effectId];
+          }
+
+          // Foretell casts temporarily move a card from exile into hand to reuse the normal cast pipeline.
+          // If the player cancels the target selection step, restore the card back to exile (face-down).
+          const cardId = (cancelledStep as any)?.spellCastContext?.cardId;
+          const pendingForetell = cardId ? (game.state as any)?.pendingForetellCasts?.[cardId] : undefined;
+          if (cardId && pendingForetell && pendingForetell.playerId === pid) {
+            const zones = game.state.zones?.[pid];
+            if (zones) {
+              if (Array.isArray((zones as any).hand)) {
+                const handIdx = (zones.hand as any[]).findIndex((c: any) => c?.id === cardId);
+                if (handIdx !== -1) {
+                  (zones.hand as any[]).splice(handIdx, 1);
+                  (zones as any).handCount = (zones.hand as any[]).length;
+                }
+              }
+
+              (zones as any).exile = Array.isArray((zones as any).exile) ? (zones as any).exile : [];
+              ((zones as any).exile as any[]).push({ ...(pendingForetell.originalCard as any), zone: 'exile', faceDown: true, foretold: true });
+              (zones as any).exileCount = ((zones as any).exile as any[]).length;
+            }
+
+            delete (game.state as any).pendingForetellCasts[cardId];
+          }
+
+          // Optional opponent selection: cancelling means "choose none".
+          if ((cancelledStep as any)?.opponentSelection === true) {
+            const oppEffectId = String((cancelledStep as any)?.effectId || (cancelledStep as any)?.sourceId || '').trim();
+            if (oppEffectId) {
+              (game.state as any).pendingOpponentSelections = (game.state as any).pendingOpponentSelections || {};
+              (game.state as any).pendingOpponentSelections[oppEffectId] = {
+                selectedOpponentIds: [],
+                playerId: pid,
+                timestamp: Date.now(),
+              };
+            }
           }
         }
 
@@ -3850,6 +3899,261 @@ async function handleStepResponse(
       const selectedRaw = response.selections as any;
       const chosenMode = Array.isArray(selectedRaw) ? selectedRaw[0] : selectedRaw;
 
+      // ========================================================================
+      // MULTI-MODE ACTIVATED ABILITIES (Staff of Domination, Trading Post, etc.)
+      // ========================================================================
+      if (stepData?.multiModeActivation === true) {
+        if (response.cancelled) {
+          break;
+        }
+
+        const permanentId = String(step.sourceId || stepData.permanentId || '').trim();
+        if (!permanentId) {
+          emitToPlayer(io, pid as any, 'error', { code: 'NO_PERMANENT', message: 'No permanent id provided' });
+          break;
+        }
+
+        const battlefield = game.state?.battlefield || [];
+        const permanent = battlefield.find((p: any) => p && String(p.id) === permanentId && String(p.controller) === String(pid));
+        if (!permanent) {
+          emitToPlayer(io, pid as any, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent not found or not controlled by you' });
+          break;
+        }
+
+        const card = (permanent as any).card;
+        const cardName = String(card?.name || step.sourceName || 'Unknown');
+
+        const { detectMultiModeAbility } = await import('../state/modules/triggered-abilities.js');
+        const multiModeAbility = detectMultiModeAbility(card, permanent);
+        if (!multiModeAbility) {
+          emitToPlayer(io, pid as any, 'error', { code: 'NO_MULTI_MODE', message: 'Multi-mode ability not found' });
+          break;
+        }
+
+        const modeIndex = Number.parseInt(String(chosenMode), 10);
+        if (!Number.isFinite(modeIndex) || modeIndex < 0 || modeIndex >= (multiModeAbility.modes || []).length) {
+          emitToPlayer(io, pid as any, 'error', { code: 'INVALID_MODE', message: 'Invalid mode selection' });
+          break;
+        }
+
+        const selectedMode = multiModeAbility.modes[modeIndex];
+        const costStr = String(selectedMode?.cost || '');
+        const requiresTap = /\{\s*T\s*\}/i.test(costStr) || costStr.toLowerCase().includes('tap');
+
+        if (requiresTap && (permanent as any).tapped) {
+          emitToPlayer(io, pid as any, 'error', { code: 'ALREADY_TAPPED', message: `${cardName} is already tapped` });
+          break;
+        }
+
+        // Parse mana cost (exclude {T})
+        const manaSymbols = costStr.match(/\{[^}]+\}/g) || [];
+        const manaCost = manaSymbols.filter(sym => !/^\{\s*T\s*\}$/i.test(sym)).join('');
+
+        if (manaCost) {
+          const parsedCost = parseManaCost(manaCost);
+          const pool = getOrInitManaPool(game.state, pid);
+          const totalAvailable = calculateTotalAvailableMana(pool, []);
+
+          const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+          if (validationError) {
+            emitToPlayer(io, pid as any, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+            break;
+          }
+
+          consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[Resolution:multiModeActivation]');
+          broadcastManaPoolUpdate(io, gameId, pid, pool as any, 'Ability activated', game);
+        }
+
+        if (requiresTap) {
+          (permanent as any).tapped = true;
+        }
+
+        // Follow-up target selection (handled via Resolution Queue TARGET_SELECTION)
+        if (selectedMode?.requiresTarget) {
+          const targetType = String(selectedMode?.targetType || 'permanent').toLowerCase();
+          const validTargets = (battlefield || [])
+            .filter((p: any) => {
+              if (!p || !p.card) return false;
+              const typeLine = String(p.card?.type_line || '').toLowerCase();
+              if (targetType === 'creature') return typeLine.includes('creature');
+              if (targetType === 'artifact') return typeLine.includes('artifact');
+              return true; // permanent
+            })
+            .map((p: any) => ({
+              id: String(p.id),
+              label: String(p.card?.name || 'permanent'),
+              description: 'permanent',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+
+          if (validTargets.length === 0) {
+            emitToPlayer(io, pid as any, 'error', { code: 'NO_VALID_TARGETS', message: 'No valid targets for this mode' });
+            break;
+          }
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: pid as any,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+            description: `${cardName}: ${String(selectedMode?.name || 'Choose a target')}`,
+            mandatory: false,
+            validTargets,
+            targetTypes: [targetType],
+            minTargets: 1,
+            maxTargets: 1,
+            targetDescription: `target ${targetType}`,
+            multiModeTargeting: true,
+            multiModePermanentId: permanentId,
+            multiModeCardName: cardName,
+            multiModeModeName: String(selectedMode?.name || ''),
+            multiModeEffect: String(selectedMode?.effect || ''),
+            multiModeTargetType: targetType,
+          } as any);
+
+          broadcastGame(io, game, gameId);
+          break;
+        }
+
+        // Execute non-targeted mode effects
+        let effectExecuted = false;
+        const modeNameLower = String(selectedMode?.name || '').toLowerCase();
+        const effectLower = String(selectedMode?.effect || '').toLowerCase();
+
+        // Mana abilities
+        if (modeNameLower.includes('add mana') || effectLower.includes('add one mana') || effectLower.includes('add {')) {
+          if (effectLower.includes('any color')) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MANA_COLOR_SELECTION,
+              playerId: pid as any,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+              description: `Choose a color for ${cardName}'s mana.`,
+              mandatory: true,
+              selectionKind: 'any_color',
+              permanentId,
+              cardName,
+              amount: 1,
+              allowedColors: ['W', 'U', 'B', 'R', 'G'],
+              singleColor: true,
+            } as any);
+
+            broadcastGame(io, game, gameId);
+            break;
+          }
+
+          const symbols = effectLower.match(/\{([wubrgc])\}/gi) || [];
+          if (symbols.length > 0) {
+            const pool = getOrInitManaPool(game.state, pid) as any;
+            const poolKeyByCode: Record<string, string> = {
+              W: 'white',
+              U: 'blue',
+              B: 'black',
+              R: 'red',
+              G: 'green',
+              C: 'colorless',
+            };
+            for (const sym of symbols) {
+              const code = sym.replace(/[{}]/g, '').toUpperCase();
+              const key = poolKeyByCode[code];
+              if (key) pool[key] = Number(pool[key] || 0) + 1;
+            }
+            broadcastManaPoolUpdate(io, gameId, pid, pool as any, 'Added mana', game);
+            effectExecuted = true;
+          }
+        }
+
+        // Surveil (legacy surveilChoice flow)
+        else if (modeNameLower.includes('surveil') || effectLower.includes('surveil')) {
+          const surveilMatch = effectLower.match(/surveil\s*(\d+)/i);
+          const surveilAmount = surveilMatch ? Number.parseInt(surveilMatch[1], 10) : 1;
+
+          (game.state as any).pendingSurveil = (game.state as any).pendingSurveil || {};
+          const surveilId = `surveil_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          (game.state as any).pendingSurveil[surveilId] = {
+            playerId: pid,
+            amount: surveilAmount,
+            permanentId,
+            cardName,
+          };
+
+          const zones = (game.state as any)?.zones?.[pid];
+          if (zones && Array.isArray(zones.library) && zones.library.length > 0) {
+            const topCards = zones.library.slice(0, Math.min(surveilAmount, zones.library.length));
+            emitToPlayer(io, pid as any, 'surveilChoice', {
+              gameId,
+              surveilId,
+              amount: surveilAmount,
+              cards: topCards.map((c: any, i: number) => ({
+                id: c.id,
+                name: c.name,
+                position: i,
+                image_uris: c.image_uris,
+              })),
+            });
+
+            broadcastGame(io, game, gameId);
+            break;
+          }
+
+          effectExecuted = true;
+        }
+
+        // Staff of Domination-ish
+        else if (modeNameLower.includes('untap staff')) {
+          (permanent as any).tapped = false;
+          effectExecuted = true;
+        } else if (modeNameLower.includes('draw card')) {
+          const zones = (game.state as any)?.zones?.[pid];
+          if (zones && Array.isArray(zones.library) && zones.library.length > 0) {
+            const drawnCard = zones.library.shift();
+            zones.hand = zones.hand || [];
+            zones.hand.push(drawnCard);
+            zones.handCount = zones.hand.length;
+            zones.libraryCount = zones.library.length;
+            effectExecuted = true;
+          }
+        } else if (modeNameLower.includes('gain') && modeNameLower.includes('life')) {
+          const lifeGain = Number.parseInt(modeNameLower.match(/\d+/)?.[0] || '1', 10);
+          (game.state as any).life = (game.state as any).life || {};
+          const currentLife = (game.state as any).life[pid] ?? 40;
+          (game.state as any).life[pid] = currentLife + lifeGain;
+          const playerObj = ((game.state as any).players || []).find((p: any) => p?.id === pid);
+          if (playerObj) playerObj.life = (game.state as any).life[pid];
+          effectExecuted = true;
+        }
+
+        if (!effectExecuted) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'NOT_IMPLEMENTED',
+            message: `Effect for "${String(selectedMode?.name || 'mode')}" not yet implemented`,
+          });
+          break;
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} activated ${cardName}: ${String(selectedMode?.name || '')}`,
+          ts: Date.now(),
+        });
+
+        appendGameEvent(game, gameId, 'ability_activated', {
+          playerId: pid,
+          permanentId,
+          abilityName: String(selectedMode?.name || ''),
+          source: cardName,
+          ts: Date.now(),
+        });
+
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        broadcastGame(io, game, gameId);
+        break;
+      }
+
       // Special-case: spell-casting mode prompts (overload, Abundant Harvest style)
       // These steps carry server-only continuation args so we can resume castSpellFromHand.
       if (stepData?.castSpellFromHandArgs && !response.cancelled) {
@@ -5648,6 +5952,216 @@ async function handleTargetSelectionResponse(
   const validTargetIds = new Set(validTargets.map((t: any) => t.id));
   if (!selections.every(id => validTargetIds.has(id))) {
     debugWarn(1, `[Resolution] Invalid target selection: one or more targets not in valid targets list`);
+    return;
+  }
+
+  // ========================================================================
+  // TAP CREATURES AS COST (Summon the School style: "Tap N untapped X you control:")
+  // Not stack targeting: apply taps and move the source card from graveyard to hand.
+  // ========================================================================
+  const stepAny = step as any;
+  if (stepAny?.tapCreaturesCost === true) {
+    const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
+    const requiredCount = Number(stepAny?.requiredCount || 0);
+    const creatureType = String(stepAny?.creatureType || '').trim();
+
+    if (!cardId) {
+      debugWarn(1, `[Resolution] tapCreaturesCost step missing cardId/sourceId`);
+      return;
+    }
+
+    if (!Number.isFinite(requiredCount) || requiredCount <= 0) {
+      debugWarn(1, `[Resolution] tapCreaturesCost invalid requiredCount: ${String(stepAny?.requiredCount)}`);
+      return;
+    }
+
+    // Enforce exact count for cost payment
+    if (selections.length !== requiredCount) {
+      debugWarn(1, `[Resolution] tapCreaturesCost wrong selection count: got ${selections.length}, required ${requiredCount}`);
+      return;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const tappedCreatureNames: string[] = [];
+
+    for (const permanentId of selections) {
+      const permanent = battlefield.find((p: any) => p && p.id === permanentId);
+      if (!permanent || String(permanent.controller) !== String(pid)) {
+        debugWarn(1, `[Resolution] tapCreaturesCost invalid permanent/controller: ${permanentId}`);
+        return;
+      }
+      if ((permanent as any).tapped) {
+        debugWarn(1, `[Resolution] tapCreaturesCost selected already tapped permanent: ${permanentId}`);
+        return;
+      }
+      (permanent as any).tapped = true;
+      tappedCreatureNames.push(permanent.card?.name || 'Creature');
+    }
+
+    const zones = (game.state as any)?.zones?.[pid];
+    if (!zones || !Array.isArray(zones.graveyard)) {
+      debugWarn(1, `[Resolution] tapCreaturesCost zones/graveyard missing for ${pid}`);
+      return;
+    }
+
+    const cardIndex = zones.graveyard.findIndex((c: any) => String(c?.id) === cardId);
+    if (cardIndex === -1) {
+      debugWarn(1, `[Resolution] tapCreaturesCost card not in graveyard: ${cardId}`);
+      return;
+    }
+
+    const card = zones.graveyard[cardIndex];
+    const cardName = String(card?.name || step.sourceName || 'Card');
+
+    zones.graveyard.splice(cardIndex, 1);
+    zones.graveyardCount = zones.graveyard.length;
+    zones.hand = zones.hand || [];
+    zones.hand.push({ ...card, zone: 'hand' });
+    zones.handCount = zones.hand.length;
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game as any).seq ?? 0, 'activateGraveyardAbility', {
+      playerId: pid,
+      cardId,
+      abilityId: String(stepAny?.abilityId || 'tap-creatures-return'),
+      tappedCreatureIds: selections,
+      creatureType,
+      requiredCount,
+      destination: 'hand',
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} tapped ${tappedCreatureNames.join(', ')} to return ${cardName} from graveyard to hand.`,
+      ts: Date.now(),
+    });
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
+  // MULTI-MODE ABILITY FOLLOW-UP TARGETING (tap/untap/goad etc.)
+  // ========================================================================
+  if (stepAny?.multiModeTargeting === true) {
+    const targetId = String(selections[0] || '').trim();
+    if (!targetId) {
+      debugWarn(1, `[Resolution] multiModeTargeting missing targetId`);
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    const targetPerm = battlefield.find((p: any) => p && String(p.id) === targetId);
+    if (!targetPerm) {
+      debugWarn(1, `[Resolution] multiModeTargeting target not found: ${targetId}`);
+      return;
+    }
+
+    const cardName = String(stepAny?.multiModeCardName || step.sourceName || 'Ability');
+    const permanentId = String(stepAny?.multiModePermanentId || step.sourceId || '');
+    const modeName = String(stepAny?.multiModeModeName || '').trim();
+    const effect = String(stepAny?.multiModeEffect || '').trim();
+    const targetName = String(targetPerm.card?.name || 'permanent');
+
+    const modeLower = modeName.toLowerCase();
+    const effectLower = effect.toLowerCase();
+
+    let executed = false;
+
+    if (modeLower.includes('goad') || effectLower.includes('goad')) {
+      const currentTurn = Number((game.state as any)?.turn || 0);
+      const expiryTurn = currentTurn + 1;
+
+      (targetPerm as any).goadedBy = Array.isArray((targetPerm as any).goadedBy) ? (targetPerm as any).goadedBy : [];
+      if (!(targetPerm as any).goadedBy.includes(pid)) {
+        (targetPerm as any).goadedBy.push(pid);
+      }
+
+      (targetPerm as any).goadedUntil = (targetPerm as any).goadedUntil || {};
+      (targetPerm as any).goadedUntil[pid] = expiryTurn;
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} activated ${cardName}: Goaded ${targetName}.`,
+        ts: Date.now(),
+      });
+
+      executed = true;
+    } else if (modeLower.includes('untap') || effectLower.includes('untap target')) {
+      (targetPerm as any).tapped = false;
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} activated ${cardName}: Untapped ${targetName}.`,
+        ts: Date.now(),
+      });
+      executed = true;
+    } else if (modeLower.includes('tap') || effectLower.includes('tap target')) {
+      (targetPerm as any).tapped = true;
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} activated ${cardName}: Tapped ${targetName}.`,
+        ts: Date.now(),
+      });
+      executed = true;
+    }
+
+    if (!executed) {
+      debugWarn(1, `[Resolution] multiModeTargeting effect not implemented (${modeName || effect || 'unknown'})`);
+      return;
+    }
+
+    appendGameEvent(game, gameId, 'ability_activated', {
+      playerId: pid,
+      permanentId,
+      abilityName: modeName,
+      targetId,
+      targetName,
+      source: cardName,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
+  // OPPONENT SELECTION (Secret Rendezvous, etc.)
+  // This is not stack targeting; it's a player-selection input for later effect resolution.
+  // ========================================================================
+  if (stepAny?.opponentSelection === true) {
+    const effectId = String(stepAny?.effectId || step.sourceId || '').trim();
+    if (!effectId) {
+      debugWarn(1, `[Resolution] Opponent selection step missing effectId/sourceId`);
+      return;
+    }
+
+    (game.state as any).pendingOpponentSelections = (game.state as any).pendingOpponentSelections || {};
+    (game.state as any).pendingOpponentSelections[effectId] = {
+      selectedOpponentIds: selections,
+      playerId: pid,
+      timestamp: Date.now(),
+    };
+
+    debug(1, `[Resolution] Opponent selection stored for ${effectId}: ${selections.join(', ') || '(none)'}`);
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
     return;
   }
   

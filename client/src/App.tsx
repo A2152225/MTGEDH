@@ -58,7 +58,6 @@ import { TwoPileSplitModal, type TwoPileSplitRequest } from "./components/TwoPil
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
-import { MultiModeActivationModal, type AbilityMode } from "./components/MultiModeActivationModal";
 import { StationCreatureSelectionModal, type StationCreature, type StationInfo } from "./components/StationCreatureSelectionModal";
 import { PlayerTargetSelectionModal, type PlayerTarget } from "./components/PlayerTargetSelectionModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
@@ -771,15 +770,6 @@ export function App() {
     };
     title?: string;
     description?: string;
-  } | null>(null);
-  
-  // Multi-Mode Activation Modal state - for Staff of Domination, Trading Post, etc.
-  const [multiModeActivationModalOpen, setMultiModeActivationModalOpen] = useState(false);
-  const [multiModeActivationModalData, setMultiModeActivationModalData] = useState<{
-    permanentId: string;
-    permanentName: string;
-    permanentImageUrl?: string;
-    modes: AbilityMode[];
   } | null>(null);
   
   // Station Creature Selection Modal state (Rule 702.184a)
@@ -3050,26 +3040,8 @@ export function App() {
   useEffect(() => {
     // Tap/Untap Target Request handler
     // tap/untap target selection is handled via Resolution Queue (resolutionStepPrompt)
-    
-    // Multi-Mode Activation Request handler
-    const handleMultiModeActivationRequest = (data: {
-      gameId: string;
-      permanent: { id: string; name: string; imageUrl?: string };
-      modes: AbilityMode[];
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setMultiModeActivationModalData({
-        permanentId: data.permanent.id,
-        permanentName: data.permanent.name,
-        permanentImageUrl: data.permanent.imageUrl,
-        modes: data.modes,
-      });
-      setMultiModeActivationModalOpen(true);
-    };
-    socket.on("multiModeActivationRequest", handleMultiModeActivationRequest);
-    
+
     return () => {
-      socket.off("multiModeActivationRequest", handleMultiModeActivationRequest);
     };
   }, [safeView?.id]);
 
@@ -4427,8 +4399,17 @@ export function App() {
     });
   };
 
-  const handleExileAbility = (cardId: string, _abilityId: string) => {
+  const handleExileAbility = (cardId: string, abilityId: string) => {
     if (!safeView?.id) return;
+
+    if (abilityId === 'foretell-cast') {
+      socket.emit('castForetold', {
+        gameId: safeView.id,
+        cardId,
+      });
+      return;
+    }
+
     // Most "cast/play from exile" permissions are handled via the normal cast request.
     socket.emit('requestCastSpell', {
       gameId: safeView.id,
@@ -5706,32 +5687,6 @@ export function App() {
           }
           setCounterMovementModalOpen(false);
           setCounterMovementModalData(null);
-        }}
-      />
-
-      {/* Multi-Mode Activation Modal - for Staff of Domination and similar multi-mode abilities */}
-      <MultiModeActivationModal
-        open={multiModeActivationModalOpen}
-        permanent={{
-          id: multiModeActivationModalData?.permanentId || "",
-          name: multiModeActivationModalData?.permanentName || "",
-          imageUrl: multiModeActivationModalData?.permanentImageUrl,
-        }}
-        modes={multiModeActivationModalData?.modes || []}
-        onSelectMode={(modeIndex) => {
-          if (multiModeActivationModalData && safeView) {
-            socket.emit("confirmMultiModeActivation", {
-              gameId: safeView.id,
-              permanentId: multiModeActivationModalData.permanentId,
-              modeIndex,
-            });
-            setMultiModeActivationModalOpen(false);
-            setMultiModeActivationModalData(null);
-          }
-        }}
-        onCancel={() => {
-          setMultiModeActivationModalOpen(false);
-          setMultiModeActivationModalData(null);
         }}
       />
 

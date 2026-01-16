@@ -4970,6 +4970,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         debugWarn(1, '[castSpellFromHand] Failed to process opponent spell triggers:', err);
       }
       
+      // Foretell cast cleanup: once the spell is successfully cast, clear any pending-restore marker.
+      if ((cardInHand as any)?.castFromForetell === true) {
+        const pendingForetell = (game.state as any)?.pendingForetellCasts;
+        if (pendingForetell?.[cardId]) {
+          delete pendingForetell[cardId];
+        }
+      }
+
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
@@ -8584,20 +8592,92 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       const card = zones.exile[cardIndex] as any;
-      
-      // Emit cast request with foretell cost
-      socket.emit("castForetoldRequest", {
-        gameId,
-        cardId,
-        cardName: card.name,
-        foretellCost: card.foretellCost,
-        imageUrl: card.image_uris?.small || card.image_uris?.normal,
-      });
 
-      debug(2, `[castForetold] ${playerId} attempting to cast foretold ${card.name} for ${card.foretellCost}`);
+      if (card.foretoldBy && String(card.foretoldBy) !== String(playerId)) {
+        socket.emit("error", { code: "NOT_YOUR_FORETOLD_CARD", message: "You can only cast cards you foretold." });
+        return;
+      }
+
+      // Move the card into hand temporarily and reuse the normal cast pipeline.
+      // This avoids a bespoke client prompt and ensures targeting/payment flows stay consistent.
+      const originalCard = { ...card };
+      (zones.exile as any[]).splice(cardIndex, 1);
+      (zones as any).exileCount = (zones.exile as any[]).length;
+
+      zones.hand = Array.isArray((zones as any).hand) ? (zones as any).hand : [];
+
+      const foretellCost = String(card.foretellCost || '{2}');
+      const handCard = {
+        ...card,
+        zone: 'hand',
+        faceDown: false,
+        mana_cost: foretellCost,
+        castFromForetell: true,
+        originalManaCost: card.mana_cost,
+      };
+      (zones.hand as any[]).push(handCard);
+      zones.handCount = (zones.hand as any[]).length;
+
+      (game.state as any).pendingForetellCasts = (game.state as any).pendingForetellCasts || {};
+      (game.state as any).pendingForetellCasts[cardId] = {
+        playerId,
+        originalCard,
+        foretellCost,
+        movedAt: Date.now(),
+      };
+
+      debug(2, `[castForetold] ${playerId} starting cast for foretold ${card.name} (cost ${foretellCost})`);
+
+      // Start the normal spell cast flow (will request targets via Resolution Queue, then payment).
+      handleCastSpellFromHand({ gameId, cardId });
+
+      broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `castForetold error for game ${gameId}:`, err);
       socket.emit("error", { code: "CAST_FORETOLD_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  // Payment/targeting cancel from client casting UI.
+  // Used as a best-effort cleanup hook, especially for foretell casts (which temporarily move a card into hand).
+  socket.on('targetSelectionCancel', ({ gameId, cardId, effectId }: { gameId: string; cardId: string; effectId?: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Clean pending spell-cast state when present.
+      if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+      }
+      if (effectId && (game.state as any).pendingTargets?.[effectId]) {
+        delete (game.state as any).pendingTargets[effectId];
+      }
+
+      const pendingForetell = (game.state as any).pendingForetellCasts?.[cardId];
+      if (pendingForetell && pendingForetell.playerId === playerId) {
+        const zones = game.state.zones?.[playerId];
+        if (zones && Array.isArray(zones.hand)) {
+          const handIdx = (zones.hand as any[]).findIndex((c: any) => c?.id === cardId);
+          if (handIdx !== -1) {
+            (zones.hand as any[]).splice(handIdx, 1);
+            zones.handCount = (zones.hand as any[]).length;
+          }
+        }
+
+        if (zones) {
+          zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : [];
+          (zones.exile as any[]).push({ ...(pendingForetell.originalCard as any), zone: 'exile', faceDown: true, foretold: true });
+          (zones as any).exileCount = (zones.exile as any[]).length;
+        }
+
+        delete (game.state as any).pendingForetellCasts[cardId];
+      }
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      debugError(1, `targetSelectionCancel error for game ${gameId}:`, err);
+      socket.emit('error', { code: 'TARGET_SELECTION_CANCEL_ERROR', message: err?.message ?? String(err) });
     }
   });
 
@@ -8949,50 +9029,38 @@ export function registerGameActions(io: Server, socket: Socket) {
         isOpponent: true,
       }));
 
-      socket.emit("opponentSelectionRequest", {
-        gameId,
-        effectId,
-        cardName,
-        description,
-        opponents,
-        minOpponents,
-        maxOpponents,
-      });
+      // Unified Resolution Queue prompt
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) => (s as any)?.opponentSelection === true && String((s as any)?.effectId || (s as any)?.sourceId || '') === String(effectId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: playerId as any,
+          sourceName: cardName,
+          sourceId: effectId,
+          description,
+          mandatory: minOpponents > 0,
+          validTargets: opponents.map((o: any) => ({
+            id: o.id,
+            label: o.name,
+            description: 'opponent',
+          })),
+          targetTypes: ['player'],
+          minTargets: Math.max(0, minOpponents),
+          maxTargets: Math.max(0, maxOpponents),
+          targetDescription: 'opponent',
+          opponentSelection: true,
+          effectId,
+          cardName,
+        } as any);
+      }
 
       debug(2, `[requestOpponentSelection] Requesting opponent selection for ${cardName}`);
     } catch (err: any) {
       debugError(1, `requestOpponentSelection error for game ${gameId}:`, err);
       socket.emit("error", { code: "OPPONENT_SELECTION_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  /**
-   * Handle opponent selection confirmation
-   */
-  socket.on("confirmOpponentSelection", ({ gameId, effectId, selectedOpponentIds }: {
-    gameId: string;
-    effectId: string;
-    selectedOpponentIds: string[];
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      // Store the selection for effect resolution
-      (game.state as any).pendingOpponentSelections = (game.state as any).pendingOpponentSelections || {};
-      (game.state as any).pendingOpponentSelections[effectId] = {
-        selectedOpponentIds,
-        playerId,
-        timestamp: Date.now(),
-      };
-
-      debug(1, `[confirmOpponentSelection] ${playerId} selected opponents: ${selectedOpponentIds.join(', ')}`);
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `confirmOpponentSelection error for game ${gameId}:`, err);
-      socket.emit("error", { code: "OPPONENT_CONFIRM_ERROR", message: err?.message ?? String(err) });
     }
   });
 

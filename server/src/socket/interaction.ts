@@ -1445,22 +1445,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           return;
         }
         
-        // Request player to select which creatures to tap
-        socket.emit("tapCreaturesRequest", {
-          gameId,
-          cardId,
-          cardName,
-          abilityId,
-          creatureType,
-          requiredCount: tapCount,
-          availableCreatures: untappedCreatures.map((c: any) => ({
-            id: c.id,
-            name: c.card?.name || 'Unknown',
-            type_line: c.card?.type_line || '',
-            image_uris: c.card?.image_uris,
-          })),
-          message: `Tap ${tapCount} untapped ${creatureType}${tapCount > 1 ? 's' : ''} to return ${cardName} to hand.`,
-        });
+        // Unified Resolution Queue prompt
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, pid as any)
+          .find((s: any) => (s as any)?.tapCreaturesCost === true && String((s as any)?.cardId || '') === String(cardId));
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: pid as PlayerID,
+            sourceName: cardName,
+            sourceId: cardId,
+            sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+            description: `Tap ${tapCount} untapped ${creatureType}${tapCount > 1 ? 's' : ''} you control to return ${cardName} from your graveyard to your hand.`,
+            mandatory: false,
+            validTargets: untappedCreatures.map((c: any) => ({
+              id: c.id,
+              label: c.card?.name || 'Creature',
+              description: c.card?.type_line || 'Creature',
+              imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+            })),
+            targetTypes: ['tap_cost'],
+            minTargets: tapCount,
+            maxTargets: tapCount,
+            targetDescription: `untapped ${creatureType}${tapCount > 1 ? 's' : ''} you control`,
+            tapCreaturesCost: true,
+            cardId,
+            abilityId,
+            creatureType,
+            requiredCount: tapCount,
+          } as any);
+        }
         
         broadcastGame(io, game, gameId);
         return;
@@ -1846,105 +1861,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
   
-  // Handle tap creatures response (for graveyard abilities like Summon the School)
-  socket.on("tapCreaturesResponse", ({ gameId, cardId, abilityId, creatureIds }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-    
-    const game = ensureGame(gameId);
-    const zones = (game.state as any)?.zones?.[pid];
-    
-    if (!zones || !Array.isArray(zones.graveyard)) {
-      socket.emit("error", { code: "NO_ZONES", message: "Zones not found" });
-      return;
-    }
-    
-    // Find the card in graveyard
-    const cardIndex = zones.graveyard.findIndex((c: any) => c.id === cardId);
-    if (cardIndex === -1) {
-      socket.emit("error", { code: "CARD_NOT_IN_GRAVEYARD", message: "Card not found in graveyard" });
-      return;
-    }
-    
-    const card = zones.graveyard[cardIndex];
-    const cardName = card.name || "Unknown Card";
-    const oracleText = (card.oracle_text || "").toLowerCase();
-    
-    // Verify this card has a tap creatures cost
-    const tapCreatureCostMatch = oracleText.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control:\s*return\s+(?:this card|~|it)\s+from\s+(?:your\s+)?graveyard/i);
-    if (!tapCreatureCostMatch) {
-      socket.emit("error", { code: "INVALID_ABILITY", message: "This card doesn't have a tap creatures cost" });
-      return;
-    }
-    
-    const countStr = tapCreatureCostMatch[1];
-    const requiredCount = parseWordNumber(countStr, 1);
-    
-    // Verify the correct number of creatures were selected
-    if (!creatureIds || creatureIds.length !== requiredCount) {
-      socket.emit("error", {
-        code: "WRONG_CREATURE_COUNT",
-        message: `Need to tap exactly ${requiredCount} creature(s), but ${creatureIds?.length || 0} were selected.`,
-      });
-      return;
-    }
-    
-    // Tap the selected creatures
-    const battlefield = game.state.battlefield || [];
-    const tappedCreatureNames: string[] = [];
-    
-    for (const creatureId of creatureIds) {
-      const creature = battlefield.find((p: any) => p.id === creatureId && p.controller === pid);
-      if (!creature) {
-        socket.emit("error", {
-          code: "CREATURE_NOT_FOUND",
-          message: `Creature ${creatureId} not found or not controlled by you.`,
-        });
-        return;
-      }
-      
-      if ((creature as any).tapped) {
-        socket.emit("error", {
-          code: "CREATURE_ALREADY_TAPPED",
-          message: `${creature.card?.name || 'Creature'} is already tapped.`,
-        });
-        return;
-      }
-      
-      (creature as any).tapped = true;
-      tappedCreatureNames.push(creature.card?.name || 'Creature');
-    }
-    
-    // Remove card from graveyard and add to hand
-    zones.graveyard.splice(cardIndex, 1);
-    zones.graveyardCount = zones.graveyard.length;
-    zones.hand = zones.hand || [];
-    zones.hand.push({ ...card, zone: "hand" });
-    zones.handCount = zones.hand.length;
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
-      playerId: pid,
-      cardId,
-      abilityId: "tap-creatures-return",
-      tappedCreatureIds: creatureIds,
-      destination: "hand",
-    });
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} tapped ${tappedCreatureNames.join(', ')} to return ${cardName} from graveyard to hand.`,
-      ts: Date.now(),
-    });
-    
-    broadcastGame(io, game, gameId);
-  });
-
   // Get graveyard contents for viewing
   socket.on("requestGraveyardView", ({ gameId, targetPlayerId }) => {
     const pid = socket.data.playerId as string | undefined;
@@ -3973,41 +3889,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (requiresTap) {
         (permanent as any).tapped = true;
       }
-      
-      // Generate activation ID
-      const activationId = `move_counter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Store pending move counter activation
-      if (!game.state.pendingMoveCounterActivations) {
-        game.state.pendingMoveCounterActivations = {};
-      }
-      game.state.pendingMoveCounterActivations[activationId] = {
-        playerId: pid,
+
+      // Unified Resolution Queue prompt
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.COUNTER_MOVEMENT,
+        playerId: pid as PlayerID,
         sourceId: permanentId,
         sourceName: cardName,
-        step: 'select_source', // First step: select source permanent
-      };
-      
-      // Emit target selection request to client (first target: source permanent)
-      socket.emit("moveCounterSourceRequest", {
-        gameId,
-        activationId,
-        source: {
-          id: permanentId,
-          name: cardName,
-          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+        description: oracleText,
+        mandatory: true,
+        sourceFilter: {
+          controller: 'you',
+          requiresCounters: true,
         },
         targetFilter: {
-          types: ['permanent'],
-          controller: 'you',
-          requiresCounters: true, // Must have at least one counter
-          excludeSource: false,
+          controller: 'any',
+          excludeSource: true,
         },
-        title: `${cardName} - Select source permanent`,
-        description: "Choose a permanent you control with counters to move a counter from",
+        title: cardName,
       });
-      
-      debug(2, `[activateBattlefieldAbility] Move counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for source permanent`);
+
+      debug(2, `[activateBattlefieldAbility] Move counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}queued counter movement step`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -4217,18 +4120,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     );
     
     if (isMultiModeAbility && multiModeAbility) {
-      // Emit mode selection request to client
-      socket.emit("multiModeActivationRequest", {
-        gameId,
-        permanent: {
-          id: permanentId,
-          name: cardName,
-          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        },
-        modes: multiModeAbility.modes,
-      });
-      
-      debug(2, `[activateBattlefieldAbility] Multi-mode ability on ${cardName}: prompting for mode selection`);
+      // Unified Resolution Queue prompt
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && (s as any)?.multiModeActivation === true && String(s?.sourceId) === String(permanentId));
+
+      if (!existing) {
+        const modes = (multiModeAbility.modes || []).map((m: any, idx: number) => ({
+          id: String(idx),
+          label: `${String(m?.name || 'Mode')} (${String(m?.cost || '').trim() || 'no cost'})`,
+          description: String(m?.effect || ''),
+        }));
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MODE_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `Choose a mode to activate for ${cardName}.`,
+          mandatory: false,
+          modes,
+          minModes: 1,
+          maxModes: 1,
+          allowDuplicates: false,
+          multiModeActivation: true,
+          multiModeAbilityId: abilityId,
+        } as any);
+      }
+
+      debug(2, `[activateBattlefieldAbility] Multi-mode ability on ${cardName}: queued mode selection step`);
+      broadcastGame(io, game, gameId);
       return;
     }
     
@@ -7053,208 +6975,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   // Legacy counterTargetChosen handler removed - now using resolution queue system
 
-  /**
-   * Handle move counter source selection (Nesting Grounds step 1)
-   */
-  socket.on("moveCounterSourceChosen", async ({
-    gameId,
-    activationId,
-    sourcePermId,
-    counterType,
-  }: {
-    gameId: string;
-    activationId: string;
-    sourcePermId: string;
-    counterType: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    
-    // Retrieve pending activation
-    const pendingMove = game.state.pendingMoveCounterActivations?.[activationId];
-    if (!pendingMove || pendingMove.step !== 'select_source') {
-      socket.emit("error", {
-        code: "INVALID_ACTIVATION",
-        message: "Move counter activation not found or in wrong step",
-      });
-      return;
-    }
-    
-    // Validate player
-    if (pendingMove.playerId !== pid) {
-      socket.emit("error", {
-        code: "NOT_YOUR_ACTIVATION",
-        message: "This is not your activation",
-      });
-      return;
-    }
-    
-    const battlefield = game.state?.battlefield || [];
-    
-    // Find the source permanent
-    const sourcePermanent = battlefield.find((p: any) => p?.id === sourcePermId && p?.controller === pid);
-    if (!sourcePermanent || !sourcePermanent.counters || !sourcePermanent.counters[counterType]) {
-      socket.emit("error", {
-        code: "INVALID_SOURCE",
-        message: "Source permanent not found or doesn't have that counter type",
-      });
-      delete game.state.pendingMoveCounterActivations[activationId];
-      return;
-    }
-    
-    // Update pending state to step 2
-    pendingMove.step = 'select_destination';
-    pendingMove.sourcePermId = sourcePermId;
-    pendingMove.counterType = counterType;
-    
-    // Emit second target selection request (destination permanent)
-    socket.emit("moveCounterDestinationRequest", {
-      gameId,
-      activationId,
-      source: {
-        id: pendingMove.sourceId,
-        name: pendingMove.sourceName,
-      },
-      counterType,
-      sourcePerm: {
-        id: sourcePermId,
-        name: sourcePermanent.card?.name || "permanent",
-      },
-      targetFilter: {
-        types: ['permanent'],
-        controller: 'any',
-        excludeSource: true, // Can't move to same permanent
-      },
-      title: `${pendingMove.sourceName} - Select destination`,
-      description: `Choose a permanent to move the ${counterType} counter to`,
-    });
-    
-    debug(2, `[moveCounterSourceChosen] Selected source: ${sourcePermanent.card?.name}, counter: ${counterType}`);
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Handle move counter destination selection (Nesting Grounds step 2)
-   */
-  socket.on("moveCounterDestinationChosen", async ({
-    gameId,
-    activationId,
-    destPermId,
-  }: {
-    gameId: string;
-    activationId: string;
-    destPermId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    
-    // Retrieve pending activation
-    const pendingMove = game.state.pendingMoveCounterActivations?.[activationId];
-    if (!pendingMove || pendingMove.step !== 'select_destination') {
-      socket.emit("error", {
-        code: "INVALID_ACTIVATION",
-        message: "Move counter activation not found or in wrong step",
-      });
-      return;
-    }
-    
-    // Validate player
-    if (pendingMove.playerId !== pid) {
-      socket.emit("error", {
-        code: "NOT_YOUR_ACTIVATION",
-        message: "This is not your activation",
-      });
-      return;
-    }
-    
-    const battlefield = game.state?.battlefield || [];
-    
-    // Find source and destination permanents
-    const sourcePermanent = battlefield.find((p: any) => p?.id === pendingMove.sourcePermId);
-    const destPermanent = battlefield.find((p: any) => p?.id === destPermId);
-    
-    if (!sourcePermanent || !destPermanent) {
-      socket.emit("error", {
-        code: "INVALID_TARGET",
-        message: "Source or destination permanent not found",
-      });
-      delete game.state.pendingMoveCounterActivations[activationId];
-      return;
-    }
-    
-    const counterType = pendingMove.counterType;
-    
-    // Verify source still has the counter
-    if (!sourcePermanent.counters || !sourcePermanent.counters[counterType] || sourcePermanent.counters[counterType] <= 0) {
-      socket.emit("error", {
-        code: "NO_COUNTER",
-        message: "Source permanent no longer has that counter",
-      });
-      delete game.state.pendingMoveCounterActivations[activationId];
-      return;
-    }
-    
-    // Clean up pending state
-    delete game.state.pendingMoveCounterActivations[activationId];
-    
-    // Move the counter
-    (sourcePermanent.counters as any)[counterType] -= 1;
-    if ((sourcePermanent.counters as any)[counterType] <= 0) {
-      delete (sourcePermanent.counters as any)[counterType];
-    }
-    
-    if (!destPermanent.counters) {
-      (destPermanent as any).counters = {};
-    }
-    (destPermanent.counters as any)[counterType] = ((destPermanent.counters as any)[counterType] || 0) + 1;
-    
-    const sourceName = sourcePermanent.card?.name || "permanent";
-    const destName = destPermanent.card?.name || "permanent";
-    
-    debug(2, `[moveCounterDestinationChosen] Moved ${counterType} counter from ${sourceName} to ${destName}`);
-    
-    // Emit chat message
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} activated ${pendingMove.sourceName}: Moved a ${counterType} counter from ${sourceName} to ${destName}.`,
-      ts: Date.now(),
-    });
-    
-    // Persist event
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, "moveCounterComplete", {
-        playerId: pid,
-        activationId,
-        sourceName: pendingMove.sourceName,
-        sourcePermId: pendingMove.sourcePermId,
-        destPermId,
-        counterType,
-      });
-    } catch (e) {
-      debugWarn(1, "[interaction] Failed to persist moveCounterComplete event:", e);
-    }
-    
-    // Bump sequence
-    if (typeof (game as any).bumpSeq === "function") {
-      (game as any).bumpSeq();
-    }
-    
-    broadcastGame(io, game, gameId);
-  });
+  // moveCounterSourceChosen/moveCounterDestinationChosen are removed.
+  // Counter movement is handled via Resolution Queue (ResolutionStepType.COUNTER_MOVEMENT).
 
   /**
    * Get current replacement effect ordering preferences for a player
@@ -7306,380 +7028,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   // Station creature selection is handled via Resolution Queue (see socket/resolution.ts)
 
-  /**
-   * Handle multi-mode ability activation confirmation
-   * Used for abilities like Staff of Domination with multiple modes
-   */
-  socket.on("confirmMultiModeActivation", async ({ 
-    gameId, 
-    permanentId, 
-    modeIndex 
-  }: {
-    gameId: string;
-    permanentId: string;
-    modeIndex: number;
-  }) => {
-    const game = ensureGame(gameId);
-    if (!game || !game.state) return;
-
-    const pid = socket.data.playerId as PlayerID;
-    if (!pid) {
-      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
-      return;
-    }
-
-    // Find the permanent
-    const battlefield = game.state.battlefield || [];
-    const permanent = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
-    
-    if (!permanent) {
-      socket.emit("error", { code: "PERMANENT_NOT_FOUND", message: "Permanent not found or not controlled by you" });
-      return;
-    }
-
-    const card = (permanent as any).card;
-    const cardName = card?.name || "Unknown";
-
-    // Get multi-mode ability info
-    const { detectMultiModeAbility } = await import("../state/modules/triggered-abilities.js");
-    const multiModeAbility = detectMultiModeAbility(card, permanent);
-    
-    if (!multiModeAbility || modeIndex < 0 || modeIndex >= multiModeAbility.modes.length) {
-      socket.emit("error", { code: "INVALID_MODE", message: "Invalid mode selection" });
-      return;
-    }
-
-    const selectedMode = multiModeAbility.modes[modeIndex];
-    
-    // Parse and validate the cost
-    const costStr = selectedMode.cost;
-    const requiresTap = costStr.includes('{T}') || costStr.toLowerCase().includes('tap');
-    
-    if (requiresTap && (permanent as any).tapped) {
-      socket.emit("error", { code: "ALREADY_TAPPED", message: `${cardName} is already tapped` });
-      return;
-    }
-
-    // Parse mana cost
-    const manaCostMatch = costStr.match(/\{[^}]+\}/g);
-    const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T') && !c.toLowerCase().includes('tap')).join('') : "";
-    
-    if (manaCost) {
-      const parsedCost = parseManaCost(manaCost);
-      const pool = getOrInitManaPool(game.state, pid);
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      if (validationError) {
-        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
-        return;
-      }
-      
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[confirmMultiModeActivation]');
-    }
-
-    // Tap the permanent if required
-    if (requiresTap) {
-      (permanent as any).tapped = true;
-    }
-
-    // Handle mode effects
-    if (selectedMode.requiresTarget) {
-      // Store pending ability for target selection
-      if (!(game.state as any).pendingMultiModeTargeting) {
-        (game.state as any).pendingMultiModeTargeting = {};
-      }
-      
-      const targetingId = `multimode_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      (game.state as any).pendingMultiModeTargeting[targetingId] = {
-        playerId: pid,
-        permanentId,
-        cardName,
-        modeName: selectedMode.name,
-        effect: selectedMode.effect,
-        targetType: selectedMode.targetType,
-      };
-      
-      // Emit target selection request to the player
-      socket.emit("multiModeTargetSelection", {
-        gameId,
-        targetingId,
-        permanentId,
-        cardName,
-        modeName: selectedMode.name,
-        effect: selectedMode.effect,
-        targetType: selectedMode.targetType,
-        cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-      });
-      
-      broadcastGame(io, game, gameId);
-      return;
-    }
-
-    // Execute the ability effect based on the mode
-    let effectExecuted = false;
-    const modeName = selectedMode.name.toLowerCase();
-    const effectLower = (selectedMode.effect || "").toLowerCase();
-    
-    // ===== MANA ABILITIES =====
-    if (modeName.includes("add mana") || effectLower.includes("add one mana") || effectLower.includes("add {")) {
-      // Handle mana abilities - prompt for color choice if "any color"
-      if (effectLower.includes("any color")) {
-        // Resolution Queue: request a color choice from player
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.MANA_COLOR_SELECTION,
-          playerId: pid as PlayerID,
-          sourceId: permanentId,
-          sourceName: cardName,
-          sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-          description: `Choose a color for ${cardName}'s mana.`,
-          mandatory: true,
-          selectionKind: 'any_color',
-          permanentId,
-          cardName,
-          amount: 1,
-          allowedColors: ['W', 'U', 'B', 'R', 'G'],
-          singleColor: true,
-        } as any);
-
-        broadcastGame(io, game, gameId);
-        return;
-      }
-      
-      // Check for specific color symbols in effect
-      const manaSymbols = effectLower.match(/\{([wubrgc])\}/gi) || [];
-      if (manaSymbols.length > 0) {
-        game.state.manaPool = game.state.manaPool || {};
-        game.state.manaPool[pid] = game.state.manaPool[pid] || {
-          white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-        };
-        
-        const colorToPoolKey: Record<string, string> = {
-          'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless',
-        };
-        
-        for (const sym of manaSymbols) {
-          const color = sym.replace(/[{}]/g, '').toUpperCase();
-          const poolKey = colorToPoolKey[color];
-          if (poolKey) {
-            (game.state.manaPool[pid] as any)[poolKey]++;
-          }
-        }
-        effectExecuted = true;
-      }
-    }
-    
-    // ===== SURVEIL =====
-    else if (modeName.includes("surveil") || effectLower.includes("surveil")) {
-      // Parse surveil amount
-      const surveilMatch = effectLower.match(/surveil\s*(\d+)/i);
-      const surveilAmount = surveilMatch ? parseInt(surveilMatch[1], 10) : 1;
-      
-      // Store pending surveil action
-      if (!(game.state as any).pendingSurveil) {
-        (game.state as any).pendingSurveil = {};
-      }
-      const surveilId = `surveil_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      (game.state as any).pendingSurveil[surveilId] = {
-        playerId: pid,
-        amount: surveilAmount,
-        permanentId,
-        cardName,
-      };
-      
-      // Get top N cards from library for surveil
-      const zones = (game.state as any)?.zones?.[pid];
-      if (zones && zones.library && zones.library.length > 0) {
-        const topCards = zones.library.slice(0, Math.min(surveilAmount, zones.library.length));
-        
-        socket.emit("surveilChoice", {
-          gameId,
-          surveilId,
-          amount: surveilAmount,
-          cards: topCards.map((c: any, i: number) => ({
-            id: c.id,
-            name: c.name,
-            position: i,
-            image_uris: c.image_uris,
-          })),
-        });
-        
-        broadcastGame(io, game, gameId);
-        return;
-      }
-      effectExecuted = true; // Empty library, surveil does nothing
-    }
-    
-    // ===== STAFF OF DOMINATION MODES =====
-    else if (modeName.includes("untap staff")) {
-      (permanent as any).tapped = false;
-      effectExecuted = true;
-    } else if (modeName.includes("draw card")) {
-      // Draw a card
-      const zones = (game.state as any)?.zones?.[pid];
-      if (zones && zones.library && zones.library.length > 0) {
-        const drawnCard = zones.library.shift();
-        zones.hand = zones.hand || [];
-        zones.hand.push(drawnCard);
-        zones.handCount = zones.hand.length;
-        zones.libraryCount = zones.library.length;
-        effectExecuted = true;
-      }
-    } else if (modeName.includes("gain") && modeName.includes("life")) {
-      // Gain life
-      const lifeGain = parseInt(modeName.match(/\d+/)?.[0] || "1", 10);
-      if (!(game.state as any).life) (game.state as any).life = {};
-      const currentLife = (game.state as any).life[pid] ?? 40;
-      (game.state as any).life[pid] = currentLife + lifeGain;
-      effectExecuted = true;
-    }
-
-    if (effectExecuted) {
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} activated ${cardName}: ${selectedMode.name}`,
-        ts: Date.now(),
-      });
-
-      appendGameEvent(game, gameId, 'ability_activated', {
-        playerId: pid,
-        permanentId,
-        abilityName: selectedMode.name,
-        source: cardName,
-        ts: Date.now(),
-      });
-
-      broadcastGame(io, game, gameId);
-    } else {
-      socket.emit("error", { 
-        code: "NOT_IMPLEMENTED", 
-        message: `Effect for "${selectedMode.name}" not yet implemented` 
-      });
-    }
-  });
-  
-  /**
-   * Handle multi-mode ability target confirmation
-   * For abilities like "Tap target artifact", "Goad target creature", etc.
-   */
-  socket.on("confirmMultiModeTarget", async ({
-    gameId,
-    targetingId,
-    targetId,
-  }: {
-    gameId: string;
-    targetingId: string;
-    targetId: string;
-  }) => {
-    const pid: string | undefined = socket.data?.playerId;
-    if (!pid) {
-      socket.emit("error", { code: "NO_PLAYER", message: "Player not found" });
-      return;
-    }
-    
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    
-    // Get pending targeting info
-    const pending = (game.state as any).pendingMultiModeTargeting?.[targetingId];
-    if (!pending || pending.playerId !== pid) {
-      socket.emit("error", { code: "INVALID_TARGETING", message: "Invalid or expired targeting" });
-      return;
-    }
-    
-    // Remove pending
-    delete (game.state as any).pendingMultiModeTargeting[targetingId];
-    
-    const battlefield = game.state?.battlefield || [];
-    const targetPerm = battlefield.find((p: any) => p?.id === targetId);
-    
-    if (!targetPerm) {
-      socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target not found" });
-      return;
-    }
-    
-    const targetName = (targetPerm as any).card?.name || "creature";
-    
-    // Execute the effect based on target type
-    if (pending.targetType === 'creature') {
-      // Check if this is a goad effect
-      if (pending.modeName.toLowerCase().includes('goad') || pending.effect.toLowerCase().includes('goad')) {
-        // Apply goad to the target creature
-        const currentTurn = game.state.turn || 0;
-        const expiryTurn = currentTurn + 1; // Goad until your next turn
-        
-        (targetPerm as any).goadedBy = (targetPerm as any).goadedBy || [];
-        if (!(targetPerm as any).goadedBy.includes(pid)) {
-          (targetPerm as any).goadedBy.push(pid);
-        }
-        
-        (targetPerm as any).goadedUntil = (targetPerm as any).goadedUntil || {};
-        (targetPerm as any).goadedUntil[pid] = expiryTurn;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Goaded ${targetName} (attacks each combat if able, attacks someone other than ${getPlayerName(game, pid)} if able)`,
-          ts: Date.now(),
-        });
-      }
-      // Check if this is a tap/untap effect
-      else if (pending.modeName.toLowerCase().includes('tap') || pending.effect.toLowerCase().includes('tap target')) {
-        (targetPerm as any).tapped = true;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Tapped ${targetName}`,
-          ts: Date.now(),
-        });
-      }
-      else if (pending.modeName.toLowerCase().includes('untap') || pending.effect.toLowerCase().includes('untap target')) {
-        (targetPerm as any).tapped = false;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Untapped ${targetName}`,
-          ts: Date.now(),
-        });
-      }
-    }
-    else if (pending.targetType === 'artifact') {
-      // Tap target artifact
-      if (pending.modeName.toLowerCase().includes('tap') || pending.effect.toLowerCase().includes('tap target')) {
-        (targetPerm as any).tapped = true;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Tapped ${targetName}`,
-          ts: Date.now(),
-        });
-      }
-    }
-    
-    appendGameEvent(game, gameId, 'ability_activated', {
-      playerId: pid,
-      permanentId: pending.permanentId,
-      abilityName: pending.modeName,
-      targetId,
-      targetName,
-      source: pending.cardName,
-      ts: Date.now(),
-    });
-    
-    broadcastGame(io, game, gameId);
-  });
+  // Multi-mode activation and any follow-up targeting are handled via Resolution Queue
+  // (ResolutionStepType.MODE_SELECTION + ResolutionStepType.TARGET_SELECTION).
 
   // Forbidden Orchard opponent selection is handled via Resolution Queue (see socket/resolution.ts)
 
