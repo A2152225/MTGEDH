@@ -58,6 +58,8 @@ export {
   type LibrarySearchStep,
   type OptionChoiceStep,
   type PonderEffectStep,
+  type ExploreDecisionStep,
+  type BatchExploreDecisionStep,
   type ScryStep,
   type CascadeStep,
   type SpellCastContext,

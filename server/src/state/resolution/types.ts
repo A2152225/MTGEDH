@@ -65,12 +65,30 @@ export enum ResolutionStepType {
   
   // Legacy pending* field types
   PONDER_EFFECT = 'ponder_effect',
+  // Legacy interactive: Explore decision (put revealed card to graveyard or keep on top)
+  EXPLORE_DECISION = 'explore_decision',
+  // Legacy interactive: Batch explore (multiple explore decisions at once)
+  BATCH_EXPLORE_DECISION = 'batch_explore_decision',
   // Legacy interactive: fight target selection
   FIGHT_TARGET = 'fight_target',
   // Legacy interactive: tap/untap target selection
   TAP_UNTAP_TARGET = 'tap_untap_target',
   // Legacy interactive: move a counter between permanents
   COUNTER_MOVEMENT = 'counter_movement',
+  // Legacy interactive: choose a target to receive counters
+  COUNTER_TARGET = 'counter_target',
+  // Legacy interactive: Station creature selection (Spacecraft)
+  STATION_CREATURE_SELECTION = 'station_creature_selection',
+  // Legacy interactive: Forbidden Orchard opponent selection
+  FORBIDDEN_ORCHARD_TARGET = 'forbidden_orchard_target',
+  // Legacy interactive: MDFC face selection (play land as chosen face)
+  MDFC_FACE_SELECTION = 'mdfc_face_selection',
+  // Legacy interactive: pay X life as part of casting a spell (Toxic Deluge, Hatred, etc.)
+  LIFE_PAYMENT = 'life_payment',
+  // Legacy interactive: discard/sacrifice as an additional cost to cast
+  ADDITIONAL_COST_PAYMENT = 'additional_cost_payment',
+  // Legacy interactive: choose how many times to pay squad cost
+  SQUAD_COST_PAYMENT = 'squad_cost_payment',
   SACRIFICE_ABILITY = 'sacrifice_ability',
   ENTRAPMENT_MANEUVER = 'entrapment_maneuver',
   MODAL_CHOICE = 'modal_choice',
@@ -275,6 +293,91 @@ export interface CounterMovementStep extends BaseResolutionStep {
 }
 
 /**
+ * Counter target selection resolution step
+ * Used for activated abilities like "Put a +1/+1 counter on target creature".
+ */
+export interface CounterTargetStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.COUNTER_TARGET;
+  readonly counterType: string;
+  readonly targetController: 'opponent' | 'any' | 'you';
+  readonly oracleText?: string;
+  readonly scalingText?: string | null;
+  readonly validTargets: readonly ChoiceOption[];
+  readonly targetTypes: readonly string[];
+  readonly minTargets: number;
+  readonly maxTargets: number;
+  readonly targetDescription: string;
+  readonly title?: string;
+}
+
+/**
+ * Station creature selection resolution step
+ * Used for Spacecraft Station abilities (Rule 702.184a).
+ */
+export interface StationCreatureSelectionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.STATION_CREATURE_SELECTION;
+  readonly station: {
+    id: string;
+    name: string;
+    imageUrl?: string;
+    threshold: number;
+    currentCounters: number;
+  };
+  readonly creatures: readonly {
+    id: string;
+    name: string;
+    power: number;
+    toughness: number;
+    imageUrl?: string;
+  }[];
+  readonly title?: string;
+}
+
+/**
+ * Forbidden Orchard target selection step
+ * "When you tap Forbidden Orchard for mana, target opponent creates a 1/1 colorless Spirit creature token."
+ */
+export interface ForbiddenOrchardTargetStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.FORBIDDEN_ORCHARD_TARGET;
+  readonly opponents: readonly { id: string; name: string }[];
+  readonly permanentId: string;
+  readonly cardName: 'Forbidden Orchard' | string;
+}
+
+/**
+ * MDFC face selection step
+ * Used when a player needs to choose which face of a modal_dfc card to play as a land.
+ */
+export interface MdfcFaceSelectionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.MDFC_FACE_SELECTION;
+  readonly cardId: string;
+  readonly cardName: string;
+  readonly fromZone: 'hand' | 'graveyard';
+  readonly title?: string;
+  readonly faces: readonly {
+    index: number;
+    name: string;
+    typeLine?: string;
+    oracleText?: string;
+    manaCost?: string;
+    imageUrl?: string;
+  }[];
+}
+
+/**
+ * Life payment step
+ * Used when a spell requires choosing X life to pay as an additional casting cost.
+ */
+export interface LifePaymentStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.LIFE_PAYMENT;
+  readonly cardId: string;
+  readonly cardName: string;
+  readonly currentLife: number;
+  readonly minPayment: number;
+  readonly maxPayment: number;
+}
+
+/**
  * Mode selection resolution step
  */
 export interface ModeSelectionStep extends BaseResolutionStep {
@@ -283,6 +386,69 @@ export interface ModeSelectionStep extends BaseResolutionStep {
   readonly minModes: number;
   readonly maxModes: number;
   readonly allowDuplicates: boolean;
+
+  /**
+   * Optional context for spell-casting mode prompts.
+   * These fields are intended for server-side continuation logic and are not required for most UI uses.
+   */
+  readonly modeSelectionPurpose?: 'overload' | 'abundantChoice' | string;
+  readonly castSpellFromHandArgs?: {
+    cardId: string;
+    payment?: any;
+    targets?: any;
+    xValue?: number;
+    alternateCostId?: string;
+    convokeTappedCreatures?: string[];
+  };
+}
+
+/**
+ * Additional cost payment step
+ * Used when a spell requires discarding/sacrificing as an additional cost to cast.
+ */
+export interface AdditionalCostPaymentStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.ADDITIONAL_COST_PAYMENT;
+  readonly cardId: string;
+  readonly cardName: string;
+  readonly costType: 'discard' | 'sacrifice';
+  readonly amount: number;
+  readonly filter?: string;
+  readonly title: string;
+  readonly imageUrl?: string;
+  readonly availableCards?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string }[];
+  readonly availableTargets?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string }[];
+
+  /** Optional continuation context so the server can resume castSpellFromHand. */
+  readonly castSpellFromHandArgs?: {
+    cardId: string;
+    payment?: any;
+    targets?: any;
+    xValue?: number;
+    alternateCostId?: string;
+    convokeTappedCreatures?: string[];
+  };
+}
+
+/**
+ * Squad cost payment step
+ * Used when a spell with Squad asks how many times to pay the squad cost.
+ */
+export interface SquadCostPaymentStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.SQUAD_COST_PAYMENT;
+  readonly cardId: string;
+  readonly cardName: string;
+  readonly squadCost: string;
+  readonly imageUrl?: string;
+
+  /** Optional continuation context so the server can resume castSpellFromHand. */
+  readonly castSpellFromHandArgs?: {
+    cardId: string;
+    payment?: any;
+    targets?: any;
+    xValue?: number;
+    alternateCostId?: string;
+    convokeTappedCreatures?: string[];
+  };
 }
 
 /**
@@ -373,6 +539,32 @@ export interface PonderEffectStep extends BaseResolutionStep {
   readonly cardCount: number;
   readonly drawAfter: boolean;
   readonly mayShuffleAfter: boolean;
+}
+
+/**
+ * Explore decision resolution step
+ * Reveal top card; if not a land, choose whether to put it into graveyard or keep it on top.
+ */
+export interface ExploreDecisionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.EXPLORE_DECISION;
+  readonly permanentId: string;
+  readonly permanentName: string;
+  readonly revealedCard: KnownCardRef;
+  readonly isLand: boolean;
+}
+
+/**
+ * Batch explore decision resolution step
+ * Represents multiple explore decisions (e.g. "each creature explores").
+ */
+export interface BatchExploreDecisionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.BATCH_EXPLORE_DECISION;
+  readonly explores: readonly {
+    permanentId: string;
+    permanentName: string;
+    revealedCard: KnownCardRef;
+    isLand: boolean;
+  }[];
 }
 
 /**
@@ -593,6 +785,13 @@ export type ResolutionStep =
   | FightTargetStep
   | TapUntapTargetStep
   | CounterMovementStep
+  | CounterTargetStep
+  | StationCreatureSelectionStep
+  | ForbiddenOrchardTargetStep
+  | MdfcFaceSelectionStep
+  | LifePaymentStep
+  | AdditionalCostPaymentStep
+  | SquadCostPaymentStep
   | ModeSelectionStep
   | DiscardSelectionStep
   | CommanderZoneChoiceStep
@@ -600,6 +799,8 @@ export type ResolutionStep =
   | LibrarySearchStep
   | OptionChoiceStep
   | PonderEffectStep
+  | ExploreDecisionStep
+  | BatchExploreDecisionStep
   | ScryStep
   | SurveilStep
   | ProliferateStep

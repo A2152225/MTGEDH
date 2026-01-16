@@ -175,6 +175,7 @@ export function App() {
 
   // Explore modal state
   const [explorePrompt, setExplorePrompt] = useState<{
+    stepId: string; // Resolution queue step id
     permanentId: string;
     permanentName: string;
     revealedCard: ExploreCard;
@@ -183,7 +184,16 @@ export function App() {
 
   // Batch explore modal state
   const [batchExplorePrompt, setBatchExplorePrompt] = useState<{
+    stepId: string; // Resolution queue step id
     explores: ExploreResult[];
+  } | null>(null);
+
+  // Optional: resolve batch explore decisions one-by-one client-side, then submit once.
+  const [batchExploreIndividual, setBatchExploreIndividual] = useState<{
+    stepId: string;
+    explores: ExploreResult[];
+    index: number;
+    decisions: Array<{ permanentId: string; toGraveyard: boolean }>;
   } | null>(null);
 
   // Opponent may pay modal state
@@ -573,6 +583,8 @@ export function App() {
   // Life Payment Modal state - for spells like Toxic Deluge that require paying X life
   const [lifePaymentModalOpen, setLifePaymentModalOpen] = useState(false);
   const [lifePaymentModalData, setLifePaymentModalData] = useState<{
+    stepId: string;
+    mandatory: boolean;
     cardId: string;
     cardName: string;
     description: string;
@@ -580,7 +592,6 @@ export function App() {
     currentLife: number;
     minPayment: number;
     maxPayment: number;
-    effectId?: string;
   } | null>(null);
   
   // Mana Payment Trigger Modal state - for attack triggers with optional mana payment (e.g., Casal)
@@ -597,12 +608,12 @@ export function App() {
   // MDFC Face Selection Modal state - for Modal Double-Faced Cards like Blightstep Pathway
   const [mdfcFaceModalOpen, setMdfcFaceModalOpen] = useState(false);
   const [mdfcFaceModalData, setMdfcFaceModalData] = useState<{
+    stepId?: string;
     cardId: string;
     cardName: string;
     title?: string;
     description?: string;
     faces: CardFace[];
-    effectId?: string;
   } | null>(null);
   
   // Modal Spell Selection Modal state - for Spree, Choose One/Two, etc.
@@ -619,6 +630,9 @@ export function App() {
     minModes?: number;
     isSpree?: boolean;
     effectId?: string;
+    // If present, this modal answers a Resolution Queue step.
+    resolutionStepId?: string;
+    mandatory?: boolean;
   } | null>(null);
   
   // Replacement Effect Order Modal state - for custom ordering of damage/life/counter effects
@@ -771,7 +785,7 @@ export function App() {
   // Station Creature Selection Modal state (Rule 702.184a)
   const [stationCreatureSelectionOpen, setStationCreatureSelectionOpen] = useState(false);
   const [stationCreatureSelectionData, setStationCreatureSelectionData] = useState<{
-    activationId: string;
+    stepId: string;
     station: StationInfo;
     creatures: StationCreature[];
     title: string;
@@ -837,6 +851,9 @@ export function App() {
     squadCost: string;
     imageUrl?: string;
     effectId?: string;
+    // If present, this modal answers a Resolution Queue step.
+    resolutionStepId?: string;
+    mandatory?: boolean;
   } | null>(null);
   
   // Casting Mode Selection Modal state - for overload, abundant harvest, etc.
@@ -852,6 +869,7 @@ export function App() {
     effectId?: string;
     // If present, this modal answers a Resolution Queue step.
     resolutionStepId?: string;
+    resolutionStepMandatory?: boolean;
   } | null>(null);
   
   // Mana Pool state - tracks floating mana for the current player
@@ -1748,37 +1766,7 @@ export function App() {
   }, [safeView?.id]);
 
   // Life payment request listener (for Toxic Deluge, Hatred, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      description: string;
-      imageUrl?: string;
-      currentLife: number;
-      minPayment: number;
-      maxPayment: number;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setLifePaymentModalData({
-          cardId: payload.cardId,
-          cardName: payload.cardName,
-          description: payload.description,
-          imageUrl: payload.imageUrl,
-          currentLife: payload.currentLife,
-          minPayment: payload.minPayment,
-          maxPayment: payload.maxPayment,
-          effectId: payload.effectId,
-        });
-        setLifePaymentModalOpen(true);
-      }
-    };
-    socket.on("lifePaymentRequest", handler);
-    return () => {
-      socket.off("lifePaymentRequest", handler);
-    };
-  }, [safeView?.id]);
+  // Legacy lifePaymentRequest listener removed - now handled via Resolution Queue (life_payment).
 
   // Life payment complete listener - re-trigger spell cast with life payment info
   React.useEffect(() => {
@@ -1832,81 +1820,9 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // MDFC face selection request listener (for Blightstep Pathway, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      title?: string;
-      description?: string;
-      faces: CardFace[];
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setMdfcFaceModalData({
-          cardId: payload.cardId,
-          cardName: payload.cardName,
-          title: payload.title,
-          description: payload.description,
-          faces: payload.faces,
-          effectId: payload.effectId,
-        });
-        setMdfcFaceModalOpen(true);
-      }
-    };
-    socket.on("mdfcFaceSelectionRequest", handler);
-    return () => {
-      socket.off("mdfcFaceSelectionRequest", handler);
-    };
-  }, [safeView?.id]);
+  // Legacy MDFC face selection request listener removed - now handled via Resolution Queue (resolutionStepPrompt).
 
-  // Modal Spell Selection Request listener - handles Spree cards, Choose One/Two, modal spells
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      source?: string;
-      title?: string;
-      description?: string;
-      imageUrl?: string;
-      modes: Array<{ id: string; name: string; description: string; cost?: string }>;
-      modeCount: number;
-      canChooseAny?: boolean;
-      minModes?: number;
-      isSpree?: boolean;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        // Convert modes to SpellMode format
-        const spellModes: SpellMode[] = payload.modes.map(m => ({
-          id: m.id,
-          name: m.name,
-          description: m.description + (m.cost ? ` (${m.cost})` : ''),
-        }));
-        
-        setModalSpellModalData({
-          cardId: payload.cardId,
-          cardName: payload.cardName,
-          title: payload.title,
-          description: payload.description,
-          imageUrl: payload.imageUrl,
-          modes: spellModes,
-          modeCount: payload.modeCount,
-          canChooseAny: payload.canChooseAny,
-          minModes: payload.minModes,
-          isSpree: payload.isSpree,
-          effectId: payload.effectId,
-        });
-        setModalSpellModalOpen(true);
-      }
-    };
-    socket.on("modalSpellRequest", handler);
-    return () => {
-      socket.off("modalSpellRequest", handler);
-    };
-  }, [safeView?.id]);
+  // Legacy modalSpellRequest listener removed - now handled via Resolution Queue (mode_selection with multi-select).
 
   // Replacement Effect Order Request listener - allows player to override damage/life effect ordering
   React.useEffect(() => {
@@ -1937,101 +1853,32 @@ export function App() {
 
   // Mana choice prompts are handled via Resolution Queue (resolutionStepPrompt).
 
-  // Additional cost request listener - for discard/sacrifice as additional costs
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      costType: 'discard' | 'sacrifice';
-      amount: number;
-      filter?: string;
-      title: string;
-      description: string;
-      imageUrl?: string;
-      availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
-      availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setAdditionalCostModalData({
-          cardId: payload.cardId,
-          cardName: payload.cardName,
-          costType: payload.costType,
-          amount: payload.amount,
-          title: payload.title,
-          description: payload.description,
-          imageUrl: payload.imageUrl,
-          availableCards: payload.availableCards,
-          availableTargets: payload.availableTargets,
-          effectId: payload.effectId,
-        });
-        setAdditionalCostModalOpen(true);
-      }
-    };
-    socket.on("additionalCostRequest", handler);
-    return () => {
-      socket.off("additionalCostRequest", handler);
-    };
-  }, [safeView?.id]);
+  // Legacy additionalCostRequest listener removed - now handled via Resolution Queue (additional_cost_payment).
 
-  // Squad cost request listener
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      squadCost: string;
-      imageUrl?: string;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setSquadCostModalData({
-          cardId: payload.cardId,
-          cardName: payload.cardName,
-          squadCost: payload.squadCost,
-          imageUrl: payload.imageUrl,
-          effectId: payload.effectId,
-        });
-        setSquadCostModalOpen(true);
-      }
-    };
-    socket.on("squadCostRequest", handler);
-    return () => {
-      socket.off("squadCostRequest", handler);
-    };
-  }, [safeView?.id]);
+  // Legacy squadCostRequest listener removed - now handled via Resolution Queue (squad_cost_payment).
 
-  // Casting mode selection request listener - for overload, abundant harvest, etc.
+  // Legacy modeSelectionRequest listener removed - now handled via Resolution Queue (mode_selection).
+
+  // Resume castSpellFromHand after a Resolution Queue prompt (e.g. Abundant Harvest choice)
   React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      source?: string;
-      title: string;
-      description: string;
-      imageUrl?: string;
-      modes: CastingMode[];
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setCastingModeModalData({
-          cardId: payload.cardId,
-          cardName: payload.cardName,
-          source: payload.source,
-          title: payload.title,
-          description: payload.description,
-          imageUrl: payload.imageUrl,
-          modes: payload.modes,
-          effectId: payload.effectId,
-        });
-        setCastingModeModalOpen(true);
-      }
+    const handler = (payload: any) => {
+      if (!safeView?.id || payload?.gameId !== safeView.id) return;
+      if (!payload?.cardId) return;
+
+      socket.emit('castSpellFromHand', {
+        gameId: safeView.id,
+        cardId: payload.cardId,
+        payment: payload.payment,
+        targets: payload.targets,
+        xValue: payload.xValue,
+        alternateCostId: payload.alternateCostId,
+        convokeTappedCreatures: payload.convokeTappedCreatures,
+      } as any);
     };
-    socket.on("modeSelectionRequest", handler);
+
+    socket.on('castSpellFromHandContinue', handler);
     return () => {
-      socket.off("modeSelectionRequest", handler);
+      socket.off('castSpellFromHandContinue', handler);
     };
   }, [safeView?.id]);
 
@@ -2526,6 +2373,37 @@ export function App() {
         setFightTargetModalOpen(true);
       }
 
+      // Counter target selection via Resolution Queue
+      else if (step.type === 'counter_target') {
+        const validTargets: TargetOption[] = (step.validTargets || []).map((t: any) => ({
+          id: t.id,
+          type: 'permanent',
+          name: t.label || t.name || 'Unknown',
+          displayName: t.label || t.name,
+          imageUrl: t.imageUrl,
+          controller: t.controller,
+          typeLine: t.typeLine,
+          life: t.life,
+          zone: t.zone,
+          owner: t.owner,
+          card: t.card,
+        }));
+
+        setTargetModalData({
+          cardId: step.sourceId || step.id,
+          source: { name: step.sourceName || 'Add Counter', imageUrl: step.sourceImage },
+          title: step.title || step.description || 'Choose target',
+          description: step.description || '',
+          targets: validTargets,
+          minTargets: step.minTargets || 1,
+          maxTargets: step.maxTargets || 1,
+          effectId: step.sourceId,
+          stepId: step.id,
+          useResolutionQueue: true,
+        });
+        setTargetModalOpen(true);
+      }
+
       // Counter movement via Resolution Queue
       else if (step.type === 'counter_movement') {
         setCounterMovementModalData({
@@ -2539,6 +2417,70 @@ export function App() {
           description: step.description,
         });
         setCounterMovementModalOpen(true);
+      }
+
+      // Station creature selection via Resolution Queue
+      else if (step.type === 'station_creature_selection') {
+        setStationCreatureSelectionData({
+          stepId: String(step.id),
+          station: step.station,
+          creatures: step.creatures || [],
+          title: step.title || 'Station',
+          description: step.description || '',
+        });
+        setStationCreatureSelectionOpen(true);
+      }
+
+      // MDFC face selection via Resolution Queue
+      else if (step.type === 'mdfc_face_selection') {
+        setMdfcFaceModalData({
+          stepId: String(step.id),
+          cardId: String(step.cardId || ''),
+          cardName: String(step.cardName || step.sourceName || ''),
+          title: step.title,
+          description: step.description,
+          faces: Array.isArray(step.faces) ? step.faces : [],
+        });
+        setMdfcFaceModalOpen(true);
+      }
+
+      // Life payment (Toxic Deluge, Hatred, etc.) via Resolution Queue
+      else if (step.type === 'life_payment') {
+        setLifePaymentModalData({
+          stepId: String(step.id),
+          mandatory: step.mandatory !== false,
+          cardId: String(step.cardId || step.sourceId || ''),
+          cardName: String(step.cardName || step.sourceName || 'Spell'),
+          description: String(step.description || 'Choose an amount of life to pay.'),
+          imageUrl: step.sourceImage,
+          currentLife: Number(step.currentLife ?? 40),
+          minPayment: Number(step.minPayment ?? 0),
+          maxPayment: Number(step.maxPayment ?? 0),
+        });
+        setLifePaymentModalOpen(true);
+      }
+
+      // Forbidden Orchard target opponent selection via Resolution Queue
+      else if (step.type === 'forbidden_orchard_target') {
+        const opponents = Array.isArray(step.opponents) ? step.opponents : [];
+        const request: OptionChoiceRequest = {
+          gameId: payload.gameId,
+          stepId: String(step.id),
+          sourceId: String(step.permanentId || step.sourceId || ''),
+          sourceName: String(step.cardName || step.sourceName || 'Forbidden Orchard'),
+          sourceImage: step.sourceImage,
+          description: String(step.description || 'Choose target opponent.'),
+          options: opponents.map((p: any) => ({
+            id: String(p.id),
+            label: String(p.name || p.id),
+          })),
+          minSelections: 1,
+          maxSelections: 1,
+          mandatory: true,
+        };
+
+        setOptionChoiceRequest(request);
+        setOptionChoiceModalOpen(true);
       }
       
       // Handle Bounce Land choice resolution step
@@ -2823,6 +2765,36 @@ export function App() {
       }
       // Handle mode selection via resolution queue (modal spells / choice events)
       else if (step.type === 'mode_selection') {
+        const minModes = Number(step.minModes ?? 1);
+        const maxModes = Number(step.maxModes ?? 1);
+        const purpose = String((step as any).modeSelectionPurpose || '');
+        const isMultiSelect = maxModes < 0 || maxModes > 1 || minModes > 1 || purpose === 'modalSpell' || purpose === 'spree';
+
+        if (isMultiSelect) {
+          const spellModes: SpellMode[] = (step.modes || []).map((m: any, idx: number) => ({
+            id: String(m.id ?? `mode_${idx + 1}`),
+            name: String(m.label ?? `Mode ${idx + 1}`),
+            description: String(m.description ?? ''),
+          }));
+
+          setModalSpellModalData({
+            cardId: step.sourceId || step.id,
+            cardName: step.sourceName || 'Spell',
+            description: step.description,
+            imageUrl: step.sourceImage,
+            modes: spellModes,
+            modeCount: maxModes,
+            canChooseAny: maxModes < 0,
+            minModes: minModes,
+            isSpree: purpose === 'spree',
+            effectId: step.sourceId,
+            resolutionStepId: String(step.id),
+            mandatory: step.mandatory !== false,
+          });
+          setModalSpellModalOpen(true);
+          return;
+        }
+
         const modes: CastingMode[] = (step.modes || []).map((m: any, idx: number) => ({
           id: String(m.id ?? `mode_${idx + 1}`),
           name: String(m.label ?? `Mode ${idx + 1}`),
@@ -2840,8 +2812,63 @@ export function App() {
           modes,
           effectId: step.sourceId,
           resolutionStepId: step.id,
+          resolutionStepMandatory: step.mandatory !== false,
         });
         setCastingModeModalOpen(true);
+      }
+
+      // Additional cost payment (discard/sacrifice) via Resolution Queue
+      else if (step.type === 'additional_cost_payment') {
+        setAdditionalCostModalData({
+          cardId: String(step.cardId || step.sourceId || step.id),
+          cardName: String(step.cardName || step.sourceName || 'Spell'),
+          costType: (step.costType === 'sacrifice' ? 'sacrifice' : 'discard'),
+          amount: Number(step.amount || 0),
+          title: String(step.title || step.description || 'Pay additional cost'),
+          description: String(step.description || ''),
+          imageUrl: step.imageUrl || step.sourceImage,
+          availableCards: step.availableCards,
+          availableTargets: step.availableTargets,
+          effectId: step.sourceId,
+          resolutionStepId: String(step.id),
+          resolutionStepMandatory: step.mandatory !== false,
+        });
+        setAdditionalCostModalOpen(true);
+      }
+
+      // Squad cost payment via Resolution Queue
+      else if (step.type === 'squad_cost_payment') {
+        setSquadCostModalData({
+          cardId: String(step.cardId || step.sourceId || step.id),
+          cardName: String(step.cardName || step.sourceName || 'Spell'),
+          squadCost: String(step.squadCost || ''),
+          imageUrl: step.imageUrl || step.sourceImage,
+          effectId: step.sourceId,
+          resolutionStepId: String(step.id),
+          mandatory: step.mandatory !== false,
+        });
+        setSquadCostModalOpen(true);
+      }
+
+      // Explore (single) via Resolution Queue
+      else if (step.type === 'explore_decision') {
+        setBatchExploreIndividual(null);
+        setExplorePrompt({
+          stepId: String(step.id),
+          permanentId: String(step.permanentId || step.sourceId || ''),
+          permanentName: String(step.permanentName || step.sourceName || 'Creature'),
+          revealedCard: step.revealedCard,
+          isLand: Boolean(step.isLand),
+        });
+      }
+
+      // Batch Explore via Resolution Queue
+      else if (step.type === 'batch_explore_decision') {
+        setBatchExploreIndividual(null);
+        setBatchExplorePrompt({
+          stepId: String(step.id),
+          explores: step.explores || [],
+        });
       }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
       else if (step.type === 'target_selection') {
@@ -3017,46 +3044,7 @@ export function App() {
   }, [safeView?.id]);
 
   // Explore prompt handler
-  useEffect(() => {
-    const handleExplorePrompt = (data: {
-      gameId: string;
-      permanentId: string;
-      permanentName: string;
-      revealedCard: ExploreCard;
-      isLand: boolean;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setExplorePrompt({
-        permanentId: data.permanentId,
-        permanentName: data.permanentName,
-        revealedCard: data.revealedCard,
-        isLand: data.isLand,
-      });
-    };
-
-    socket.on("explorePrompt", handleExplorePrompt);
-    return () => {
-      socket.off("explorePrompt", handleExplorePrompt);
-    };
-  }, [safeView?.id]);
-
-  // Batch explore prompt handler
-  useEffect(() => {
-    const handleBatchExplorePrompt = (data: {
-      gameId: string;
-      explores: ExploreResult[];
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setBatchExplorePrompt({
-        explores: data.explores,
-      });
-    };
-
-    socket.on("batchExplorePrompt", handleBatchExplorePrompt);
-    return () => {
-      socket.off("batchExplorePrompt", handleBatchExplorePrompt);
-    };
-  }, [safeView?.id]);
+  // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
 
   // Interaction request handlers
   useEffect(() => {
@@ -3080,30 +3068,8 @@ export function App() {
     };
     socket.on("multiModeActivationRequest", handleMultiModeActivationRequest);
     
-    // Station Creature Selection handler (Rule 702.184a)
-    const handleStationCreatureSelection = (data: {
-      gameId: string;
-      activationId: string;
-      station: StationInfo;
-      creatures: StationCreature[];
-      title: string;
-      description: string;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setStationCreatureSelectionData({
-        activationId: data.activationId,
-        station: data.station,
-        creatures: data.creatures,
-        title: data.title,
-        description: data.description,
-      });
-      setStationCreatureSelectionOpen(true);
-    };
-    socket.on("stationCreatureSelection", handleStationCreatureSelection);
-    
     return () => {
       socket.off("multiModeActivationRequest", handleMultiModeActivationRequest);
-      socket.off("stationCreatureSelection", handleStationCreatureSelection);
     };
   }, [safeView?.id]);
 
@@ -5466,11 +5432,60 @@ export function App() {
           isLand={explorePrompt.isLand}
           imagePref={imagePref}
           onConfirm={(result) => {
-            socket.emit("confirmExplore", {
+            if (!explorePrompt.stepId) {
+              console.warn('[Explore] Missing stepId - must use resolution queue');
+              return;
+            }
+
+            // If we're resolving a batch explore individually, accumulate decisions client-side
+            // and submit them all at the end.
+            if (batchExploreIndividual && batchExploreIndividual.stepId === explorePrompt.stepId) {
+              const nextDecisions = [...batchExploreIndividual.decisions, {
+                permanentId: explorePrompt.permanentId,
+                toGraveyard: Boolean(result.toGraveyard),
+              }];
+
+              const nextIndex = batchExploreIndividual.index + 1;
+              if (nextIndex < batchExploreIndividual.explores.length) {
+                const nextExplore = batchExploreIndividual.explores[nextIndex];
+                setBatchExploreIndividual({
+                  ...batchExploreIndividual,
+                  decisions: nextDecisions,
+                  index: nextIndex,
+                });
+                setExplorePrompt({
+                  stepId: batchExploreIndividual.stepId,
+                  permanentId: nextExplore.permanentId,
+                  permanentName: nextExplore.permanentName,
+                  revealedCard: nextExplore.revealedCard,
+                  isLand: nextExplore.isLand,
+                });
+                return;
+              }
+
+              socket.emit('submitResolutionResponse', {
+                gameId: view.id,
+                stepId: batchExploreIndividual.stepId,
+                selections: { decisions: nextDecisions },
+                cancelled: false,
+              });
+
+              setBatchExploreIndividual(null);
+              setExplorePrompt(null);
+              return;
+            }
+
+            // Single explore step
+            socket.emit('submitResolutionResponse', {
               gameId: view.id,
-              permanentId: explorePrompt.permanentId,
-              toGraveyard: result.toGraveyard,
+              stepId: explorePrompt.stepId,
+              selections: {
+                permanentId: explorePrompt.permanentId,
+                toGraveyard: Boolean(result.toGraveyard),
+              },
+              cancelled: false,
             });
+
             setExplorePrompt(null);
           }}
         />
@@ -5482,18 +5497,38 @@ export function App() {
           explores={batchExplorePrompt.explores}
           imagePref={imagePref}
           onResolveAll={(decisions) => {
-            socket.emit("confirmBatchExplore", {
+            if (!batchExplorePrompt.stepId) {
+              console.warn('[BatchExplore] Missing stepId - must use resolution queue');
+              return;
+            }
+
+            socket.emit('submitResolutionResponse', {
               gameId: view.id,
-              decisions,
+              stepId: batchExplorePrompt.stepId,
+              selections: { decisions },
+              cancelled: false,
             });
             setBatchExplorePrompt(null);
           }}
           onResolveIndividually={() => {
-            // Close batch modal and fall back to individual resolves
-            // For now, just send the first explore as individual
-            if (batchExplorePrompt.explores.length > 0) {
-              const firstExplore = batchExplorePrompt.explores[0];
+            if (!batchExplorePrompt.stepId) {
+              console.warn('[BatchExplore] Missing stepId - must use resolution queue');
+              return;
+            }
+
+            // Resolve locally one-by-one, then submit once.
+            const explores = batchExplorePrompt.explores || [];
+            if (explores.length > 0) {
+              setBatchExploreIndividual({
+                stepId: batchExplorePrompt.stepId,
+                explores,
+                index: 0,
+                decisions: [],
+              });
+
+              const firstExplore = explores[0];
               setExplorePrompt({
+                stepId: batchExplorePrompt.stepId,
                 permanentId: firstExplore.permanentId,
                 permanentName: firstExplore.permanentName,
                 revealedCard: firstExplore.revealedCard,
@@ -5704,23 +5739,30 @@ export function App() {
       <StationCreatureSelectionModal
         open={stationCreatureSelectionOpen}
         gameId={safeView?.id || ""}
-        activationId={stationCreatureSelectionData?.activationId || ""}
+        activationId={stationCreatureSelectionData?.stepId || ""}
         station={stationCreatureSelectionData?.station || { id: "", name: "", threshold: 0, currentCounters: 0 }}
         creatures={stationCreatureSelectionData?.creatures || []}
         title={stationCreatureSelectionData?.title || "Station"}
         description={stationCreatureSelectionData?.description || ""}
         onConfirm={(creatureId) => {
           if (stationCreatureSelectionData && safeView) {
-            socket.emit("confirmStationCreatureSelection", {
+            socket.emit("submitResolutionResponse", {
               gameId: safeView.id,
-              activationId: stationCreatureSelectionData.activationId,
-              creatureId,
+              stepId: stationCreatureSelectionData.stepId,
+              selections: [creatureId],
+              cancelled: false,
             });
             setStationCreatureSelectionOpen(false);
             setStationCreatureSelectionData(null);
           }
         }}
         onCancel={() => {
+          if (stationCreatureSelectionData && safeView) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: stationCreatureSelectionData.stepId,
+            });
+          }
           setStationCreatureSelectionOpen(false);
           setStationCreatureSelectionData(null);
         }}
@@ -6371,17 +6413,28 @@ export function App() {
         maxPayment={lifePaymentModalData?.maxPayment || 0}
         onConfirm={(lifePayment) => {
           if (safeView?.id && lifePaymentModalData) {
-            socket.emit("lifePaymentConfirm", {
+            socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
-              cardId: lifePaymentModalData.cardId,
-              lifePayment,
-              effectId: lifePaymentModalData.effectId,
+              stepId: lifePaymentModalData.stepId,
+              selections: Number(lifePayment),
+              cancelled: false,
             });
             setLifePaymentModalOpen(false);
             setLifePaymentModalData(null);
           }
         }}
         onCancel={() => {
+          if (lifePaymentModalData?.mandatory) {
+            alert('You must choose a life payment amount to continue.');
+            return;
+          }
+
+          if (safeView?.id && lifePaymentModalData?.stepId) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: lifePaymentModalData.stepId,
+            });
+          }
           setLifePaymentModalOpen(false);
           setLifePaymentModalData(null);
         }}
@@ -6628,14 +6681,6 @@ export function App() {
                 selections,
                 cancelled: false,
               });
-            } else {
-              socket.emit("additionalCostConfirm", {
-                gameId: safeView.id,
-                cardId: additionalCostModalData.cardId,
-                costType: additionalCostModalData.costType,
-                selectedCards: selectedIds,
-                effectId: additionalCostModalData.effectId,
-              });
             }
             setAdditionalCostModalOpen(false);
             setAdditionalCostModalData(null);
@@ -6663,18 +6708,24 @@ export function App() {
         effectId={squadCostModalData?.effectId}
         availableMana={(manaPool as unknown as Record<string, number>) || undefined}
         onConfirm={(timesPaid) => {
-          if (squadCostModalData) {
-            socket.emit("squadCostConfirm", {
-              gameId: safeView?.id,
-              cardId: squadCostModalData.cardId,
-              timesPaid,
-              effectId: squadCostModalData.effectId,
+          if (safeView?.id && squadCostModalData?.resolutionStepId) {
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: squadCostModalData.resolutionStepId,
+              selections: timesPaid,
+              cancelled: false,
             });
             setSquadCostModalOpen(false);
             setSquadCostModalData(null);
           }
         }}
         onCancel={() => {
+          if (safeView?.id && squadCostModalData?.resolutionStepId && squadCostModalData.mandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: squadCostModalData.resolutionStepId,
+            });
+          }
           setSquadCostModalOpen(false);
           setSquadCostModalData(null);
         }}
@@ -6700,19 +6751,18 @@ export function App() {
                 selections: selectedMode,
                 cancelled: false,
               });
-            } else {
-              socket.emit("modeSelectionConfirm", {
-                gameId: safeView.id,
-                cardId: castingModeModalData.cardId,
-                selectedMode,
-                effectId: castingModeModalData.effectId,
-              });
             }
             setCastingModeModalOpen(false);
             setCastingModeModalData(null);
           }
         }}
         onCancel={() => {
+          if (safeView?.id && castingModeModalData?.resolutionStepId && castingModeModalData?.resolutionStepMandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: castingModeModalData.resolutionStepId,
+            });
+          }
           setCastingModeModalOpen(false);
           setCastingModeModalData(null);
         }}
@@ -6733,16 +6783,16 @@ export function App() {
           imageUrl: (face as any).image_uris?.normal || (face as any).image_uris?.small || (face as any).imageUrl,
         }))}
         onConfirm={(selectedFace) => {
-          if (safeView?.id && mdfcFaceModalData) {
-            socket.emit("mdfcFaceSelectionConfirm", {
+          if (safeView?.id && mdfcFaceModalData?.stepId) {
+            socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
-              cardId: mdfcFaceModalData.cardId,
-              selectedFace,
-              effectId: mdfcFaceModalData.effectId,
+              stepId: mdfcFaceModalData.stepId,
+              selections: Number(selectedFace),
+              cancelled: false,
             });
-            setMdfcFaceModalOpen(false);
-            setMdfcFaceModalData(null);
           }
+          setMdfcFaceModalOpen(false);
+          setMdfcFaceModalData(null);
         }}
         onCancel={() => {
           setMdfcFaceModalOpen(false);
@@ -6761,18 +6811,25 @@ export function App() {
         canChooseAny={modalSpellModalData?.canChooseAny || modalSpellModalData?.isSpree}
         onConfirm={(selectedModeIds) => {
           if (safeView?.id && modalSpellModalData) {
-            // Use "modalSpellConfirm" event which is already handled by the server
-            socket.emit("modalSpellConfirm", {
-              gameId: safeView.id,
-              cardId: modalSpellModalData.cardId,
-              selectedModes: selectedModeIds,
-              effectId: modalSpellModalData.effectId,
-            });
+            if (modalSpellModalData.resolutionStepId) {
+              socket.emit('submitResolutionResponse', {
+                gameId: safeView.id,
+                stepId: modalSpellModalData.resolutionStepId,
+                selections: selectedModeIds,
+                cancelled: false,
+              });
+            }
             setModalSpellModalOpen(false);
             setModalSpellModalData(null);
           }
         }}
         onCancel={() => {
+          if (safeView?.id && modalSpellModalData?.resolutionStepId && modalSpellModalData?.mandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: modalSpellModalData.resolutionStepId,
+            });
+          }
           setModalSpellModalOpen(false);
           setModalSpellModalData(null);
         }}

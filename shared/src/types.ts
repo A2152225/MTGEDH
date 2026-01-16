@@ -530,20 +530,6 @@ export interface GameState {
     appliedAt: number;
   }>;
   /**
-   * Pending counter-adding activations awaiting target selection.
-   * Maps activation ID to activation details.
-   * Used for Gwafa Hazid, Immaculate Magistrate, Sage of Fables, etc.
-   */
-  pendingCounterActivations?: Record<string, {
-    playerId: PlayerID;
-    sourceId: string;
-    sourceName: string;
-    counterType: string;
-    targetController?: 'opponent' | 'any' | 'you';
-    oracleText?: string;
-    scalingText?: string | null;
-  }>;
-  /**
    * Pending move counter activations awaiting source/destination selection.
    * Maps activation ID to activation details.
    * Used for Nesting Grounds and similar abilities.

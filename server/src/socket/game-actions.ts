@@ -1919,35 +1919,46 @@ export function registerGameActions(io: Server, socket: Socket) {
           (cardInZone as any).selectedMDFCFace = 1;
         } else if (face0IsLand && face1IsLand) {
           // Both are lands - prompt user to choose
-          socket.emit("mdfcFaceSelectionRequest", {
-            gameId,
-            cardId,
-            cardName: cardName,
-            title: `Choose which side to play`,
-            description: `${cardName} is a Modal Double-Faced Card. Choose which land to play.`,
-            faces: [
-              {
-                index: 0,
-                name: face0.name,
-                typeLine: face0.type_line,
-                oracleText: face0.oracle_text,
-                manaCost: face0.mana_cost,
-                imageUrl: face0.image_uris?.small || face0.image_uris?.normal,
-              },
-              {
-                index: 1,
-                name: face1.name,
-                typeLine: face1.type_line,
-                oracleText: face1.oracle_text,
-                manaCost: face1.mana_cost,
-                imageUrl: face1.image_uris?.small || face1.image_uris?.normal,
-              },
-            ],
-            effectId: `mdfc_${cardId}_${Date.now()}`,
-          });
-          
-          debug(2, `[playLand] Requesting MDFC face selection for ${cardName}`);
-          return; // Wait for face selection
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.MDFC_FACE_SELECTION && String((s as any)?.cardId || '') === String(cardId));
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MDFC_FACE_SELECTION,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardName,
+              sourceImage: cardImageUrl,
+              description: `${cardName} is a Modal Double-Faced Card. Choose which land to play.`,
+              mandatory: true,
+              cardId,
+              cardName,
+              fromZone: sourceZone === 'graveyard' ? 'graveyard' : 'hand',
+              title: 'Choose which side to play',
+              faces: [
+                {
+                  index: 0,
+                  name: face0.name,
+                  typeLine: face0.type_line,
+                  oracleText: face0.oracle_text,
+                  manaCost: face0.mana_cost,
+                  imageUrl: face0.image_uris?.small || face0.image_uris?.normal,
+                },
+                {
+                  index: 1,
+                  name: face1.name,
+                  typeLine: face1.type_line,
+                  oracleText: face1.oracle_text,
+                  manaCost: face1.mana_cost,
+                  imageUrl: face1.image_uris?.small || face1.image_uris?.normal,
+                },
+              ],
+            } as any);
+          }
+
+          debug(2, `[playLand] Queued MDFC face selection for ${cardName}`);
+          return; // Wait for face selection via Resolution Queue
         } else {
           // Neither face is a land - shouldn't happen in playLand flow
           socket.emit("error", {
@@ -3190,35 +3201,49 @@ export function registerGameActions(io: Server, socket: Socket) {
       const abundantChoiceSelected = (cardInHand as any).abundantChoice || (targets as any)?.abundantChoice;
       
       if (!shouldSkipAllPrompts && abundantHarvestMatch && !abundantChoiceSelected) {
-        // Prompt the player to choose land or nonland
-        socket.emit("modeSelectionRequest", {
-          gameId,
-          cardId,
-          cardName: cardInHand.name,
-          source: cardInHand.name,
-          title: `Choose type for ${cardInHand.name}`,
-          description: cardInHand.oracle_text || oracleText,
-          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          modes: [
-            {
-              id: 'land',
-              name: 'Land',
-              description: 'Reveal cards until you reveal a land card, then put that card into your hand and the rest on the bottom of your library.',
-              cost: null,
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'abundantChoice');
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MODE_SELECTION,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            // Keep this short; detailed oracle text is still available via oracleContext.
+            description: `Choose type for ${cardInHand.name}`,
+            mandatory: true,
+            modes: [
+              {
+                id: 'land',
+                label: 'Land',
+                description: 'Reveal cards until you reveal a land card, then put that card into your hand and the rest on the bottom of your library.',
+              },
+              {
+                id: 'nonland',
+                label: 'Nonland',
+                description: 'Reveal cards until you reveal a nonland card, then put that card into your hand and the rest on the bottom of your library.',
+              },
+            ],
+            minModes: 1,
+            maxModes: 1,
+            allowDuplicates: false,
+            modeSelectionPurpose: 'abundantChoice',
+            castSpellFromHandArgs: {
+              cardId,
+              payment,
+              targets,
+              xValue,
+              alternateCostId,
+              convokeTappedCreatures,
             },
-            {
-              id: 'nonland',
-              name: 'Nonland',
-              description: 'Reveal cards until you reveal a nonland card, then put that card into your hand and the rest on the bottom of your library.',
-              cost: null,
-            },
-          ],
-          effectId: `abundant_${cardId}_${Date.now()}`,
-          selectionType: 'abundantChoice', // Custom type for handling
-        });
-        
-        debug(2, `[castSpellFromHand] Requesting land/nonland choice for ${cardInHand.name} (Abundant Harvest style)`);
-        return; // Wait for choice selection
+          } as any);
+        }
+
+        debug(2, `[castSpellFromHand] Queued land/nonland choice for ${cardInHand.name} (Abundant Harvest style)`);
+        return; // Wait for choice selection via Resolution Queue
       }
       
       // Check if this spell is a modal spell (Choose one/two/three - e.g., Austere Command, Cryptic Command)
@@ -3255,24 +3280,41 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
         
         if (spreeModes.length > 0) {
-          socket.emit("modalSpellRequest", {
-            gameId,
-            cardId,
-            cardName: cardInHand.name,
-            source: cardInHand.name,
-            title: `Choose modes for ${cardInHand.name} (Spree)`,
-            description: originalOracleText,
-            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            modeCount: -1, // Any number
-            canChooseAny: true,
-            minModes: 1, // Must choose at least one
-            isSpree: true,
-            modes: spreeModes,
-            effectId: `spree_${cardId}_${Date.now()}`,
-          });
-          
-          debug(2, `[castSpellFromHand] Requesting Spree mode selection for ${cardInHand.name}`);
-          return; // Wait for mode selection
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'spree');
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MODE_SELECTION,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: originalOracleText,
+              mandatory: true,
+              modes: spreeModes.map((m: any) => ({
+                id: m.id,
+                label: m.name,
+                description: `${m.description}${m.cost ? ` (${m.cost})` : ''}`,
+              })),
+              minModes: 1,
+              maxModes: -1,
+              allowDuplicates: false,
+              modeSelectionPurpose: 'spree',
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+          }
+
+          debug(2, `[castSpellFromHand] Queued Spree mode selection for ${cardInHand.name}`);
+          return; // Wait for mode selection via Resolution Queue
         }
       }
       
@@ -3302,23 +3344,44 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Modal spells need at least 1 mode option (for "choose one") or 2+ (for "choose two" etc.)
         if (modeOptions.length >= numModes || (numModes === -1 && modeOptions.length > 0)) {
-          // Prompt for mode selection
-          socket.emit("modalSpellRequest", {
-            gameId,
-            cardId,
-            cardName: cardInHand.name,
-            source: cardInHand.name,
-            title: `Choose ${modeCount} for ${cardInHand.name}`,
-            description: oracleText,
-            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            modeCount: numModes,
-            canChooseAny: modeCount === 'any number',
-            modes: modeOptions,
-            effectId: `modal_${cardId}_${Date.now()}`,
-          });
-          
-          debug(2, `[castSpellFromHand] Requesting modal selection (choose ${modeCount}) for ${cardInHand.name}`);
-          return; // Wait for mode selection
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'modalSpell');
+
+          if (!existing) {
+            const minModes = numModes === -1 ? 1 : Math.max(1, numModes);
+            const maxModes = numModes;
+
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MODE_SELECTION,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: oracleText,
+              mandatory: true,
+              modes: modeOptions.map((m: any) => ({
+                id: m.id,
+                label: m.name,
+                description: m.description,
+              })),
+              minModes,
+              maxModes,
+              allowDuplicates: false,
+              modeSelectionPurpose: 'modalSpell',
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+          }
+
+          debug(2, `[castSpellFromHand] Queued modal selection (choose ${modeCount}) for ${cardInHand.name}`);
+          return; // Wait for mode selection via Resolution Queue
         }
       }
       
@@ -3334,34 +3397,48 @@ export function registerGameActions(io: Server, socket: Socket) {
                                (cardInHand as any).castWithOverload === true;
       
       if (hasOverload && overloadCost && !castWithOverload && !((payment as any)?.modeSelected)) {
-        // Prompt the player to choose between normal and overload casting
-        socket.emit("modeSelectionRequest", {
-          gameId,
-          cardId,
-          cardName: cardInHand.name,
-          source: cardInHand.name,
-          title: `Choose casting mode for ${cardInHand.name}`,
-          description: cardInHand.oracle_text,
-          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          modes: [
-            {
-              id: 'normal',
-              name: 'Normal',
-              description: `Cast ${cardInHand.name} targeting a single permanent`,
-              cost: cardInHand.mana_cost,
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'overload');
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MODE_SELECTION,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `Choose casting mode for ${cardInHand.name}`,
+            mandatory: true,
+            modes: [
+              {
+                id: 'normal',
+                label: 'Normal',
+                description: `Cast ${cardInHand.name} normally.`,
+              },
+              {
+                id: 'overload',
+                label: 'Overload',
+                description: `Cast ${cardInHand.name} with Overload (replaces "target" with "each").`,
+              },
+            ],
+            minModes: 1,
+            maxModes: 1,
+            allowDuplicates: false,
+            modeSelectionPurpose: 'overload',
+            castSpellFromHandArgs: {
+              cardId,
+              payment,
+              targets,
+              xValue,
+              alternateCostId,
+              convokeTappedCreatures,
             },
-            {
-              id: 'overload',
-              name: 'Overload',
-              description: `Cast ${cardInHand.name} affecting ALL qualifying permanents (replaces "target" with "each")`,
-              cost: overloadCost,
-            },
-          ],
-          effectId: `mode_${cardId}_${Date.now()}`,
-        });
-        
-        debug(2, `[castSpellFromHand] Requesting overload mode selection for ${cardInHand.name}`);
-        return; // Wait for mode selection
+          } as any);
+        }
+
+        debug(2, `[castSpellFromHand] Queued overload mode selection for ${cardInHand.name}`);
+        return; // Wait for mode selection via Resolution Queue
       }
 
       // Check if this spell requires paying X life (Toxic Deluge, Hatred, etc.)
@@ -3383,23 +3460,29 @@ export function registerGameActions(io: Server, socket: Socket) {
         const maxPayable = getMaxPayableLife(currentLife);
         const minPayment = payXLifeInfo.minX || 0;
         
-        // Emit a life payment request to the player
-        socket.emit("lifePaymentRequest", {
-          gameId,
-          cardId,
-          cardName: cardInHand.name,
-          source: cardInHand.name,
-          title: `Choose life to pay for ${cardInHand.name}`,
-          description: payXLifeInfo.effect,
-          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          currentLife,
-          minPayment,
-          maxPayment: maxPayable,
-          effectId: `lifepay_${cardId}_${Date.now()}`,
-        });
-        
-        debug(2, `[castSpellFromHand] Requesting life payment (${minPayment}-${maxPayable}) for ${cardInHand.name}`);
-        return; // Wait for life payment selection
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => s?.type === ResolutionStepType.LIFE_PAYMENT && String((s as any)?.cardId || '') === String(cardId));
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.LIFE_PAYMENT,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: payXLifeInfo.effect,
+            mandatory: true,
+            cardId,
+            cardName: cardInHand.name,
+            currentLife,
+            minPayment,
+            maxPayment: maxPayable,
+          } as any);
+        }
+
+        debug(2, `[castSpellFromHand] Queued life payment (${minPayment}-${maxPayable}) for ${cardInHand.name}`);
+        return; // Wait for life payment selection via Resolution Queue
       }
       
       // If life payment was provided, validate it
@@ -3442,26 +3525,44 @@ export function registerGameActions(io: Server, socket: Socket) {
             return;
           }
           
-          // Emit discard selection request
-          socket.emit("additionalCostRequest", {
-            gameId,
-            cardId,
-            cardName: cardInHand.name,
-            costType: 'discard',
-            amount: additionalCost.amount,
-            title: `Discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''} to cast ${cardInHand.name}`,
-            description: `As an additional cost to cast ${cardInHand.name}, discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''}.`,
-            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            availableCards: handCards.map((c: any) => ({
-              id: c.id,
-              name: c.name,
-              imageUrl: c.image_uris?.small || c.image_uris?.normal,
-            })),
-            effectId: `addcost_${cardId}_${Date.now()}`,
-          });
-          
-          debug(2, `[castSpellFromHand] Requesting discard of ${additionalCost.amount} card(s) for ${cardInHand.name}`);
-          return; // Wait for discard selection
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.costType || '') === 'discard');
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `As an additional cost to cast ${cardInHand.name}, discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''}.`,
+              mandatory: true,
+              cardId,
+              cardName: cardInHand.name,
+              costType: 'discard',
+              amount: additionalCost.amount,
+              title: `Discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''} to cast ${cardInHand.name}`,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              availableCards: handCards.map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                imageUrl: c.image_uris?.small || c.image_uris?.normal,
+                typeLine: c.type_line,
+              })),
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+          }
+
+          debug(2, `[castSpellFromHand] Queued discard of ${additionalCost.amount} card(s) for ${cardInHand.name}`);
+          return; // Wait for discard selection via Resolution Queue
         } else if (additionalCost.type === 'sacrifice') {
           // Find valid sacrifice targets
           const battlefield = game.state?.battlefield || [];
@@ -3480,26 +3581,45 @@ export function registerGameActions(io: Server, socket: Socket) {
             return;
           }
           
-          socket.emit("additionalCostRequest", {
-            gameId,
-            cardId,
-            cardName: cardInHand.name,
-            costType: 'sacrifice',
-            amount: additionalCost.amount,
-            filter: additionalCost.filter,
-            title: `Sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''} to cast ${cardInHand.name}`,
-            description: `As an additional cost to cast ${cardInHand.name}, sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''}.`,
-            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            availableTargets: validSacrificeTargets.map((p: any) => ({
-              id: p.id,
-              name: p.card?.name || 'Unknown',
-              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-            })),
-            effectId: `addcost_${cardId}_${Date.now()}`,
-          });
-          
-          debug(2, `[castSpellFromHand] Requesting sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
-          return; // Wait for sacrifice selection
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.costType || '') === 'sacrifice');
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `As an additional cost to cast ${cardInHand.name}, sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''}.`,
+              mandatory: true,
+              cardId,
+              cardName: cardInHand.name,
+              costType: 'sacrifice',
+              amount: additionalCost.amount,
+              filter: additionalCost.filter,
+              title: `Sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''} to cast ${cardInHand.name}`,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              availableTargets: validSacrificeTargets.map((p: any) => ({
+                id: p.id,
+                name: p.card?.name || 'Unknown',
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                typeLine: p.card?.type_line,
+              })),
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+          }
+
+          debug(2, `[castSpellFromHand] Queued sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
+          return; // Wait for sacrifice selection via Resolution Queue
         } else if (additionalCost.type === 'pay_life') {
           // Pay X life as an additional cost (Vampiric Tutor, etc.)
           const startingLife = game.state.startingLife || 40;
@@ -3534,17 +3654,36 @@ export function registerGameActions(io: Server, socket: Socket) {
         } else if (additionalCost.type === 'squad') {
           // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times"
           // Prompt the player to choose how many times to pay the squad cost
-          socket.emit("squadCostRequest", {
-            gameId,
-            cardId,
-            cardName: cardInHand.name,
-            squadCost: additionalCost.cost,
-            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            effectId: `squad_${cardId}_${Date.now()}`,
-          });
-          
-          debug(2, `[castSpellFromHand] Requesting squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
-          return; // Wait for squad payment selection
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.SQUAD_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId));
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.SQUAD_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `Choose how many times to pay Squad for ${cardInHand.name}.`,
+              mandatory: true,
+              cardId,
+              cardName: cardInHand.name,
+              squadCost: additionalCost.cost,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+          }
+
+          debug(2, `[castSpellFromHand] Queued squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
+          return; // Wait for squad payment selection via Resolution Queue
         }
       }
 
@@ -7887,653 +8026,15 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
-  /**
-   * Handle mode selection for modal spells (overload, kicker, etc.)
-   * After the player selects a mode, re-emit castSpellFromHand with the selected mode.
-   */
-  socket.on("modeSelectionConfirm", async ({ gameId, cardId, selectedMode, effectId }: {
-    gameId: string;
-    cardId: string;
-    selectedMode: string;
-    effectId?: string;
-  }) => {
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) {
-        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-
-      // Find the card in hand
-      const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
-        return;
-      }
-
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
-        return;
-      }
-
-      debug(2, `[modeSelectionConfirm] Player ${playerId} selected mode '${selectedMode}' for ${cardInHand.name}`);
-
-      if (selectedMode === 'overload') {
-        // Player wants to cast with overload
-        // The overload version doesn't require targets - it affects ALL qualifying permanents
-        
-        // Extract overload cost from oracle text
-        const oracleText = (cardInHand.oracle_text || "").toLowerCase();
-        const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
-        const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
-        
-        if (!overloadCost) {
-          socket.emit("error", { code: "NO_OVERLOAD_COST", message: "Could not determine overload cost" });
-          return;
-        }
-        
-        // Mark the card as being cast with overload
-        (cardInHand as any).castWithOverload = true;
-        (cardInHand as any).overloadCost = overloadCost;
-        
-        // Re-emit castSpellFromHand with overload flag
-        // For overload, we don't need targets since it affects all permanents
-        socket.emit("overloadCastRequest", {
-          gameId,
-          cardId,
-          cardName: cardInHand.name,
-          overloadCost,
-          effectId: `overload_${cardId}_${Date.now()}`,
-        });
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} is casting ${cardInHand.name} with Overload!`,
-          ts: Date.now(),
-        });
-        
-        broadcastGame(io, game, gameId);
-      } else {
-        // Normal casting mode - proceed with regular targeting/casting flow
-        // Remove any overload flag
-        delete (cardInHand as any).castWithOverload;
-        delete (cardInHand as any).overloadCost;
-        
-        // This will continue to the normal target selection flow
-        // The spell already needs targets, so we let the normal flow handle it
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} is casting ${cardInHand.name} normally.`,
-          ts: Date.now(),
-        });
-      }
-      
-    } catch (err: any) {
-      debugError(1, `modeSelectionConfirm error:`, err);
-      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Mode selection failed" });
-    }
-  });
-
-  /**
-   * Handle modal spell selection confirmation (Austere Command, Cryptic Command, etc.)
-   * Player chooses one/two/three modes from the available options.
-   */
-  socket.on("modalSpellConfirm", async ({ gameId, cardId, selectedModes, effectId }: {
-    gameId: string;
-    cardId: string;
-    selectedModes: string[];
-    effectId?: string;
-  }) => {
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) {
-        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-
-      // Find the card in hand
-      const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
-        return;
-      }
-
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
-        return;
-      }
-
-      debug(1, `[modalSpellConfirm] Player ${playerId} selected modes [${selectedModes.join(', ')}] for ${cardInHand.name}`);
-
-      // Store the selected modes on the card
-      (cardInHand as any).selectedModes = selectedModes;
-
-      // Format mode descriptions for chat message
-      // Mode IDs are like "mode_1", "mode_2" - extract the descriptions from oracle text
-      const oracleText = cardInHand.oracle_text || '';
-      const modeDescriptions = selectedModes.map((modeId: string) => {
-        const modeNum = parseInt(modeId.replace('mode_', ''), 10);
-        // Try to extract the mode text from bullet points
-        const modeOptionsMatch = oracleText.match(/(?:choose\s+(?:one|two|three|four|any number)\s*(?:—|[-]))\s*((?:•[^•]+)+)/i);
-        if (modeOptionsMatch) {
-          const bullets = modeOptionsMatch[1].split('•').filter((s: string) => s.trim().length > 0);
-          if (bullets[modeNum - 1]) {
-            return bullets[modeNum - 1].trim().substring(0, 50) + (bullets[modeNum - 1].trim().length > 50 ? '...' : '');
-          }
-        }
-        return `Mode ${modeNum}`;
-      });
-
-      // Announce mode selection
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} chose modes for ${cardInHand.name}: ${modeDescriptions.join(' and ')}`,
-        ts: Date.now(),
-      });
-
-      // Continue with normal spell casting flow
-      // The selected modes will be processed when the spell resolves
-      broadcastGame(io, game, gameId);
-      
-    } catch (err: any) {
-      debugError(1, `modalSpellConfirm error:`, err);
-      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Modal spell selection failed" });
-    }
-  });
-
-  /**
-   * Handle Abundant Harvest choice confirmation
-   * Player chooses "land" or "nonland", then we reveal cards until finding one
-   */
-  socket.on("abundantChoiceConfirm", async ({ gameId, cardId, choice, effectId }: {
-    gameId: string;
-    cardId: string;
-    choice: 'land' | 'nonland';
-    effectId?: string;
-  }) => {
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) {
-        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-
-      // Find the card in hand
-      const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
-        return;
-      }
-
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
-        return;
-      }
-
-      debug(2, `[abundantChoiceConfirm] Player ${playerId} chose "${choice}" for ${cardInHand.name}`);
-
-      // Store the choice on the card
-      (cardInHand as any).abundantChoice = choice;
-
-      // Reveal cards from library until finding the chosen type
-      const library = (zones as any).library as any[] || [];
-      const revealed: any[] = [];
-      let foundCard: any = null;
-
-      for (const card of library) {
-        revealed.push(card);
-        const typeLine = (card.type_line || '').toLowerCase();
-        const isLand = typeLine.includes('land');
-        
-        if ((choice === 'land' && isLand) || (choice === 'nonland' && !isLand)) {
-          foundCard = card;
-          break;
-        }
-      }
-
-      // Announce the reveal
-      const choiceText = choice === 'land' ? 'land' : 'nonland';
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} chose "${choiceText}" for ${cardInHand.name} and revealed ${revealed.length} card(s).`,
-        ts: Date.now(),
-      });
-
-      if (foundCard) {
-        // Move found card to hand
-        (zones as any).library = library.filter((c: any) => c.id !== foundCard.id);
-        zones.hand.push(foundCard);
-        
-        // Put rest on bottom of library in random order
-        const rest = revealed.filter((c: any) => c.id !== foundCard.id);
-        (zones as any).library = (zones as any).library.filter((c: any) => !rest.some((r: any) => r.id === c.id));
-        (zones as any).library.push(...rest);
-
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} found and put ${foundCard.name} into their hand.`,
-          ts: Date.now(),
-        });
-      } else {
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} did not find a ${choiceText} card.`,
-          ts: Date.now(),
-        });
-      }
-
-      broadcastGame(io, game, gameId);
-      
-    } catch (err: any) {
-      debugError(1, `abundantChoiceConfirm error:`, err);
-      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Abundant choice confirmation failed" });
-    }
-  });
-
-  /**
-   * Handle life payment confirmation for spells like Toxic Deluge, Hatred, etc.
-   * Player chooses how much life to pay (X) as part of the spell's additional cost.
-   */
-  socket.on("lifePaymentConfirm", async ({ gameId, cardId, lifePayment, effectId }: {
-    gameId: string;
-    cardId: string;
-    lifePayment: number;
-    effectId?: string;
-  }) => {
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) {
-        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-
-      // Validate the life payment
-      const startingLife = game.state.startingLife || 40;
-      const currentLife = game.state.life?.[playerId] ?? startingLife;
-      
-      const validationError = validateLifePayment(currentLife, lifePayment);
-      if (validationError) {
-        socket.emit("error", { code: "INVALID_LIFE_PAYMENT", message: validationError });
-        return;
-      }
-
-      // Find the card in hand
-      const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
-        return;
-      }
-
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
-        return;
-      }
-
-      debug(2, `[lifePaymentConfirm] Player ${playerId} paying ${lifePayment} life for ${cardInHand.name}`);
-
-      // Store the life payment amount on the card for resolution
-      (cardInHand as any).lifePaymentAmount = lifePayment;
-      
-      // Pay the life immediately (additional costs are paid when casting)
-      game.state.life = game.state.life || {};
-      game.state.life[playerId] = currentLife - lifePayment;
-      
-      // Sync to player object
-      const player = (game.state.players || []).find((p: any) => p.id === playerId);
-      if (player) {
-        player.life = game.state.life[playerId];
-      }
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} pays ${lifePayment} life for ${cardInHand.name}. (${currentLife} → ${game.state.life[playerId]})`,
-        ts: Date.now(),
-      });
-
-      // Continue with casting - emit an event to continue the cast with life payment info
-      socket.emit("lifePaymentComplete", {
-        gameId,
-        cardId,
-        lifePayment,
-        effectId,
-      });
-
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      broadcastGame(io, game, gameId);
-      
-    } catch (err: any) {
-      debugError(1, `lifePaymentConfirm error:`, err);
-      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Life payment failed" });
-    }
-  });
-
-  /**
-   * Handle additional cost confirmation (discard, sacrifice, etc.)
-   * This handles cards like Seize the Spoils, Faithless Looting, etc.
-   */
-  socket.on("additionalCostConfirm", async ({ gameId, cardId, costType, selectedCards, effectId }: {
-    gameId: string;
-    cardId: string;
-    costType: 'discard' | 'sacrifice';
-    selectedCards: string[]; // IDs of cards/permanents selected to pay the cost
-    effectId?: string;
-  }) => {
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) {
-        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-
-      const zones = game.state.zones?.[playerId];
-      if (!zones) {
-        socket.emit("error", { code: "NO_ZONES", message: "Player zones not found" });
-        return;
-      }
-
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
-        return;
-      }
-
-      debug(2, `[additionalCostConfirm] ${playerId} paying ${costType} cost for ${cardInHand.name} with ${selectedCards.length} selection(s)`);
-
-      // Declare these at outer scope so they can be accessed in the event logging
-      let discardedCards: string[] = [];
-      let sacrificedNames: string[] = [];
-
-      if (costType === 'discard') {
-        // Discard the selected cards
-        for (const discardId of selectedCards) {
-          const discardIndex = (zones.hand as any[]).findIndex((c: any) => c && c.id === discardId);
-          if (discardIndex !== -1) {
-            const discarded = (zones.hand as any[]).splice(discardIndex, 1)[0];
-            zones.graveyard = zones.graveyard || [];
-            discarded.zone = 'graveyard';
-            zones.graveyard.push(discarded);
-            discardedCards.push(discarded.name || 'Unknown');
-          }
-        }
-        zones.handCount = zones.hand.length;
-        zones.graveyardCount = zones.graveyard.length;
-
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} discards ${discardedCards.join(', ')} as an additional cost.`,
-          ts: Date.now(),
-        });
-      } else if (costType === 'sacrifice') {
-        // Sacrifice the selected permanents
-        const battlefield = game.state.battlefield || [];
-        
-        for (const permId of selectedCards) {
-          const permIndex = battlefield.findIndex((p: any) => p && p.id === permId);
-          if (permIndex !== -1) {
-            const perm = battlefield[permIndex];
-            battlefield.splice(permIndex, 1);
-            
-            // Move to graveyard
-            zones.graveyard = zones.graveyard || [];
-            if (perm.card) {
-              perm.card.zone = 'graveyard';
-              (zones.graveyard as any[]).push(perm.card);
-            }
-            sacrificedNames.push(perm.card?.name || 'Unknown');
-          }
-        }
-        zones.graveyardCount = zones.graveyard.length;
-
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} sacrifices ${sacrificedNames.join(', ')} as an additional cost.`,
-          ts: Date.now(),
-        });
-      }
-
-      // Mark the additional cost as paid and continue casting
-      (cardInHand as any).additionalCostPaid = true;
-      
-      // Persist event for replay
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "additionalCostConfirm", {
-          playerId,
-          cardId,
-          costType,
-          selectedCards,
-          effectId,
-          discardedCards: costType === 'discard' ? discardedCards : undefined,
-          sacrificedNames: costType === 'sacrifice' ? sacrificedNames : undefined,
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(additionalCostConfirm) failed:', e);
-      }
-
-      // Emit event to continue the cast
-      socket.emit("additionalCostComplete", {
-        gameId,
-        cardId,
-        costType,
-        effectId,
-      });
-
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      broadcastGame(io, game, gameId);
-
-    } catch (err: any) {
-      debugError(1, `additionalCostConfirm error:`, err);
-      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Additional cost payment failed" });
-    }
-  });
-
-  /**
-   * Handle squad cost confirmation - player selects how many times to pay the squad cost
-   * Squad is a keyword ability that lets you pay an additional cost any number of times to create token copies
-   */
-  socket.on("squadCostConfirm", async ({ gameId, cardId, timesPaid, effectId }: {
-    gameId: string;
-    cardId: string;
-    timesPaid: number; // How many times the player chose to pay the squad cost (0 or more)
-    effectId?: string;
-  }) => {
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) {
-        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-
-      const zones = game.state.zones?.[playerId];
-      if (!zones) {
-        socket.emit("error", { code: "NO_ZONES", message: "Player zones not found" });
-        return;
-      }
-
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
-        return;
-      }
-
-      debug(2, `[squadCostConfirm] ${playerId} chose to pay squad cost ${timesPaid} time(s) for ${cardInHand.name}`);
-
-      // Store the squad payment on the card for use when it enters the battlefield
-      // The token creation happens when the creature ETBs (handled in stack resolution)
-      (cardInHand as any).squadTimesPaid = timesPaid;
-      (cardInHand as any).additionalCostPaid = true; // Mark that additional cost was handled
-      
-      // Persist event for replay
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "squadCostConfirm", {
-          playerId,
-          cardId,
-          timesPaid,
-          effectId,
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(squadCostConfirm) failed:', e);
-      }
-
-      if (timesPaid > 0) {
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} pays the squad cost ${timesPaid} time(s) for ${cardInHand.name}.`,
-          ts: Date.now(),
-        });
-      }
-
-      // Emit event to continue the cast
-      socket.emit("additionalCostComplete", {
-        gameId,
-        cardId,
-        costType: 'squad',
-        timesPaid,
-        effectId,
-      });
-
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      broadcastGame(io, game, gameId);
-
-    } catch (err: any) {
-      debugError(1, `squadCostConfirm error:`, err);
-      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Squad cost payment failed" });
-    }
-  });
-
-  /**
-   * Handle MDFC (Modal Double-Faced Card) face selection for lands like Blightstep Pathway.
-   * Player chooses which face of the card to play as a land.
-   */
-  socket.on("mdfcFaceSelectionConfirm", async ({ gameId, cardId, selectedFace, effectId }: {
-    gameId: string;
-    cardId: string;
-    selectedFace: number;
-    effectId?: string;
-  }) => {
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) {
-        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-        return;
-      }
-
-      // Find the card in hand
-      const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
-        return;
-      }
-
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
-      if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
-        return;
-      }
-
-      // Validate the selected face
-      const cardFaces = cardInHand.card_faces;
-      if (!Array.isArray(cardFaces) || selectedFace < 0 || selectedFace >= cardFaces.length) {
-        socket.emit("error", { code: "INVALID_FACE", message: "Invalid card face selection" });
-        return;
-      }
-
-      const selectedCardFace = cardFaces[selectedFace];
-      debug(2, `[mdfcFaceSelectionConfirm] Player ${playerId} selected face ${selectedFace} (${selectedCardFace.name}) for ${cardInHand.name}`);
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} plays ${selectedCardFace.name} (from ${cardInHand.name}).`,
-        ts: Date.now(),
-      });
-
-      // Continue playing the land with the selected face
-      // Re-emit playLand with the selected face
-      socket.emit("mdfcFaceSelectionComplete", {
-        gameId,
-        cardId,
-        selectedFace,
-        effectId,
-      });
-
-    } catch (err: any) {
-      debugError(1, `mdfcFaceSelectionConfirm error:`, err);
-      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "MDFC face selection failed" });
-    }
-  });
+  // Legacy modeSelectionConfirm handler removed - now handled via Resolution Queue (mode_selection).
+
+  // Legacy modalSpellConfirm/abundantChoiceConfirm/additionalCostConfirm/squadCostConfirm handlers removed.
+  // These prompts are now handled via Resolution Queue steps:
+  // - mode_selection (purpose: modalSpell/spree/overload/abundantChoice)
+  // - additional_cost_payment
+  // - squad_cost_payment
+
+  // Legacy MDFC face selection confirm handler removed - now handled via Resolution Queue (resolutionStepPrompt).
 
   /**
    * Get cost reduction information for cards in hand.

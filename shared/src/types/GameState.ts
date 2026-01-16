@@ -41,7 +41,6 @@ export interface GameState {
   winner?: string;
   
   // Pending interactions
-  pendingForbiddenOrchard?: Record<string, any>;
 }
 
 export enum GameFormat {

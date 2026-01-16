@@ -1000,165 +1000,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // surveilResolve continued from removed handler (keeping for any remaining references)
   // TODO: Clean up after verifying no dependencies
 
-  // Confirm Ponder-style effect (look at top N, reorder, optionally shuffle, then draw)
-  socket.on("confirmPonder", ({ gameId, effectId, newOrder, shouldShuffle, toHand }: {
-    gameId: string;
-    effectId: string;
-    newOrder: string[];  // Card IDs in new order (top first) - cards staying on library
-    shouldShuffle: boolean;
-    toHand?: string[];   // Card IDs going to hand (for Telling Time style)
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    // Get the pending ponder effect
-    const pendingPonder = (game.state as any).pendingPonder?.[pid];
-    if (!pendingPonder || pendingPonder.effectId !== effectId) {
-      socket.emit("error", { code: "PONDER_NOT_FOUND", message: "No matching pending Ponder effect" });
-      return;
-    }
-
-    const { cardCount, cardName, drawAfter, targetPlayerId, variant } = pendingPonder;
-    const targetPid = targetPlayerId || pid;
-
-    // Get library for the target player
-    const lib = (game as any).libraries?.get(targetPid) || [];
-    
-    // Remove the top N cards that were being reordered
-    const removedCards: any[] = [];
-    for (let i = 0; i < cardCount && lib.length > 0; i++) {
-      removedCards.push(lib.shift());
-    }
-    
-    const cardById = new Map(removedCards.map(c => [c.id, c]));
-    
-    // Move cards to hand if specified (Telling Time style)
-    if (toHand && toHand.length > 0) {
-      const zones = (game.state as any).zones || {};
-      const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-      z.hand = z.hand || [];
-      
-      for (const cardId of toHand) {
-        const card = cardById.get(cardId);
-        if (card) {
-          (z.hand as any[]).push({ ...card, zone: 'hand' });
-          cardById.delete(cardId);
-        }
-      }
-      z.handCount = (z.hand as any[]).length;
-      
-      debug(2, `[confirmPonder] ${pid} put ${toHand.length} card(s) to hand`);
-    }
-    
-    if (shouldShuffle) {
-      // Shuffle the remaining cards back into library first
-      for (const card of cardById.values()) {
-        lib.push({ ...card, zone: 'library' });
-      }
-      
-      // Use game's shuffleLibrary for deterministic RNG if available
-      if (typeof (game as any).shuffleLibrary === "function") {
-        // Set the library first so shuffleLibrary can access it
-        if ((game as any).libraries) {
-          (game as any).libraries.set(targetPid, lib);
-        }
-        (game as any).shuffleLibrary(targetPid);
-      } else {
-        // Fallback: manual shuffle (non-deterministic) and set library
-        debugWarn(2, "[confirmPonder] game.shuffleLibrary not available, using Math.random");
-        for (let i = lib.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [lib[i], lib[j]] = [lib[j], lib[i]];
-        }
-        if ((game as any).libraries) {
-          (game as any).libraries.set(targetPid, lib);
-        }
-      }
-      debug(2, `[confirmPonder] ${targetPid} shuffled their library`);
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} shuffled their library.`,
-        ts: Date.now(),
-      });
-    } else {
-      // Put cards back in the specified order (newOrder has IDs from top to bottom)
-      for (let i = newOrder.length - 1; i >= 0; i--) {
-        const card = cardById.get(newOrder[i]);
-        if (card) {
-          lib.unshift({ ...card, zone: 'library' });
-        }
-      }
-      debug(2, `[confirmPonder] ${targetPid} reordered top ${newOrder.length} cards`);
-    }
-    
-    // Update library count
-    const zones = (game.state as any).zones || {};
-    const targetZones = zones[targetPid] = zones[targetPid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-    targetZones.libraryCount = lib.length;
-    
-    // Draw a card if specified (Ponder draws after reordering/shuffling)
-    let drawnCardName: string | undefined;
-    if (drawAfter && pid === targetPid) {
-      if (lib.length > 0) {
-        const drawnCard = lib.shift();
-        const playerZones = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-        playerZones.hand = playerZones.hand || [];
-        (playerZones.hand as any[]).push({ ...drawnCard, zone: 'hand' });
-        playerZones.handCount = (playerZones.hand as any[]).length;
-        playerZones.libraryCount = lib.length;
-        drawnCardName = drawnCard.name;
-        
-        debug(2, `[confirmPonder] ${pid} drew ${drawnCardName}`);
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} draws a card.`,
-          ts: Date.now(),
-        });
-      }
-    }
-    
-    // Clear the pending ponder effect
-    delete (game.state as any).pendingPonder[pid];
-    
-    // Bump sequence
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    // Emit completion event
-    io.to(gameId).emit("ponderComplete", {
-      gameId,
-      effectId,
-      playerId: pid,
-      targetPlayerId: targetPid,
-      cardName,
-      shuffled: shouldShuffle,
-      drawnCardName,
-    });
-    
-    appendEvent(gameId, game.seq, "ponderResolve", { 
-      playerId: pid, 
-      effectId,
-      newOrder, 
-      shouldShuffle, 
-      toHand,
-      drawnCardName,
-    });
-
-    broadcastGame(io, game, gameId);
-  });
+  // Legacy confirmPonder handler removed - now handled via Resolution Queue.
+  // See processPendingPonder() and handlePonderEffectResponse() in resolution.ts.
 
 
   // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
@@ -1190,13 +1033,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
     const exploringName = exploringPerm?.card?.name || "Creature";
 
-    socket.emit("explorePrompt", {
-      gameId,
+    // Migrate legacy explorePrompt flow to Resolution Queue.
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.EXPLORE_DECISION,
+      playerId: pid as any,
+      mandatory: true,
+      sourceId: permanentId,
+      sourceName: exploringName,
+      description: `${exploringName} explores`,
       permanentId,
       permanentName: exploringName,
       revealedCard,
       isLand,
-    });
+    } as any);
 
     // Announce the reveal to all players
     io.to(gameId).emit("chat", {
@@ -1208,72 +1057,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
   });
 
-  socket.on("confirmExplore", ({ gameId, permanentId, toGraveyard }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    const cards = game.peekTopN(pid, 1);
-    
-    if (!cards || cards.length === 0) {
-      return;
-    }
-
-    const revealedCard = cards[0];
-    // Re-check land status from server state to prevent race conditions
-    // where client and server state could diverge
-    const typeLine = (revealedCard.type_line || "").toLowerCase();
-    const isLand = typeLine.includes("land");
-
-    // Find the exploring permanent
-    const battlefield = game.state?.battlefield || [];
-    const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
-    const exploringName = exploringPerm?.card?.name || "Creature";
-
-    game.applyEvent({
-      type: "exploreResolve",
-      playerId: pid,
-      permanentId,
-      revealedCardId: revealedCard.id,
-      isLand,
-      // Defensive: ensure lands never go to graveyard regardless of client input
-      toGraveyard: isLand ? false : toGraveyard,
-    });
-
-    appendEvent(gameId, game.seq, "exploreResolve", {
-      playerId: pid,
-      permanentId,
-      revealedCardId: revealedCard.id,
-      isLand,
-      toGraveyard,
-    });
-
-    // Announce the result
-    let resultMessage: string;
-    if (isLand) {
-      resultMessage = `${getPlayerName(game, pid)} puts ${revealedCard.name} into their hand.`;
-    } else if (toGraveyard) {
-      resultMessage = `${getPlayerName(game, pid)} puts a +1/+1 counter on ${exploringName} and puts ${revealedCard.name} into their graveyard.`;
-    } else {
-      resultMessage = `${getPlayerName(game, pid)} puts a +1/+1 counter on ${exploringName} and keeps ${revealedCard.name} on top of their library.`;
-    }
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: resultMessage,
-      ts: Date.now(),
-    });
-
-    broadcastGame(io, game, gameId);
-  });
-
   // Batch Explore: Handle multiple creatures exploring at once (e.g., Hakbal triggers)
   // NOTE: This implementation peeks at the top card multiple times (once in beginBatchExplore
-  // and once in confirmBatchExplore). This is acceptable because peekTopN doesn't modify
-  // the library - it only reveals what's there. The actual card movement happens in the
-  // confirmBatchExplore handler via applyEvent("exploreResolve").
+  // and once in the Resolution Queue response handler). This is acceptable because
+  // peekTopN doesn't modify the library - it only reveals what's there. The actual card
+  // movement happens when the Resolution Queue step is completed via applyEvent("exploreResolve").
   socket.on("beginBatchExplore", ({ gameId, permanentIds }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -1325,10 +1113,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    socket.emit("batchExplorePrompt", {
-      gameId,
+    // Migrate legacy batchExplorePrompt flow to Resolution Queue.
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.BATCH_EXPLORE_DECISION,
+      playerId: pid as any,
+      mandatory: true,
+      sourceName: 'Explore',
+      description: `Resolve ${explores.length} explore decision${explores.length === 1 ? '' : 's'}`,
       explores,
-    });
+    } as any);
 
     const revealedNames = explores.map(e => e.revealedCard.name).join(", ");
     io.to(gameId).emit("chat", {
@@ -1338,74 +1131,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       message: `${getPlayerName(game, pid)}'s creatures explore, revealing ${revealedNames}.`,
       ts: Date.now(),
     });
-  });
-
-  socket.on("confirmBatchExplore", ({ gameId, decisions }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    
-    if (!decisions || !Array.isArray(decisions)) {
-      return;
-    }
-
-    const results: string[] = [];
-
-    for (const decision of decisions) {
-      const { permanentId, toGraveyard } = decision;
-      
-      const cards = game.peekTopN(pid, 1);
-      
-      if (!cards || cards.length === 0) {
-        continue;
-      }
-
-      const revealedCard = cards[0];
-      const typeLine = (revealedCard.type_line || "").toLowerCase();
-      const isLand = typeLine.includes("land");
-
-      const battlefield = game.state?.battlefield || [];
-      const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
-      const exploringName = exploringPerm?.card?.name || "Creature";
-
-      game.applyEvent({
-        type: "exploreResolve",
-        playerId: pid,
-        permanentId,
-        revealedCardId: revealedCard.id,
-        isLand,
-        toGraveyard: isLand ? false : toGraveyard,
-      });
-
-      appendEvent(gameId, game.seq, "exploreResolve", {
-        playerId: pid,
-        permanentId,
-        revealedCardId: revealedCard.id,
-        isLand,
-        toGraveyard: isLand ? false : toGraveyard,  // Match applyEvent behavior
-      });
-
-      if (isLand) {
-        results.push(`${exploringName} → ${revealedCard.name} to hand`);
-      } else if (toGraveyard) {
-        results.push(`${exploringName} → +1/+1 counter, ${revealedCard.name} to graveyard`);
-      } else {
-        results.push(`${exploringName} → +1/+1 counter, ${revealedCard.name} on top`);
-      }
-    }
-
-    if (results.length > 0) {
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} resolves explores: ${results.join("; ")}.`,
-        ts: Date.now(),
-      });
-    }
-
-    broadcastGame(io, game, gameId);
   });
 
 
@@ -4152,9 +3877,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (permanent as any).tapped = true;
       }
       
-      // Generate activation ID
-      const activationId = `counter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
       // Determine target restrictions
       let targetController: 'opponent' | 'any' | 'you' = 'any';
       if (targetRestriction) {
@@ -4166,36 +3888,47 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Store pending counter activation
-      if (!game.state.pendingCounterActivations) {
-        game.state.pendingCounterActivations = {};
-      }
-      game.state.pendingCounterActivations[activationId] = {
-        playerId: pid,
+
+      // Compute valid targets now (client no longer listens for bespoke counterTargetRequest).
+      const battlefield = game.state?.battlefield || [];
+      const targetTypeLower = String(targetType || '').toLowerCase();
+      const wantsCreature = targetTypeLower.includes('creature');
+
+      const validTargets = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
+        if (!perm || typeof perm.id !== 'string') return false;
+        if (wantsCreature) {
+          const tl = String(perm.card?.type_line || '').toLowerCase();
+          if (!tl.includes('creature')) return false;
+        }
+        if (targetController === 'you' && perm.controller !== pid) return false;
+        if (targetController === 'opponent' && perm.controller === pid) return false;
+        return true;
+      }).map((perm: any) => ({
+        id: String(perm.id),
+        label: String(perm.card?.name || 'permanent'),
+        description: 'permanent',
+        imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+      }));
+
+      // Queue target selection via Resolution Queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.COUNTER_TARGET,
+        playerId: pid as PlayerID,
         sourceId: permanentId,
         sourceName: cardName,
+        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+        description: oracleText,
+        mandatory: true,
         counterType,
         targetController,
-        oracleText, // Store for additional effects (e.g., "Its controller draws a card")
-        scalingText, // Store for calculating counter count (e.g., "Elf you control")
-      };
-      
-      // Emit target selection request to client
-      socket.emit("counterTargetRequest", {
-        gameId,
-        activationId,
-        source: {
-          id: permanentId,
-          name: cardName,
-          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        },
-        counterType,
-        targetFilter: {
-          types: ['creature', 'permanent'],
-          controller: targetController,
-          excludeSource: false, // Allow targeting self in some cases
-        },
+        oracleText,
+        scalingText,
+        validTargets,
+        targetTypes: wantsCreature ? ['creature'] : ['permanent'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: targetTypeLower || 'target',
         title: `${cardName} - Add ${counterType} counter`,
-        description: oracleText,
       });
       
       debug(2, `[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
@@ -4548,22 +4281,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
-      
-      // Generate activation ID
-      const activationId = `station_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Store pending activation
-      if (!(game.state as any).pendingStationActivations) {
-        (game.state as any).pendingStationActivations = {};
-      }
-      (game.state as any).pendingStationActivations[activationId] = {
-        playerId: pid,
-        stationId: permanentId,
-        stationName: cardName,
-        stationThreshold,
-      };
-      
-      // Emit creature selection request to client
+
+      // Queue creature selection via Resolution Queue
       const creatureOptions = untappedCreatures.map((c: any) => {
         const creaturePower = getEffectivePower(c);
         return {
@@ -4574,10 +4293,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
         };
       });
-      
-      socket.emit("stationCreatureSelection", {
-        gameId,
-        activationId,
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.STATION_CREATURE_SELECTION,
+        playerId: pid as PlayerID,
+        sourceId: permanentId,
+        sourceName: cardName,
+        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+        description: `Tap another untapped creature you control. Put charge counters on ${cardName} equal to that creature's power.`,
+        mandatory: true,
         station: {
           id: permanentId,
           name: cardName,
@@ -4587,10 +4311,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         },
         creatures: creatureOptions,
         title: `Station ${stationThreshold}`,
-        description: `Tap another untapped creature you control. Put charge counters on ${cardName} equal to that creature's power.`,
       });
       
       debug(2, `[activateBattlefieldAbility] Station ability on ${cardName}: prompting for creature selection (${untappedCreatures.length} valid targets)`);
+
+      broadcastGame(io, game, gameId);
       return;
     }
     
@@ -5046,79 +4771,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const opponents = players.filter((p: any) => p?.id != null && p.id !== pid && !p.hasLost);
         
         if (opponents.length > 0) {
-          // For AI players, auto-select a random opponent
-          if (isAIPlayer(gameId, pid)) {
-            // AI auto-selects a random opponent for the token
-            const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
-            const targetOpponentId = randomOpponent.id;
-            
-            // Create 1/1 colorless Spirit token for the target opponent
-            const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            game.state.battlefield = game.state.battlefield || [];
-            const spiritToken = {
-              id: tokenId,
-              controller: targetOpponentId,
-              owner: targetOpponentId,
-              tapped: false,
-              summoningSickness: true,
-              counters: {},
-              card: {
-                id: tokenId,
-                name: 'Spirit',
-                type_line: 'Token Creature — Spirit',
-                oracle_text: '',
-                mana_cost: '',
-                cmc: 0,
-                colors: [],
-              },
-              basePower: 1,
-              baseToughness: 1,
-              isToken: true,
-            };
-            game.state.battlefield.push(spiritToken);
-            
-            debug(2, `[activateBattlefieldAbility] AI Forbidden Orchard: auto-selected ${targetOpponentId} to receive Spirit token`);
-            
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `Forbidden Orchard: ${getPlayerName(game, targetOpponentId)} creates a 1/1 colorless Spirit token.`,
-              ts: Date.now(),
-            });
-            
-            // Continue with normal mana ability processing - don't return early
-          } else {
-            // Human player: store pending activation and request choice
-            if (!(game.state as any).pendingForbiddenOrchard) {
-              (game.state as any).pendingForbiddenOrchard = {};
-            }
-            
-            const activationId = `forbidden_orchard_${crypto.randomUUID()}`;
-            (game.state as any).pendingForbiddenOrchard[activationId] = {
-              playerId: pid,
-              permanentId,
-              cardName: 'Forbidden Orchard',
-              opponents: opponents.map((p: any) => ({ id: p.id, name: p.name })),
-            };
-            
-            // Request opponent choice from player
-            socket.emit("forbiddenOrchardTargetRequest", {
-              gameId,
-              activationId,
-              permanentId,
-              cardName: 'Forbidden Orchard',
-              opponents: opponents.map((p: any) => ({
-                id: p.id,
-                name: p.name || p.id,
-              })),
-              message: "Choose target opponent to create a 1/1 colorless Spirit creature token.",
-            });
-            
-            debug(2, `[activateBattlefieldAbility] Forbidden Orchard: prompting ${pid} to choose target opponent`);
-            broadcastGame(io, game, gameId);
-            return; // Exit early - wait for target selection
-          }
+          // Queue opponent choice via Resolution Queue (AI auto-responds in resolution.ts)
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.FORBIDDEN_ORCHARD_TARGET,
+            playerId: pid as PlayerID,
+            sourceId: permanentId,
+            sourceName: 'Forbidden Orchard',
+            sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+            description: 'Choose target opponent to create a 1/1 colorless Spirit creature token.',
+            mandatory: true,
+            opponents: opponents.map((p: any) => ({
+              id: String(p.id),
+              name: String(p.name || p.id),
+            })),
+            permanentId,
+            cardName: 'Forbidden Orchard',
+          });
+          
+          debug(2, `[activateBattlefieldAbility] Forbidden Orchard: queued target opponent selection for ${pid}`);
+          // Do not return early; mana ability processing continues, but the game enters resolution mode.
         }
       }
       
@@ -7380,155 +7051,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   // Fight target selection is handled via Resolution Queue (see socket/resolution.ts)
 
-  /**
-   * Handle counter target selection confirmation
-   * Used for abilities like Gwafa Hazid, Sage of Fables, Ozolith, etc.
-   */
-  socket.on("counterTargetChosen", async ({
-    gameId,
-    activationId,
-    targetId,
-  }: {
-    gameId: string;
-    activationId: string;
-    targetId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    
-    // Retrieve pending counter activation
-    const pendingCounter = game.state.pendingCounterActivations?.[activationId];
-    if (!pendingCounter) {
-      socket.emit("error", {
-        code: "INVALID_ACTIVATION",
-        message: "Counter activation not found or expired",
-      });
-      return;
-    }
-    
-    // Validate player
-    if (pendingCounter.playerId !== pid) {
-      socket.emit("error", {
-        code: "NOT_YOUR_ACTIVATION",
-        message: "This is not your activation",
-      });
-      return;
-    }
-    
-    const battlefield = game.state?.battlefield || [];
-    
-    // Find the target permanent
-    const targetPermanent = battlefield.find((p: any) => p?.id === targetId);
-    if (!targetPermanent) {
-      socket.emit("error", {
-        code: "INVALID_TARGET",
-        message: "Target permanent not found on battlefield",
-      });
-      delete game.state.pendingCounterActivations[activationId];
-      return;
-    }
-    
-    // Clean up pending state
-    delete game.state.pendingCounterActivations[activationId];
-    
-    // Calculate number of counters to add
-    let counterCount = 1; // Default to 1
-    const scalingText = pendingCounter.scalingText;
-    
-    if (scalingText) {
-      // Handle scaling counters like "for each Elf you control"
-      // Pattern: "for each [creature type/card type] you control"
-      const scalingMatch = scalingText.match(/(?:for each )?(\w+)(?: you control)?/i);
-      if (scalingMatch) {
-        const searchType = scalingMatch[1].toLowerCase();
-        const battlefield = game.state?.battlefield || [];
-        
-        // Count matching permanents controlled by the player
-        counterCount = battlefield.filter((perm: any) => {
-          if (perm.controller !== pid) return false;
-          const typeLine = (perm.card?.type_line || '').toLowerCase();
-          const name = (perm.card?.name || '').toLowerCase();
-          
-          // Check if it matches the creature type or card type
-          return typeLine.includes(searchType) || name.includes(searchType);
-        }).length;
-        
-        debug(2, `[counterTargetChosen] Scaling: ${counterCount} ${searchType}(s) controlled by ${pid}`);
-      }
-    }
-    
-    // Add the counter(s) to the target
-    if (!targetPermanent.counters) {
-      (targetPermanent as any).counters = {};
-    }
-    
-    const counterType = pendingCounter.counterType;
-    (targetPermanent.counters as any)[counterType] = ((targetPermanent.counters as any)[counterType] || 0) + counterCount;
-    
-    const targetName = targetPermanent.card?.name || "permanent";
-    debug(2, `[counterTargetChosen] ${pendingCounter.sourceName} put ${counterCount} ${counterType} counter(s) on ${targetName}`);
-    
-    // Emit chat message
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} activated ${pendingCounter.sourceName}: Put ${counterCount} ${counterType} counter${counterCount > 1 ? 's' : ''} on ${targetName}.`,
-      ts: Date.now(),
-    });
-    
-    // Handle additional effects from the ability
-    // Example: Gwafa Hazid - "Its controller draws a card"
-    const oracleText = pendingCounter.oracleText || "";
-    if (oracleText.includes("its controller draws") || oracleText.includes("that player draws")) {
-      const targetController = targetPermanent.controller;
-      if (targetController) {
-        // Simple increment to hand count - proper draw handled by game flow
-        const zones = game.state?.zones?.[targetController];
-        if (zones && Array.isArray(zones.hand)) {
-          // Add a placeholder card to hand (full draw logic handled elsewhere)
-          debug(2, `[counterTargetChosen] ${targetController} should draw a card (Gwafa effect)`);
-          
-          // Use simplified draw - just emit message for now
-          // Full implementation would require proper library management
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${getPlayerName(game, targetController)} draws a card.`,
-            ts: Date.now(),
-          });
-        }
-      }
-    }
-    
-    // Persist event
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, "counterTargetChosen", {
-        playerId: pid,
-        activationId,
-        sourceName: pendingCounter.sourceName,
-        targetId,
-        targetName,
-        counterType,
-      });
-    } catch (e) {
-      debugWarn(1, "[interaction] Failed to persist counterTargetChosen event:", e);
-    }
-    
-    // Bump sequence
-    if (typeof (game as any).bumpSeq === "function") {
-      (game as any).bumpSeq();
-    }
-    
-    broadcastGame(io, game, gameId);
-  });
+  // Legacy counterTargetChosen handler removed - now using resolution queue system
 
   /**
    * Handle move counter source selection (Nesting Grounds step 1)
@@ -7781,145 +7304,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   // Legacy confirmCounterMovement handler removed - now using resolution queue system
 
-  /**
-   * Handle station ability creature selection confirmation (Rule 702.184a)
-   * Station: "Tap another untapped creature you control: Put a number of charge counters
-   * on this permanent equal to the tapped creature's power."
-   */
-  socket.on("confirmStationCreatureSelection", ({
-    gameId,
-    activationId,
-    creatureId,
-  }: {
-    gameId: string;
-    activationId: string;
-    creatureId: string;
-  }) => {
-    const game = ensureGame(gameId);
-    if (!game || !game.state) return;
-
-    const pid = socket.data.playerId as PlayerID;
-    if (!pid) {
-      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
-      return;
-    }
-
-    // Retrieve pending activation
-    const pending = (game.state as any).pendingStationActivations?.[activationId];
-    if (!pending) {
-      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired station activation" });
-      return;
-    }
-
-    // Verify it's the right player
-    if (pending.playerId !== pid) {
-      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your station activation" });
-      return;
-    }
-
-    const battlefield = game.state.battlefield || [];
-    
-    // Find the station permanent
-    const station = battlefield.find((p: any) => p.id === pending.stationId);
-    if (!station) {
-      socket.emit("error", { code: "STATION_NOT_FOUND", message: "Station permanent not found" });
-      delete (game.state as any).pendingStationActivations[activationId];
-      return;
-    }
-
-    // Find the creature to tap
-    const creature = battlefield.find((p: any) => p.id === creatureId);
-    if (!creature) {
-      socket.emit("error", { code: "CREATURE_NOT_FOUND", message: "Selected creature not found" });
-      return;
-    }
-
-    // Validate the creature
-    if (creature.controller !== pid) {
-      socket.emit("error", { code: "NOT_YOUR_CREATURE", message: "You don't control this creature" });
-      return;
-    }
-
-    if (creature.tapped) {
-      socket.emit("error", { code: "CREATURE_TAPPED", message: "This creature is already tapped" });
-      return;
-    }
-
-    const creatureTypeLine = (creature.card?.type_line || '').toLowerCase();
-    if (!creatureTypeLine.includes('creature')) {
-      socket.emit("error", { code: "NOT_A_CREATURE", message: "Selected permanent is not a creature" });
-      return;
-    }
-
-    // Get the creature's power
-    const creaturePower = getEffectivePower(creature);
-    const creatureName = creature.card?.name || 'creature';
-
-    // Tap the creature
-    (creature as any).tapped = true;
-
-    // Add charge counters equal to the creature's power (Rule 702.184a)
-    // Note: While MTG allows negative power, we use Math.max(0, ...) since tapping a
-    // creature with negative power shouldn't remove counters - it just adds 0.
-    (station as any).counters = (station as any).counters || {};
-    const currentCounters = (station as any).counters.charge || 0;
-    const countersToAdd = Math.max(0, creaturePower); // Negative power = 0 counters added
-    (station as any).counters.charge = currentCounters + countersToAdd;
-
-    const newCounterCount = (station as any).counters.charge;
-    const stationThreshold = pending.stationThreshold || 0;
-
-    // Clean up pending activation
-    delete (game.state as any).pendingStationActivations[activationId];
-
-    // Check if threshold is met
-    if (stationThreshold > 0 && newCounterCount >= stationThreshold && !(station as any).stationed) {
-      // Mark as stationed (becomes a creature)
-      (station as any).stationed = true;
-      (station as any).grantedTypes = (station as any).grantedTypes || [];
-      if (!(station as any).grantedTypes.includes('Creature')) {
-        (station as any).grantedTypes.push('Creature');
-      }
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `🚀 ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to station ${pending.stationName}! It gained ${countersToAdd} charge counter${countersToAdd !== 1 ? 's' : ''} (${newCounterCount}/${stationThreshold}) and is now an artifact creature!`,
-        ts: Date.now(),
-      });
-    } else {
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `⚡ ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to add ${countersToAdd} charge counter${countersToAdd !== 1 ? 's' : ''} to ${pending.stationName}. (${newCounterCount}/${stationThreshold})`,
-        ts: Date.now(),
-      });
-    }
-
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-
-    // Append event to game log
-    appendGameEvent(game, gameId, 'station_activated', {
-      playerId: pid,
-      stationId: pending.stationId,
-      stationName: pending.stationName,
-      creatureId,
-      creatureName,
-      creaturePower,
-      countersAdded: countersToAdd,
-      totalCounters: newCounterCount,
-      threshold: stationThreshold,
-      stationed: (station as any).stationed,
-      ts: Date.now(),
-    });
-
-    // Broadcast updates
-    broadcastGame(io, game, gameId);
-  });
+  // Station creature selection is handled via Resolution Queue (see socket/resolution.ts)
 
   /**
    * Handle multi-mode ability activation confirmation
@@ -8296,107 +7681,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  /**
-   * Handle Forbidden Orchard opponent target selection
-   * When tapping Forbidden Orchard for mana, controller must choose target opponent
-   * to create a 1/1 colorless Spirit creature token.
-   */
-  socket.on("confirmForbiddenOrchardTarget", ({
-    gameId,
-    activationId,
-    targetOpponentId,
-  }: {
-    gameId: string;
-    activationId: string;
-    targetOpponentId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-
-    // Retrieve pending activation
-    const pending = (game.state as any).pendingForbiddenOrchard?.[activationId];
-    if (!pending) {
-      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired Forbidden Orchard activation" });
-      return;
-    }
-
-    // Verify it's the right player
-    if (pending.playerId !== pid) {
-      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your Forbidden Orchard activation" });
-      return;
-    }
-
-    // Verify target opponent is valid
-    const validOpponent = pending.opponents.find((opp: any) => opp.id === targetOpponentId);
-    if (!validOpponent) {
-      socket.emit("error", { code: "INVALID_TARGET", message: "Invalid target opponent" });
-      return;
-    }
-
-    // Clean up pending activation
-    delete (game.state as any).pendingForbiddenOrchard[activationId];
-
-    // Create 1/1 colorless Spirit token for the target opponent
-    const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    game.state.battlefield = game.state.battlefield || [];
-    const spiritToken = {
-      id: tokenId,
-      controller: targetOpponentId,
-      owner: targetOpponentId,
-      tapped: false,
-      summoningSickness: true,
-      counters: {},
-      card: {
-        id: tokenId,
-        name: 'Spirit',
-        type_line: 'Token Creature — Spirit',
-        oracle_text: '',
-        mana_cost: '',
-        cmc: 0,
-        colors: [],
-      },
-      basePower: 1,
-      baseToughness: 1,
-      isToken: true,
-    };
-    game.state.battlefield.push(spiritToken);
-    
-    // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
-    // Create a minimal context object for the trigger system
-    const ctx = {
-      state: game.state,
-      bumpSeq: game.bumpSeq?.bind(game) || (() => {
-        debugWarn(2, '[Forbidden Orchard] bumpSeq not available, state updates may not propagate');
-      }),
-    };
-    triggerETBEffectsForToken(ctx as any, spiritToken, targetOpponentId);
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `Forbidden Orchard: ${getPlayerName(game, targetOpponentId)} creates a 1/1 colorless Spirit token.`,
-      ts: Date.now(),
-    });
-
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-
-    appendEvent(gameId, (game as any).seq ?? 0, "confirmForbiddenOrchardTarget", {
-      playerId: pid,
-      activationId,
-      targetOpponentId,
-    });
-
-    broadcastGame(io, game, gameId);
-  });
+  // Forbidden Orchard opponent selection is handled via Resolution Queue (see socket/resolution.ts)
 
   // Legacy confirmManaDistribution handler removed - now using resolution queue system
   // See resolution.ts MANA_COLOR_SELECTION handling
