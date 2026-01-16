@@ -188,6 +188,7 @@ export function App() {
 
   // Opponent may pay modal state
   const [opponentMayPayPrompt, setOpponentMayPayPrompt] = useState<OpponentMayPayPrompt | null>(null);
+  const [opponentMayPayStepId, setOpponentMayPayStepId] = useState<string | null>(null);
 
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
   const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
@@ -658,7 +659,10 @@ export function App() {
   // Any Color Mana Modal state - for Birds of Paradise, Chromatic Lantern, etc.
   const [anyColorManaModalOpen, setAnyColorManaModalOpen] = useState(false);
   const [anyColorManaModalData, setAnyColorManaModalData] = useState<{
-    activationId: string;
+    // If present, this modal is answering a ResolutionQueue step.
+    stepId?: string;
+    mandatory?: boolean;
+    activationId?: string;
     permanentId: string;
     cardName: string;
     amount: number;
@@ -669,6 +673,9 @@ export function App() {
   // Phyrexian Mana Choice Modal state - for cards with {W/P}, {U/P}, etc. costs
   const [phyrexianManaModalOpen, setPhyrexianManaModalOpen] = useState(false);
   const [phyrexianManaModalData, setPhyrexianManaModalData] = useState<{
+    // If present, this modal is answering a ResolutionQueue step.
+    stepId?: string;
+    mandatory?: boolean;
     pendingId: string;
     permanentId?: string;
     cardId?: string;
@@ -789,6 +796,9 @@ export function App() {
   // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
   const [manaDistributionModalOpen, setManaDistributionModalOpen] = useState(false);
   const [manaDistributionModalData, setManaDistributionModalData] = useState<{
+    // If present, this modal is answering a ResolutionQueue step.
+    stepId?: string;
+    mandatory?: boolean;
     gameId: string;
     permanentId: string;
     cardName: string;
@@ -879,7 +889,9 @@ export function App() {
       if (stored) {
         return new Set(JSON.parse(stored));
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return new Set();
   });
   
@@ -892,10 +904,13 @@ export function App() {
       } else {
         next.delete(step);
       }
+
       try {
         localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...next]));
-      } catch { /* ignore */ }
-      
+      } catch {
+        /* ignore */
+      }
+
       // Sync with server: auto-pass is enabled if ANY step is enabled
       if (safeView?.id) {
         socket.emit('setAutoPass', {
@@ -903,18 +918,20 @@ export function App() {
           enabled: next.size > 0,
         });
       }
-      
+
       return next;
     });
-  }, [safeView?.id]);
+  }, [safeView?.id, socket]);
   
   // Clear all auto-pass settings
   const handleClearAllAutoPass = React.useCallback(() => {
     setAutoPassSteps(new Set());
     try {
       localStorage.removeItem('mtgedh:autoPassSteps');
-    } catch { /* ignore */ }
-    
+    } catch {
+      /* ignore */
+    }
+
     // Sync with server: auto-pass is now disabled
     if (safeView?.id) {
       socket.emit('setAutoPass', {
@@ -922,19 +939,21 @@ export function App() {
         enabled: false,
       });
     }
-  }, [safeView?.id]);
+  }, [safeView?.id, socket]);
 
   // Select all auto-pass settings
   const handleSelectAllAutoPass = React.useCallback(() => {
     const allSteps = new Set([
-      'upkeep', 'draw', 'main1', 'begincombat', 'declareattackers', 
+      'upkeep', 'draw', 'main1', 'begincombat', 'declareattackers',
       'declareblockers', 'damage', 'endcombat', 'main2', 'end'
     ]);
     setAutoPassSteps(allSteps);
     try {
       localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...allSteps]));
-    } catch { /* ignore */ }
-    
+    } catch {
+      /* ignore */
+    }
+
     // Sync with server: auto-pass is now enabled
     if (safeView?.id) {
       socket.emit('setAutoPass', {
@@ -942,7 +961,7 @@ export function App() {
         enabled: true,
       });
     }
-  }, [safeView?.id]);
+  }, [safeView?.id, socket]);
 
   // Auto-pass for rest of turn setting
   // When enabled, forces auto-pass for all remaining priority windows this turn
@@ -1916,119 +1935,7 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Color choice request listener - for Caged Sun, Gauntlet of Power, etc.
-  // Any color mana choice listener (for Birds of Paradise, Chromatic Lantern, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      activationId: string;
-      permanentId: string;
-      cardName: string;
-      amount: number;
-      allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
-      cardImageUrl?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setAnyColorManaModalData({
-          activationId: payload.activationId,
-          permanentId: payload.permanentId,
-          cardName: payload.cardName,
-          amount: payload.amount,
-          allowedColors: payload.allowedColors, // Pass through to modal
-          cardImageUrl: payload.cardImageUrl,
-        });
-        setAnyColorManaModalOpen(true);
-      }
-    };
-    socket.on("anyColorManaChoice", handler);
-    return () => {
-      socket.off("anyColorManaChoice", handler);
-    };
-  }, [safeView?.id]);
-
-  // Mana distribution request listener (for Selvala, Heart of the Wilds, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      permanentId: string;
-      cardName: string;
-      availableColors: string[];
-      totalAmount?: number;
-      isAnyColor?: boolean;
-      message?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setManaDistributionModalData({
-          gameId: payload.gameId,
-          permanentId: payload.permanentId,
-          cardName: payload.cardName,
-          totalAmount: payload.totalAmount ?? payload.availableColors.length,
-          availableColors: payload.availableColors,
-          message: payload.message,
-        });
-        setManaDistributionModalOpen(true);
-      }
-    };
-    socket.on("manaColorChoice", handler);
-    return () => {
-      socket.off("manaColorChoice", handler);
-    };
-  }, [safeView?.id]);
-
-  // Phyrexian mana choice listener (for Mite Overseer, K'rrik, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      pendingId: string;
-      permanentId?: string;
-      cardId?: string;
-      castSpellArgs?: {
-        gameId: string;
-        cardId: string;
-        targets?: any[];
-        payment?: any[];
-        skipInteractivePrompts?: boolean;
-        xValue?: number;
-        alternateCostId?: string;
-        convokeTappedCreatures?: string[];
-      };
-      cardName: string;
-      abilityText: string;
-      totalManaCost: string;
-      genericCost: number;
-      phyrexianChoices: Array<{
-        index: number;
-        colorOption: string;
-        colorName: string;
-        lifeAmount: number;
-        hasColorMana: boolean;
-        symbol: string;
-      }>;
-      playerLife: number;
-      cardImageUrl?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setPhyrexianManaModalData({
-          pendingId: payload.pendingId,
-          permanentId: payload.permanentId,
-          cardId: payload.cardId,
-          castSpellArgs: payload.castSpellArgs,
-          cardName: payload.cardName,
-          abilityText: payload.abilityText,
-          totalManaCost: payload.totalManaCost,
-          genericCost: payload.genericCost,
-          phyrexianChoices: payload.phyrexianChoices,
-          playerLife: payload.playerLife,
-          cardImageUrl: payload.cardImageUrl,
-        });
-        setPhyrexianManaModalOpen(true);
-      }
-    };
-    socket.on("phyrexianManaChoice", handler);
-    return () => {
-      socket.off("phyrexianManaChoice", handler);
-    };
-  }, [safeView?.id]);
+  // Mana choice prompts are handled via Resolution Queue (resolutionStepPrompt).
 
   // Additional cost request listener - for discard/sacrifice as additional costs
   React.useEffect(() => {
@@ -2485,8 +2392,25 @@ export function App() {
         setKynaiosChoiceModalOpen(true);
       }
       
-      // Handle Option Choice resolution step (Agitator Ant and similar)
+      // Handle Option Choice resolution step
       else if (step.type === 'option_choice' || step.type === 'modal_choice') {
+        if (step.opponentMayPayChoice === true) {
+          const prompt: OpponentMayPayPrompt = {
+            promptId: String(step.promptId || ''),
+            sourceName: String(step.sourceName || 'Triggered Ability'),
+            sourceController: String(step.sourceController || ''),
+            decidingPlayer: String(step.decidingPlayer || you || ''),
+            manaCost: String(step.manaCost || ''),
+            declineEffect: String(step.declineEffect || ''),
+            triggerText: String(step.triggerText || step.description || ''),
+            availableMana: step.availableMana,
+          };
+          setOpponentMayPayPrompt(prompt);
+          setOpponentMayPayStepId(String(step.id));
+          return;
+        }
+
+        // Generic option choice modal (Agitator Ant and similar)
         const request: OptionChoiceRequest = {
           gameId: payload.gameId,
           stepId: step.id,
@@ -2502,6 +2426,58 @@ export function App() {
         
         setOptionChoiceRequest(request);
         setOptionChoiceModalOpen(true);
+      }
+
+      // Mana color selection (any color / distribution) via Resolution Queue
+      else if (step.type === 'mana_color_selection') {
+        const selectionKind = String(step.selectionKind || 'any_color');
+
+        if (selectionKind === 'distribution') {
+          setManaDistributionModalData({
+            gameId: payload.gameId,
+            stepId: String(step.id),
+            mandatory: step.mandatory !== false,
+            permanentId: String(step.permanentId || step.sourceId || ''),
+            cardName: String(step.cardName || step.sourceName || 'Mana'),
+            cardImageUrl: step.sourceImage,
+            totalAmount: Number(step.totalAmount ?? step.amount ?? 0),
+            availableColors: Array.isArray(step.availableColors) ? step.availableColors : (Array.isArray(step.allowedColors) ? step.allowedColors : ['W','U','B','R','G']),
+            message: step.message,
+          });
+          setManaDistributionModalOpen(true);
+        } else {
+          setAnyColorManaModalData({
+            stepId: String(step.id),
+            mandatory: step.mandatory !== false,
+            activationId: '',
+            permanentId: String(step.permanentId || step.sourceId || ''),
+            cardName: String(step.cardName || step.sourceName || 'Mana'),
+            amount: Number(step.amount || 1),
+            allowedColors: Array.isArray(step.allowedColors) ? step.allowedColors : undefined,
+            cardImageUrl: step.sourceImage,
+          });
+          setAnyColorManaModalOpen(true);
+        }
+      }
+
+      // Phyrexian mana payment choice via Resolution Queue
+      else if (step.type === 'mana_payment_choice' && step.phyrexianManaChoice === true) {
+        setPhyrexianManaModalData({
+          stepId: String(step.id),
+          mandatory: step.mandatory !== false,
+          pendingId: String(step.pendingId || ''),
+          permanentId: step.permanentId,
+          cardId: step.cardId,
+          castSpellArgs: step.castSpellArgs,
+          cardName: String(step.cardName || step.sourceName || ''),
+          abilityText: String(step.abilityText || step.description || ''),
+          totalManaCost: String(step.totalManaCost || step.manaCost || ''),
+          genericCost: Number(step.genericCost || 0),
+          phyrexianChoices: step.phyrexianChoices || [],
+          playerLife: Number(step.playerLife || 40),
+          cardImageUrl: step.sourceImage,
+        });
+        setPhyrexianManaModalOpen(true);
       }
 
       // Handle Two-pile split resolution step
@@ -3037,18 +3013,8 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Opponent may pay prompt handler
+  // Interaction request handlers
   useEffect(() => {
-    const handleOpponentMayPayPrompt = (data: OpponentMayPayPrompt) => {
-      if (!safeView || !you) return;
-      // Only show if we're the deciding player
-      if (data.decidingPlayer === you) {
-        setOpponentMayPayPrompt(data);
-      }
-    };
-
-    socket.on("opponentMayPayPrompt", handleOpponentMayPayPrompt);
-    
     // Tap/Untap Target Request handler
     const handleTapUntapTargetRequest = (data: {
       gameId: string;
@@ -3177,14 +3143,13 @@ export function App() {
     socket.on("stationCreatureSelection", handleStationCreatureSelection);
     
     return () => {
-      socket.off("opponentMayPayPrompt", handleOpponentMayPayPrompt);
       socket.off("tapUntapTargetRequest", handleTapUntapTargetRequest);
       socket.off("fightTargetRequest", handleFightTargetRequest);
       socket.off("counterMovementRequest", handleCounterMovementRequest);
       socket.off("multiModeActivationRequest", handleMultiModeActivationRequest);
       socket.off("stationCreatureSelection", handleStationCreatureSelection);
     };
-  }, [safeView?.id, you]);
+  }, [safeView?.id]);
 
   // Scry/Surveil peek handlers
   useEffect(() => {
@@ -5589,20 +5554,32 @@ export function App() {
         <OpponentMayPayModal
           prompt={opponentMayPayPrompt}
           onPay={() => {
-            socket.emit("respondToOpponentMayPay", {
+            if (!opponentMayPayStepId) {
+              console.warn('[opponentMayPay] Missing resolution stepId; cannot submit response.');
+              return;
+            }
+            socket.emit('submitResolutionResponse', {
               gameId: view.id,
-              promptId: opponentMayPayPrompt.promptId,
-              willPay: true,
+              stepId: opponentMayPayStepId,
+              selections: 'pay',
+              cancelled: false,
             });
             setOpponentMayPayPrompt(null);
+            setOpponentMayPayStepId(null);
           }}
           onDecline={() => {
-            socket.emit("respondToOpponentMayPay", {
+            if (!opponentMayPayStepId) {
+              console.warn('[opponentMayPay] Missing resolution stepId; cannot submit response.');
+              return;
+            }
+            socket.emit('submitResolutionResponse', {
               gameId: view.id,
-              promptId: opponentMayPayPrompt.promptId,
-              willPay: false,
+              stepId: opponentMayPayStepId,
+              selections: 'decline',
+              cancelled: false,
             });
             setOpponentMayPayPrompt(null);
+            setOpponentMayPayStepId(null);
           }}
           onSetShortcut={(preference) => {
             socket.emit("setOpponentMayPayShortcut", {
@@ -5611,6 +5588,7 @@ export function App() {
               preference,
             });
             setOpponentMayPayPrompt(null);
+            setOpponentMayPayStepId(null);
           }}
         />
       )}
@@ -6538,16 +6516,25 @@ export function App() {
         cardImageUrl={anyColorManaModalData?.cardImageUrl}
         onConfirm={(chosenColor) => {
           if (safeView?.id && anyColorManaModalData) {
-            socket.emit("confirmAnyColorManaChoice", {
-              gameId: safeView.id,
-              activationId: anyColorManaModalData.activationId,
-              chosenColor,
-            });
+            if (anyColorManaModalData.stepId) {
+              socket.emit('submitResolutionResponse', {
+                gameId: safeView.id,
+                stepId: anyColorManaModalData.stepId,
+                selections: chosenColor,
+                cancelled: false,
+              });
+            }
             setAnyColorManaModalOpen(false);
             setAnyColorManaModalData(null);
           }
         }}
         onCancel={() => {
+          if (safeView?.id && anyColorManaModalData?.stepId && anyColorManaModalData.mandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: anyColorManaModalData.stepId,
+            });
+          }
           setAnyColorManaModalOpen(false);
           setAnyColorManaModalData(null);
         }}
@@ -6572,11 +6559,12 @@ export function App() {
                 ...phyrexianManaModalData.castSpellArgs,
                 phyrexianChoices: choices,
               });
-            } else {
-              socket.emit("phyrexianManaConfirm", {
+            } else if (phyrexianManaModalData.stepId) {
+              socket.emit('submitResolutionResponse', {
                 gameId: safeView.id,
-                pendingId: phyrexianManaModalData.pendingId,
-                choices,
+                stepId: phyrexianManaModalData.stepId,
+                selections: choices,
+                cancelled: false,
               });
             }
             setPhyrexianManaModalOpen(false);
@@ -6584,6 +6572,12 @@ export function App() {
           }
         }}
         onCancel={() => {
+          if (safeView?.id && phyrexianManaModalData?.stepId && phyrexianManaModalData.mandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: phyrexianManaModalData.stepId,
+            });
+          }
           setPhyrexianManaModalOpen(false);
           setPhyrexianManaModalData(null);
         }}
@@ -6599,16 +6593,25 @@ export function App() {
         message={manaDistributionModalData?.message}
         onConfirm={(distribution) => {
           if (safeView?.id && manaDistributionModalData) {
-            socket.emit("confirmManaDistribution", {
-              gameId: safeView.id,
-              permanentId: manaDistributionModalData.permanentId,
-              distribution,
-            });
+            if (manaDistributionModalData.stepId) {
+              socket.emit('submitResolutionResponse', {
+                gameId: safeView.id,
+                stepId: manaDistributionModalData.stepId,
+                selections: distribution,
+                cancelled: false,
+              });
+            }
             setManaDistributionModalOpen(false);
             setManaDistributionModalData(null);
           }
         }}
         onCancel={() => {
+          if (safeView?.id && manaDistributionModalData?.stepId && manaDistributionModalData.mandatory === false) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: manaDistributionModalData.stepId,
+            });
+          }
           setManaDistributionModalOpen(false);
           setManaDistributionModalData(null);
         }}

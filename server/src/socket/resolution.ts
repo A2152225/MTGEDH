@@ -1677,6 +1677,38 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('spellId' in step) fields.spellId = (step as any).spellId;
       if ('colors' in step) fields.colors = (step as any).colors;
       break;
+
+    case ResolutionStepType.MANA_COLOR_SELECTION:
+      // Supports both "any color" selection and "distribution" (mana in any combination).
+      if ('selectionKind' in step) fields.selectionKind = (step as any).selectionKind;
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('amount' in step) fields.amount = (step as any).amount;
+      if ('allowedColors' in step) fields.allowedColors = (step as any).allowedColors;
+      if ('singleColor' in step) fields.singleColor = (step as any).singleColor;
+      if ('availableColors' in step) fields.availableColors = (step as any).availableColors;
+      if ('totalAmount' in step) fields.totalAmount = (step as any).totalAmount;
+      if ('message' in step) fields.message = (step as any).message;
+      if ('isStorageCounter' in step) fields.isStorageCounter = (step as any).isStorageCounter;
+      if ('counterType' in step) fields.counterType = (step as any).counterType;
+      if ('removeCounterCount' in step) fields.removeCounterCount = (step as any).removeCounterCount;
+      break;
+
+    case ResolutionStepType.MANA_PAYMENT_CHOICE:
+      // Currently used for Phyrexian mana payment choice prompts.
+      if ('phyrexianManaChoice' in step) fields.phyrexianManaChoice = (step as any).phyrexianManaChoice;
+      if ('pendingId' in step) fields.pendingId = (step as any).pendingId;
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('cardId' in step) fields.cardId = (step as any).cardId;
+      if ('castSpellArgs' in step) fields.castSpellArgs = (step as any).castSpellArgs;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('abilityText' in step) fields.abilityText = (step as any).abilityText;
+      if ('totalManaCost' in step) fields.totalManaCost = (step as any).totalManaCost;
+      if ('manaCost' in step) fields.manaCost = (step as any).manaCost;
+      if ('genericCost' in step) fields.genericCost = (step as any).genericCost;
+      if ('phyrexianChoices' in step) fields.phyrexianChoices = (step as any).phyrexianChoices;
+      if ('playerLife' in step) fields.playerLife = (step as any).playerLife;
+      break;
     
     case ResolutionStepType.CREATURE_TYPE_CHOICE:
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
@@ -1700,6 +1732,19 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('minSelections' in step) fields.minSelections = step.minSelections;
       if ('maxSelections' in step) fields.maxSelections = step.maxSelections;
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+
+      // Custom: Opponent-may-pay prompts (Smothering Tithe, Rhystic Study, etc.)
+      if ((step as any)?.opponentMayPayChoice === true) {
+        fields.opponentMayPayChoice = true;
+        fields.promptId = (step as any).promptId;
+        fields.sourceName = (step as any).sourceName;
+        fields.sourceController = (step as any).sourceController;
+        fields.decidingPlayer = (step as any).decidingPlayer;
+        fields.manaCost = (step as any).manaCost;
+        fields.declineEffect = (step as any).declineEffect;
+        fields.triggerText = (step as any).triggerText;
+        fields.availableMana = (step as any).availableMana;
+      }
       break;
       
     case ResolutionStepType.PONDER_EFFECT:
@@ -1978,6 +2023,333 @@ async function handleStepResponse(
 
       // Check for opening hand actions (Leylines) and prompt if any exist
       checkAndPromptOpeningHandActions(io, game, gameId, pid);
+      break;
+    }
+
+    case ResolutionStepType.MANA_COLOR_SELECTION: {
+      const stepData = step as any;
+      const selectionKind = String(stepData.selectionKind || 'any_color');
+      const permanentId = String(stepData.permanentId || step.sourceId || '');
+      const cardName = String(stepData.cardName || step.sourceName || '');
+
+      const { getOrInitManaPool, broadcastManaPoolUpdate } = await import('./util.js');
+      const manaPool = getOrInitManaPool(game.state, pid) as any;
+
+      const codeToPoolKey: Record<string, keyof typeof manaPool> = {
+        W: 'white',
+        U: 'blue',
+        B: 'black',
+        R: 'red',
+        G: 'green',
+        C: 'colorless',
+      };
+      const poolKeyToCode: Record<string, string> = {
+        white: 'W',
+        blue: 'U',
+        black: 'B',
+        red: 'R',
+        green: 'G',
+        colorless: 'C',
+      };
+
+      if (selectionKind === 'distribution') {
+        const distribution = response.selections as any;
+        if (!distribution || typeof distribution !== 'object' || Array.isArray(distribution)) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_SELECTION',
+            message: 'Invalid distribution format',
+          });
+          break;
+        }
+
+        const totalAmount = Number(stepData.totalAmount ?? stepData.amount ?? 0);
+        const availableColors: string[] = Array.isArray(stepData.availableColors)
+          ? stepData.availableColors
+          : (Array.isArray(stepData.allowedColors) ? stepData.allowedColors : ['W', 'U', 'B', 'R', 'G']);
+
+        const totalDistributed = Object.values(distribution).reduce((sum: number, val: any) => sum + Number(val || 0), 0);
+        if (totalAmount > 0 && totalDistributed !== totalAmount) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_DISTRIBUTION',
+            message: `Total mana distributed (${totalDistributed}) doesn't match required amount (${totalAmount})`,
+          });
+          break;
+        }
+
+        for (const [color, amountRaw] of Object.entries(distribution)) {
+          const amount = Number(amountRaw || 0);
+          if (amount <= 0) continue;
+          if (!availableColors.includes(color)) {
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'INVALID_COLOR',
+              message: `${color} is not an available color for this ability`,
+            });
+            return;
+          }
+        }
+
+        // Storage counter special-case: remove counters as part of the "add mana" resolution.
+        if (stepData.isStorageCounter) {
+          const battlefield = game.state?.battlefield || [];
+          const perm = battlefield.find((p: any) => p && p.id === permanentId);
+          if (perm) {
+            const counterType = String(stepData.counterType || '');
+            const removeN = Number(stepData.removeCounterCount ?? totalAmount);
+            if (counterType && removeN > 0) {
+              (perm as any).counters = (perm as any).counters || {};
+              const current = Number((perm as any).counters?.[counterType] || 0);
+              const next = Math.max(0, current - removeN);
+              if (next > 0) {
+                (perm as any).counters[counterType] = next;
+              } else {
+                delete (perm as any).counters[counterType];
+              }
+            }
+          }
+        }
+
+        for (const [color, amountRaw] of Object.entries(distribution)) {
+          const amount = Number(amountRaw || 0);
+          if (amount <= 0) continue;
+          const poolKey = codeToPoolKey[color];
+          if (poolKey) {
+            manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+          }
+        }
+
+        const manaParts: string[] = [];
+        for (const [color, amountRaw] of Object.entries(distribution)) {
+          const amount = Number(amountRaw || 0);
+          if (amount > 0) manaParts.push(`{${String(color).repeat(amount)}}`);
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} added ${manaParts.join(', ')} to their mana pool from ${cardName || 'an ability'}.`,
+          ts: Date.now(),
+        });
+      } else {
+        const chosen = response.selections as any;
+        if (typeof chosen !== 'string') {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_SELECTION',
+            message: 'Invalid color selection',
+          });
+          break;
+        }
+
+        const amount = Number(stepData.amount || 1);
+        const allowedCodes: string[] | undefined = Array.isArray(stepData.allowedColors) ? stepData.allowedColors : undefined;
+
+        const poolKey = String(chosen);
+        const chosenCode = poolKeyToCode[poolKey];
+        if (!chosenCode) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_COLOR',
+            message: `Invalid color selection (${chosen})`,
+          });
+          break;
+        }
+        if (allowedCodes && allowedCodes.length > 0 && !allowedCodes.includes(chosenCode)) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_COLOR',
+            message: `That color isn't allowed for this ability`,
+          });
+          break;
+        }
+
+        manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} added {${chosenCode.repeat(Math.max(1, amount))}} to their mana pool from ${cardName || 'an ability'}.`,
+          ts: Date.now(),
+        });
+      }
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastManaPoolUpdate(io, gameId, pid, manaPool, `Added mana (${cardName || 'ability'})`, game);
+      broadcastGame(io, game, gameId);
+      break;
+    }
+
+    case ResolutionStepType.MANA_PAYMENT_CHOICE: {
+      const stepData = step as any;
+      if (stepData.phyrexianManaChoice !== true) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'UNSUPPORTED_STEP',
+          message: 'Unsupported mana payment choice step',
+        });
+        break;
+      }
+
+      const choices = response.selections as any;
+      if (!Array.isArray(choices)) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SELECTION',
+          message: 'Invalid Phyrexian payment selection',
+        });
+        break;
+      }
+
+      const permanentId = String(stepData.permanentId || step.sourceId || '');
+      const cardName = String(stepData.cardName || step.sourceName || '');
+      const abilityText = String(stepData.abilityText || step.description || '');
+      const requiresTap = Boolean(stepData.requiresTap);
+
+      const battlefield = game.state?.battlefield || [];
+      const perm = battlefield.find((p: any) => p && p.id === permanentId);
+      if (!perm) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'PERMANENT_NOT_FOUND',
+          message: 'Permanent no longer on battlefield',
+        });
+        break;
+      }
+
+      const { getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+      const pool = getOrInitManaPool(game.state, pid) as any;
+
+      const parsedCost = stepData.parsedCost;
+      const phyrexianCosts: any[] = Array.isArray(stepData.phyrexianCosts) ? stepData.phyrexianCosts : [];
+      if (!parsedCost) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'MISSING_COST',
+          message: 'Missing cost data for Phyrexian payment',
+        });
+        break;
+      }
+
+      let totalLifeToPay = 0;
+      const manaToConsume = { colors: { ...(parsedCost.colors || {}) }, generic: Number(parsedCost.generic || 0) };
+
+      for (const choice of choices) {
+        const idx = Number(choice?.index);
+        const payWithLife = Boolean(choice?.payWithLife);
+        const options = phyrexianCosts[idx];
+        if (!Array.isArray(options)) continue;
+
+        if (payWithLife) {
+          const lifeOption = options.find((o: any) => typeof o === 'string' && String(o).startsWith('LIFE:'));
+          if (lifeOption) {
+            totalLifeToPay += Number(String(lifeOption).split(':')[1] || 2);
+          } else {
+            totalLifeToPay += 2;
+          }
+        } else {
+          const colorOption = options.find((o: any) => typeof o === 'string' && !String(o).startsWith('LIFE:') && !String(o).startsWith('GENERIC:'));
+          if (typeof colorOption === 'string' && colorOption.length > 0) {
+            manaToConsume.colors[colorOption] = Number(manaToConsume.colors[colorOption] || 0) + 1;
+          }
+        }
+      }
+
+      const playerLife = Number(game.state.life?.[pid] ?? 40);
+      if (totalLifeToPay > 0 && playerLife <= totalLifeToPay) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INSUFFICIENT_LIFE',
+          message: `Cannot pay ${totalLifeToPay} life (you have ${playerLife} life - payment would be lethal)`,
+        });
+        break;
+      }
+
+      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+      const validationError = validateManaPayment(totalAvailable, manaToConsume.colors, manaToConsume.generic);
+      if (validationError) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INSUFFICIENT_MANA',
+          message: validationError,
+        });
+        break;
+      }
+
+      // Pay costs
+      if (totalLifeToPay > 0) {
+        game.state.life[pid] -= totalLifeToPay;
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} paid ${totalLifeToPay} life for Phyrexian mana.`,
+          ts: Date.now(),
+        });
+      }
+
+      consumeManaFromPool(pool, manaToConsume.colors, manaToConsume.generic);
+
+      // Tap as part of cost (if not already tapped).
+      if (requiresTap && !(perm as any).tapped) {
+        (perm as any).tapped = true;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} paid ${String(stepData.manaCost || stepData.totalManaCost || '')} to activate ${cardName}.`,
+        ts: Date.now(),
+      });
+
+      // Put the ability on the stack unless it's a mana ability.
+      const isManaAbility =
+        /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
+        !/target/i.test(abilityText);
+
+      if (!isManaAbility) {
+        const stackItem = {
+          id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          type: 'ability' as const,
+          controller: pid,
+          source: permanentId,
+          sourceName: cardName,
+          description: abilityText,
+        } as any;
+
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push(stackItem);
+
+        io.to(gameId).emit('stackUpdate', {
+          gameId,
+          stack: (game.state.stack || []).map((s: any) => ({
+            id: s.id,
+            type: s.type,
+            name: s.sourceName || s.card?.name || 'Ability',
+            controller: s.controller,
+            targets: s.targets,
+            source: s.source,
+            sourceName: s.sourceName,
+            description: s.description,
+          })),
+        });
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: ${abilityText}`,
+          ts: Date.now(),
+        });
+      }
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          playerId: pid,
+          permanentId,
+          cardName,
+          abilityText,
+          phyrexianLifePaid: totalLifeToPay,
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(activateBattlefieldAbility) failed:', e);
+      }
+
+      broadcastGame(io, game, gameId);
       break;
     }
 
@@ -9417,6 +9789,40 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  // ===== OPPONENT MAY PAY: prompt-deciding player to pay or decline =====
+  if (stepData?.opponentMayPayChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const promptId = String(stepData?.promptId || '').trim();
+    const normalized = String(choiceId || '').toLowerCase();
+    const willPay = !response.cancelled && normalized === 'pay';
+
+    if (!promptId) {
+      debugWarn(1, `[Resolution] opponentMayPayChoice: missing promptId`);
+      return;
+    }
+
+    game.applyEvent({
+      type: 'opponentMayPayResolve',
+      playerId,
+      promptId,
+      willPay,
+    });
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'opponentMayPayResolve', {
+        playerId,
+        promptId,
+        willPay,
+        sourceName: stepData?.sourceName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist opponentMayPayResolve event:', e);
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   // ===== SHOCK LANDS: pay 2 life or enter tapped =====
   if (stepData?.shockLandChoice === true) {

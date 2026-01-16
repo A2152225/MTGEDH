@@ -8,9 +8,10 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 
 /**
  * Register opponent may pay socket handlers
@@ -30,12 +31,59 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     triggerText,
   }) => {
     const game = ensureGame(gameId);
+
+    // If the deciding player has a shortcut preference, auto-resolve without prompting.
+    try {
+      const shortcuts = (game.state as any)?.triggerShortcuts?.[decidingPlayer];
+      const shortcut = Array.isArray(shortcuts)
+        ? shortcuts.find((s: any) => String(s?.cardName || '').toLowerCase() === String(sourceName || '').toLowerCase())
+        : null;
+      const pref = shortcut?.preference;
+      if (pref === 'always_pay' || pref === 'never_pay') {
+        const willPay = pref === 'always_pay';
+
+        game.applyEvent({
+          type: "opponentMayPayResolve",
+          playerId: decidingPlayer,
+          promptId,
+          willPay,
+        });
+
+        appendEvent(gameId, game.seq, "opponentMayPayResolve", {
+          playerId: decidingPlayer,
+          promptId,
+          willPay,
+          auto: true,
+          sourceName,
+        });
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} auto-${willPay ? 'pays' : 'declines'} ${manaCost}.`,
+          ts: Date.now(),
+        });
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    } catch {
+      /* best-effort */
+    }
     
     // Get the deciding player's mana pool
     const manaPool = game.state?.manaPool?.[decidingPlayer] || {};
-    
-    // Emit to the deciding player
-    emitToPlayer(io, decidingPlayer, "opponentMayPayPrompt", {
+
+    // Enqueue as a Resolution Queue step
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: decidingPlayer,
+      description: triggerText || `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} may pay ${manaCost}.`,
+      mandatory: true,
+
+      // Custom metadata for resolution handler + client UI
+      opponentMayPayChoice: true,
       promptId,
       sourceName,
       sourceController,
@@ -44,6 +92,21 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
       declineEffect,
       triggerText,
       availableMana: manaPool,
+
+      options: [
+        {
+          id: 'pay',
+          label: `Pay ${manaCost}`,
+          description: `Pay ${manaCost}`,
+        },
+        {
+          id: 'decline',
+          label: 'Decline',
+          description: declineEffect || 'Decline to pay',
+        },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
     });
 
     // Announce to all players
@@ -54,39 +117,6 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
       message: `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} may pay ${manaCost}.`,
       ts: Date.now(),
     });
-  });
-
-  /**
-   * Handle opponent's decision to pay or decline
-   */
-  socket.on("respondToOpponentMayPay", ({
-    gameId,
-    promptId,
-    willPay,
-  }) => {
-    const pid = socket.data.playerId as PlayerID | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-
-    // Apply the payment/decline event
-    game.applyEvent({
-      type: "opponentMayPayResolve",
-      playerId: pid,
-      promptId,
-      willPay,
-    });
-
-    appendEvent(gameId, game.seq, "opponentMayPayResolve", {
-      playerId: pid,
-      promptId,
-      willPay,
-    });
-
-    // The actual effect (draw card, create token, etc.) is handled by
-    // the trigger resolution system in the rules engine
-    
-    broadcastGame(io, game, gameId);
   });
 
   /**

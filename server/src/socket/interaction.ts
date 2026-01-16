@@ -2435,30 +2435,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (creatureCountMana.color === 'any_combination' || 
             creatureCountMana.color === 'any_one_color' ||
             creatureCountMana.color.startsWith('combination:')) {
-          // Store pending mana activation for when player selects color
-          if (!game.state.pendingManaActivations) {
-            game.state.pendingManaActivations = {};
-          }
-          const activationId = `mana_${crypto.randomUUID()}`;
-          game.state.pendingManaActivations[activationId] = {
-            playerId: pid,
+          // Resolution Queue: request a color choice from player
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MANA_COLOR_SELECTION,
+            playerId: pid as PlayerID,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+            description: `Choose a color for ${cardName}'s mana.`,
+            mandatory: true,
+            selectionKind: 'any_color',
             permanentId,
             cardName,
             amount: totalAmount,
-            allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color combination
-          };
-          
-          // Request color choice from player
-          socket.emit("anyColorManaChoice", {
-            gameId,
-            activationId,
-            permanentId,
-            cardName,
-            amount: totalAmount,
-            allowedColors: ['W', 'U', 'B', 'R', 'G'], // Any color
-            singleColor: true, // For White Lotus Tile/Three Tree City, player chooses ONE color for all the mana
-            cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-          });
+            allowedColors: ['W', 'U', 'B', 'R', 'G'],
+            singleColor: true,
+          } as any);
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -2604,29 +2596,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
             const finalTotal = totalAmount + totalExtra;
             
-            // Store pending mana activation for when player selects color
-            if (!game.state.pendingManaActivations) {
-              game.state.pendingManaActivations = {};
-            }
-            const activationId = `mana_${crypto.randomUUID()}`;
-            game.state.pendingManaActivations[activationId] = {
-              playerId: pid,
+            // Resolution Queue: request a color choice from player
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MANA_COLOR_SELECTION,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+              description: `Choose a color for ${cardName}'s mana.`,
+              mandatory: true,
+              selectionKind: 'any_color',
               permanentId,
               cardName,
               amount: finalTotal,
-              allowedColors: produces, // Restrict to actual colors the land can produce
-            };
-            
-            // Request color choice from player
-            socket.emit("anyColorManaChoice", {
-              gameId,
-              activationId,
-              permanentId,
-              cardName,
-              amount: finalTotal,
-              allowedColors: produces, // Restrict to actual colors the land can produce
-              cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-            });
+              allowedColors: produces,
+            } as any);
             
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -3135,27 +3119,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
-      // Now prompt player to choose how to distribute the mana
-      const activationId = crypto.randomUUID();
-      game.state.pendingManaActivations = game.state.pendingManaActivations || {};
-      (game.state.pendingManaActivations as any)[activationId] = {
-        playerId: pid,
-        permanentId,
-        cardName,
-        totalAmount: specialLandConfig.totalMana!,
-        availableColors: specialLandConfig.colors!,
-        timestamp: Date.now(),
-      };
-      
-      // Emit modal request to client
-      emitToPlayer(io, pid, "manaColorChoice", {
-        gameId,
+      // Resolution Queue: prompt player to choose how to distribute the mana
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.MANA_COLOR_SELECTION,
+        playerId: pid as PlayerID,
+        sourceId: permanentId,
+        sourceName: cardName,
+        sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+        description: `Choose how to distribute ${specialLandConfig.totalMana} mana from ${cardName}.`,
+        mandatory: true,
+        selectionKind: 'distribution',
         permanentId,
         cardName,
         availableColors: specialLandConfig.colors!,
         totalAmount: specialLandConfig.totalMana!,
         message: `Choose how to distribute ${specialLandConfig.totalMana} mana from ${cardName}.`,
-      });
+      } as any);
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -3239,30 +3218,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         // For now, prompt with mana distribution modal for all available counters
         // Future: Add X selection first
-        const activationId = crypto.randomUUID();
-        game.state.pendingManaActivations = game.state.pendingManaActivations || {};
-        (game.state.pendingManaActivations as any)[activationId] = {
-          playerId: pid,
-          permanentId,
-          cardName,
-          totalAmount: storageCounters,
-          availableColors: specialLandConfig.colors!,
-          timestamp: Date.now(),
-          isStorageCounter: true,
-        };
         
         // Tap the permanent first
         (permanent as any).tapped = true;
         
-        // Emit modal request to client
-        emitToPlayer(io, pid, "manaColorChoice", {
-          gameId,
+        // Resolution Queue: prompt player to distribute mana (and consume counters)
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MANA_COLOR_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+          description: `Remove ${storageCounters} ${specialLandConfig.counterType} counter${storageCounters !== 1 ? 's' : ''} to add ${storageCounters} mana.`,
+          mandatory: true,
+          selectionKind: 'distribution',
           permanentId,
           cardName,
           availableColors: specialLandConfig.colors!,
           totalAmount: storageCounters,
           message: `Remove ${storageCounters} ${specialLandConfig.counterType} counter${storageCounters !== 1 ? 's' : ''} to add ${storageCounters} mana.`,
-        });
+          isStorageCounter: true,
+          counterType: specialLandConfig.counterType,
+          removeCounterCount: storageCounters,
+        } as any);
         
         if (typeof game.bumpSeq === "function") {
           game.bumpSeq();
@@ -5020,28 +4998,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // If producing "any" color mana, prompt user for color choice
       if (actualColor === 'any') {
-        // Store pending mana activation state
-        if (!game.state.pendingManaActivations) {
-          game.state.pendingManaActivations = {};
-        }
-        // Use crypto.randomUUID() for collision-resistant ID generation
-        const activationId = `mana_any_${crypto.randomUUID()}`;
-        game.state.pendingManaActivations[activationId] = {
-          playerId: pid,
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MANA_COLOR_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+          description: `Choose a color for ${cardName}'s mana.`,
+          mandatory: true,
+          selectionKind: 'any_color',
           permanentId,
           cardName,
           amount: manaAmount,
-        };
-        
-        // Request color choice from player
-        socket.emit("anyColorManaChoice", {
-          gameId,
-          activationId,
-          permanentId,
-          cardName,
-          amount: manaAmount,
-          cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-        });
+        } as any);
         
         broadcastGame(io, game, gameId);
         return;
@@ -6000,22 +5969,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           );
           
           if (phyrexianCosts.length > 0) {
-            // Store pending ability activation info for after Phyrexian choice
             const pendingPhyrexianId = `phyrexian_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            (game.state as any).pendingPhyrexianAbility = (game.state as any).pendingPhyrexianAbility || {};
-            (game.state as any).pendingPhyrexianAbility[pid] = {
-              pendingId: pendingPhyrexianId,
-              permanentId,
-              abilityIndex,
-              cardName,
-              abilityText,
-              manaCost: manaOnly,
-              parsedCost,
-              requiresTap,
-              sacrificeType,
-              sacrificeSubtype,
-              phyrexianCosts,
-            };
             
             // Build the choice options for each Phyrexian mana symbol
             const phyrexianChoices = phyrexianCosts.map((options: string[], index: number) => {
@@ -6039,19 +5993,31 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               };
             });
             
-            // Emit the Phyrexian mana choice request
-            socket.emit("phyrexianManaChoice", {
-              gameId,
+            // Resolution Queue: prompt player to choose how to pay the Phyrexian symbols
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+              description: `Choose how to pay Phyrexian mana for ${cardName}.`,
+              mandatory: true,
+              phyrexianManaChoice: true,
               pendingId: pendingPhyrexianId,
               permanentId,
               cardName,
               abilityText,
+              manaCost: manaOnly,
               totalManaCost: manaOnly,
               genericCost: parsedCost.generic,
               phyrexianChoices,
               playerLife,
-              cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-            });
+              parsedCost,
+              phyrexianCosts,
+              requiresTap,
+              sacrificeType,
+              sacrificeSubtype,
+            } as any);
             
             debug(2, `[activateBattlefieldAbility] ${cardName} has Phyrexian mana costs. Prompting ${pid} for payment choice.`);
             return; // Wait for player's choice
@@ -6384,27 +6350,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const totalAmount = creatureCountMana.amount * effectiveMultiplier;
         
         if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
-          // Store pending mana activation for when player selects color
-          if (!game.state.pendingManaActivations) {
-            game.state.pendingManaActivations = {};
-          }
-          const activationId = `mana_${crypto.randomUUID()}`;
-          game.state.pendingManaActivations[activationId] = {
-            playerId: pid,
+          // Resolution Queue: request a color choice from player
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MANA_COLOR_SELECTION,
+            playerId: pid as PlayerID,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+            description: `Choose a color for ${cardName}'s mana.`,
+            mandatory: true,
+            selectionKind: 'any_color',
             permanentId,
             cardName,
             amount: totalAmount,
-          };
-          
-          // Request color choice from player
-          socket.emit("anyColorManaChoice", {
-            gameId,
-            activationId,
-            permanentId,
-            cardName,
-            amount: totalAmount,
-            cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-          });
+          } as any);
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -6486,27 +6445,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
               const finalTotal = totalAmount + totalExtra;
               
-              // Store pending mana activation for when player selects color
-              if (!game.state.pendingManaActivations) {
-                game.state.pendingManaActivations = {};
-              }
-              const activationId = `mana_${crypto.randomUUID()}`;
-              game.state.pendingManaActivations[activationId] = {
-                playerId: pid,
+              // Resolution Queue: request a color choice from player
+              ResolutionQueueManager.addStep(gameId, {
+                type: ResolutionStepType.MANA_COLOR_SELECTION,
+                playerId: pid as PlayerID,
+                sourceId: permanentId,
+                sourceName: cardName,
+                sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+                description: `Choose a color for ${cardName}'s mana.`,
+                mandatory: true,
+                selectionKind: 'any_color',
                 permanentId,
                 cardName,
                 amount: finalTotal,
-              };
-              
-              // Request color choice from player
-              socket.emit("anyColorManaChoice", {
-                gameId,
-                activationId,
-                permanentId,
-                cardName,
-                amount: finalTotal,
-                cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-              });
+              } as any);
               
               io.to(gameId).emit("chat", {
                 id: `m_${Date.now()}`,
@@ -6746,218 +6698,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Phyrexian Mana Payment Choice
   // ============================================================================
 
-  /**
-   * Handle Phyrexian mana payment choice for activated abilities
-   * Players can choose to pay with colored mana OR 2 life for each Phyrexian symbol
-   * Example: {3}{W/P} - player chooses to pay {W} or 2 life for the Phyrexian white
-   */
-  socket.on("phyrexianManaConfirm", ({
-    gameId,
-    pendingId,
-    choices,
-  }: {
-    gameId: string;
-    pendingId: string;
-    choices: Array<{ index: number; payWithLife: boolean }>;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    
-    // Get the pending Phyrexian ability
-    const pendingAbility = (game.state as any).pendingPhyrexianAbility?.[pid];
-    if (!pendingAbility || pendingAbility.pendingId !== pendingId) {
-      socket.emit("error", {
-        code: "NO_PENDING_PHYREXIAN",
-        message: "No pending Phyrexian mana payment found",
-      });
-      return;
-    }
-    
-    const {
-      permanentId,
-      cardName,
-      abilityText,
-      manaCost,
-      parsedCost,
-      requiresTap,
-      phyrexianCosts,
-    } = pendingAbility;
-    
-    // Find the permanent
-    const battlefield = game.state?.battlefield || [];
-    const permanent = battlefield.find((p: any) => p.id === permanentId);
-    if (!permanent) {
-      delete (game.state as any).pendingPhyrexianAbility[pid];
-      socket.emit("error", {
-        code: "PERMANENT_NOT_FOUND",
-        message: "Permanent no longer on battlefield",
-      });
-      return;
-    }
-    
-    const manaPool = getOrInitManaPool(game.state, pid);
-    const playerLife = game.state.life?.[pid] || 40;
-    
-    // Calculate total life and mana needed based on choices
-    let totalLifeToPay = 0;
-    let manaToConsume = { colors: { ...parsedCost.colors }, generic: parsedCost.generic };
-    
-    const colorMap: Record<string, string> = {
-      'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green'
-    };
-    
-    for (const choice of choices) {
-      const phyrexianOption = phyrexianCosts[choice.index];
-      if (!phyrexianOption) continue;
-      
-      if (choice.payWithLife) {
-        const lifeOption = phyrexianOption.find((o: string) => o.startsWith('LIFE:'));
-        if (lifeOption) {
-          totalLifeToPay += parseInt(lifeOption.split(':')[1], 10);
-        }
-      } else {
-        // Pay with colored mana
-        const colorOption = phyrexianOption.find((o: string) => !o.startsWith('LIFE:') && !o.startsWith('GENERIC:'));
-        if (colorOption) {
-          manaToConsume.colors[colorOption] = (manaToConsume.colors[colorOption] || 0) + 1;
-        }
-      }
-    }
-    
-    // Validate life payment - cannot pay life that would reduce to 0 or below
-    // Magic rules: players lose when life becomes 0 or less
-    if (totalLifeToPay > 0 && playerLife <= totalLifeToPay) {
-      socket.emit("error", {
-        code: "INSUFFICIENT_LIFE",
-        message: `Cannot pay ${totalLifeToPay} life (you have ${playerLife} life - payment would be lethal)`,
-      });
-      return;
-    }
-    
-    // Validate mana payment
-    const totalManaInPool = Object.values(manaPool as unknown as Record<string, number>).reduce((a, b) => a + b, 0);
-    const coloredManaNeeded = Object.entries(manaToConsume.colors).reduce((sum, [color, amount]) => {
-      const numAmount = typeof amount === 'number' ? amount : 0;
-      if (numAmount > 0) {
-        const colorKey = colorMap[color];
-        const available = colorKey ? (manaPool[colorKey] || 0) : 0;
-        if (available < numAmount) {
-          return -Infinity; // Mark as invalid
-        }
-      }
-      return sum + numAmount;
-    }, 0);
-    
-    if (coloredManaNeeded === -Infinity) {
-      socket.emit("error", {
-        code: "INSUFFICIENT_MANA",
-        message: `Insufficient colored mana for the selected payment`,
-      });
-      return;
-    }
-    
-    // Check total mana for generic + colored
-    const totalManaNeeded = manaToConsume.generic + coloredManaNeeded;
-    if (totalManaInPool < totalManaNeeded) {
-      socket.emit("error", {
-        code: "INSUFFICIENT_MANA",
-        message: `Insufficient mana: need ${totalManaNeeded}, have ${totalManaInPool}`,
-      });
-      return;
-    }
-    
-    // Clear pending state
-    delete (game.state as any).pendingPhyrexianAbility[pid];
-    
-    // Pay life
-    if (totalLifeToPay > 0) {
-      game.state.life[pid] -= totalLifeToPay;
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} paid ${totalLifeToPay} life for Phyrexian mana.`,
-        ts: Date.now(),
-      });
-    }
-    
-    // Consume mana
-    consumeManaFromPool(manaPool, manaToConsume.colors, manaToConsume.generic);
-    
-    // Tap permanent if needed
-    if (requiresTap && !(permanent as any).tapped) {
-      (permanent as any).tapped = true;
-    }
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} paid ${manaCost} to activate ${cardName}.`,
-      ts: Date.now(),
-    });
-    
-    // Check if this is a mana ability (doesn't use the stack)
-    const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
-                          !/target/i.test(abilityText);
-    
-    if (!isManaAbility) {
-      // Put the ability on the stack
-      const stackItem = {
-        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        type: 'ability' as const,
-        controller: pid,
-        source: permanentId,
-        sourceName: cardName,
-        description: abilityText,
-      } as any;
-      
-      game.state.stack = game.state.stack || [];
-      game.state.stack.push(stackItem);
-      
-      // Emit stack update
-      io.to(gameId).emit("stackUpdate", {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: ${abilityText}`,
-        ts: Date.now(),
-      });
-    }
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
-      playerId: pid, 
-      permanentId, 
-      cardName,
-      abilityText,
-      phyrexianLifePaid: totalLifeToPay,
-    });
-    
-    broadcastGame(io, game, gameId);
-    
-    debug(2, `[phyrexianManaConfirm] ${cardName} ability activated by ${pid}. Life paid: ${totalLifeToPay}`);
-  });
+  // Legacy phyrexianManaConfirm handler removed - now using resolution queue system
+  // See resolution.ts MANA_PAYMENT_CHOICE handling
 
   // ============================================================================
   // Ability Sacrifice Selection (for Ashnod's Altar, Phyrexian Altar, etc.)
@@ -8243,92 +7985,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Legacy proliferateConfirm handler removed - now using resolution queue system
   // See processPendingProliferate() and handleProliferateResponse() in resolution.ts
 
-  /**
-   * Handle player's choice of color for "any color" mana production
-   */
-  socket.on("confirmAnyColorManaChoice", ({ gameId, activationId, chosenColor }: {
-    gameId: string;
-    activationId: string;
-    chosenColor: 'white' | 'blue' | 'black' | 'red' | 'green';
-  }) => {
-    const game = ensureGame(gameId);
-    if (!game || !game.state) return;
-
-    const pid = socket.data.playerId as PlayerID;
-    if (!pid) {
-      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
-      return;
-    }
-
-    // Retrieve pending activation
-    const pending = game.state.pendingManaActivations?.[activationId];
-    if (!pending) {
-      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired mana activation" });
-      return;
-    }
-
-    // Verify it's the right player
-    if (pending.playerId !== pid) {
-      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your mana activation" });
-      return;
-    }
-    
-    // Validate chosen color is in allowed colors (if specified)
-    if (pending.allowedColors && pending.allowedColors.length > 0) {
-      const colorMap: Record<string, string> = {
-        white: 'W',
-        blue: 'U',
-        black: 'B',
-        red: 'R',
-        green: 'G',
-      };
-      const chosenColorCode = colorMap[chosenColor];
-      if (!pending.allowedColors.includes(chosenColorCode)) {
-        socket.emit("error", { 
-          code: "INVALID_COLOR_CHOICE", 
-          message: `${pending.cardName} cannot produce ${chosenColor} mana. Valid colors: ${pending.allowedColors.join(', ')}` 
-        });
-        return;
-      }
-    }
-
-    // Add mana to pool
-    game.state.manaPool = game.state.manaPool || {};
-    game.state.manaPool[pid] = game.state.manaPool[pid] || {
-      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-    };
-
-    (game.state.manaPool[pid] as any)[chosenColor] = 
-      ((game.state.manaPool[pid] as any)[chosenColor] || 0) + pending.amount;
-
-    // Clean up pending activation
-    delete game.state.pendingManaActivations[activationId];
-
-    // Create chat message
-    const colorMap: Record<string, string> = {
-      white: 'W',
-      blue: 'U',
-      black: 'B',
-      red: 'R',
-      green: 'G',
-    };
-    const colorSymbol = colorMap[chosenColor];
-    const manaDescription = pending.amount > 1 
-      ? `${pending.amount} ${colorSymbol} mana`
-      : `${colorSymbol} mana`;
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} tapped ${pending.cardName} for ${manaDescription}.`,
-      ts: Date.now(),
-    });
-
-    // Broadcast updates
-    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${pending.cardName}`, game);
-    broadcastGame(io, game, gameId);
-  });
+  // Legacy confirmAnyColorManaChoice handler removed - now using resolution queue system
+  // See resolution.ts MANA_COLOR_SELECTION handling
 
   /**
    * Handle tap/untap target confirmation from TapUntapTargetModal
@@ -8795,27 +8453,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (modeName.includes("add mana") || effectLower.includes("add one mana") || effectLower.includes("add {")) {
       // Handle mana abilities - prompt for color choice if "any color"
       if (effectLower.includes("any color")) {
-        // Store pending mana activation for color choice
-        if (!game.state.pendingManaActivations) {
-          game.state.pendingManaActivations = {};
-        }
-        const activationId = `mana_any_${crypto.randomUUID()}`;
-        game.state.pendingManaActivations[activationId] = {
-          playerId: pid,
+        // Resolution Queue: request a color choice from player
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MANA_COLOR_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+          description: `Choose a color for ${cardName}'s mana.`,
+          mandatory: true,
+          selectionKind: 'any_color',
           permanentId,
           cardName,
           amount: 1,
-        };
-        
-        socket.emit("anyColorManaChoice", {
-          gameId,
-          activationId,
-          permanentId,
-          cardName,
-          amount: 1,
-          cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-        });
-        
+          allowedColors: ['W', 'U', 'B', 'R', 'G'],
+          singleColor: true,
+        } as any);
+
         broadcastGame(io, game, gameId);
         return;
       }
@@ -9157,128 +8811,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  // Mana Distribution Confirmation (Graven Cairns, Storage Counters, etc.)
-  socket.on("confirmManaDistribution", ({ gameId, permanentId, distribution }: {
-    gameId: string;
-    permanentId: string;
-    distribution: Record<string, number>;
-  }) => {
-    const game = ensureGame(gameId);
-    if (!game || !game.state) return;
-
-    const pid = socket.data.playerId as PlayerID;
-    if (!pid) {
-      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
-      return;
-    }
-
-    // Find the pending activation
-    const pendingActivations = game.state.pendingManaActivations || {};
-    let activationId: string | undefined;
-    let pending: any;
-
-    for (const [id, activation] of Object.entries(pendingActivations)) {
-      if ((activation as any).permanentId === permanentId && (activation as any).playerId === pid) {
-        activationId = id;
-        pending = activation;
-        break;
-      }
-    }
-
-    if (!activationId || !pending) {
-      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired mana activation" });
-      return;
-    }
-
-    // Validate distribution adds up to totalAmount
-    const totalDistributed = Object.values(distribution).reduce((sum, val) => sum + val, 0);
-    if (totalDistributed !== pending.totalAmount) {
-      socket.emit("error", {
-        code: "INVALID_DISTRIBUTION",
-        message: `Total mana distributed (${totalDistributed}) doesn't match required amount (${pending.totalAmount})`,
-      });
-      return;
-    }
-
-    // Validate all colors are allowed
-    const colorMap: Record<string, string> = {
-      W: 'white',
-      U: 'blue',
-      B: 'black',
-      R: 'red',
-      G: 'green',
-    };
-    
-    for (const [color, amount] of Object.entries(distribution)) {
-      if (amount > 0 && !pending.availableColors.includes(color)) {
-        socket.emit("error", {
-          code: "INVALID_COLOR",
-          message: `${color} is not an available color for this ability`,
-        });
-        return;
-      }
-    }
-
-    // If this is a storage counter activation, remove the counters
-    if (pending.isStorageCounter) {
-      const battlefield = game.state?.battlefield || [];
-      const permanent = battlefield.find((p: any) => p?.id === permanentId);
-      if (permanent) {
-        const counterType = SPECIAL_LAND_ABILITIES[pending.cardName.toLowerCase()]?.counterType;
-        if (counterType && (permanent as any).counters?.[counterType]) {
-          (permanent as any).counters[counterType] = Math.max(0, (permanent as any).counters[counterType] - pending.totalAmount);
-          if ((permanent as any).counters[counterType] === 0) {
-            delete (permanent as any).counters[counterType];
-          }
-        }
-      }
-    }
-
-    // Add mana to pool according to distribution
-    game.state.manaPool = game.state.manaPool || {};
-    game.state.manaPool[pid] = game.state.manaPool[pid] || {
-      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-    };
-
-    for (const [color, amount] of Object.entries(distribution)) {
-      if (amount > 0) {
-        const colorName = colorMap[color];
-        if (colorName) {
-          (game.state.manaPool[pid] as any)[colorName] = 
-            ((game.state.manaPool[pid] as any)[colorName] || 0) + amount;
-        }
-      }
-    }
-
-    // Build chat message
-    const manaStrings: string[] = [];
-    for (const [color, amount] of Object.entries(distribution)) {
-      if (amount > 0) {
-        manaStrings.push(`{${color.repeat(amount)}}`);
-      }
-    }
-    const manaText = manaStrings.join(', ');
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} added ${manaText} to their mana pool from ${pending.cardName}.`,
-      ts: Date.now(),
-    });
-
-    // Clean up pending activation
-    delete (pendingActivations as any)[activationId];
-
-    // Bump game sequence
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-
-    // Broadcast mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana from ability', game);
-    broadcastGame(io, game, gameId);
-  });
+  // Legacy confirmManaDistribution handler removed - now using resolution queue system
+  // See resolution.ts MANA_COLOR_SELECTION handling
 
   // Cycling - discard a card from hand, pay cost, and draw a card
   // Properly uses the stack per MTG rules (Rule 702.29)
