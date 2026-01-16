@@ -709,7 +709,7 @@ export function App() {
   // Tap/Untap Target Modal state - for Saryth, Merrow Reejerey, Argothian Elder, etc.
   const [tapUntapTargetModalOpen, setTapUntapTargetModalOpen] = useState(false);
   const [tapUntapTargetModalData, setTapUntapTargetModalData] = useState<{
-    activationId: string;
+    stepId: string;
     sourceId: string;
     sourceName: string;
     sourceImageUrl?: string;
@@ -728,7 +728,7 @@ export function App() {
   // Fight Target Modal state - for Brash Taunter, etc.
   const [fightTargetModalOpen, setFightTargetModalOpen] = useState(false);
   const [fightTargetModalData, setFightTargetModalData] = useState<{
-    activationId: string;
+    stepId: string;
     sourceId: string;
     sourceName: string;
     sourceImageUrl?: string;
@@ -744,7 +744,7 @@ export function App() {
   // Counter Movement Modal state - for Nesting Grounds, etc.
   const [counterMovementModalOpen, setCounterMovementModalOpen] = useState(false);
   const [counterMovementModalData, setCounterMovementModalData] = useState<{
-    activationId: string;
+    stepId: string;
     sourceId: string;
     sourceName: string;
     sourceImageUrl?: string;
@@ -2495,6 +2495,51 @@ export function App() {
         setTwoPileSplitRequest(request);
         setTwoPileSplitModalOpen(true);
       }
+
+      // Tap/Untap target selection via Resolution Queue
+      else if (step.type === 'tap_untap_target') {
+        setTapUntapTargetModalData({
+          stepId: String(step.id),
+          sourceId: String(step.sourceId || ''),
+          sourceName: String(step.sourceName || 'Ability'),
+          sourceImageUrl: step.sourceImage,
+          action: step.action || 'tap',
+          targetFilter: step.targetFilter || {},
+          targetCount: Number(step.targetCount || 1),
+          title: step.title,
+          description: step.description,
+        });
+        setTapUntapTargetModalOpen(true);
+      }
+
+      // Fight target selection via Resolution Queue
+      else if (step.type === 'fight_target') {
+        setFightTargetModalData({
+          stepId: String(step.id),
+          sourceId: String(step.sourceId || ''),
+          sourceName: String(step.sourceName || 'Creature'),
+          sourceImageUrl: step.sourceImage,
+          title: step.title,
+          description: step.description,
+          targetFilter: step.targetFilter,
+        });
+        setFightTargetModalOpen(true);
+      }
+
+      // Counter movement via Resolution Queue
+      else if (step.type === 'counter_movement') {
+        setCounterMovementModalData({
+          stepId: String(step.id),
+          sourceId: String(step.sourceId || ''),
+          sourceName: String(step.sourceName || 'Move Counter'),
+          sourceImageUrl: step.sourceImage,
+          sourceFilter: step.sourceFilter,
+          targetFilter: step.targetFilter,
+          title: step.title,
+          description: step.description,
+        });
+        setCounterMovementModalOpen(true);
+      }
       
       // Handle Bounce Land choice resolution step
       else if (step.type === 'bounce_land_choice') {
@@ -3016,93 +3061,7 @@ export function App() {
   // Interaction request handlers
   useEffect(() => {
     // Tap/Untap Target Request handler
-    const handleTapUntapTargetRequest = (data: {
-      gameId: string;
-      activationId: string;
-      source: { id: string; name: string; imageUrl?: string };
-      action: 'tap' | 'untap' | 'both';
-      targetFilter: {
-        types?: ('creature' | 'land' | 'artifact' | 'enchantment' | 'planeswalker' | 'permanent')[];
-        controller?: 'you' | 'opponent' | 'any';
-        tapStatus?: 'tapped' | 'untapped' | 'any';
-        excludeSource?: boolean;
-      };
-      targetCount: number;
-      title?: string;
-      description?: string;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setTapUntapTargetModalData({
-        activationId: data.activationId,
-        sourceId: data.source.id,
-        sourceName: data.source.name,
-        sourceImageUrl: data.source.imageUrl,
-        action: data.action,
-        targetFilter: data.targetFilter,
-        targetCount: data.targetCount,
-        title: data.title,
-        description: data.description,
-      });
-      setTapUntapTargetModalOpen(true);
-    };
-    socket.on("tapUntapTargetRequest", handleTapUntapTargetRequest);
-    
-    // Fight Target Request handler
-    const handleFightTargetRequest = (data: {
-      gameId: string;
-      activationId: string;
-      source: { id: string; name: string; imageUrl?: string };
-      targetFilter: {
-        types?: string[];
-        controller?: 'you' | 'opponent' | 'any';
-        excludeSource?: boolean;
-      };
-      title?: string;
-      description?: string;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setFightTargetModalData({
-        activationId: data.activationId,
-        sourceId: data.source.id,
-        sourceName: data.source.name,
-        sourceImageUrl: data.source.imageUrl,
-        title: data.title,
-        description: data.description,
-        targetFilter: data.targetFilter,
-      });
-      setFightTargetModalOpen(true);
-    };
-    socket.on("fightTargetRequest", handleFightTargetRequest);
-    
-    // Counter Movement Request handler
-    const handleCounterMovementRequest = (data: {
-      gameId: string;
-      activationId: string;
-      source: { id: string; name: string; imageUrl?: string };
-      sourceFilter?: {
-        controller?: 'you' | 'any';
-      };
-      targetFilter?: {
-        controller?: 'you' | 'any';
-        excludeSource?: boolean;
-      };
-      title?: string;
-      description?: string;
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setCounterMovementModalData({
-        activationId: data.activationId,
-        sourceId: data.source.id,
-        sourceName: data.source.name,
-        sourceImageUrl: data.source.imageUrl,
-        sourceFilter: data.sourceFilter,
-        targetFilter: data.targetFilter,
-        title: data.title,
-        description: data.description,
-      });
-      setCounterMovementModalOpen(true);
-    };
-    socket.on("counterMovementRequest", handleCounterMovementRequest);
+    // tap/untap target selection is handled via Resolution Queue (resolutionStepPrompt)
     
     // Multi-Mode Activation Request handler
     const handleMultiModeActivationRequest = (data: {
@@ -3143,9 +3102,6 @@ export function App() {
     socket.on("stationCreatureSelection", handleStationCreatureSelection);
     
     return () => {
-      socket.off("tapUntapTargetRequest", handleTapUntapTargetRequest);
-      socket.off("fightTargetRequest", handleFightTargetRequest);
-      socket.off("counterMovementRequest", handleCounterMovementRequest);
       socket.off("multiModeActivationRequest", handleMultiModeActivationRequest);
       socket.off("stationCreatureSelection", handleStationCreatureSelection);
     };
@@ -5610,17 +5566,23 @@ export function App() {
         playerId={you || ""}
         onConfirm={(selectedPermanentIds, action) => {
           if (tapUntapTargetModalData && safeView) {
-            socket.emit("confirmTapUntapTarget", {
+            socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
-              activationId: tapUntapTargetModalData.activationId,
-              targetIds: selectedPermanentIds,
-              action,
+              stepId: tapUntapTargetModalData.stepId,
+              selections: { targetIds: selectedPermanentIds, action },
+              cancelled: false,
             });
             setTapUntapTargetModalOpen(false);
             setTapUntapTargetModalData(null);
           }
         }}
         onCancel={() => {
+          if (tapUntapTargetModalData && safeView) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: tapUntapTargetModalData.stepId,
+            });
+          }
           setTapUntapTargetModalOpen(false);
           setTapUntapTargetModalData(null);
         }}
@@ -5648,16 +5610,23 @@ export function App() {
         playerId={you || ""}
         onConfirm={(selectedPermanentIds) => {
           if (fightTargetModalData && safeView && selectedPermanentIds.length > 0) {
-            socket.emit("fightTargetChosen", {
+            socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
-              activationId: fightTargetModalData.activationId,
-              targetCreatureId: selectedPermanentIds[0],
+              stepId: fightTargetModalData.stepId,
+              selections: [selectedPermanentIds[0]],
+              cancelled: false,
             });
             setFightTargetModalOpen(false);
             setFightTargetModalData(null);
           }
         }}
         onCancel={() => {
+          if (fightTargetModalData && safeView) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: fightTargetModalData.stepId,
+            });
+          }
           setFightTargetModalOpen(false);
           setFightTargetModalData(null);
         }}
@@ -5679,18 +5648,27 @@ export function App() {
         playerId={you || ""}
         onConfirm={(sourcePermanentId, targetPermanentId, counterType) => {
           if (counterMovementModalData && safeView) {
-            socket.emit("confirmCounterMovement", {
+            socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
-              activationId: counterMovementModalData.activationId,
-              sourcePermanentId,
-              targetPermanentId,
-              counterType,
+              stepId: counterMovementModalData.stepId,
+              selections: {
+                sourcePermanentId,
+                targetPermanentId,
+                counterType,
+              },
+              cancelled: false,
             });
             setCounterMovementModalOpen(false);
             setCounterMovementModalData(null);
           }
         }}
         onCancel={() => {
+          if (counterMovementModalData && safeView) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: counterMovementModalData.stepId,
+            });
+          }
           setCounterMovementModalOpen(false);
           setCounterMovementModalData(null);
         }}

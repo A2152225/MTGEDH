@@ -149,19 +149,6 @@ The AI evaluates control-change abilities in `AIEngine.ts`:
 
 ## Game State Properties
 
-### Temporary State (during activation)
-- `game.state.pendingControlChangeActivations` - Stores activations awaiting opponent selection
-  ```typescript
-  {
-    [activationId: string]: {
-      playerId: string;
-      permanentId: string;
-      cardName: string;
-      drawCards: number;
-    }
-  }
-  ```
-
 ### Permanent State (for temporary control changes)
 - `game.state.controlChangeEffects` - Tracks "until end of turn" control changes
   ```typescript
@@ -210,7 +197,7 @@ Improve AI opponent selection:
 
 1. **Type Safety**: Some game state properties use `as any` casting
    - Solution: Define proper TypeScript interfaces for game state
-   - Affected areas: player objects, pendingControlChangeActivations
+   - Affected areas: player objects
 
 2. **No Undo Support**: Control changes not integrated with undo system
    - Solution: Add control change events to undo tracking

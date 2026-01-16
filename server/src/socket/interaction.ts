@@ -4068,9 +4068,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (permanent as any).tapped = true;
       }
       
-      // Generate activation ID
-      const activationId = `fight_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
       // Determine fight target restrictions from oracle text
       // "another target creature" = any creature except itself
       // "target creature you don't control" = opponent's creatures only
@@ -4084,33 +4081,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         fightController = 'you';
       }
       
-      // Store pending fight activation
-      if (!game.state.pendingFightActivations) {
-        game.state.pendingFightActivations = {};
-      }
-      game.state.pendingFightActivations[activationId] = {
-        playerId: pid,
+      // Queue fight target selection via Resolution Queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.FIGHT_TARGET,
+        playerId: pid as PlayerID,
         sourceId: permanentId,
         sourceName: cardName,
-        controller: fightController,
-      };
-      
-      // Emit target selection request to client
-      socket.emit("fightTargetRequest", {
-        gameId,
-        activationId,
-        source: {
-          id: permanentId,
-          name: cardName,
-          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        },
+        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+        description: oracleText,
+        mandatory: true,
         targetFilter: {
           types: ['creature'],
           controller: fightController,
           excludeSource: true,
         },
         title: `${cardName} - Fight`,
-        description: oracleText,
       });
       
       debug(2, `[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature (controller: ${fightController})`);
@@ -4334,31 +4319,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (requiresTap) {
         (permanent as any).tapped = true;
       }
-      
-      // Generate activation ID
-      const activationId = `tap_untap_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Store pending activation
-      if (!game.state.pendingTapUntapActivations) {
-        game.state.pendingTapUntapActivations = {};
-      }
-      game.state.pendingTapUntapActivations[activationId] = {
-        playerId: pid,
+
+      // Queue tap/untap target selection via Resolution Queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TAP_UNTAP_TARGET,
+        playerId: pid as PlayerID,
         sourceId: permanentId,
         sourceName: cardName,
-        targetCount: tapUntapParams.count,
-        action: tapUntapParams.action,
-      };
-      
-      // Emit target selection request to client
-      socket.emit("tapUntapTargetRequest", {
-        gameId,
-        activationId,
-        source: {
-          id: permanentId,
-          name: cardName,
-          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        },
+        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+        description: oracleText,
+        mandatory: true,
         action: tapUntapParams.action,
         targetFilter: {
           types: tapUntapParams.types as any[],
@@ -4368,7 +4338,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         },
         targetCount: tapUntapParams.count,
         title: cardName,
-        description: oracleText,
       });
       
       debug(2, `[activateBattlefieldAbility] Tap/Untap ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for ${tapUntapParams.count} target(s)`);
@@ -4477,41 +4446,27 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (requiresTap) {
         (permanent as any).tapped = true;
       }
-      
-      // Generate activation ID
-      const activationId = `counter_move_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Store pending activation
-      if (!game.state.pendingCounterMovements) {
-        game.state.pendingCounterMovements = {};
-      }
-      game.state.pendingCounterMovements[activationId] = {
-        playerId: pid,
+
+      // Queue counter movement selection via Resolution Queue
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.COUNTER_MOVEMENT,
+        playerId: pid as PlayerID,
         sourceId: permanentId,
         sourceName: cardName,
-      };
-      
-      // Emit counter movement request to client
-      socket.emit("counterMovementRequest", {
-        gameId,
-        activationId,
-        source: {
-          id: permanentId,
-          name: cardName,
-          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        },
+        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+        description: oracleText,
+        mandatory: true,
         sourceFilter: {
-          controller: 'you', // Nesting Grounds requires "you control"
+          controller: 'you', // Nesting Grounds: "...permanent you control"
         },
         targetFilter: {
           controller: 'any',
-          excludeSource: false,
+          excludeSource: true, // "...onto another target permanent"
         },
         title: cardName,
-        description: oracleText,
       });
-      
-      debug(2, `[activateBattlefieldAbility] Counter movement ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for counter selection`);
+
+      debug(2, `[activateBattlefieldAbility] Counter movement ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}queued counter movement step`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -7423,175 +7378,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  // Fight target selection handler
-  socket.on("fightTargetChosen", ({
-    gameId,
-    activationId,
-    targetCreatureId,
-  }: {
-    gameId: string;
-    activationId: string;
-    targetCreatureId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
-      return;
-    }
-    
-    // Retrieve pending fight activation
-    const pendingFight = game.state.pendingFightActivations?.[activationId];
-    if (!pendingFight) {
-      socket.emit("error", {
-        code: "INVALID_ACTIVATION",
-        message: "Fight activation not found or expired",
-      });
-      return;
-    }
-    
-    // Validate player
-    if (pendingFight.playerId !== pid) {
-      socket.emit("error", {
-        code: "NOT_YOUR_ACTIVATION",
-        message: "This is not your activation",
-      });
-      return;
-    }
-    
-    const battlefield = game.state?.battlefield || [];
-    
-    // Find the source creature (the one that initiated the fight)
-    const sourceCreature = battlefield.find((p: any) => p?.id === pendingFight.sourceId);
-    if (!sourceCreature) {
-      socket.emit("error", {
-        code: "SOURCE_NOT_FOUND",
-        message: "Source creature not found on battlefield",
-      });
-      delete game.state.pendingFightActivations[activationId];
-      return;
-    }
-    
-    // Find the target creature
-    const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId);
-    if (!targetCreature) {
-      socket.emit("error", {
-        code: "INVALID_TARGET",
-        message: "Target creature not found on battlefield",
-      });
-      delete game.state.pendingFightActivations[activationId];
-      return;
-    }
-    
-    // Verify target is a creature
-    const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
-    if (!targetTypeLine.includes("creature")) {
-      socket.emit("error", {
-        code: "INVALID_TARGET",
-        message: "Target must be a creature",
-      });
-      delete game.state.pendingFightActivations[activationId];
-      return;
-    }
-    
-    // Clean up pending state
-    delete game.state.pendingFightActivations[activationId];
-    
-    // Execute the fight - each creature deals damage equal to its power to the other
-    const sourcePower = getEffectivePower(sourceCreature);
-    const targetPower = getEffectivePower(targetCreature);
-    
-    // Mark damage on both creatures
-    sourceCreature.damageMarked = (sourceCreature.damageMarked || 0) + targetPower;
-    targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
-    
-    debug(2, `[fightTargetChosen] ${pendingFight.sourceName} (power ${sourcePower}) fights ${targetCreature.card?.name} (power ${targetPower})`);
-    
-    // Check for "dealt damage" triggers on the source creature
-    // Brash Taunter: "Whenever this creature is dealt damage, it deals that much damage to target opponent."
-    // Ill-Tempered Loner: "Whenever this creature is dealt damage, it deals that much damage to any target."
-    // Wrathful Red Dragon: "Whenever a Dragon you control is dealt damage, it deals that much damage to any target that isn't a Dragon."
-    const checkDamageDealtTriggers = (damagedCreature: any, damageAmount: number, controller: string) => {
-      if (!damagedCreature || damageAmount <= 0) return;
-      
-      const oracleText = (damagedCreature.card?.oracle_text || "").toLowerCase();
-      const creatureName = damagedCreature.card?.name || "Unknown";
-      
-      // Pattern: "Whenever this creature is dealt damage" or "Whenever ~ is dealt damage"
-      if (oracleText.includes("whenever this creature is dealt damage") ||
-          oracleText.includes("whenever " + creatureName.toLowerCase() + " is dealt damage")) {
-        // Queue trigger for target selection
-        const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        game.state.pendingDamageTriggers = game.state.pendingDamageTriggers || {};
-        game.state.pendingDamageTriggers[triggerId] = {
-          sourceId: damagedCreature.id,
-          sourceName: creatureName,
-          controller: controller,
-          damageAmount: damageAmount,
-          triggerType: 'dealt_damage',
-        };
-        
-        // Determine target type from oracle text
-        let targetType = 'any'; // Default to any target
-        let targetRestriction = '';
-        if (oracleText.includes("target opponent")) {
-          targetType = 'opponent';
-          targetRestriction = 'opponent';
-        } else if (oracleText.includes("any target that isn't a dragon")) {
-          targetType = 'any_non_dragon';
-          targetRestriction = "that isn't a Dragon";
-        }
-        
-        // Emit trigger to player for target selection
-        socket.emit("damageTriggerTargetRequest", {
-          gameId,
-          triggerId,
-          source: {
-            id: damagedCreature.id,
-            name: creatureName,
-            imageUrl: damagedCreature.card?.image_uris?.small || damagedCreature.card?.image_uris?.normal,
-          },
-          damageAmount,
-          targetType,
-          targetRestriction,
-          title: `${creatureName} - Damage Trigger`,
-          description: `${creatureName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
-        });
-        
-        debug(2, `[fightTargetChosen] Queued damage trigger from ${creatureName} for ${damageAmount} damage`);
-      }
-    };
-    
-    // Check triggers for both creatures
-    checkDamageDealtTriggers(sourceCreature, targetPower, sourceCreature.controller);
-    checkDamageDealtTriggers(targetCreature, sourcePower, targetCreature.controller);
-    
-    // Emit chat message
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `⚔️ ${pendingFight.sourceName} fights ${targetCreature.card?.name}! ${pendingFight.sourceName} deals ${sourcePower} damage, ${targetCreature.card?.name} deals ${targetPower} damage.`,
-      ts: Date.now(),
-    });
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "fight", {
-      playerId: pid,
-      sourceId: pendingFight.sourceId,
-      targetId: targetCreatureId,
-      sourcePower,
-      targetPower,
-    });
-    
-    // Broadcast updated game state
-    broadcastGame(io, game, gameId);
-  });
+  // Fight target selection is handled via Resolution Queue (see socket/resolution.ts)
 
   /**
    * Handle counter target selection confirmation
@@ -7988,211 +7775,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Legacy confirmAnyColorManaChoice handler removed - now using resolution queue system
   // See resolution.ts MANA_COLOR_SELECTION handling
 
-  /**
-   * Handle tap/untap target confirmation from TapUntapTargetModal
-   * Used for abilities like:
-   * - Saryth, the Viper's Fang: "Untap another target creature or land"
-   * - Merrow Reejerey: "Tap or untap target permanent"
-   * - Argothian Elder: "Untap two target lands"
-   */
-  socket.on("confirmTapUntapTarget", ({ 
-    gameId, 
-    activationId, 
-    targetIds, 
-    action 
-  }: {
-    gameId: string;
-    activationId: string;
-    targetIds: string[];
-    action: 'tap' | 'untap';
-  }) => {
-    const game = ensureGame(gameId);
-    if (!game || !game.state) return;
+  // Tap/Untap target selection is handled via Resolution Queue (see socket/resolution.ts)
 
-    const pid = socket.data.playerId as PlayerID;
-    if (!pid) {
-      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
-      return;
-    }
+  // Counter movement is handled via Resolution Queue (see socket/resolution.ts)
 
-    // Retrieve pending activation
-    const pending = game.state.pendingTapUntapActivations?.[activationId];
-    if (!pending) {
-      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired tap/untap activation" });
-      return;
-    }
-
-    // Verify it's the right player
-    if (pending.playerId !== pid) {
-      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your tap/untap activation" });
-      return;
-    }
-
-    // Verify target count
-    if (targetIds.length !== pending.targetCount) {
-      socket.emit("error", { 
-        code: "INVALID_TARGET_COUNT", 
-        message: `Expected ${pending.targetCount} target(s), got ${targetIds.length}` 
-      });
-      return;
-    }
-
-    // Apply tap/untap to each target
-    const battlefield = game.state.battlefield || [];
-    const affectedNames: string[] = [];
-    
-    for (const targetId of targetIds) {
-      const target = battlefield.find((p: any) => p.id === targetId);
-      if (!target) {
-        debugWarn(2, `[confirmTapUntapTarget] Target ${targetId} not found on battlefield`);
-        continue;
-      }
-
-      // Apply the action
-      if (action === 'tap' && !target.tapped) {
-        target.tapped = true;
-        affectedNames.push(target.card?.name || 'permanent');
-      } else if (action === 'untap' && target.tapped) {
-        target.tapped = false;
-        affectedNames.push(target.card?.name || 'permanent');
-      }
-    }
-
-    // Clean up pending activation
-    delete game.state.pendingTapUntapActivations[activationId];
-
-    // Create chat message
-    if (affectedNames.length > 0) {
-      const targetsText = affectedNames.length === 1 
-        ? affectedNames[0]
-        : `${affectedNames.slice(0, -1).join(', ')} and ${affectedNames[affectedNames.length - 1]}`;
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} used ${pending.sourceName} to ${action} ${targetsText}.`,
-        ts: Date.now(),
-      });
-    }
-
-    // Append event to game log
-    appendGameEvent(game, gameId, action === 'tap' ? 'permanent_tapped' : 'permanent_untapped', {
-      playerId: pid,
-      permanentIds: targetIds,
-      source: pending.sourceName,
-      ts: Date.now(),
-    });
-
-    // Broadcast updates
-    broadcastGame(io, game, gameId);
-  });
-
-  /**
-   * Handle counter movement confirmation from CounterMovementModal
-   * Used for abilities like:
-   * - Nesting Grounds: "Move a counter from target permanent you control onto another target permanent"
-   */
-  socket.on("confirmCounterMovement", ({ 
-    gameId, 
-    activationId, 
-    sourcePermanentId, 
-    targetPermanentId, 
-    counterType 
-  }: {
-    gameId: string;
-    activationId: string;
-    sourcePermanentId: string;
-    targetPermanentId: string;
-    counterType: string;
-  }) => {
-    const game = ensureGame(gameId);
-    if (!game || !game.state) return;
-
-    const pid = socket.data.playerId as PlayerID;
-    if (!pid) {
-      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
-      return;
-    }
-
-    // Retrieve pending activation
-    const pending = game.state.pendingCounterMovements?.[activationId];
-    if (!pending) {
-      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired counter movement" });
-      return;
-    }
-
-    // Verify it's the right player
-    if (pending.playerId !== pid) {
-      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your counter movement" });
-      return;
-    }
-
-    // Find source and target permanents
-    const battlefield = game.state.battlefield || [];
-    const source = battlefield.find((p: any) => p.id === sourcePermanentId);
-    const target = battlefield.find((p: any) => p.id === targetPermanentId);
-
-    if (!source) {
-      socket.emit("error", { code: "SOURCE_NOT_FOUND", message: "Source permanent not found" });
-      return;
-    }
-
-    if (!target) {
-      socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target permanent not found" });
-      return;
-    }
-
-    // Verify source has the counter
-    const sourceCounters = (source as any).counters || {};
-    if (!sourceCounters[counterType] || sourceCounters[counterType] <= 0) {
-      socket.emit("error", { 
-        code: "NO_COUNTER", 
-        message: `Source permanent has no ${counterType} counters` 
-      });
-      return;
-    }
-
-    // Move one counter from source to target
-    sourceCounters[counterType] = (sourceCounters[counterType] || 0) - 1;
-    if (sourceCounters[counterType] <= 0) {
-      delete sourceCounters[counterType];
-    }
-
-    const targetCounters = (target as any).counters || {};
-    targetCounters[counterType] = (targetCounters[counterType] || 0) + 1;
-    (target as any).counters = targetCounters;
-
-    // Clean up pending activation
-    delete game.state.pendingCounterMovements[activationId];
-
-    // Create chat message
-    const sourceCard = source.card as any;
-    const targetCard = target.card as any;
-    const sourceName = sourceCard?.name || 'permanent';
-    const targetName = targetCard?.name || 'permanent';
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} used ${pending.sourceName} to move a ${counterType} counter from ${sourceName} to ${targetName}.`,
-      ts: Date.now(),
-    });
-
-    // Append event to game log
-    appendGameEvent(game, gameId, 'counter_moved', {
-      playerId: pid,
-      sourcePermanentId,
-      targetPermanentId,
-      counterType,
-      source: pending.sourceName,
-      ts: Date.now(),
-    });
-
-    // Broadcast updates
-    broadcastGame(io, game, gameId);
-  });
+  // Legacy confirmCounterMovement handler removed - now using resolution queue system
 
   /**
    * Handle station ability creature selection confirmation (Rule 702.184a)

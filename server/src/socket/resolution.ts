@@ -15,7 +15,7 @@ import {
   type ResolutionStepResponse,
   type TargetSelectionStep,
 } from "../state/resolution/index.js";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower } from "./util.js";
 import { checkAndPromptOpeningHandActions } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT } from "../state/utils.js";
@@ -28,6 +28,7 @@ import type { GameContext } from "../state/context.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
+import { processDamageReceivedTriggers } from "../state/modules/triggers/damage-received.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste } from "./game-actions.js";
@@ -176,6 +177,171 @@ async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         debug(2, `[Resolution] AI declines to contribute to Join Forces`);
+        break;
+      }
+
+      case ResolutionStepType.FIGHT_TARGET: {
+        const stepData = step as any;
+        const battlefield = game.state?.battlefield || [];
+        const sourceId = String(step.sourceId || stepData.sourceId || '');
+        const targetFilter = stepData.targetFilter || {};
+        const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+        const excludeSource = targetFilter.excludeSource !== false;
+
+        const candidates = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
+          if (!perm || typeof perm.id !== 'string') return false;
+          if (excludeSource && perm.id === sourceId) return false;
+
+          const typeLine = String(perm.card?.type_line || '').toLowerCase();
+          if (!typeLine.includes('creature')) return false;
+
+          if (controllerFilter === 'you' && perm.controller !== step.playerId) return false;
+          if (controllerFilter === 'opponent' && perm.controller === step.playerId) return false;
+
+          return true;
+        });
+
+        if (candidates.length === 0) {
+          debugWarn(1, `[Resolution] AI FIGHT_TARGET: no valid targets for source ${sourceId}`);
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [],
+            cancelled: true,
+            timestamp: Date.now(),
+          };
+          break;
+        }
+
+        const chosen = candidates[0];
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [String(chosen.id)],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI chose fight target: ${String(chosen.card?.name || chosen.id)}`);
+        break;
+      }
+
+      case ResolutionStepType.TAP_UNTAP_TARGET: {
+        const stepData = step as any;
+        const battlefield = game.state?.battlefield || [];
+        const sourceId = String(step.sourceId || stepData.sourceId || '');
+        const targetCount = Math.max(1, Number(stepData.targetCount || 1));
+        const targetFilter = stepData.targetFilter || {};
+        const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+        const tapStatus: 'tapped' | 'untapped' | 'any' = targetFilter.tapStatus || 'any';
+        const excludeSource = targetFilter.excludeSource === true;
+
+        const candidates = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
+          if (!perm || typeof perm.id !== 'string') return false;
+          if (excludeSource && perm.id === sourceId) return false;
+
+          // Type filter (if present)
+          const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
+          if (types.length > 0) {
+            const typeLine = String(perm.card?.type_line || '').toLowerCase();
+            const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
+            if (!matchesAny) return false;
+          }
+
+          if (controllerFilter === 'you' && perm.controller !== step.playerId) return false;
+          if (controllerFilter === 'opponent' && perm.controller === step.playerId) return false;
+
+          if (tapStatus === 'tapped' && !perm.tapped) return false;
+          if (tapStatus === 'untapped' && perm.tapped) return false;
+
+          return true;
+        });
+
+        if (candidates.length < targetCount) {
+          debugWarn(1, `[Resolution] AI TAP_UNTAP_TARGET: not enough valid targets (${candidates.length} < ${targetCount})`);
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: { targetIds: [], action: 'tap' },
+            cancelled: true,
+            timestamp: Date.now(),
+          };
+          break;
+        }
+
+        const chosenIds = candidates.slice(0, targetCount).map((p: any) => String(p.id));
+        const chosenAction: 'tap' | 'untap' = stepData.action === 'untap' ? 'untap' : 'tap';
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: { targetIds: chosenIds, action: chosenAction },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI TAP_UNTAP_TARGET: chose ${chosenIds.length} target(s)`);
+        break;
+      }
+
+      case ResolutionStepType.COUNTER_MOVEMENT: {
+        const stepData = step as any;
+        const battlefield = game.state?.battlefield || [];
+        const sourceFilter = stepData.sourceFilter || {};
+        const targetFilter = stepData.targetFilter || {};
+
+        const validSources = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
+          if (!perm || typeof perm.id !== 'string') return false;
+          if (sourceFilter.controller === 'you' && perm.controller !== step.playerId) return false;
+          const counters = (perm as any).counters || {};
+          return Object.keys(counters).some((k) => Number(counters[k] || 0) > 0);
+        });
+
+        if (validSources.length === 0) {
+          debugWarn(1, `[Resolution] AI COUNTER_MOVEMENT: no valid source permanents with counters`);
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: { sourcePermanentId: '', targetPermanentId: '', counterType: '' },
+            cancelled: true,
+            timestamp: Date.now(),
+          };
+          break;
+        }
+
+        const chosenSource = validSources[0];
+        const sourceCounters = (chosenSource as any).counters || {};
+        const counterType = Object.keys(sourceCounters).find((k) => Number(sourceCounters[k] || 0) > 0) || '';
+
+        const validTargets = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
+          if (!perm || typeof perm.id !== 'string') return false;
+          if (targetFilter.controller === 'you' && perm.controller !== step.playerId) return false;
+          if (targetFilter.excludeSource && perm.id === chosenSource.id) return false;
+          return true;
+        });
+
+        if (!counterType || validTargets.length === 0) {
+          debugWarn(1, `[Resolution] AI COUNTER_MOVEMENT: no valid target or counterType`);
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: { sourcePermanentId: '', targetPermanentId: '', counterType: '' },
+            cancelled: true,
+            timestamp: Date.now(),
+          };
+          break;
+        }
+
+        const chosenTarget = validTargets[0];
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            sourcePermanentId: String(chosenSource.id),
+            targetPermanentId: String(chosenTarget.id),
+            counterType: String(counterType),
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI COUNTER_MOVEMENT: moved ${counterType} counter from ${String(chosenSource.card?.name || chosenSource.id)} to ${String(chosenTarget.card?.name || chosenTarget.id)}`);
         break;
       }
       
@@ -1621,6 +1787,24 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('maxTargets' in step) fields.maxTargets = step.maxTargets;
       if ('targetDescription' in step) fields.targetDescription = step.targetDescription;
       break;
+
+    case ResolutionStepType.FIGHT_TARGET:
+      if ('targetFilter' in step) fields.targetFilter = (step as any).targetFilter;
+      if ('title' in step) fields.title = (step as any).title;
+      break;
+
+    case ResolutionStepType.TAP_UNTAP_TARGET:
+      if ('action' in step) fields.action = (step as any).action;
+      if ('targetFilter' in step) fields.targetFilter = (step as any).targetFilter;
+      if ('targetCount' in step) fields.targetCount = (step as any).targetCount;
+      if ('title' in step) fields.title = (step as any).title;
+      break;
+
+    case ResolutionStepType.COUNTER_MOVEMENT:
+      if ('sourceFilter' in step) fields.sourceFilter = (step as any).sourceFilter;
+      if ('targetFilter' in step) fields.targetFilter = (step as any).targetFilter;
+      if ('title' in step) fields.title = (step as any).title;
+      break;
       
     case ResolutionStepType.MODE_SELECTION:
       if ('modes' in step) fields.modes = step.modes;
@@ -2023,6 +2207,433 @@ async function handleStepResponse(
 
       // Check for opening hand actions (Leylines) and prompt if any exist
       checkAndPromptOpeningHandActions(io, game, gameId, pid);
+      break;
+    }
+
+    case ResolutionStepType.FIGHT_TARGET: {
+      const stepData = step as any;
+      const selection = response.selections as any;
+      const sourceId = String(step.sourceId || stepData.sourceId || '');
+
+      const targetCreatureId = Array.isArray(selection)
+        ? String(selection[0] || '')
+        : (typeof selection === 'string'
+            ? selection
+            : String(selection?.targetCreatureId || ''));
+
+      if (!sourceId) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'SOURCE_NOT_FOUND',
+          message: 'Fight source not found',
+        });
+        break;
+      }
+
+      if (!targetCreatureId) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Must choose a target creature to fight',
+        });
+        break;
+      }
+
+      const battlefield = game.state?.battlefield || [];
+      const sourceCreature = battlefield.find((p: any) => p?.id === sourceId);
+      const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId);
+
+      if (!sourceCreature) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'SOURCE_NOT_FOUND',
+          message: 'Source creature not found on battlefield',
+        });
+        break;
+      }
+
+      if (!targetCreature) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target creature not found on battlefield',
+        });
+        break;
+      }
+
+      const sourceTypeLine = String(sourceCreature.card?.type_line || '').toLowerCase();
+      const targetTypeLine = String(targetCreature.card?.type_line || '').toLowerCase();
+      if (!sourceTypeLine.includes('creature')) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SOURCE',
+          message: 'Fight source must be a creature',
+        });
+        break;
+      }
+      if (!targetTypeLine.includes('creature')) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target must be a creature',
+        });
+        break;
+      }
+
+      const targetFilter = stepData.targetFilter || {};
+      const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+      const excludeSource = targetFilter.excludeSource !== false;
+
+      if (excludeSource && targetCreatureId === sourceId) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target must be a different creature',
+        });
+        break;
+      }
+
+      if (controllerFilter === 'you' && targetCreature.controller !== pid) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target must be a creature you control',
+        });
+        break;
+      }
+
+      if (controllerFilter === 'opponent' && targetCreature.controller === pid) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: "Target must be a creature you don't control",
+        });
+        break;
+      }
+
+      const sourcePower = getEffectivePower(sourceCreature);
+      const targetPower = getEffectivePower(targetCreature);
+
+      sourceCreature.damageMarked = (sourceCreature.damageMarked || 0) + targetPower;
+      targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
+
+      // Queue damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
+      const ctx: GameContext = {
+        state: game.state,
+        libraries: (game as any).libraries,
+        bumpSeq: () => {
+          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        },
+        rng: (game as any).rng,
+      } as any;
+
+      const queueDamageTrigger = (perm: any, damageAmount: number) => {
+        processDamageReceivedTriggers(ctx, perm, damageAmount, (triggerInfo) => {
+          (game.state as any).pendingDamageTriggers = (game.state as any).pendingDamageTriggers || {};
+          (game.state as any).pendingDamageTriggers[triggerInfo.triggerId] = {
+            sourceId: triggerInfo.sourceId,
+            sourceName: triggerInfo.sourceName,
+            controller: triggerInfo.controller,
+            damageAmount: triggerInfo.damageAmount,
+            triggerType: 'dealt_damage',
+            targetType: triggerInfo.targetType,
+            targetRestriction: triggerInfo.targetRestriction,
+          };
+        });
+      };
+
+      queueDamageTrigger(sourceCreature, targetPower);
+      queueDamageTrigger(targetCreature, sourcePower);
+
+      const sourceName = String(step.sourceName || sourceCreature.card?.name || 'Creature');
+      const targetName = String(targetCreature.card?.name || 'Creature');
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `⚔️ ${sourceName} fights ${targetName}! ${sourceName} deals ${sourcePower} damage, ${targetName} deals ${targetPower} damage.`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'fight', {
+          playerId: pid,
+          sourceId,
+          targetId: targetCreatureId,
+          sourcePower,
+          targetPower,
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(fight) failed:', e);
+      }
+
+      broadcastGame(io, game, gameId);
+      break;
+    }
+
+    case ResolutionStepType.TAP_UNTAP_TARGET: {
+      const stepData = step as any;
+      const payload = response.selections as any;
+
+      const targetIds: string[] = Array.isArray(payload)
+        ? payload.map((x: any) => String(x))
+        : (Array.isArray(payload?.targetIds)
+            ? payload.targetIds.map((x: any) => String(x))
+            : []);
+
+      const requestedAction = String(payload?.action || '');
+      const stepAction = String(stepData.action || 'tap');
+      const action: 'tap' | 'untap' =
+        stepAction === 'both'
+          ? (requestedAction === 'untap' ? 'untap' : 'tap')
+          : (stepAction === 'untap' ? 'untap' : 'tap');
+
+      const targetCount = Math.max(1, Number(stepData.targetCount || 1));
+      if (targetIds.length !== targetCount) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET_COUNT',
+          message: `Expected ${targetCount} target(s), got ${targetIds.length}`,
+        });
+        break;
+      }
+
+      const battlefield = game.state?.battlefield || [];
+      const targetFilter = stepData.targetFilter || {};
+      const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+      const tapStatus: 'tapped' | 'untapped' | 'any' = targetFilter.tapStatus || 'any';
+      const excludeSource = targetFilter.excludeSource === true;
+      const sourceId = String(step.sourceId || stepData.sourceId || '');
+
+      // Validate targets exist and satisfy basic filters
+      const targets: any[] = [];
+      for (const tid of targetIds) {
+        const perm = battlefield.find((p: any) => p?.id === tid);
+        if (!perm) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_TARGET',
+            message: 'Target not found on battlefield',
+          });
+          return;
+        }
+        if (excludeSource && tid === sourceId) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_TARGET',
+            message: 'Target must be different from source',
+          });
+          return;
+        }
+        if (controllerFilter === 'you' && perm.controller !== pid) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_TARGET',
+            message: 'Target must be a permanent you control',
+          });
+          return;
+        }
+        if (controllerFilter === 'opponent' && perm.controller === pid) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_TARGET',
+            message: "Target must be a permanent you don't control",
+          });
+          return;
+        }
+
+        if (tapStatus === 'tapped' && !perm.tapped) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_TARGET',
+            message: 'Target must be tapped',
+          });
+          return;
+        }
+        if (tapStatus === 'untapped' && perm.tapped) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_TARGET',
+            message: 'Target must be untapped',
+          });
+          return;
+        }
+
+        // Type filter (if present)
+        const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
+        if (types.length > 0) {
+          const typeLine = String(perm.card?.type_line || '').toLowerCase();
+          const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
+          if (!matchesAny) {
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'INVALID_TARGET',
+              message: 'Target does not match required type',
+            });
+            return;
+          }
+        }
+
+        targets.push(perm);
+      }
+
+      const affectedNames: string[] = [];
+      for (const target of targets) {
+        if (action === 'tap') {
+          if (!target.tapped) {
+            target.tapped = true;
+            affectedNames.push(String(target.card?.name || 'permanent'));
+          }
+        } else {
+          if (target.tapped) {
+            target.tapped = false;
+            affectedNames.push(String(target.card?.name || 'permanent'));
+          }
+        }
+      }
+
+      if (affectedNames.length > 0) {
+        const targetsText = affectedNames.length === 1
+          ? affectedNames[0]
+          : `${affectedNames.slice(0, -1).join(', ')} and ${affectedNames[affectedNames.length - 1]}`;
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} used ${String(step.sourceName || 'an ability')} to ${action} ${targetsText}.`,
+          ts: Date.now(),
+        });
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, action === 'tap' ? 'permanent_tapped' : 'permanent_untapped', {
+          playerId: pid,
+          permanentIds: targetIds,
+          source: String(step.sourceName || ''),
+          ts: Date.now(),
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(tap/untap) failed:', e);
+      }
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      break;
+    }
+
+    case ResolutionStepType.COUNTER_MOVEMENT: {
+      const stepData = step as any;
+      const payload = response.selections as any;
+
+      const sourcePermanentId = String(payload?.sourcePermanentId || payload?.sourceId || '');
+      const targetPermanentId = String(payload?.targetPermanentId || payload?.targetId || '');
+      const counterType = String(payload?.counterType || '');
+
+      if (!sourcePermanentId || !targetPermanentId || !counterType) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SELECTION',
+          message: 'Invalid counter movement selection',
+        });
+        break;
+      }
+
+      if (sourcePermanentId === targetPermanentId) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target must be a different permanent',
+        });
+        break;
+      }
+
+      const battlefield = game.state?.battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p?.id === sourcePermanentId);
+      const targetPerm = battlefield.find((p: any) => p?.id === targetPermanentId);
+
+      if (!sourcePerm) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'SOURCE_NOT_FOUND',
+          message: 'Source permanent not found on battlefield',
+        });
+        break;
+      }
+
+      if (!targetPerm) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'TARGET_NOT_FOUND',
+          message: 'Target permanent not found on battlefield',
+        });
+        break;
+      }
+
+      const sourceFilter = stepData.sourceFilter || {};
+      const targetFilter = stepData.targetFilter || {};
+
+      if (sourceFilter.controller === 'you' && sourcePerm.controller !== pid) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SOURCE',
+          message: 'Source must be a permanent you control',
+        });
+        break;
+      }
+
+      if (targetFilter.controller === 'you' && targetPerm.controller !== pid) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target must be a permanent you control',
+        });
+        break;
+      }
+
+      if (targetFilter.excludeSource && sourcePermanentId === targetPermanentId) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target must be different from source',
+        });
+        break;
+      }
+
+      const sourceCounters = (sourcePerm as any).counters || {};
+      const current = Number(sourceCounters[counterType] || 0);
+      if (current <= 0) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'NO_COUNTER',
+          message: `Source permanent has no ${counterType} counters`,
+        });
+        break;
+      }
+
+      sourceCounters[counterType] = current - 1;
+      if (sourceCounters[counterType] <= 0) {
+        delete sourceCounters[counterType];
+      }
+      (sourcePerm as any).counters = sourceCounters;
+
+      const targetCounters = (targetPerm as any).counters || {};
+      targetCounters[counterType] = Number(targetCounters[counterType] || 0) + 1;
+      (targetPerm as any).counters = targetCounters;
+
+      const sourceName = String((sourcePerm as any).card?.name || 'permanent');
+      const targetName = String((targetPerm as any).card?.name || 'permanent');
+      const abilityName = String(step.sourceName || stepData.title || 'an ability');
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} used ${abilityName} to move a ${counterType} counter from ${sourceName} to ${targetName}.`,
+        ts: Date.now(),
+      });
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'counter_moved', {
+          playerId: pid,
+          sourcePermanentId,
+          targetPermanentId,
+          counterType,
+          source: abilityName,
+          ts: Date.now(),
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(counter_moved) failed:', e);
+      }
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
       break;
     }
 

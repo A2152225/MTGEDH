@@ -488,28 +488,6 @@ export interface GameState {
   // Trigger shortcut preferences per player (for Smothering Tithe, Rhystic Study, etc.)
   triggerShortcuts?: Record<PlayerID, TriggerShortcut[]>;
   /**
-   * Pending "any color" mana activations awaiting player color choice.
-   * Maps activation ID to activation details.
-   * Populated when a player taps a permanent that produces "any color" mana.
-   * Cleaned up when the player confirms their color choice or cancels.
-   */
-  pendingManaActivations?: Record<string, {
-    playerId: PlayerID;
-    permanentId: string;
-    cardName: string;
-    amount: number;
-    allowedColors?: string[]; // Optional array of allowed color codes (e.g., ['W', 'U'])
-  }>;
-  /**
-   * Pending fight activations awaiting target selection.
-   */
-  pendingFightActivations?: Record<string, {
-    playerId: PlayerID;
-    sourceId: string;
-    sourceName?: string;
-    controller?: 'opponent' | 'any' | 'you';
-  }>;
-  /**
    * Pending damage triggers awaiting target selection (Brash Taunter, etc.)
    */
   pendingDamageTriggers?: Record<string, {
@@ -541,14 +519,6 @@ export interface GameState {
   noncreatureSpellsCastThisTurn?: Record<PlayerID, number>;
   /** Pending library search prompts keyed by player */
   /**
-   * Pending tap/untap activations for permanents with tap abilities.
-   */
-  pendingTapUntapActivations?: Record<string, any>;
-  /**
-   * Pending counter movements between permanents.
-   */
-  pendingCounterMovements?: Record<string, any>;
-  /**
    * Control change effects for temporary "gain control" effects.
    * Tracks which permanents have had their controller changed and need cleanup.
    */
@@ -558,23 +528,6 @@ export interface GameState {
     newController: PlayerID;
     duration: string;
     appliedAt: number;
-  }>;
-  /**
-   * Pending control change activations awaiting opponent selection.
-   * Maps activation ID to activation details.
-   * Used for Humble Defector-style activated abilities and Xantcha-style ETB effects.
-   */
-  pendingControlChangeActivations?: Record<string, {
-    playerId: PlayerID;
-    permanentId: string;
-    cardName: string;
-    drawCards?: number;
-    // ETB control change fields
-    type?: 'enters_under_opponent_control' | 'may_give_opponent' | 'opponent_gains';
-    isOptional?: boolean;
-    goadsOnChange?: boolean;
-    mustAttackEachCombat?: boolean;
-    cantAttackOwner?: boolean;
   }>;
   /**
    * Pending counter-adding activations awaiting target selection.

@@ -65,6 +65,12 @@ export enum ResolutionStepType {
   
   // Legacy pending* field types
   PONDER_EFFECT = 'ponder_effect',
+  // Legacy interactive: fight target selection
+  FIGHT_TARGET = 'fight_target',
+  // Legacy interactive: tap/untap target selection
+  TAP_UNTAP_TARGET = 'tap_untap_target',
+  // Legacy interactive: move a counter between permanents
+  COUNTER_MOVEMENT = 'counter_movement',
   SACRIFICE_ABILITY = 'sacrifice_ability',
   ENTRAPMENT_MANEUVER = 'entrapment_maneuver',
   MODAL_CHOICE = 'modal_choice',
@@ -219,6 +225,53 @@ export interface TargetSelectionStep extends BaseResolutionStep {
   readonly selectedMode?: ChoiceOption;
   /** Optional context for spell casting target selection */
   readonly spellCastContext?: SpellCastContext;
+}
+
+/**
+ * Fight target selection resolution step
+ * Used for activated abilities that say "fights target creature ..."
+ */
+export interface FightTargetStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.FIGHT_TARGET;
+  readonly targetFilter: {
+    types?: readonly string[];
+    controller?: 'you' | 'opponent' | 'any';
+    excludeSource?: boolean;
+  };
+  readonly title?: string;
+}
+
+/**
+ * Tap/Untap target selection resolution step
+ * Used for activated abilities like "Untap two target lands" / "Tap or untap target permanent".
+ */
+export interface TapUntapTargetStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.TAP_UNTAP_TARGET;
+  readonly action: 'tap' | 'untap' | 'both';
+  readonly targetFilter: {
+    types?: readonly string[];
+    controller?: 'you' | 'opponent' | 'any';
+    tapStatus?: 'tapped' | 'untapped' | 'any';
+    excludeSource?: boolean;
+  };
+  readonly targetCount: number;
+  readonly title?: string;
+}
+
+/**
+ * Counter Movement resolution step
+ * Used for abilities like Nesting Grounds: "Move a counter from target permanent you control onto another target permanent"
+ */
+export interface CounterMovementStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.COUNTER_MOVEMENT;
+  readonly sourceFilter?: {
+    controller?: 'you' | 'any';
+  };
+  readonly targetFilter?: {
+    controller?: 'you' | 'any';
+    excludeSource?: boolean;
+  };
+  readonly title?: string;
 }
 
 /**
@@ -537,6 +590,9 @@ export interface ActivatedAbilityStep extends BaseResolutionStep {
  */
 export type ResolutionStep = 
   | TargetSelectionStep
+  | FightTargetStep
+  | TapUntapTargetStep
+  | CounterMovementStep
   | ModeSelectionStep
   | DiscardSelectionStep
   | CommanderZoneChoiceStep

@@ -34,15 +34,14 @@ This PR addresses extensive land-related issues discovered during gameplay testi
 **Issue**: Dual lands were showing "any color" modal with all 5 colors, allowing players to select colors the land couldn't produce.
 
 **Solution**:
-- Added `allowedColors` field to `pendingManaActivations` type
-- Modified server to pass `allowedColors` in `anyColorManaChoice` event
-- Added server-side validation to reject invalid color selections
+- Implemented `allowedColors` propagation via the Resolution Queue `MANA_COLOR_SELECTION` step
+- Added server-side validation in the Resolution Queue step response handler to reject invalid color selections
 - Updated `AnyColorManaModal` component to filter buttons based on allowed colors
 - Modal now dynamically shows only the colors the land can actually produce
 
 **Files Changed**:
-- `shared/src/types.ts`
 - `server/src/socket/interaction.ts`
+- `server/src/socket/resolution.ts`
 - `client/src/App.tsx`
 - `client/src/components/AnyColorManaModal.tsx`
 
