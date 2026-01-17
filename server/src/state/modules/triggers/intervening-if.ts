@@ -120,6 +120,34 @@ export function extractLeadingInterveningIfClause(text: string): string | null {
 }
 
 /**
+ * Extract an intervening-if clause from a triggered ability description.
+ *
+ * Supports both common oracle templates:
+ * - "If <cond>, ..." (leading)
+ * - "When/Whenever/At <event>, if <cond>, ..." (comma-delimited)
+ *
+ * Returns the normalized leading clause (e.g. "if you control another knight").
+ */
+export function extractInterveningIfClause(text: string): string | null {
+  const normalized = normalizeText(text);
+
+  // Leading "If ..."
+  const leading = extractLeadingInterveningIfClause(normalized);
+  if (leading) return leading;
+
+  // Only treat comma-delimited ", if ..." as intervening-if when the text looks like a trigger template.
+  // This avoids false positives for effect text like "... . If you do, ...".
+  if (!/^(when|whenever|at)\b/i.test(normalized)) return null;
+
+  const m = normalized.match(/,\s*(if\s+.+?)(?:,|$)/i);
+  if (!m) return null;
+
+  // Normalize to a leading-if clause and trim trailing punctuation.
+  const clause = normalizeText(m[1]).replace(/[.\s]+$/, "").trim();
+  return clause;
+}
+
+/**
  * Evaluates a subset of common intervening-if conditions.
  *
  * Returns:
@@ -271,7 +299,7 @@ export function isInterveningIfSatisfied(
   controllerId: string,
   descriptionOrEffect: string
 ): boolean | null {
-  const clause = extractLeadingInterveningIfClause(descriptionOrEffect);
+  const clause = extractInterveningIfClause(descriptionOrEffect);
   if (!clause) return null;
   return evaluateInterveningIfClause(ctx, controllerId, clause);
 }

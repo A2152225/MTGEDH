@@ -1,8 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('Intervening-if upkeep triggers', () => {
+  beforeEach(() => {
+    // Avoid cross-test leakage (these suites interact with the Resolution Queue).
+    ResolutionQueueManager.removeQueue('t_intervening_if_emeria');
+    ResolutionQueueManager.removeQueue('t_intervening_if_ophiomancer');
+    ResolutionQueueManager.removeQueue('t_intervening_if_upkeep_fizzle');
+    ResolutionQueueManager.removeQueue('t_intervening_if_upkeep_true');
+  });
+
   it('does not put Emeria, the Sky Ruin trigger on the stack when Plains condition is false', () => {
     const g = createInitialGameState('t_intervening_if_emeria');
 
@@ -122,5 +131,115 @@ describe('Intervening-if upkeep triggers', () => {
     const stack = (g.state.stack || []) as any[];
     const ophiomancerTrigger = stack.find((s) => s?.type === 'triggered_ability' && s?.sourceName === 'Ophiomancer');
     expect(ophiomancerTrigger).toBeUndefined();
+  });
+
+  it('fizzles at resolution if the intervening-if condition becomes false before resolving (upkeep sacrifice)', () => {
+    const gameId = 't_intervening_if_upkeep_fizzle';
+    const g = createInitialGameState(gameId);
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const sampleDeck = Array.from({ length: 10 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.importDeckResolved(p2, sampleDeck);
+
+    // Start the game: turnPlayer becomes p2 at UNTAP.
+    g.applyEvent({ type: 'nextTurn' });
+    expect(g.state.turnPlayer).toBe(p2);
+
+    // Put a synthetic upkeep trigger on the battlefield for p2.
+    // The effect is something the engine *would* handle (UPKEEP_SACRIFICE step), so fizzling is observable.
+    (g.state.battlefield as any).push({
+      id: 'relic_1',
+      controller: p2,
+      owner: p2,
+      card: {
+        id: 'relic_card',
+        name: 'Test Relic',
+        type_line: 'Artifact',
+        oracle_text:
+          'At the beginning of your upkeep, if you have no cards in hand, sacrifice a creature or sacrifice Test Relic.',
+      },
+      tapped: false,
+    });
+
+    // Ensure the condition is TRUE at trigger time (hand empty).
+    (g.state as any).zones = (g.state as any).zones || {};
+    (g.state as any).zones[p2] = (g.state as any).zones[p2] || {};
+    (g.state as any).zones[p2].hand = [];
+    (g.state as any).zones[p2].handCount = 0;
+
+    // Advance to upkeep: should create the trigger on the stack.
+    g.applyEvent({ type: 'nextStep' });
+    expect(((g.state.stack || []) as any[]).some((s) => s?.type === 'triggered_ability' && s?.sourceName === 'Test Relic')).toBe(
+      true
+    );
+
+    // Make the condition FALSE before resolving the trigger.
+    (g.state as any).zones[p2].hand = [{ id: 'dummy', name: 'Dummy', type_line: 'Test', oracle_text: '', zone: 'hand' }];
+    (g.state as any).zones[p2].handCount = 1;
+
+    // Resolve the trigger: it should fizzle and NOT enqueue UPKEEP_SACRIFICE.
+    g.resolveTopOfStack();
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p2);
+    const upkeepSacSteps = steps.filter((s: any) => s?.type === ResolutionStepType.UPKEEP_SACRIFICE);
+    expect(upkeepSacSteps).toHaveLength(0);
+  });
+
+  it('creates the upkeep sacrifice step when the intervening-if condition remains true', () => {
+    const gameId = 't_intervening_if_upkeep_true';
+    const g = createInitialGameState(gameId);
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const sampleDeck = Array.from({ length: 10 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.importDeckResolved(p2, sampleDeck);
+
+    g.applyEvent({ type: 'nextTurn' });
+    expect(g.state.turnPlayer).toBe(p2);
+
+    (g.state.battlefield as any).push({
+      id: 'relic_1',
+      controller: p2,
+      owner: p2,
+      card: {
+        id: 'relic_card',
+        name: 'Test Relic',
+        type_line: 'Artifact',
+        oracle_text:
+          'At the beginning of your upkeep, if you have no cards in hand, sacrifice a creature or sacrifice Test Relic.',
+      },
+      tapped: false,
+    });
+
+    (g.state as any).zones = (g.state as any).zones || {};
+    (g.state as any).zones[p2] = (g.state as any).zones[p2] || {};
+    (g.state as any).zones[p2].hand = [];
+    (g.state as any).zones[p2].handCount = 0;
+
+    g.applyEvent({ type: 'nextStep' });
+    g.resolveTopOfStack();
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p2);
+    const upkeepSacSteps = steps.filter((s: any) => s?.type === ResolutionStepType.UPKEEP_SACRIFICE);
+    expect(upkeepSacSteps.length).toBeGreaterThan(0);
   });
 });

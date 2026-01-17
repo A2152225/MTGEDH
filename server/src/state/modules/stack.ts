@@ -1251,18 +1251,10 @@ export function triggerETBEffectsForPermanent(
       // If the condition is recognized and false at trigger time, do not create the trigger.
       try {
         const desc = String((trigger as any)?.description || "").trim();
-        let clauseText: string | null = null;
-        if (/^if\s+/i.test(desc)) clauseText = desc;
-        else {
-          const m = desc.match(/,\s*(if\s+.+?)(?:,|$)/i);
-          if (m) clauseText = m[1];
-        }
-        if (clauseText) {
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), clauseText);
-          if (satisfied === false) {
-            debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
-            continue;
-          }
+        const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc);
+        if (satisfied === false) {
+          debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+          continue;
         }
       } catch {
         // Conservative fallback: if we can't evaluate, keep the trigger.
@@ -4862,19 +4854,11 @@ export function resolveTopOfStack(ctx: GameContext) {
     // If we can recognize the condition and it is now false, the trigger resolves with no effect.
     try {
       const desc = String(description || '').trim();
-      let clauseText: string | null = null;
-      if (/^if\s+/i.test(desc)) clauseText = desc;
-      else {
-        const m = desc.match(/,\s*(if\s+.+?)(?:,|$)/i);
-        if (m) clauseText = m[1];
-      }
-      if (clauseText) {
-        const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), clauseText);
-        if (satisfied === false) {
-          debug(2, `[resolveTopOfStack] Intervening-if no longer satisfied; skipping resolution for ${sourceName}: ${desc}`);
-          bumpSeq();
-          return;
-        }
+      const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc);
+      if (satisfied === false) {
+        debug(2, `[resolveTopOfStack] Intervening-if no longer satisfied; skipping resolution for ${sourceName}: ${desc}`);
+        bumpSeq();
+        return;
       }
     } catch {
       // If evaluation fails, be conservative and continue.
@@ -5934,18 +5918,10 @@ export function resolveTopOfStack(ctx: GameContext) {
           // we must not put the trigger on the stack.
           try {
             const desc = String((trigger as any)?.description || "").trim();
-            let clauseText: string | null = null;
-            if (/^if\s+/i.test(desc)) clauseText = desc;
-            else {
-              const m = desc.match(/,\s*(if\s+.+?)(?:,|$)/i);
-              if (m) clauseText = m[1];
-            }
-            if (clauseText) {
-              const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), clauseText);
-              if (satisfied === false) {
-                debug(2, `[resolveTopOfStack] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
-                continue;
-              }
+            const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc);
+            if (satisfied === false) {
+              debug(2, `[resolveTopOfStack] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+              continue;
             }
           } catch {
             // If evaluation fails, be conservative and keep the trigger.
