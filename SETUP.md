@@ -52,6 +52,11 @@ This will start:
 
 ## Development Workflow
 
+### Type Checking
+```bash
+npm run typecheck
+```
+
 ### Running Tests
 ```bash
 npm test
@@ -66,6 +71,9 @@ npm run test:server
 ```bash
 npm run build
 ```
+
+### Linting
+Linting is not currently configured; `npm run lint` intentionally fails with a helpful message.
 
 ### Running Production Build
 ```bash

@@ -8,6 +8,11 @@ import { createInitialGameState } from '../src/state/gameState';
 import { transformDbEventsForReplay } from '../src/socket/util';
 import type { KnownCardRef, PlayerID } from '../../shared/src';
 
+const DEBUG_TESTS = process.env.DEBUG_TESTS === '1' || process.env.DEBUG_TESTS === 'true';
+const debug = (...args: any[]) => {
+  if (DEBUG_TESTS) console.log(...args);
+};
+
 function mkCards(n: number, prefix = 'Card'): Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text'>> {
   return Array.from({ length: n }, (_, i) => ({
     id: `${prefix}_${i + 1}`,
@@ -162,7 +167,7 @@ describe('Enhanced Replay System', () => {
       expect(zones.exile.length).toBe(1);
       expect(zones.exile[0].foretold).toBe(true);
       
-      console.log('Foretell card in exile:', zones.exile[0].name);
+      debug('Foretell card in exile:', zones.exile[0].name);
     });
   });
 
@@ -210,7 +215,7 @@ describe('Enhanced Replay System', () => {
       expect(bf.find(p => p.id === 'perm_1').phasedOut).toBe(true);
       expect(bf.find(p => p.id === 'perm_2').phasedOut).toBe(true);
       
-      console.log('Permanents phased out successfully');
+      debug('Permanents phased out successfully');
     });
   });
 
@@ -241,7 +246,7 @@ describe('Enhanced Replay System', () => {
       const player1 = (game.state.players as any[]).find(p => p.id === p1);
       expect(player1.conceded).toBe(true);
       
-      console.log('Player conceded successfully');
+      debug('Player conceded successfully');
     });
   });
 
@@ -272,8 +277,8 @@ describe('Enhanced Replay System', () => {
       const hand1 = ((game1.state.zones as any)?.[p1]?.hand ?? []).map((c: any) => c.name);
       const lib1 = game1.peekTopN!(p1, 10).map((c: any) => c.name);
       
-      console.log('Session 1 - Hand after all actions:', hand1);
-      console.log('Session 1 - Library (top 10):', lib1);
+      debug('Session 1 - Hand after all actions:', hand1);
+      debug('Session 1 - Library (top 10):', lib1);
       
       // Session 2: Replay from scratch
       const game2 = createInitialGameState(gameId + '_replay');
@@ -285,8 +290,8 @@ describe('Enhanced Replay System', () => {
       const hand2 = ((game2.state.zones as any)?.[p1]?.hand ?? []).map((c: any) => c.name);
       const lib2 = game2.peekTopN!(p1, 10).map((c: any) => c.name);
       
-      console.log('Session 2 - Hand after replay:', hand2);
-      console.log('Session 2 - Library (top 10):', lib2);
+      debug('Session 2 - Hand after replay:', hand2);
+      debug('Session 2 - Library (top 10):', lib2);
       
       // Verify consistency
       expect(hand2).toEqual(hand1);
@@ -323,7 +328,7 @@ describe('Enhanced Replay System', () => {
       expect((game.state.zones as any)?.[p1]?.handCount).toBe(7);
       expect(game.state.life[p1]).toBe(35);
       
-      console.log('Full event sequence replayed successfully');
+      debug('Full event sequence replayed successfully');
     });
   });
 
@@ -395,7 +400,7 @@ describe('Enhanced Replay System', () => {
       expect(zones.hand.length).toBe(5);
       expect(zones.graveyard.length).toBe(2);
       
-      console.log('Discard cost event replayed successfully');
+      debug('Discard cost event replayed successfully');
     });
     
     it('should correctly replay sacrifice additional cost', () => {
@@ -452,7 +457,7 @@ describe('Enhanced Replay System', () => {
       expect(battlefield[0].id).toBe('perm_2');
       expect(zones.graveyardCount).toBe(1);
       
-      console.log('Sacrifice cost event replayed successfully');
+      debug('Sacrifice cost event replayed successfully');
     });
   });
 
@@ -492,7 +497,7 @@ describe('Enhanced Replay System', () => {
       expect(zones.hand[0].name).toBe('Dead Creature');
       expect(zones.hand[0].zone).toBe('hand');
       
-      console.log('Graveyard to hand event replayed successfully');
+      debug('Graveyard to hand event replayed successfully');
     });
     
     it('should correctly replay graveyard to battlefield movement', () => {
@@ -539,7 +544,7 @@ describe('Enhanced Replay System', () => {
       expect(battlefield[0].controller).toBe(p1);
       expect(battlefield[0].summoningSickness).toBe(true);
       
-      console.log('Graveyard to battlefield event replayed successfully');
+      debug('Graveyard to battlefield event replayed successfully');
     });
   });
 });

@@ -15,9 +15,11 @@
     "dev:client": "npm run dev --workspace=client",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
+    "typecheck": "npm run typecheck --workspace=server --workspace=client --workspace=shared --workspace=rules-engine",
+    "typecheck:rules-engine": "npm run typecheck --workspace=rules-engine",
     "test:server": "npx vitest run server/tests",
     "test:server:watch": "npx vitest server/tests",
-    "lint": "npm run lint --workspaces"
+    "lint": "node -e \"console.error('No lint configured. Use npm run typecheck or npm test.'); process.exit(1)\""
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

@@ -14,6 +14,11 @@ import { createInitialGameState } from '../src/state/gameState';
 import { transformDbEventsForReplay } from '../src/socket/util';
 import type { KnownCardRef, PlayerID } from '../../shared/src';
 
+const DEBUG_TESTS = process.env.DEBUG_TESTS === '1' || process.env.DEBUG_TESTS === 'true';
+const debug = (...args: any[]) => {
+  if (DEBUG_TESTS) console.log(...args);
+};
+
 function mkCards(n: number, prefix = 'Card'): Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text'>> {
   return Array.from({ length: n }, (_, i) => ({
     id: `${prefix}_${i + 1}`,
@@ -50,8 +55,8 @@ describe('Undo and Replay', () => {
       const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
       const lib1 = g1.peekTopN!(p1, 10).map((c: any) => c.name);
       
-      console.log('Session 1 - Hand:', hand1);
-      console.log('Session 1 - Library (top 10):', lib1);
+      debug('Session 1 - Hand:', hand1);
+      debug('Session 1 - Library (top 10):', lib1);
 
       // Simulate undo: reset the game and replay the same events
       // This mimics what performUndo does
@@ -69,8 +74,8 @@ describe('Undo and Replay', () => {
       const hand2 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
       const lib2 = g1.peekTopN!(p1, 10).map((c: any) => c.name);
       
-      console.log('After reset+replay - Hand:', hand2);
-      console.log('After reset+replay - Library (top 10):', lib2);
+      debug('After reset+replay - Hand:', hand2);
+      debug('After reset+replay - Library (top 10):', lib2);
 
       // Both should be identical - this is the key test for undo correctness
       expect(hand2).toEqual(hand1);
@@ -94,14 +99,14 @@ describe('Undo and Replay', () => {
       const handBeforeExtraDraw = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
       const libBeforeExtraDraw = game.peekTopN!(p1, 10).map((c: any) => c.name);
       
-      console.log('State before extra draw - Hand:', handBeforeExtraDraw);
-      console.log('State before extra draw - Library (top 10):', libBeforeExtraDraw);
+      debug('State before extra draw - Hand:', handBeforeExtraDraw);
+      debug('State before extra draw - Library (top 10):', libBeforeExtraDraw);
       
       // Draw 3 more cards (these are the actions we want to undo)
       game.applyEvent({ type: 'drawCards', playerId: p1, count: 3 });
       
       const handAfterExtraDraw = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
-      console.log('State after extra draw - Hand:', handAfterExtraDraw);
+      debug('State after extra draw - Hand:', handAfterExtraDraw);
       expect(handAfterExtraDraw.length).toBe(10); // 7 + 3
 
       // Now undo by reset + replay without the extra draw
@@ -119,8 +124,8 @@ describe('Undo and Replay', () => {
       const handAfterUndo = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
       const libAfterUndo = game.peekTopN!(p1, 10).map((c: any) => c.name);
       
-      console.log('State after undo - Hand:', handAfterUndo);
-      console.log('State after undo - Library (top 10):', libAfterUndo);
+      debug('State after undo - Hand:', handAfterUndo);
+      debug('State after undo - Library (top 10):', libAfterUndo);
 
       // After undo, state should match the state before extra draw
       expect(handAfterUndo).toEqual(handBeforeExtraDraw);
@@ -146,14 +151,14 @@ describe('Undo and Replay', () => {
       
       // Capture initial hand before mulligan
       const initialHand = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
-      console.log('Initial hand before mulligan:', initialHand);
+      debug('Initial hand before mulligan:', initialHand);
       expect(initialHand.length).toBe(7);
       
       // Mulligan
       game.applyEvent({ type: 'mulligan', playerId: p1 });
       
       const handAfterMulligan = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
-      console.log('Hand after mulligan:', handAfterMulligan);
+      debug('Hand after mulligan:', handAfterMulligan);
       expect(handAfterMulligan.length).toBe(7);
       
       // The hands should be different after mulligan (new random draw)
@@ -172,7 +177,7 @@ describe('Undo and Replay', () => {
       game.replay!(eventsWithoutMulligan);
       
       const handAfterUndoMulligan = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
-      console.log('Hand after undoing mulligan:', handAfterUndoMulligan);
+      debug('Hand after undoing mulligan:', handAfterUndoMulligan);
       
       // After undoing mulligan, we should have the original hand back
       expect(handAfterUndoMulligan).toEqual(initialHand);
@@ -198,7 +203,7 @@ describe('Undo and Replay', () => {
       game.applyEvent({ type: 'drawCards', playerId: p1, count: 7 });
       
       const hand1 = (game.state.zones?.[p1]?.hand ?? []) as any[];
-      console.log('Initial hand:', hand1.map((c: any) => c.name));
+      debug('Initial hand:', hand1.map((c: any) => c.name));
       
       // Find the land in hand
       const landInHand = hand1.find((c: any) => c.type_line?.toLowerCase().includes('land'));
@@ -208,11 +213,11 @@ describe('Undo and Replay', () => {
       game.playLand(p1, landInHand);
       
       const battlefield = (game.state?.battlefield ?? []) as any[];
-      console.log('Battlefield after playing land:', battlefield.map((p: any) => p.card?.name));
+      debug('Battlefield after playing land:', battlefield.map((p: any) => p.card?.name));
       expect(battlefield.length).toBe(1);
       
       const handAfterLand = (game.state.zones?.[p1]?.hand ?? []) as any[];
-      console.log('Hand after playing land:', handAfterLand.map((c: any) => c.name));
+      debug('Hand after playing land:', handAfterLand.map((c: any) => c.name));
       expect(handAfterLand.length).toBe(6); // One card moved to battlefield
       
       // Now undo by reset + replay without the playLand event
@@ -229,8 +234,8 @@ describe('Undo and Replay', () => {
       const battlefieldAfterUndo = (game.state?.battlefield ?? []) as any[];
       const handAfterUndo = (game.state.zones?.[p1]?.hand ?? []) as any[];
       
-      console.log('Battlefield after undo:', battlefieldAfterUndo.length);
-      console.log('Hand after undo:', handAfterUndo.map((c: any) => c.name));
+      debug('Battlefield after undo:', battlefieldAfterUndo.length);
+      debug('Hand after undo:', handAfterUndo.map((c: any) => c.name));
       
       // Battlefield should be empty, hand should have 7 cards again
       expect(battlefieldAfterUndo.length).toBe(0);

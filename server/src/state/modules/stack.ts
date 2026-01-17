@@ -1251,8 +1251,14 @@ export function triggerETBEffectsForPermanent(
       // If the condition is recognized and false at trigger time, do not create the trigger.
       try {
         const desc = String((trigger as any)?.description || "").trim();
-        if (/^if\s+/i.test(desc)) {
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc);
+        let clauseText: string | null = null;
+        if (/^if\s+/i.test(desc)) clauseText = desc;
+        else {
+          const m = desc.match(/,\s*(if\s+.+?)(?:,|$)/i);
+          if (m) clauseText = m[1];
+        }
+        if (clauseText) {
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), clauseText);
           if (satisfied === false) {
             debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
@@ -4851,6 +4857,28 @@ export function resolveTopOfStack(ctx: GameContext) {
     const sourceId = (item as any).id;
     
     debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
+
+    // Intervening-if triggers: the condition must be true at resolution.
+    // If we can recognize the condition and it is now false, the trigger resolves with no effect.
+    try {
+      const desc = String(description || '').trim();
+      let clauseText: string | null = null;
+      if (/^if\s+/i.test(desc)) clauseText = desc;
+      else {
+        const m = desc.match(/,\s*(if\s+.+?)(?:,|$)/i);
+        if (m) clauseText = m[1];
+      }
+      if (clauseText) {
+        const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), clauseText);
+        if (satisfied === false) {
+          debug(2, `[resolveTopOfStack] Intervening-if no longer satisfied; skipping resolution for ${sourceName}: ${desc}`);
+          bumpSeq();
+          return;
+        }
+      }
+    } catch {
+      // If evaluation fails, be conservative and continue.
+    }
     
     // ========================================================================
     // BOUNCE LAND ETB TRIGGER: Add resolution step for player to select a land to return
@@ -5906,8 +5934,14 @@ export function resolveTopOfStack(ctx: GameContext) {
           // we must not put the trigger on the stack.
           try {
             const desc = String((trigger as any)?.description || "").trim();
-            if (/^if\s+/i.test(desc)) {
-              const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc);
+            let clauseText: string | null = null;
+            if (/^if\s+/i.test(desc)) clauseText = desc;
+            else {
+              const m = desc.match(/,\s*(if\s+.+?)(?:,|$)/i);
+              if (m) clauseText = m[1];
+            }
+            if (clauseText) {
+              const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), clauseText);
               if (satisfied === false) {
                 debug(2, `[resolveTopOfStack] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
                 continue;

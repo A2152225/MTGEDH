@@ -3,6 +3,11 @@ import { createInitialGameState } from '../src/state/gameState';
 import { transformDbEventsForReplay } from '../src/socket/util';
 import type { KnownCardRef, PlayerID } from '../../shared/src';
 
+const DEBUG_TESTS = process.env.DEBUG_TESTS === '1' || process.env.DEBUG_TESTS === 'true';
+const debug = (...args: any[]) => {
+  if (DEBUG_TESTS) console.log(...args);
+};
+
 function mkCards(n: number, prefix = 'Card'): Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text'>> {
   return Array.from({ length: n }, (_, i) => ({
     id: `${prefix}_${i + 1}`,
@@ -29,8 +34,8 @@ describe('Server restart replay', () => {
     const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const lib1 = g1.peekTopN(p1, 10).map((c: any) => c.name);
     
-    console.log('Session 1 - Hand:', hand1);
-    console.log('Session 1 - Library (top 10):', lib1);
+    debug('Session 1 - Hand:', hand1);
+    debug('Session 1 - Library (top 10):', lib1);
 
     // Simulate persisted events in database format { type, payload }
     const dbEvents = [
@@ -42,7 +47,7 @@ describe('Server restart replay', () => {
 
     // Transform to replay format (as done in GameManager.ensureGame)
     const replayEvents = transformDbEventsForReplay(dbEvents);
-    console.log('Replay events (first 2):', replayEvents.slice(0, 2));
+    debug('Replay events (first 2):', replayEvents.slice(0, 2));
 
     // Session 2: Server restart - new game context + replay
     const g2 = createInitialGameState(gameId);
@@ -51,8 +56,8 @@ describe('Server restart replay', () => {
     const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const lib2 = g2.peekTopN(p1, 10).map((c: any) => c.name);
     
-    console.log('Session 2 (replay) - Hand:', hand2);
-    console.log('Session 2 (replay) - Library (top 10):', lib2);
+    debug('Session 2 (replay) - Hand:', hand2);
+    debug('Session 2 (replay) - Library (top 10):', lib2);
 
     // Both should be identical
     expect(hand2).toEqual(hand1);
@@ -72,7 +77,7 @@ describe('Server restart replay', () => {
     g1.shuffleLibrary(p1);
     
     const lib1 = g1.peekTopN(p1, 30).map((c: any) => c.name);
-    console.log('Session 1 - Full library order (first 10):', lib1.slice(0, 10));
+    debug('Session 1 - Full library order (first 10):', lib1.slice(0, 10));
 
     // Database format
     const dbEvents = [
@@ -87,7 +92,7 @@ describe('Server restart replay', () => {
     (g2 as any).replay(replayEvents);
     
     const lib2 = g2.peekTopN(p1, 30).map((c: any) => c.name);
-    console.log('Session 2 (replay) - Full library order (first 10):', lib2.slice(0, 10));
+    debug('Session 2 (replay) - Full library order (first 10):', lib2.slice(0, 10));
 
     expect(lib2).toEqual(lib1);
   });
@@ -118,7 +123,7 @@ describe('Server restart replay', () => {
     
     // Initial hand before mulligan
     const handBeforeMulligan = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
-    console.log('Before mulligan - Hand:', handBeforeMulligan);
+    debug('Before mulligan - Hand:', handBeforeMulligan);
     
     // Mulligan: hand goes to library, shuffle, draw 7
     (g1 as any).moveHandToLibrary(p1);
@@ -127,8 +132,8 @@ describe('Server restart replay', () => {
     
     const handAfterMulligan = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const libAfterMulligan = g1.peekTopN(p1, 10).map((c: any) => c.name);
-    console.log('After mulligan - Hand:', handAfterMulligan);
-    console.log('After mulligan - Library (top 10):', libAfterMulligan);
+    debug('After mulligan - Hand:', handAfterMulligan);
+    debug('After mulligan - Library (top 10):', libAfterMulligan);
 
     // Session 2: Replay with mulligan event
     const dbEvents = [
@@ -146,8 +151,8 @@ describe('Server restart replay', () => {
     
     const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const lib2 = g2.peekTopN(p1, 10).map((c: any) => c.name);
-    console.log('Session 2 (replay) - Hand:', hand2);
-    console.log('Session 2 (replay) - Library (top 10):', lib2);
+    debug('Session 2 (replay) - Hand:', hand2);
+    debug('Session 2 (replay) - Library (top 10):', lib2);
 
     // After replay, both hands and libraries should match
     expect(hand2).toEqual(handAfterMulligan);
@@ -177,8 +182,8 @@ describe('Server restart replay', () => {
     
     const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const lib1 = g1.peekTopN(p1, 10).map((c: any) => c.name);
-    console.log('Session 1 - Hand after setCommander:', hand1);
-    console.log('Session 1 - Library (top 10):', lib1);
+    debug('Session 1 - Hand after setCommander:', hand1);
+    debug('Session 1 - Library (top 10):', lib1);
     
     // Verify hand was drawn
     expect(hand1.length).toBe(7);
@@ -201,8 +206,8 @@ describe('Server restart replay', () => {
     
     const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const lib2 = g2.peekTopN(p1, 10).map((c: any) => c.name);
-    console.log('Session 2 (replay) - Hand:', hand2);
-    console.log('Session 2 (replay) - Library (top 10):', lib2);
+    debug('Session 2 (replay) - Hand:', hand2);
+    debug('Session 2 (replay) - Library (top 10):', lib2);
 
     // After replay, hands and libraries should match
     expect(hand2).toEqual(hand1);
@@ -227,8 +232,8 @@ describe('Server restart replay', () => {
     
     const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const lib1 = g1.peekTopN(p1, 10).map((c: any) => c.name);
-    console.log('Backward compat - Session 1 - Hand:', hand1);
-    console.log('Backward compat - Session 1 - Library (top 10):', lib1);
+    debug('Backward compat - Session 1 - Hand:', hand1);
+    debug('Backward compat - Session 1 - Library (top 10):', lib1);
     
     expect(hand1.length).toBe(7);
 
@@ -248,8 +253,8 @@ describe('Server restart replay', () => {
     
     const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
     const lib2 = g2.peekTopN(p1, 10).map((c: any) => c.name);
-    console.log('Backward compat - Session 2 (replay) - Hand:', hand2);
-    console.log('Backward compat - Session 2 (replay) - Library (top 10):', lib2);
+    debug('Backward compat - Session 2 (replay) - Hand:', hand2);
+    debug('Backward compat - Session 2 (replay) - Library (top 10):', lib2);
 
     // After replay with backward compat, hands and libraries should match
     expect(hand2.length).toBe(7);
@@ -291,7 +296,7 @@ describe('Server restart replay', () => {
       p.controller === p1 && p.card?.type_line?.toLowerCase().includes('land')
     );
     
-    console.log('Land replay - Session 1 - Lands on battlefield:', landsOnBattlefield1.map((p: any) => p.card?.name));
+    debug('Land replay - Session 1 - Lands on battlefield:', landsOnBattlefield1.map((p: any) => p.card?.name));
     
     // The land should be on the battlefield
     expect(landsOnBattlefield1.length).toBe(1);
@@ -316,7 +321,7 @@ describe('Server restart replay', () => {
       p.controller === p1 && p.card?.type_line?.toLowerCase().includes('land')
     );
     
-    console.log('Land replay - Session 2 (replay) - Lands on battlefield:', landsOnBattlefield2.map((p: any) => p.card?.name));
+    debug('Land replay - Session 2 (replay) - Lands on battlefield:', landsOnBattlefield2.map((p: any) => p.card?.name));
 
     // After replay, the land should still be on battlefield
     expect(landsOnBattlefield2.length).toBe(1);
