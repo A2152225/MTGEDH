@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { initDb, createGameIfNotExists } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
-import { registerJoinForcesHandlers } from '../src/socket/join-forces.js';
+import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { games } from '../src/socket/socket.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -36,6 +37,8 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
     // Ensure no cross-test queue bleed
     ResolutionQueueManager.removeQueue('test_collective_voyage');
     ResolutionQueueManager.removeQueue('test_tempt_with_discovery');
+    games.delete('test_collective_voyage' as any);
+    games.delete('test_tempt_with_discovery' as any);
   });
 
   it('Collective Voyage creates LIBRARY_SEARCH steps (no pendingLibrarySearch)', async () => {
@@ -67,23 +70,36 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
 
     const s1 = createMockSocket('p1', emitted);
     const s2 = createMockSocket('p2', emitted);
-    registerJoinForcesHandlers(io, s1.socket);
-    registerJoinForcesHandlers(io, s2.socket);
+    registerResolutionHandlers(io as any, s1.socket);
+    registerResolutionHandlers(io as any, s2.socket);
 
-    // Initiate Join Forces
-    await s1.handlers['initiateJoinForces']({
-      gameId,
+    // In the Resolution Queue architecture, Join Forces is represented as JOIN_FORCES steps.
+    const p1Step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.JOIN_FORCES,
+      playerId: 'p1' as any,
+      description: 'Collective Voyage: You may contribute mana',
+      mandatory: false,
+      sourceName: 'Collective Voyage',
       cardName: 'Collective Voyage',
-      effectDescription: 'Each player may pay any amount of mana. Search for X basics.',
-    });
-
-    const req = emitted.find(e => e.room === gameId && e.event === 'joinForcesRequest');
-    expect(req).toBeDefined();
-    const joinForcesId = req!.payload.id;
+      initiator: 'p1',
+      availableMana: 10,
+      isInitiator: true,
+    } as any);
+    const p2Step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.JOIN_FORCES,
+      playerId: 'p2' as any,
+      description: 'Collective Voyage: You may contribute mana',
+      mandatory: false,
+      sourceName: 'Collective Voyage',
+      cardName: 'Collective Voyage',
+      initiator: 'p1',
+      availableMana: 10,
+      isInitiator: false,
+    } as any);
 
     // Both players contribute 1 -> total = 2
-    await s1.handlers['contributeJoinForces']({ gameId, joinForcesId, amount: 1 });
-    await s2.handlers['contributeJoinForces']({ gameId, joinForcesId, amount: 1 });
+    await s1.handlers['submitResolutionResponse']({ gameId, stepId: p1Step.id, selections: { amount: 1 } });
+    await s2.handlers['submitResolutionResponse']({ gameId, stepId: p2Step.id, selections: { amount: 1 } });
 
     // Legacy field should not be created anymore
     expect((game.state as any).pendingLibrarySearch).toBeUndefined();
@@ -129,22 +145,23 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
 
     const s1 = createMockSocket('p1', emitted);
     const s2 = createMockSocket('p2', emitted);
-    registerJoinForcesHandlers(io, s1.socket);
-    registerJoinForcesHandlers(io, s2.socket);
+    registerResolutionHandlers(io as any, s1.socket);
+    registerResolutionHandlers(io as any, s2.socket);
 
-    // Initiate Tempting Offer
-    await s1.handlers['initiateTemptingOffer']({
-      gameId,
+    // In the Resolution Queue architecture, Tempting Offer is represented as TEMPTING_OFFER steps.
+    const opponentStep = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TEMPTING_OFFER,
+      playerId: 'p2' as any,
+      description: 'Tempt with Discovery: Accept?',
+      mandatory: false,
+      sourceName: 'Tempt with Discovery',
       cardName: 'Tempt with Discovery',
-      effectDescription: 'Search for a land; opponents may also search.',
-    });
-
-    const req = emitted.find(e => e.room === gameId && e.event === 'temptingOfferRequest');
-    expect(req).toBeDefined();
-    const temptingOfferId = req!.payload.id;
+      initiator: 'p1',
+      isOpponent: true,
+    } as any);
 
     // Opponent accepts
-    await s2.handlers['respondTemptingOffer']({ gameId, temptingOfferId, accept: true });
+    await s2.handlers['submitResolutionResponse']({ gameId, stepId: opponentStep.id, selections: true });
 
     // Legacy field should not be created anymore
     expect((game.state as any).pendingLibrarySearch).toBeUndefined();

@@ -12201,6 +12201,119 @@ async function handleOptionChoiceResponse(
     return null;
   };
 
+  // ===== FORCE OF WILL / FORCE OF NEGATION STYLE ALTERNATE COST =====
+  // Exile a blue card from hand (and optionally pay 1 life), then resume the cast.
+  if (stepData?.forceOfWillExileChoice === true) {
+    if (response.cancelled) {
+      emitToPlayer(io, playerId, 'error', {
+        code: 'CANNOT_PAY_COST',
+        message: 'Alternate cost payment was cancelled.',
+      });
+      return;
+    }
+
+    const exileCardId = extractId(selectedOption);
+    const spellCardId = String(stepData?.forceSpellCardId || step.sourceId || '').trim();
+    const spellName = String(stepData?.forceSpellName || step.sourceName || 'spell');
+    const requiresLifePayment = Boolean(stepData?.forceRequiresLifePayment === true);
+    const lifeAmount = Number(stepData?.forceLifePaymentAmount || (requiresLifePayment ? 1 : 0));
+
+    if (!spellCardId) {
+      debugWarn(1, `[Resolution] forceOfWillExileChoice: missing spellCardId/sourceId`);
+      emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: 'Missing spell context for alternate cost.' });
+      return;
+    }
+
+    if (!exileCardId) {
+      emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: 'No card selected to exile.' });
+      return;
+    }
+
+    const zones = (game.state as any).zones = (game.state as any).zones || {};
+    zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+    const playerZones = zones[playerId] as any;
+    playerZones.hand = Array.isArray(playerZones.hand) ? playerZones.hand : [];
+    playerZones.exile = Array.isArray(playerZones.exile) ? playerZones.exile : [];
+
+    const handIndex = (playerZones.hand as any[]).findIndex((c: any) => c && String(c.id) === String(exileCardId));
+    if (handIndex < 0) {
+      emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: 'Selected card not found in hand.' });
+      return;
+    }
+
+    const chosenCard = (playerZones.hand as any[])[handIndex];
+    const isBlue = Array.isArray((chosenCard as any)?.colors) && (chosenCard as any).colors.includes('U');
+    if (!isBlue) {
+      emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: 'Selected card is not blue.' });
+      return;
+    }
+
+    // Pay life if required.
+    if (requiresLifePayment && lifeAmount > 0) {
+      (game.state as any).life = (game.state as any).life || {};
+      const startingLife = (game.state as any)?.startingLife || 40;
+      const currentLife = (game.state as any).life[playerId] ?? startingLife;
+      if (typeof currentLife !== 'number' || currentLife < lifeAmount) {
+        emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: `Not enough life to pay ${lifeAmount}.` });
+        return;
+      }
+      const newLife = currentLife - lifeAmount;
+      (game.state as any).life[playerId] = newLife;
+      const playerObj = ((game.state as any).players || []).find((p: any) => p?.id === playerId);
+      if (playerObj) playerObj.life = newLife;
+    }
+
+    // Exile the chosen card.
+    (playerZones.hand as any[]).splice(handIndex, 1);
+    playerZones.handCount = (playerZones.hand as any[]).length;
+    (playerZones.exile as any[]).push({
+      ...chosenCard,
+      zone: 'exile',
+      exiledForAlternateCost: true,
+      exiledForSpellCardId: spellCardId,
+    });
+    playerZones.exileCount = (playerZones.exile as any[]).length;
+
+    // Mark the spell card so castSpellFromHand can skip mana payment and avoid re-prompting.
+    const spellInHand = (playerZones.hand as any[]).find((c: any) => c && String(c.id) === String(spellCardId));
+    if (spellInHand) {
+      (spellInHand as any).forceAltCostPaid = true;
+      (spellInHand as any).forceAltCostExiledCardId = String(exileCardId);
+      if (requiresLifePayment && lifeAmount > 0) {
+        (spellInHand as any).lifePaymentAmount = lifeAmount;
+      }
+    }
+
+    const exileName = String((chosenCard as any)?.name || 'a blue card');
+    const paidLifeText = requiresLifePayment && lifeAmount > 0 ? ` and pays ${lifeAmount} life` : '';
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} exiles ${exileName}${paidLifeText} to cast ${spellName} for its alternate cost.`,
+      ts: Date.now(),
+    });
+
+    const castArgs = (stepData?.forceCastArgs || {}) as any;
+    emitToPlayer(io, playerId as any, 'castSpellFromHandContinue', {
+      gameId,
+      cardId: spellCardId,
+      payment: castArgs.payment,
+      targets: castArgs.targets,
+      xValue: castArgs.xValue,
+      alternateCostId: castArgs.alternateCostId || 'force_of_will',
+      convokeTappedCreatures: castArgs.convokeTappedCreatures,
+      skipInteractivePrompts: true,
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   // ===== OPPONENT MAY PAY: prompt-deciding player to pay or decline =====
   if (stepData?.opponentMayPayChoice === true) {
     const choiceId = extractId(selectedOption);

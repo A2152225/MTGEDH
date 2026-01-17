@@ -32,6 +32,7 @@ function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName:
   const costs: AlternateCost[] = [];
   const text = oracleText || '';
   const lowerText = text.toLowerCase();
+  const lowerName = (cardName || '').toLowerCase();
   
   // Default cost is always first
   costs.push({
@@ -393,6 +394,28 @@ function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName:
       manaCost: '{0}',
     });
   }
+
+  // Force of Will / Force of Negation style alternate cost
+  // Note: legality (blue card available, not-your-turn restriction, life payment) is validated server-side.
+  const isForceOfWill = lowerName.includes('force of will');
+  const isForceOfNegation = lowerName.includes('force of negation');
+  const hasForceStyleText =
+    (lowerText.includes('exile') && lowerText.includes('blue card') && lowerText.includes('from your hand') && lowerText.includes("rather than pay this spell's mana cost")) ||
+    isForceOfWill ||
+    isForceOfNegation;
+
+  if (hasForceStyleText) {
+    const requiresLife = isForceOfWill || (lowerText.includes('pay') && lowerText.includes('1 life'));
+    costs.push({
+      id: 'force_of_will',
+      label: isForceOfNegation ? 'Force of Negation (Alternate Cost)' : isForceOfWill ? 'Force of Will (Alternate Cost)' : 'Alternate Cost (Exile Blue Card)',
+      description: requiresLife
+        ? 'Exile a blue card from your hand and pay 1 life.'
+        : 'Exile a blue card from your hand.',
+      manaCost: '{0}',
+      additionalCost: requiresLife ? 'Exile a blue card; pay 1 life' : 'Exile a blue card',
+    });
+  }
   
   return costs;
 }
@@ -592,6 +615,7 @@ export function CastSpellModal({
   
   // Show alternate cost selector if there are options
   const showAlternateCosts = alternateCosts.length > 1;
+  const isForceAltCostSelected = selectedCostId === 'force_of_will';
 
   return (
     <div style={backdrop}>
@@ -777,17 +801,31 @@ export function CastSpellModal({
           </div>
         )}
 
-        <PaymentPicker
-          manaCost={currentCost?.manaCost || effectiveManaCost || manaCost}
-          manaCostDisplay={currentCost?.manaCost || effectiveManaCost || manaCost}
-          sources={availableSources}
-          chosen={payment}
-          xValue={xValue}
-          onChangeX={setXValue}
-          onChange={setPayment}
-          otherCardsInHand={otherCardsInHand}
-          floatingMana={floatingMana}
-        />
+        {isForceAltCostSelected ? (
+          <div style={{
+            marginTop: 8,
+            padding: 12,
+            borderRadius: 8,
+            border: '1px solid rgba(59, 130, 246, 0.35)',
+            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+            fontSize: 13,
+            color: '#cbd5e1',
+          }}>
+            No mana payment required. You’ll be prompted to exile a blue card (and pay life if applicable) after confirming.
+          </div>
+        ) : (
+          <PaymentPicker
+            manaCost={currentCost?.manaCost || effectiveManaCost || manaCost}
+            manaCostDisplay={currentCost?.manaCost || effectiveManaCost || manaCost}
+            sources={availableSources}
+            chosen={payment}
+            xValue={xValue}
+            onChangeX={setXValue}
+            onChange={setPayment}
+            otherCardsInHand={otherCardsInHand}
+            floatingMana={floatingMana}
+          />
+        )}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button onClick={handleCancel}>Cancel</button>

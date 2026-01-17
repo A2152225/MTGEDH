@@ -267,6 +267,7 @@ export interface ClientToServerEvents {
     payment?: Array<{ permanentId?: string; lifePayment?: number }>; 
     faceIndex?: number;
     effectId?: string;
+    alternateCostId?: string;
     xValue?: number;
     convokeTappedCreatures?: string[];
   }) => void;
@@ -382,7 +383,7 @@ export interface ClientToServerEvents {
   // ===== SPELL CASTING =====
   
   // Cast spell from hand (with payment info)
-  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; xValue?: number; convokeTappedCreatures?: string[]; phyrexianChoices?: any }) => void;
+  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; skipInteractivePrompts?: boolean; alternateCostId?: string; xValue?: number; convokeTappedCreatures?: string[]; phyrexianChoices?: any }) => void;
 
   // ===== POSITION / UI EVENTS =====
   

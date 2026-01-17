@@ -374,7 +374,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             
             // Initialize life, poison, experience for non-spectator players
             const startingLife = ctx.state.startingLife ?? 40;
-            if (ctx.life) ctx.life[pid] = ctx.life[pid] ?? startingLife;
+            if (ctx.life) {
+              ctx.life[pid] = ctx.life[pid] ?? startingLife;
+              // Keep state + player refs in sync for consumers/tests that read player.life.
+              (ctx.state as any).life = (ctx.state as any).life || {};
+              (ctx.state as any).life[pid] = (ctx.state as any).life[pid] ?? ctx.life[pid];
+              if (existing && typeof (existing as any).life === 'undefined') {
+                (existing as any).life = ctx.life[pid];
+              }
+            }
             if (ctx.poison) ctx.poison[pid] = ctx.poison[pid] ?? 0;
             if (ctx.experience) ctx.experience[pid] = ctx.experience[pid] ?? 0;
             

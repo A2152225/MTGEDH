@@ -3086,6 +3086,93 @@ export function registerGameActions(io: Server, socket: Socket) {
       (cardInHand as any).additionalCostPaid = (targets as any)?.additionalCostPaid === true;
       (cardInHand as any).additionalCostMethod = (targets as any)?.additionalCostMethod;
 
+      // =====================================================================
+      // FORCE OF WILL / FORCE OF NEGATION STYLE ALTERNATE COST
+      // =====================================================================
+      // This alternate cost is a special interaction (exile a blue card; sometimes pay 1 life)
+      // and must be handled even when skipInteractivePrompts=true (completeCastSpell path).
+      // We enqueue a Resolution Queue prompt and resume the cast once the cost is paid.
+      const isForceAltCostRequested = alternateCostId === 'force_of_will';
+      const forceAltAlreadyPaid = (cardInHand as any).forceAltCostPaid === true;
+      if (isForceAltCostRequested && !forceAltAlreadyPaid) {
+        const { getForceOfWillAlternateCost } = await import('../state/modules/alternate-costs.js');
+        const forceInfo = getForceOfWillAlternateCost(
+          { state: game.state, bumpSeq: () => {}, rng: Math.random } as any,
+          playerId as any,
+          cardInHand as any
+        );
+
+        if (!forceInfo?.available) {
+          socket.emit('error', {
+            code: 'CANNOT_PAY_COST',
+            message: `Cannot cast ${cardInHand.name} for its alternate cost.`,
+          });
+          return;
+        }
+
+        const handCards = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : [];
+        const blueCards = handCards
+          .filter((c: any) => c && c.id !== cardId)
+          .filter((c: any) => Array.isArray(c.colors) && c.colors.includes('U'))
+          .map((c: any) => ({
+            id: String(c.id),
+            label: `Exile ${c.name || 'Blue card'}`,
+            imageUrl: c.image_uris?.small || c.image_uris?.normal,
+          }));
+
+        if (blueCards.length === 0) {
+          socket.emit('error', {
+            code: 'CANNOT_PAY_COST',
+            message: `Cannot cast ${cardInHand.name}: no other blue card in hand to exile.`,
+          });
+          return;
+        }
+
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.forceOfWillExileChoice === true && String(s.sourceId || '') === String(cardId));
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: forceInfo.requiresLifePayment
+              ? `To cast ${cardInHand.name} for its alternate cost, exile a blue card from your hand and pay 1 life.`
+              : `To cast ${cardInHand.name} for its alternate cost, exile a blue card from your hand.`,
+            mandatory: true,
+            options: [
+              ...blueCards,
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+
+            forceOfWillExileChoice: true,
+            forceSpellCardId: cardId,
+            forceSpellName: cardInHand.name,
+            forceRequiresLifePayment: forceInfo.requiresLifePayment === true,
+            forceLifePaymentAmount: forceInfo.requiresLifePayment === true ? 1 : 0,
+            forceAlternateCostId: alternateCostId,
+            // Continuation args are server-only; the Resolution handler will emit castSpellFromHandContinue.
+            forceCastArgs: {
+              cardId,
+              targets,
+              payment,
+              xValue,
+              alternateCostId,
+              convokeTappedCreatures,
+              // Ensure we don't re-run prompts after paying the alternate cost.
+              skipInteractivePrompts: true,
+            },
+          } as any);
+        }
+
+        debug(2, `[castSpellFromHand] Queued Force-of-Will alternate-cost prompt for ${cardInHand.name}`);
+        return;
+      }
+
       let hasFlash = oracleText.includes("flash");
       const isInstant = typeLine.includes("instant");
       const isInstantOrSorcery = isInstant || typeLine.includes("sorcery");
@@ -4169,8 +4256,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       debug(2, `[handleCastSpellFromHand] ======== DEBUG END ========`);
 
+      // If Force-style alternate cost was chosen and paid, the mana cost is treated as {0}.
+      // We must not tap mana or consume floating mana.
+      const isForceAltCostPaid = isForceAltCostRequested && (cardInHand as any).forceAltCostPaid === true;
+
       // Parse the mana cost to validate payment
-      const manaCost = cardInHand.mana_cost || "";
+      const manaCost = isForceAltCostPaid ? '' : (cardInHand.mana_cost || "");
       const parsedCost = parseManaCost(manaCost);
       
       // Calculate cost reduction from battlefield effects
@@ -4254,7 +4345,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // ======================================================================
       // CONVOKE: Tap creatures to help pay for spell
       // ======================================================================
-      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+      if (!isForceAltCostPaid && convokeTappedCreatures && convokeTappedCreatures.length > 0) {
         debug(2, `[castSpellFromHand] Processing convoke: tapping ${convokeTappedCreatures.length} creature(s)`);
         
         const globalBattlefield = game.state?.battlefield || [];
@@ -4352,7 +4443,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // ======================================================================
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       // ======================================================================
-      if (payment && payment.length > 0) {
+      if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
         // Get global battlefield (not zones.battlefield which may not exist)
@@ -4449,7 +4540,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Consume mana from pool to pay for the spell
       // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
       const pool = getOrInitManaPool(game.state, playerId);
-      const manaConsumption = consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+      const manaConsumption = isForceAltCostPaid
+        ? { consumed: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
+        : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
       
       // Calculate converge value (number of different mana colors spent)
       // This is used by cards like Bring to Light, Radiant Flames, etc.
@@ -9427,289 +9520,6 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
-  // ==========================================================================
-  // ALTERNATE COST SELECTION SUPPORT
-  // ==========================================================================
-
-  /**
-   * Request available alternate costs for casting a spell
-   * Returns all available options including mutate, WUBRG (Jodah/Fist of Suns), Omniscience, etc.
-   */
-  socket.on("requestAlternateCosts", async ({ gameId, cardId, castFromZone }: {
-    gameId: string;
-    cardId: string;
-    castFromZone?: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as string | undefined;
-      if (!game || !playerId) return;
-
-      const zones = game.state.zones?.[playerId];
-      if (!zones) return;
-
-      // Find the card
-      let card: any = null;
-      const zone = castFromZone || 'hand';
-      
-      if (zone === 'hand') {
-        const hand = zones.hand as any[];
-        if (hand) {
-          card = hand.find((c: any) => c?.id === cardId);
-        }
-      } else if (zone === 'graveyard') {
-        const graveyard = zones.graveyard as any[];
-        if (graveyard) {
-          card = graveyard.find((c: any) => c?.id === cardId);
-        }
-      }
-
-      if (!card) {
-        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found" });
-        return;
-      }
-
-      const oracleText = (card.oracle_text || '').toLowerCase();
-      const options: any[] = [];
-
-      // Always include normal cast option
-      options.push({
-        id: 'normal',
-        name: 'Normal Cast',
-        description: 'Pay the regular mana cost',
-        manaCost: card.mana_cost,
-        costType: 'normal',
-      });
-
-      // Check for mutate
-      if (/\bmutate\b/.test(oracleText)) {
-        const mutateMatch = oracleText.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-        const mutateCost = mutateMatch ? mutateMatch[1].trim() : undefined;
-        
-        // Check if there are valid targets
-        const battlefield = game.state.battlefield || [];
-        const hasValidTarget = battlefield.some((perm: any) => {
-          if (!perm || perm.owner !== playerId) return false;
-          const typeLine = (perm.card?.type_line || '').toLowerCase();
-          return typeLine.includes('creature') && !typeLine.includes('human');
-        });
-
-        if (hasValidTarget) {
-          options.push({
-            id: 'mutate',
-            name: 'Mutate',
-            description: 'Merge with a non-Human creature you own',
-            manaCost: mutateCost,
-            costType: 'mutate',
-            requiresAdditionalInput: true,
-            additionalEffects: [
-              'Choose to put on top or bottom',
-              'Combined creature has all abilities',
-            ],
-          });
-        }
-      }
-
-      // Check for self-WUBRG (Bringers)
-      if (oracleText.includes('{w}{u}{b}{r}{g}') && 
-          oracleText.includes('rather than pay') &&
-          oracleText.includes('this spell')) {
-        options.push({
-          id: 'wubrg_self',
-          name: 'WUBRG Alternative',
-          description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
-          manaCost: '{W}{U}{B}{R}{G}',
-          costType: 'wubrg',
-        });
-      }
-
-      // Check for external WUBRG sources (Jodah, Fist of Suns)
-      const battlefield = game.state.battlefield || [];
-      for (const perm of battlefield) {
-        if (!perm || perm.controller !== playerId) continue;
-        
-        const permName = (perm.card?.name || '').toLowerCase();
-        const permOracle = (perm.card?.oracle_text || '').toLowerCase();
-        
-        if ((permName.includes('jodah') || permName.includes('fist of suns')) &&
-            permOracle.includes('{w}{u}{b}{r}{g}') && 
-            permOracle.includes('rather than pay') &&
-            !permOracle.includes('this spell')) {
-          options.push({
-            id: `wubrg_${perm.id}`,
-            name: 'WUBRG Alternative',
-            description: `Pay {W}{U}{B}{R}{G} via ${perm.card?.name || 'external source'}`,
-            manaCost: '{W}{U}{B}{R}{G}',
-            costType: 'wubrg',
-            sourceName: perm.card?.name,
-            sourceId: perm.id,
-          });
-          break; // Only add once
-        }
-      }
-
-      // Check for Omniscience (only from hand)
-      if (zone === 'hand') {
-        for (const perm of battlefield) {
-          if (!perm || perm.controller !== playerId) continue;
-          
-          const permName = (perm.card?.name || '').toLowerCase();
-          const permOracle = (perm.card?.oracle_text || '').toLowerCase();
-          
-          if (permName.includes('omniscience') ||
-              (permOracle.includes('cast spells from your hand') && 
-               permOracle.includes('without paying'))) {
-            options.push({
-              id: `free_${perm.id}`,
-              name: 'Free Cast',
-              description: `Cast without paying mana cost via ${perm.card?.name || 'Omniscience'}`,
-              manaCost: undefined,
-              costType: 'free',
-              sourceName: perm.card?.name,
-              sourceId: perm.id,
-            });
-            break;
-          }
-        }
-      }
-
-      // Check for Evoke
-      if (oracleText.includes('evoke')) {
-        const evokeMatch = oracleText.match(/evoke\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-        if (evokeMatch) {
-          options.push({
-            id: 'evoke',
-            name: 'Evoke',
-            description: 'Cast for evoke cost, sacrifice when it enters',
-            manaCost: evokeMatch[1].trim(),
-            costType: 'evoke',
-            additionalEffects: ['Sacrifice when it enters the battlefield'],
-          });
-        }
-      }
-
-      // Check for Overload
-      if (oracleText.includes('overload')) {
-        const overloadMatch = oracleText.match(/overload\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-        if (overloadMatch) {
-          options.push({
-            id: 'overload',
-            name: 'Overload',
-            description: 'Replace "target" with "each" in the spell text',
-            manaCost: overloadMatch[1].trim(),
-            costType: 'overload',
-            additionalEffects: ['Affects each applicable permanent instead of one target'],
-          });
-        }
-      }
-      
-      // Check for Force of Will / Force of Negation alternate cost
-      // These allow you to exile a blue card from hand instead of paying mana
-      const { getForceOfWillAlternateCost } = await import("../state/modules/alternate-costs.js");
-      const forceAltCost = getForceOfWillAlternateCost(
-        { state: game.state, bumpSeq: () => {}, rng: Math.random } as any,
-        playerId,
-        card
-      );
-      if (forceAltCost?.available) {
-        const costDescription = forceAltCost.requiresLifePayment
-          ? 'Exile a blue card from your hand and pay 1 life'
-          : 'Exile a blue card from your hand';
-        const cardNameLower = (card.name || '').toLowerCase();
-        const costName = cardNameLower.includes('force of negation') 
-          ? 'Force of Negation - Free Cast'
-          : cardNameLower.includes('force of will')
-            ? 'Force of Will - Alternate Cost'
-            : 'Exile Blue Card';
-        
-        options.push({
-          id: 'force_of_will',
-          name: costName,
-          description: costDescription,
-          manaCost: undefined, // No mana cost
-          costType: 'force_of_will',
-          additionalEffects: forceAltCost.requiresLifePayment 
-            ? ['Pay 1 life', 'Exile a blue card from hand']
-            : ['Exile a blue card from hand'],
-          requiresAdditionalInput: true, // Need to select which blue card to exile
-        });
-      }
-
-      // Send available options
-      socket.emit("alternateCostsResponse", {
-        gameId,
-        cardId,
-        cardName: card.name,
-        imageUrl: card.image_uris?.small || card.image_uris?.normal,
-        typeLine: card.type_line,
-        normalCost: card.mana_cost,
-        options,
-      });
-
-      debug(2, `[requestAlternateCosts] Found ${options.length} casting options for ${card.name}`);
-    } catch (err: any) {
-      debugError(1, `requestAlternateCosts error:`, err);
-      socket.emit("error", { code: "ALTERNATE_COSTS_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  /**
-   * Confirm selected alternate cost and proceed with casting
-   */
-  socket.on("confirmAlternateCost", ({ gameId, cardId, selectedCostId, castFromZone }: {
-    gameId: string;
-    cardId: string;
-    selectedCostId: string;
-    castFromZone?: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as string | undefined;
-      if (!game || !playerId) return;
-
-      debug(2, `[confirmAlternateCost] Player ${playerId} selected cost ${selectedCostId} for card ${cardId}`);
-
-      // Handle based on selected cost type
-      if (selectedCostId === 'mutate') {
-        // Redirect to mutate target selection
-        socket.emit("requestMutateTargetSelection", { gameId, cardId });
-      } else if (selectedCostId === 'normal') {
-        // Normal cast - emit prompt for normal mana payment
-        socket.emit("proceedWithNormalCast", { gameId, cardId, castFromZone });
-      } else if (selectedCostId.startsWith('wubrg')) {
-        // WUBRG alternate cost - emit prompt with {W}{U}{B}{R}{G} cost
-        socket.emit("proceedWithAlternateCast", { 
-          gameId, 
-          cardId, 
-          manaCost: '{W}{U}{B}{R}{G}',
-          costType: 'wubrg',
-          castFromZone,
-        });
-      } else if (selectedCostId.startsWith('free')) {
-        // Free cast (Omniscience) - cast directly without mana
-        socket.emit("proceedWithFreeCast", { gameId, cardId, castFromZone });
-      } else if (selectedCostId === 'evoke') {
-        // Evoke - emit with evoke flag
-        socket.emit("proceedWithEvokeCast", { gameId, cardId, castFromZone });
-      } else if (selectedCostId === 'overload') {
-        // Overload - emit with overload flag
-        socket.emit("proceedWithOverloadCast", { gameId, cardId, castFromZone });
-      } else if (selectedCostId === 'force_of_will') {
-        // Force of Will / Force of Negation alternate cost
-        // NOTE: The old client prompt (`selectBlueCardToExile`) has been removed.
-        // This alternate-cost path is not yet implemented end-to-end in the current casting pipeline.
-        socket.emit("error", {
-          code: "UNSUPPORTED_ALTERNATE_COST",
-          message: "Force-of-Will-style alternate costs are not supported yet (exile-a-blue-card selection UI has been migrated away).",
-        });
-      } else {
-        // Unknown cost type
-        socket.emit("error", { code: "UNKNOWN_COST", message: "Unknown alternate cost type" });
-      }
-
-    } catch (err: any) {
-      debugError(1, `confirmAlternateCost error:`, err);
-      socket.emit("error", { code: "ALTERNATE_COST_ERROR", message: err?.message ?? String(err) });
-    }
-  });
+  // Legacy alternate-cost selection UI has been removed.
+  // Alternate costs are handled through the primary casting flow + Resolution Queue.
 }

@@ -202,6 +202,17 @@ Each creature tapped pays for {1} or one mana of its color
 ✓ Tapping 1 creature
 ```
 
+## Alternate Costs
+
+The casting UI can surface alternate costs and sends the chosen `alternateCostId` back to the server via the normal cast flow.
+
+Currently supported values:
+
+- `force_of_will`: Force of Will / Force of Negation style alternate cost.
+  - Server will prompt (via Resolution Queue `OPTION_CHOICE`) to exile a blue card from hand.
+  - Force of Will also requires paying 1 life; Force of Negation has a timing restriction (opponent's turn).
+  - When this alternate cost is chosen, the client hides mana payment UI and waits for the server prompt.
+
 ## Usage Examples
 
 ### Example 1: Thoughtcast with Affinity

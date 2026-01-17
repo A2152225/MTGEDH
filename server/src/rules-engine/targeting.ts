@@ -126,6 +126,20 @@ function parseCountWord(raw: string | undefined): number | null {
   return null;
 }
 
+function titleCaseWords(raw: string): string {
+  return String(raw)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word =>
+      word
+        .split('-')
+        .map(part => (part ? part[0].toUpperCase() + part.slice(1).toLowerCase() : part))
+        .join('-')
+    )
+    .join(' ');
+}
+
 /**
  * Detect if a spell requires targets based on oracle text
  * This is a comprehensive check that looks for ANY "target" pattern in the spell text
@@ -818,7 +832,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       const power = parseInt(m[2], 10);
       const toughness = parseInt(m[3], 10);
       const color = m[4].toLowerCase() as NonNullable<SpellSpec['tokenColor']>;
-      const subtype = m[5];
+      const subtype = titleCaseWords(m[5]);
       return {
         op: 'CREATE_TOKEN',
         filter: 'ANY',
@@ -941,7 +955,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // MILL
   {
     // Mill N cards.
-    const m = t.trim().match(/^mill\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    const m = t.trim().match(/^mill\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
     if (m) {
       const n = parseCountWord(m[1]) ?? 1;
       return {
@@ -955,7 +969,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Target player mills N cards.
-    const m = t.trim().match(/^target\s+player\s+mills\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    const m = t.trim().match(/^target\s+player\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
     if (m) {
       const n = parseCountWord(m[1]) ?? 1;
       return {
@@ -970,7 +984,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Each opponent mills N cards.
-    const m = t.trim().match(/^each\s+opponent\s+mills\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    const m = t.trim().match(/^each\s+opponent\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
     if (m) {
       const n = parseCountWord(m[1]) ?? 1;
       return {
@@ -984,7 +998,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Each player mills N cards.
-    const m = t.trim().match(/^each\s+player\s+mills\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    const m = t.trim().match(/^each\s+player\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
     if (m) {
       const n = parseCountWord(m[1]) ?? 1;
       return {
@@ -1815,10 +1829,10 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
 
       const nonlandOnly = typePhrase === 'nonland permanents';
       const filter: PermanentFilter =
-        typePhrase.includes('creature') ? 'CREATURE' :
-        typePhrase.includes('land') ? 'LAND' :
-        typePhrase.includes('artifact') ? 'ARTIFACT' :
-        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        typePhrase === 'creatures' ? 'CREATURE' :
+        typePhrase === 'lands' ? 'LAND' :
+        typePhrase === 'artifacts' ? 'ARTIFACT' :
+        typePhrase === 'enchantments' ? 'ENCHANTMENT' :
         'PERMANENT';
 
       return {
@@ -1842,10 +1856,10 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
 
       const nonlandOnly = typePhrase === 'nonland permanents';
       const filter: PermanentFilter =
-        typePhrase.includes('creature') ? 'CREATURE' :
-        typePhrase.includes('land') ? 'LAND' :
-        typePhrase.includes('artifact') ? 'ARTIFACT' :
-        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        typePhrase === 'creatures' ? 'CREATURE' :
+        typePhrase === 'lands' ? 'LAND' :
+        typePhrase === 'artifacts' ? 'ARTIFACT' :
+        typePhrase === 'enchantments' ? 'ENCHANTMENT' :
         'PERMANENT';
 
       return {
@@ -1867,10 +1881,10 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       const typePhrase = m[1].toLowerCase();
       const nonlandOnly = typePhrase === 'nonland permanents';
       const filter: PermanentFilter =
-        typePhrase.includes('creature') ? 'CREATURE' :
-        typePhrase.includes('land') ? 'LAND' :
-        typePhrase.includes('artifact') ? 'ARTIFACT' :
-        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        typePhrase === 'creatures' ? 'CREATURE' :
+        typePhrase === 'lands' ? 'LAND' :
+        typePhrase === 'artifacts' ? 'ARTIFACT' :
+        typePhrase === 'enchantments' ? 'ENCHANTMENT' :
         'PERMANENT';
 
       return {
@@ -1889,10 +1903,10 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       const typePhrase = m[1].toLowerCase();
       const nonlandOnly = typePhrase === 'nonland permanents';
       const filter: PermanentFilter =
-        typePhrase.includes('creature') ? 'CREATURE' :
-        typePhrase.includes('land') ? 'LAND' :
-        typePhrase.includes('artifact') ? 'ARTIFACT' :
-        typePhrase.includes('enchantment') ? 'ENCHANTMENT' :
+        typePhrase === 'creatures' ? 'CREATURE' :
+        typePhrase === 'lands' ? 'LAND' :
+        typePhrase === 'artifacts' ? 'ARTIFACT' :
+        typePhrase === 'enchantments' ? 'ENCHANTMENT' :
         'PERMANENT';
 
       return {
@@ -2072,12 +2086,12 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   
   // Generic "target permanent" patterns for spells that affect permanents
   // This catches spells like Chaos Warp that don't use standard destroy/exile wording
-  if (/target permanent\b/.test(t) && !(/enchant/.test(t))) {
+  if (/target permanent\b/.test(t) && !(/enchant/.test(t)) && !(/\bdamage\b/.test(t))) {
     return { op: 'DESTROY_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1 };
   }
   
   // Target creature/artifact/enchantment patterns without destroy/exile
-  if (/target creature\b/.test(t) && !(/enchant/.test(t))) {
+  if (/target creature\b/.test(t) && !(/enchant/.test(t)) && !(/\bdamage\b/.test(t))) {
     return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1 };
   }
 

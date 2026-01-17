@@ -13,6 +13,9 @@ export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string,
   life[id] = state.startingLife;
   poison[id] = 0;
   experience[id] = 0;
+
+  // Keep convenience `player.life` in sync with the authoritative life map.
+  (ref as any).life = life[id];
   
   // Initialize energy counters
   const energy = (ctx as any).energy = (ctx as any).energy || {};

@@ -57,6 +57,11 @@ This will start:
 npm test
 ```
 
+To run the server Vitest suite (socket/state integration tests):
+```bash
+npm run test:server
+```
+
 ### Building for Production
 ```bash
 npm run build

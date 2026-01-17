@@ -66,7 +66,6 @@ import { BatchExploreModal, type ExploreResult } from "./components/BatchExplore
 import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
 import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
-import { AlternateCostSelectionModal, type CastingOption } from "./components/AlternateCostSelectionModal";
 import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./components/IgnoredCardsPanel";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
@@ -827,19 +826,6 @@ export function App() {
     toughness?: string;
     mutateCost: string;
     targets: MutateTarget[];
-  } | null>(null);
-  
-  // Alternate cost selection modal state
-  const [alternateCostModalOpen, setAlternateCostModalOpen] = useState(false);
-  const [alternateCostModalData, setAlternateCostModalData] = useState<{
-    cardId: string;
-    cardName: string;
-    imageUrl?: string;
-    manaCost?: string;
-    typeLine?: string;
-    oracleText?: string;
-    options: CastingOption[];
-    castFromZone?: string;
   } | null>(null);
   
   // Auto-pass steps - which steps to automatically pass priority on
@@ -2856,35 +2842,7 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Alternate cost selection listener
-  useEffect(() => {
-    const handleAlternateCostsResponse = (data: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      imageUrl?: string;
-      typeLine?: string;
-      normalCost?: string;
-      options: CastingOption[];
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setAlternateCostModalData({
-        cardId: data.cardId,
-        cardName: data.cardName,
-        imageUrl: data.imageUrl,
-        manaCost: data.normalCost,
-        typeLine: data.typeLine,
-        options: data.options,
-      });
-      setAlternateCostModalOpen(true);
-    };
 
-    socket.on("alternateCostsResponse", handleAlternateCostsResponse);
-
-    return () => {
-      socket.off("alternateCostsResponse", handleAlternateCostsResponse);
-    };
-  }, [safeView?.id]);
 
   // Explore prompt handler
   // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
@@ -6842,36 +6800,6 @@ export function App() {
             setMutateModalOpen(false);
             setMutateModalData(null);
           }
-        }}
-      />
-
-      {/* Alternate Cost Selection Modal */}
-      <AlternateCostSelectionModal
-        open={alternateCostModalOpen}
-        card={{
-          id: alternateCostModalData?.cardId || '',
-          name: alternateCostModalData?.cardName || '',
-          imageUrl: alternateCostModalData?.imageUrl,
-          manaCost: alternateCostModalData?.manaCost,
-          typeLine: alternateCostModalData?.typeLine,
-          oracleText: alternateCostModalData?.oracleText,
-        }}
-        options={alternateCostModalData?.options || []}
-        onConfirm={(selectedOptionId) => {
-          if (safeView?.id && alternateCostModalData) {
-            socket.emit("confirmAlternateCost", {
-              gameId: safeView.id,
-              cardId: alternateCostModalData.cardId,
-              selectedCostId: selectedOptionId,
-              castFromZone: alternateCostModalData.castFromZone,
-            });
-            setAlternateCostModalOpen(false);
-            setAlternateCostModalData(null);
-          }
-        }}
-        onCancel={() => {
-          setAlternateCostModalOpen(false);
-          setAlternateCostModalData(null);
         }}
       />
 
