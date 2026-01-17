@@ -8242,11 +8242,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
         (targetCreature as any).attachedEquipment.push(equipmentId);
       }
-      
-      // Clear pending payment
-      if ((game.state as any).pendingEquipPayment?.[playerId]) {
-        delete (game.state as any).pendingEquipPayment[playerId];
-      }
 
       debug(2, `[equipAbility] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId}`);
 
@@ -8282,96 +8277,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
   
   // Handle equip payment confirmation - player has paid the mana cost
-  socket.on("confirmEquipPayment", ({ gameId, equipmentId, targetCreatureId }: {
-    gameId: string;
-    equipmentId: string;
-    targetCreatureId: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-      
-      const pending = (game.state as any).pendingEquipPayment?.[playerId];
-      if (!pending || pending.equipmentId !== equipmentId || pending.targetCreatureId !== targetCreatureId) {
-        socket.emit("error", { code: "NO_PENDING", message: "No pending equip payment found" });
-        return;
-      }
-      
-      // Parse the cost and consume mana from pool
-      const parsedCost = parseManaCost(pending.equipCost);
-      const pool = getOrInitManaPool(game.state, playerId);
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      
-      // Validate payment
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      if (validationError) {
-        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
-        return;
-      }
-      
-      // Consume mana
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[confirmEquipPayment]');
-      
-      // Now re-call equipAbility with paymentConfirmed
-      // (We call the same handler logic inline to avoid event loop issues)
-      const battlefield = game.state?.battlefield || [];
-      const equipment = battlefield.find((p: any) => p.id === equipmentId);
-      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
-      
-      if (!equipment || !targetCreature) {
-        socket.emit("error", { code: "NOT_FOUND", message: "Equipment or target not found" });
-        return;
-      }
-      
-      // Detach from previous creature if attached
-      if (equipment.attachedTo) {
-        const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
-        if (prevCreature) {
-          (prevCreature as any).attachedEquipment = ((prevCreature as any).attachedEquipment || []).filter((id: string) => id !== equipmentId);
-        }
-      }
-
-      // Attach to new creature
-      equipment.attachedTo = targetCreatureId;
-      (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
-      if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
-        (targetCreature as any).attachedEquipment.push(equipmentId);
-      }
-      
-      // Clear pending payment
-      delete (game.state as any).pendingEquipPayment[playerId];
-
-      debug(2, `[confirmEquipPayment] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId} (paid ${pending.equipCost})`);
-
-      // Persist event for replay
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "equipPermanent", {
-          playerId,
-          equipmentId,
-          targetCreatureId,
-          equipmentName: equipment.card?.name,
-          targetCreatureName: targetCreature.card?.name,
-          equipCost: pending.equipCost,
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(equipPermanent) failed:', e);
-      }
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `⚔️ ${getPlayerName(game, playerId)} pays ${pending.equipCost} and equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
-        ts: Date.now(),
-      });
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `confirmEquipPayment error for game ${gameId}:`, err);
-      socket.emit("error", { code: "EQUIP_PAYMENT_ERROR", message: err?.message ?? String(err) });
-    }
-  });
+  // Legacy confirmEquipPayment flow removed (equip now resolves via Resolution Queue target selection).
 
   // ==========================================================================
   // FORETELL SUPPORT
@@ -8828,74 +8734,6 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       debugError(1, `confirmGraveyardTargets error for game ${gameId}:`, err);
       socket.emit("error", { code: "GRAVEYARD_CONFIRM_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  /**
-   * Handle graveyard exile target selection (Keen-Eyed Curator, etc.)
-   */
-  socket.on("confirmGraveyardExile", ({ gameId, effectId, targetPlayerId, targetCardId }: {
-    gameId: string;
-    effectId: string;
-    targetPlayerId: string;
-    targetCardId: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      const pending = (game.state as any).pendingGraveyardExile?.[effectId];
-      if (!pending) {
-        socket.emit("error", { code: "NO_PENDING_EXILE", message: "No pending graveyard exile action found" });
-        return;
-      }
-
-      const targetZones = game.state.zones?.[targetPlayerId];
-      if (!targetZones || !Array.isArray(targetZones.graveyard)) {
-        socket.emit("error", { code: "NO_GRAVEYARD", message: "Target graveyard not found" });
-        return;
-      }
-
-      const cardIndex = targetZones.graveyard.findIndex((c: any) => c?.id === targetCardId);
-      if (cardIndex === -1) {
-        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in graveyard" });
-        return;
-      }
-
-      const card = targetZones.graveyard[cardIndex];
-      targetZones.graveyard.splice(cardIndex, 1);
-      targetZones.graveyardCount = targetZones.graveyard.length;
-
-      // Find the permanent that activated this ability
-      const battlefield = game.state.battlefield || [];
-      const permanent = battlefield.find((p: any) => p.id === pending.permanentId);
-      
-      // Add the card to the permanent's exile zone (tracked on the permanent itself for Keen-Eyed Curator)
-      if (permanent) {
-        (permanent as any).exiledCards = (permanent as any).exiledCards || [];
-        (permanent as any).exiledCards.push({ ...(card as any), zone: 'exile', exiledWith: pending.permanentId });
-      }
-
-      // Clean up pending action
-      delete (game.state as any).pendingGraveyardExile[effectId];
-
-      const cardName = (card as any)?.name || 'a card';
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `🚫 ${getPlayerName(game, playerId)} exiled ${cardName} from ${getPlayerName(game, targetPlayerId)}'s graveyard with ${pending.cardName}.`,
-        ts: Date.now(),
-      });
-
-      debug(2, `[confirmGraveyardExile] ${playerId} exiled ${cardName} from ${targetPlayerId}'s graveyard with ${pending.cardName}`);
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `confirmGraveyardExile error for game ${gameId}:`, err);
-      socket.emit("error", { code: "GRAVEYARD_EXILE_ERROR", message: err?.message ?? String(err) });
     }
   });
 
@@ -9858,41 +9696,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         socket.emit("proceedWithOverloadCast", { gameId, cardId, castFromZone });
       } else if (selectedCostId === 'force_of_will') {
         // Force of Will / Force of Negation alternate cost
-        // Need to select which blue card to exile
-        const zones = (game.state as any)?.zones?.[playerId];
-        const card = zones?.hand?.find((c: any) => c.id === cardId);
-        if (!zones || !card) {
-          socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in hand" });
-          return;
-        }
-        
-        // Find blue cards that can be exiled (not the card itself)
-        const blueCards = (zones.hand as any[]).filter((c: any) => 
-          c && c.id !== cardId && Array.isArray(c.colors) && c.colors.includes("U")
-        );
-        
-        if (blueCards.length === 0) {
-          socket.emit("error", { code: "NO_BLUE_CARD", message: "No blue card to exile" });
-          return;
-        }
-        
-        // Determine if life payment is required (Force of Will vs Force of Negation)
-        const oracleText = (card.oracle_text || '').toLowerCase();
-        const requiresLifePayment = oracleText.includes('pay') && oracleText.includes('life');
-        
-        // Emit request to select blue card to exile
-        socket.emit("selectBlueCardToExile", {
-          gameId,
-          cardId,
-          cardName: card.name,
-          blueCards: blueCards.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            image_uris: c.image_uris,
-            type_line: c.type_line,
-          })),
-          requiresLifePayment,
-          castFromZone,
+        // NOTE: The old client prompt (`selectBlueCardToExile`) has been removed.
+        // This alternate-cost path is not yet implemented end-to-end in the current casting pipeline.
+        socket.emit("error", {
+          code: "UNSUPPORTED_ALTERNATE_COST",
+          message: "Force-of-Will-style alternate costs are not supported yet (exile-a-blue-card selection UI has been migrated away).",
         });
       } else {
         // Unknown cost type

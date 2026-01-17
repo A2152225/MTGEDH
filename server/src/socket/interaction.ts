@@ -1133,45 +1133,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
   });
 
-
-  // Library search: Query and select cards
-  socket.on("searchLibrary", ({ gameId, query, limit }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    const results = game.searchLibrary(pid, query || "", Math.max(1, Math.min(100, limit || 20)));
-
-    socket.emit("searchResults", { gameId, cards: results, total: results.length });
-  });
-
-  socket.on("selectFromSearch", ({ gameId, cardIds, moveTo, reveal }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    const movedCards = game.selectFromLibrary(pid, cardIds || [], moveTo);
-
-    appendEvent(gameId, game.seq, "selectFromLibrary", {
-      playerId: pid,
-      cardIds: cardIds || [],
-      moveTo,
-      reveal,
-    });
-
-    if (movedCards.length) {
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} moved ${movedCards.join(", ")} to ${moveTo}`,
-        ts: Date.now(),
-      });
-    }
-
-    broadcastGame(io, game, gameId);
-  });
-
   // Request full library for searching (tutor effect)
   socket.on("requestLibrarySearch", ({ gameId, title, description, filter, maxSelections, moveTo, shuffleAfter }) => {
     const pid = socket.data.playerId as string | undefined;
@@ -3539,6 +3500,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Parse the cost
       const costMatch = oracleText.match(/\{([^}]+)\}:\s*exile target card from (?:a|any) graveyard/i);
       const cost = costMatch ? `{${costMatch[1]}}` : "{1}";
+
+      // Build a flat list of all cards currently in all graveyards.
+      // If there are no legal targets, don't allow the activation.
+      const zonesAll = (game.state as any)?.zones || {};
+      const playersAll: any[] = Array.isArray((game.state as any)?.players) ? (game.state as any).players : [];
+      const graveyardTargets: any[] = [];
+
+      for (const p of playersAll) {
+        const pId = String(p?.id || '');
+        if (!pId) continue;
+        const pZones = zonesAll?.[pId];
+        const gy = pZones && Array.isArray(pZones.graveyard) ? pZones.graveyard : [];
+        for (const c of gy) {
+          if (!c || !c.id) continue;
+          graveyardTargets.push({
+            id: String(c.id),
+            label: `${String(c.name || 'Card')} (${getPlayerName(game, pId)})`,
+            description: String(c.type_line || 'Card'),
+            imageUrl: c.image_uris?.small || c.image_uris?.normal,
+          });
+        }
+      }
+
+      if (graveyardTargets.length === 0) {
+        socket.emit("error", {
+          code: "NO_VALID_TARGETS",
+          message: "No cards in any graveyard to exile",
+        });
+        return;
+      }
       
       // Parse the cost and validate mana availability
       const parsedCost = parseManaCost(cost);
@@ -3560,32 +3551,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (oracleText.match(/\{[^}]*\bT\b[^}]*\}:/)) {
         (permanent as any).tapped = true;
       }
-      
-      // Request graveyard targets from all players
-      const effectId = `graveyard_exile_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Store pending exile action
-      if (!(game.state as any).pendingGraveyardExile) {
-        (game.state as any).pendingGraveyardExile = {};
+
+      // Prompt via Resolution Queue (single unified UI).
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: pid as any,
+        sourceId: permanentId,
+        sourceName: cardName,
+        sourceImage: (permanent as any)?.card?.image_uris?.small || (permanent as any)?.card?.image_uris?.normal,
+        description: `Choose a card to exile from a graveyard (${cost})`,
+        mandatory: true,
+        validTargets: graveyardTargets,
+        targetTypes: ['graveyard_card'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'card in a graveyard',
+
+        // Custom payload consumed by socket/resolution.ts
+        graveyardExileAbility: true,
+        permanentId,
+        cardName,
+        cost,
+      } as any);
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
       }
-      (game.state as any).pendingGraveyardExile[effectId] = {
-        playerId: pid,
-        permanentId,
-        cardName,
-        cost,
-      };
-      
-      // Send graveyard selection prompt - allow selecting from any player's graveyard
-      socket.emit("selectGraveyardExileTarget", {
-        gameId,
-        effectId,
-        permanentId,
-        cardName,
-        cost,
-        message: `Choose a graveyard and a card to exile`,
-      });
-      
-      debug(2, `[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, prompting for graveyard target selection`);
+      broadcastGame(io, game, gameId);
+      debug(2, `[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, queued TARGET_SELECTION (${graveyardTargets.length} targets)`);
       return;
     }
     

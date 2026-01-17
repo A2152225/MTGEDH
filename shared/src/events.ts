@@ -58,10 +58,6 @@ export interface ClientToServerEvents {
   renameSavedDeck: (payload: { gameId: GameID; deckId: string; name: string }) => void;
   deleteSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
 
-  // library / search
-  searchLibrary: (payload: { gameId: GameID; query: string; limit?: number }) => void;
-  selectFromSearch: (payload: { gameId: GameID; cardIds: string[]; moveTo: 'hand' | 'graveyard' | 'exile' | 'battlefield'; reveal?: boolean }) => void;
-
   // commander & commander selection
   // NOTE: commanderIds is optional and supported by server; clients that have resolved IDs (from importedCandidates)
   // should include commanderIds when available. This is backwards-compatible.

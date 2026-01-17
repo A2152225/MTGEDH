@@ -5956,10 +5956,83 @@ async function handleTargetSelectionResponse(
   }
 
   // ========================================================================
+  // GRAVEYARD EXILE ABILITY ("Exile target card from a graveyard")
+  // Activated on a battlefield permanent (e.g., Keen-Eyed Curator style).
+  // Costs are already paid at activation time; this step selects the target card.
+  // ========================================================================
+  const stepAny = step as any;
+  if (stepAny?.graveyardExileAbility === true) {
+    const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+    const sourceName = String(stepAny?.cardName || step.sourceName || 'Ability');
+    const targetCardId = String(selections[0] || '').trim();
+
+    if (!targetCardId) {
+      debugWarn(1, `[Resolution] graveyardExileAbility missing selected card id`);
+      return;
+    }
+
+    const zonesAll = (game.state as any)?.zones || {};
+    let targetPlayerId: string | null = null;
+    let removedCard: any = null;
+
+    for (const [pId, z] of Object.entries(zonesAll)) {
+      const zones = z as any;
+      const graveyard = zones && Array.isArray(zones.graveyard) ? (zones.graveyard as any[]) : [];
+      const idx = graveyard.findIndex((c: any) => c && String(c.id) === targetCardId);
+      if (idx !== -1) {
+        removedCard = graveyard[idx];
+        graveyard.splice(idx, 1);
+        zones.graveyardCount = graveyard.length;
+        targetPlayerId = String(pId);
+        break;
+      }
+    }
+
+    if (!removedCard || !targetPlayerId) {
+      debugWarn(1, `[Resolution] graveyardExileAbility could not locate target card ${targetCardId} in any graveyard`);
+      return;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const permanent = permanentId ? battlefield.find((p: any) => p && String(p.id) === permanentId) : null;
+
+    if (permanent) {
+      (permanent as any).exiledCards = (permanent as any).exiledCards || [];
+      (permanent as any).exiledCards.push({ ...(removedCard as any), zone: 'exile', exiledWith: permanentId });
+    }
+
+    const exiledName = String((removedCard as any)?.name || 'a card');
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `🚫 ${getPlayerName(game, pid)} exiled ${exiledName} from ${getPlayerName(game, targetPlayerId)}'s graveyard with ${sourceName}.`,
+      ts: Date.now(),
+    });
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'confirmGraveyardExile', {
+        playerId: pid,
+        targetPlayerId,
+        targetCardId,
+        sourceName,
+        permanentId: permanentId || undefined,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] appendEvent(confirmGraveyardExile) failed:', e);
+    }
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
   // TAP CREATURES AS COST (Summon the School style: "Tap N untapped X you control:")
   // Not stack targeting: apply taps and move the source card from graveyard to hand.
   // ========================================================================
-  const stepAny = step as any;
   if (stepAny?.tapCreaturesCost === true) {
     const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
     const requiredCount = Number(stepAny?.requiredCount || 0);

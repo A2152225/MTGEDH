@@ -1751,6 +1751,7 @@ export function App() {
         targets: payload.targets,
         xValue: payload.xValue,
         alternateCostId: payload.alternateCostId,
+        skipInteractivePrompts: payload.skipInteractivePrompts,
         convokeTappedCreatures: payload.convokeTappedCreatures,
       } as any);
     };
@@ -3603,7 +3604,7 @@ export function App() {
   };
 
   // Handle cast spell confirmation from modal - works for both hand and commander spells
-  const handleCastSpellConfirm = (payment: PaymentItem[], _alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => {
+  const handleCastSpellConfirm = (payment: PaymentItem[], alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => {
     if (!safeView || !spellToCast) return;
     
     debug(2, `[Client] Casting ${spellToCast.isCommander ? 'commander' : 'spell'}: ${spellToCast.cardName} with payment:`, payment);
@@ -3628,6 +3629,7 @@ export function App() {
         payment: payment.length > 0 ? payment : undefined,
         effectId: spellToCast.effectId,
         xValue,
+        alternateCostId,
         convokeTappedCreatures,
       });
     } else {
@@ -3637,6 +3639,7 @@ export function App() {
         cardId: spellToCast.cardId,
         payment: payment.length > 0 ? payment : undefined,
         xValue,
+        alternateCostId,
         convokeTappedCreatures,
       });
     }
