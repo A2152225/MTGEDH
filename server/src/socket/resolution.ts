@@ -41,7 +41,7 @@ import type { GameContext } from "../state/context.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
-import { processDamageReceivedTriggers } from "../state/modules/triggers/damage-received.js";
+import { processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste } from "./game-actions.js";
@@ -5956,11 +5956,78 @@ async function handleTargetSelectionResponse(
   }
 
   // ========================================================================
+  // DAMAGE-RECEIVED TRIGGER TARGETING (Brash Taunter, Boros Reckoner, etc.)
+  // These triggers are enqueued as TARGET_SELECTION steps from pendingDamageTriggers.
+  // ========================================================================
+  const stepAny = step as any;
+  if (stepAny?.damageReceivedTrigger === true) {
+    const damageTrigger = (stepAny?.damageTrigger || {}) as any;
+
+    const triggerInfo: DamageTriggerInfo = {
+      triggerId: String(damageTrigger.triggerId || step.id),
+      sourceId: String(damageTrigger.sourceId || step.sourceId || ''),
+      sourceName: String(damageTrigger.sourceName || step.sourceName || 'Damage Trigger'),
+      controller: String(damageTrigger.controller || step.playerId || response.playerId || ''),
+      damageAmount: Number(damageTrigger.damageAmount ?? (stepAny?.damageAmount ?? 0)),
+      triggerType: 'dealt_damage',
+      targetType: (String(damageTrigger.targetType || 'any') as any),
+      targetRestriction: String(damageTrigger.targetRestriction || ''),
+      effect: String(damageTrigger.effect || step.description || 'Deals damage'),
+    };
+
+    const targetId = String(selections[0] || '').trim();
+    if (!targetId) {
+      debugWarn(1, `[Resolution] damageReceivedTrigger missing selected target`);
+      return;
+    }
+
+    const ctx: GameContext = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: () => {
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      },
+      rng: (game as any).rng,
+      gameId,
+    } as any;
+
+    const message = resolveDamageTrigger(ctx, triggerInfo, targetId);
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message,
+      ts: Date.now(),
+    });
+
+    // If this dealt damage to a permanent, it may create additional damage-received triggers.
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const targetPerm = battlefield.find((p: any) => p && String(p.id) === targetId);
+    if (targetPerm && triggerInfo.damageAmount > 0) {
+      processDamageReceivedTriggers(ctx, targetPerm, triggerInfo.damageAmount, (nextTrigger) => {
+        (game.state as any).pendingDamageTriggers = (game.state as any).pendingDamageTriggers || {};
+        (game.state as any).pendingDamageTriggers[nextTrigger.triggerId] = {
+          sourceId: nextTrigger.sourceId,
+          sourceName: nextTrigger.sourceName,
+          controller: nextTrigger.controller,
+          damageAmount: nextTrigger.damageAmount,
+          triggerType: 'dealt_damage',
+          targetType: nextTrigger.targetType,
+          targetRestriction: nextTrigger.targetRestriction,
+        };
+      });
+    }
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
   // GRAVEYARD EXILE ABILITY ("Exile target card from a graveyard")
   // Activated on a battlefield permanent (e.g., Keen-Eyed Curator style).
   // Costs are already paid at activation time; this step selects the target card.
   // ========================================================================
-  const stepAny = step as any;
   if (stepAny?.graveyardExileAbility === true) {
     const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
     const sourceName = String(stepAny?.cardName || step.sourceName || 'Ability');

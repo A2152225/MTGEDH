@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { emitPendingDamageTriggers } from '../src/socket/game-actions.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('Pending damage triggers (emission)', () => {
   it('does not emit when there are no pending triggers', () => {
-    const emittedTo: any[] = [];
+    const gameId = 'game_1';
+    ResolutionQueueManager.clearAllSteps(gameId);
 
     const emitted = emitPendingDamageTriggers(
       {} as any,
@@ -13,27 +15,37 @@ describe('Pending damage triggers (emission)', () => {
           pendingDamageTriggers: {},
         },
       } as any,
-      'game_1',
-      (_io, playerId, event, payload) => {
-        emittedTo.push({ playerId, event, payload });
-      }
+      gameId
     );
 
     expect(emitted).toBe(0);
-    expect(emittedTo.length).toBe(0);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(0);
   });
 
-  it('emits one prompt per queued trigger with source image when present', () => {
-    const emittedTo: any[] = [];
+  it('enqueues one TARGET_SELECTION step per queued trigger with source image when present', () => {
+    const gameId = 'game_2';
+    ResolutionQueueManager.clearAllSteps(gameId);
 
     const game = {
       state: {
+        players: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
         battlefield: [
           {
             id: 'src_1',
             card: {
               name: 'Brash Taunter',
               image_uris: { small: 'https://example.com/small.jpg' },
+              type_line: 'Creature — Goblin',
+            },
+          },
+          {
+            id: 'perm_1',
+            controller: 'p2',
+            card: {
+              name: 'Grizzly Bears',
+              type_line: 'Creature — Bear',
+              image_uris: { small: 'https://example.com/bears.jpg' },
             },
           },
         ],
@@ -50,22 +62,23 @@ describe('Pending damage triggers (emission)', () => {
       },
     } as any;
 
-    const emitted = emitPendingDamageTriggers({} as any, game, 'game_2', (_io, playerId, event, payload) => {
-      emittedTo.push({ playerId, event, payload });
-    });
+    const emitted = emitPendingDamageTriggers({} as any, game, gameId);
 
     expect(emitted).toBe(1);
-    expect(emittedTo.length).toBe(1);
 
-    expect(emittedTo[0].playerId).toBe('p1');
-    expect(emittedTo[0].event).toBe('damageTriggerTargetRequest');
-    expect(emittedTo[0].payload.gameId).toBe('game_2');
-    expect(emittedTo[0].payload.triggerId).toBe('trig_1');
-    expect(emittedTo[0].payload.source).toEqual({
-      id: 'src_1',
-      name: 'Brash Taunter',
-      imageUrl: 'https://example.com/small.jpg',
-    });
-    expect(emittedTo[0].payload.damageAmount).toBe(5);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+    const step = queue.steps[0] as any;
+
+    expect(step.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect(step.playerId).toBe('p1');
+    expect(step.sourceId).toBe('src_1');
+    expect(step.sourceName).toBe('Brash Taunter');
+    expect(step.sourceImage).toBe('https://example.com/small.jpg');
+    expect(step.damageReceivedTrigger).toBe(true);
+    expect(step.damageTrigger?.triggerId).toBe('trig_1');
+    expect(step.damageTrigger?.damageAmount).toBe(5);
+    expect(Array.isArray(step.validTargets)).toBe(true);
+    expect(step.validTargets.length).toBeGreaterThan(0);
   });
 });
