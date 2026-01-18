@@ -120,7 +120,14 @@ function processTapTriggersForAttackers(
       
       for (const trigger of allTapTriggers) {
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-        const ok = isInterveningIfSatisfied(ctx as any, String(trigger.controllerId), String(trigger.description || trigger.effect || ""));
+        const controller = String(trigger.controllerId || attackingPlayerId);
+        const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+        const ok = isInterveningIfSatisfied(
+          ctx as any,
+          controller,
+          String(trigger.description || trigger.effect || ""),
+          sourcePerm
+        );
         if (ok === false) {
           debug(2, `[combat] Skipping tap trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
           continue;
@@ -1340,7 +1347,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             
             for (const trigger of triggers) {
               // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-              const ok = isInterveningIfSatisfied(ctx as any, String(playerId), String(trigger.description || (trigger as any).effect || ""));
+              const controller = String((trigger as any).controllerId || playerId);
+              const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+              const ok = isInterveningIfSatisfied(
+                ctx as any,
+                controller,
+                String(trigger.description || (trigger as any).effect || ""),
+                sourcePerm
+              );
               if (ok === false) {
                 debug(2, `[combat] Skipping attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
                 continue;
@@ -2031,7 +2045,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             
             for (const trigger of triggers) {
               // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-              const ok = isInterveningIfSatisfied(ctx as any, String(playerId), String(trigger.description || trigger.effect || ""));
+              const controller = String((trigger as any).controllerId || playerId);
+              const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+              const ok = isInterveningIfSatisfied(
+                ctx as any,
+                controller,
+                String(trigger.description || trigger.effect || ""),
+                sourcePerm
+              );
               if (ok === false) {
                 debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
                 continue;

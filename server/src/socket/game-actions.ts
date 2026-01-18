@@ -4828,7 +4828,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         for (const trigger of spellCastTriggers) {
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
           const triggerText = String(trigger.description || trigger.effect || "");
-          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId || playerId), triggerText);
+          const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
+          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId || playerId), triggerText, sourcePerm);
           if (ok === false) {
             debug(2, `[castSpellFromHand] Skipping spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
             continue;
@@ -4960,7 +4961,8 @@ export function registerGameActions(io: Server, socket: Socket) {
                effectLower.includes('tap target'))) {
             // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
             const triggerText = String(trigger.description || trigger.effect || "");
-            const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(playerId), triggerText);
+            const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
+            const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(playerId), triggerText, sourcePerm);
             if (ok === false) {
               debug(2, `[castSpellFromHand] Skipping targeted spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
               continue;
@@ -5048,7 +5050,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         for (const trigger of opponentTriggers) {
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
           const triggerText = String(trigger.description || (trigger as any).effect || "");
-          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId), triggerText);
+          const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
+          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId), triggerText, sourcePerm);
           if (ok === false) {
             debug(2, `[castSpellFromHand] Skipping opponent spell trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
             continue;
@@ -6334,7 +6337,27 @@ export function registerGameActions(io: Server, socket: Socket) {
         triggers: any[],
         triggerType: string
       ) => {
-        debug(2, `[skipToPhase] STOPPING at ${stopStep}: Found ${triggers.length} trigger(s) that must resolve first`);
+        const ctxForInterveningIf = { state: game.state } as any;
+        const battlefield = (game.state as any)?.battlefield || [];
+
+        // Defensive: filter triggers by intervening-if at trigger time BEFORE we decide to stop.
+        // If upstream trigger detection already filtered, this is a no-op.
+        const filteredTriggers = (triggers || []).filter((t: any) => {
+          try {
+            const controller = String(t?.controllerId || turnPlayer || playerId || '').trim();
+            const text = String(t?.description || t?.effect || '').trim();
+            const sourcePerm = battlefield.find((p: any) => p?.id === t?.permanentId);
+            const ok = isInterveningIfSatisfied(ctxForInterveningIf, controller, text, sourcePerm);
+            return ok !== false;
+          } catch {
+            // Conservative fallback: keep the trigger if evaluation fails.
+            return true;
+          }
+        });
+
+        if (filteredTriggers.length === 0) return;
+
+        debug(2, `[skipToPhase] STOPPING at ${stopStep}: Found ${filteredTriggers.length} trigger(s) that must resolve first`);
         
         // Stop at this phase instead of going directly to target
         (game.state as any).phase = stopPhase;
@@ -6352,7 +6375,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Group triggers by controller for APNAP ordering
         const triggersByController = new Map<string, typeof triggers>();
-        for (const trigger of triggers) {
+        for (const trigger of filteredTriggers) {
           const controller = trigger.controllerId || turnPlayer;
           const existing = triggersByController.get(controller) || [];
           existing.push(trigger);
@@ -6367,6 +6390,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process triggers in APNAP order
         for (const playerId of orderedPlayers) {
+          if (!playerId) continue;
+
           const playerTriggers = triggersByController.get(playerId) || [];
           if (playerTriggers.length === 0) continue;
           
@@ -6437,7 +6462,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Give priority to active player
         (game.state as any).priority = turnPlayer;
         
-        debug(2, `[skipToPhase] Set phase to ${stopStep} with ${triggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
+        debug(2, `[skipToPhase] Set phase to ${stopStep} with ${filteredTriggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
         
         // Broadcast the updated game state
         broadcastGame(io, game, gameId);

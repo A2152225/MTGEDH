@@ -988,6 +988,19 @@ export function triggerETBEffectsForToken(
         
         // Determine trigger controller
         const triggerController = perm.controller || controller;
+
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        // These ETB triggers come from OTHER permanents (not the entering token), so we must filter here.
+        try {
+          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+          if (satisfied === false) {
+            debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
         
         // Push trigger onto the stack
         state.stack = state.stack || [];
@@ -1021,6 +1034,18 @@ export function triggerETBEffectsForToken(
         if (controller !== triggerController) {
           continue; // Skip - entering permanent is not controlled by trigger's controller
         }
+
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        try {
+          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+          if (satisfied === false) {
+            debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
         
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
@@ -1042,6 +1067,18 @@ export function triggerETBEffectsForToken(
       // permanent_etb triggers (Altar of the Brood style - triggers on ANY permanent)
       if (trigger.triggerType === 'permanent_etb') {
         const triggerController = perm.controller || controller;
+
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        try {
+          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+          if (satisfied === false) {
+            debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
         
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
@@ -1066,6 +1103,18 @@ export function triggerETBEffectsForToken(
         const triggerController = perm.controller;
         // Only fire if the entering creature is controlled by an opponent of the trigger controller
         if (triggerController && triggerController !== controller) {
+          // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+          try {
+            const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+            const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+            if (satisfied === false) {
+              debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+              continue;
+            }
+          } catch {
+            // Conservative fallback: keep the trigger if evaluation fails.
+          }
+
           state.stack = state.stack || [];
           const triggerId = uid("trigger");
           
@@ -1144,6 +1193,19 @@ export function triggerETBEffectsForPermanent(
         const triggerController = perm.controller || controller;
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
+
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        // These ETB triggers come from OTHER permanents (not the entering permanent), so we must filter here.
+        try {
+          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+          if (satisfied === false) {
+            debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
         
         state.stack.push({
           id: triggerId,
@@ -1173,6 +1235,18 @@ export function triggerETBEffectsForPermanent(
         if (controller !== triggerController) {
           continue; // Skip - entering permanent is not controlled by trigger's controller
         }
+
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        try {
+          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+          if (satisfied === false) {
+            debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
         
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
@@ -1194,6 +1268,18 @@ export function triggerETBEffectsForPermanent(
       // permanent_etb triggers (Altar of the Brood style)
       if (trigger.triggerType === 'permanent_etb') {
         const triggerController = perm.controller || controller;
+
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        try {
+          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+          if (satisfied === false) {
+            debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
@@ -1217,6 +1303,18 @@ export function triggerETBEffectsForPermanent(
         const triggerController = perm.controller;
         // Only fire if the entering creature is controlled by an opponent of the trigger controller
         if (triggerController && triggerController !== controller) {
+          // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+          try {
+            const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+            const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), desc, perm);
+            if (satisfied === false) {
+              debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
+              continue;
+            }
+          } catch {
+            // Conservative fallback: keep the trigger if evaluation fails.
+          }
+
           state.stack = state.stack || [];
           const triggerId = uid("trigger");
           
@@ -9104,6 +9202,18 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         if (trigger.triggerType === 'etb_sacrifice_unless_pay') {
           continue;
         }
+
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        try {
+          const desc = String(trigger.description || trigger.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(playerId), desc, newPermanent);
+          if (satisfied === false) {
+            debug(2, `[playLand] Skipping land ETB trigger due to unmet intervening-if: ${card.name || 'Land'} - ${desc}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
         
         // Push trigger onto the stack as a triggered_ability (not etb-trigger)
         // This ensures it's properly handled in resolveTopOfStack without going to graveyard
@@ -9143,6 +9253,20 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       
       // Push each landfall trigger onto the stack
       for (const trigger of landfallTriggers) {
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        // Landfall triggers are sourced from existing permanents; use that permanent as source context.
+        try {
+          const sourcePerm = state.battlefield?.find((p: any) => p?.id === trigger.permanentId);
+          const text = String(trigger.effect || '').trim();
+          const satisfied = isInterveningIfSatisfied(ctx as any, String(playerId), text, sourcePerm);
+          if (satisfied === false) {
+            debug(2, `[playLand] Skipping landfall trigger due to unmet intervening-if: ${trigger.cardName} - ${text}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
+        }
+
         const triggerId = uid("trigger");
         state.stack.push({
           id: triggerId,

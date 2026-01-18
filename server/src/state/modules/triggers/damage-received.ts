@@ -191,7 +191,7 @@ export function processDamageReceivedTriggers(
   try {
     const controllerId = String(triggerInfo.controllerId || permanent.controller || "");
     const text = String(triggerInfo.oracleTextForInterveningIf || "").trim();
-    const ok = isInterveningIfSatisfied(ctx, controllerId, text);
+    const ok = isInterveningIfSatisfied(ctx, controllerId, text, permanent);
     if (ok === false) return;
   } catch {
     // Conservative fallback: keep the trigger if evaluation fails.

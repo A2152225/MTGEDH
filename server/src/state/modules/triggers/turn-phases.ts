@@ -179,7 +179,7 @@ export function getEndStepTriggers(
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
       const interveningText = trigger.effect || trigger.description || '';
-      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
       if (ok === false) continue;
 
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
@@ -333,7 +333,7 @@ export function getDrawStepTriggers(
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
       const interveningText = trigger.effect || trigger.description || '';
-      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
       if (ok === false) continue;
 
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();

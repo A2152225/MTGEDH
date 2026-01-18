@@ -96,7 +96,7 @@ export function getCardDrawTriggers(
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
       const interveningText = trigger.effect || '';
-      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permController, interveningText);
+      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permController, interveningText, permanent);
       if (ok === false) continue;
 
       // Check if this trigger applies

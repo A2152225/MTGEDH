@@ -377,7 +377,15 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         state.stack = state.stack || [];
         for (const trigger of deathTriggers) {
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-          const ok = isInterveningIfSatisfied(ctx as any, String(trigger.source.controllerId), String(trigger.effect || ''));
+          const sourcePerm = trigger?.source?.permanentId === perm.id
+            ? perm
+            : (state.battlefield || []).find((p: any) => p?.id === trigger?.source?.permanentId);
+          const ok = isInterveningIfSatisfied(
+            ctx as any,
+            String(trigger.source.controllerId),
+            String(trigger.effect || ''),
+            sourcePerm
+          );
           if (ok === false) continue;
 
           const triggerId = uid("trigger");
@@ -779,7 +787,15 @@ export function runSBA(ctx: GameContext) {
               state.stack = state.stack || [];
               for (const trigger of deathTriggers) {
                 // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-                const ok = isInterveningIfSatisfied(ctx as any, String(trigger.source.controllerId), String(trigger.effect || ''));
+                const sourcePerm = trigger?.source?.permanentId === destroyed.id
+                  ? destroyed
+                  : (state.battlefield || []).find((p: any) => p?.id === trigger?.source?.permanentId);
+                const ok = isInterveningIfSatisfied(
+                  ctx as any,
+                  String(trigger.source.controllerId),
+                  String(trigger.effect || ''),
+                  sourcePerm
+                );
                 if (ok === false) continue;
 
                 const triggerId = uid("trigger");

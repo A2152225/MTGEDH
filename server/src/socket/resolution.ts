@@ -10760,7 +10760,7 @@ async function putCardOntoBattlefield(
   for (const trigger of allTriggers) {
     if (selfETBTriggerTypes.has(trigger.triggerType)) {
       const triggerText = String(trigger.description || trigger.effect || "");
-      const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(controller), triggerText);
+      const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(controller), triggerText, newPermanent);
       if (ok === false) continue;
 
       state.stack = state.stack || [];

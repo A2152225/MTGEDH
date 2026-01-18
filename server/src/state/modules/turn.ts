@@ -1436,6 +1436,19 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           
           for (const trigger of batchedTriggers) {
             debug(2, `${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
+
+            // Intervening-if (CR 603.4): if recognized and false at trigger time, it doesn't trigger.
+            // These batched triggers are executed immediately here, so filter before executing.
+            try {
+              const text = String(trigger.description || trigger.effect || '');
+              const ok = isInterveningIfSatisfied(ctx as any, String(controllerId), text, perm);
+              if (ok === false) {
+                debug(2, `${ts()} [dealCombatDamage] Skipping batched trigger from ${trigger.cardName} due to intervening-if being false: ${text}`);
+                continue;
+              }
+            } catch {
+              // Defensive: if evaluation fails, do not block.
+            }
             
             const effectLower = (trigger.description || trigger.effect || '').toLowerCase();
             

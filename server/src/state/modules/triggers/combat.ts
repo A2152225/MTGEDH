@@ -958,7 +958,7 @@ export function getBeginningOfCombatTriggers(
       if (hasOnYourTurn) {
         if (permanent.controller === activePlayerId) {
           const interveningText = trigger.effect || trigger.description || '';
-          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
           if (ok !== false) {
             triggers.push(trigger);
             triggerCount++;
@@ -966,14 +966,14 @@ export function getBeginningOfCombatTriggers(
         }
       } else if (hasEachCombat) {
         const interveningText = trigger.effect || trigger.description || '';
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
         }
       } else if (permanent.controller === activePlayerId) {
         const interveningText = trigger.effect || trigger.description || '';
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
@@ -1031,7 +1031,7 @@ export function getEndOfCombatTriggers(
     const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent);
     for (const trigger of permTriggers) {
       const interveningText = trigger.effect || trigger.description || '';
-      const ok = isInterveningIfSatisfied(ctx, (trigger as any).controllerId || permanent.controller, interveningText);
+      const ok = isInterveningIfSatisfied(ctx, (trigger as any).controllerId || permanent.controller, interveningText, permanent);
       if (ok === false) continue;
       triggers.push(trigger);
     }

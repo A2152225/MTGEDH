@@ -4,6 +4,88 @@ import type { PlayerID } from '../../shared/src';
 import { triggerETBEffectsForPermanent } from '../src/state/modules/stack';
 
 describe('Intervening-if ETB triggers', () => {
+  it('does not put other-permanent creature ETB trigger on the stack when intervening-if condition is false', () => {
+    const g = createInitialGameState('t_intervening_if_other_perm_creature_etb_false');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const watcher = {
+      id: 'watcher_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'watcher_card',
+        name: 'Artifactless Watcher',
+        type_line: 'Creature — Human',
+        oracle_text:
+          'Whenever another creature enters the battlefield under your control, if you control an artifact, draw a card.',
+      },
+      tapped: false,
+    };
+
+    const entering = {
+      id: 'bear_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'bear_card',
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+        oracle_text: '',
+      },
+      tapped: false,
+    };
+
+    // Battlefield contains the watcher and the entering creature, but NO artifacts.
+    (g.state.battlefield as any).push(watcher);
+    (g.state.battlefield as any).push(entering);
+
+    // Trigger ETB processing for the entering creature (this should check other permanents' ETB triggers).
+    triggerETBEffectsForPermanent(g as any, entering, p1);
+
+    const stack = (g.state.stack || []) as any[];
+    const trigger = stack.find((s) => s?.type === 'triggered_ability' && s?.sourceName === 'Artifactless Watcher');
+    expect(trigger).toBeUndefined();
+
+    // If we gain an artifact later, the next qualifying ETB should trigger.
+    const artifact = {
+      id: 'artifact_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'artifact_card',
+        name: 'Sol Ring',
+        type_line: 'Artifact',
+        oracle_text: '',
+      },
+      tapped: false,
+    };
+    (g.state.battlefield as any).push(artifact);
+
+    const entering2 = {
+      id: 'bear_2',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'bear_card_2',
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+        oracle_text: '',
+      },
+      tapped: false,
+    };
+    (g.state.battlefield as any).push(entering2);
+    triggerETBEffectsForPermanent(g as any, entering2, p1);
+
+    const stackAfterArtifact = (g.state.stack || []) as any[];
+    expect(
+      stackAfterArtifact.some((s) => s?.type === 'triggered_ability' && s?.sourceName === 'Artifactless Watcher')
+    ).toBe(true);
+  });
+
   it('does not put Acclaimed Contender ETB trigger on the stack when "another Knight" condition is false', () => {
     const g = createInitialGameState('t_intervening_if_contender_false');
 
