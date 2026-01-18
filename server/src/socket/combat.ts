@@ -120,17 +120,22 @@ function processTapTriggersForAttackers(
       
       for (const trigger of allTapTriggers) {
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-        const controller = String(trigger.controllerId || attackingPlayerId);
-        const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
-        const ok = isInterveningIfSatisfied(
-          ctx as any,
-          controller,
-          String(trigger.description || trigger.effect || ""),
-          sourcePerm
-        );
-        if (ok === false) {
-          debug(2, `[combat] Skipping tap trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
-          continue;
+        const triggerControllerId = (trigger.controllerId || attackingPlayerId) as PlayerID;
+        try {
+          const controller = String(triggerControllerId);
+          const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+          const ok = isInterveningIfSatisfied(
+            ctx as any,
+            controller,
+            String(trigger.description || trigger.effect || ""),
+            sourcePerm
+          );
+          if (ok === false) {
+            debug(2, `[combat] Skipping tap trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+            continue;
+          }
+        } catch {
+          // Conservative fallback: keep the trigger if evaluation fails.
         }
 
         // Push trigger onto stack
@@ -139,7 +144,7 @@ function processTapTriggersForAttackers(
         const stackItem: any = {
           id: triggerId,
           type: 'triggered_ability',
-          controller: trigger.controllerId,
+          controller: triggerControllerId,
           source: trigger.permanentId,
           sourceName: trigger.cardName,
           description: trigger.description,
@@ -161,7 +166,7 @@ function processTapTriggersForAttackers(
         io.to(gameId).emit("triggeredAbility", {
           gameId,
           triggerId,
-          playerId: trigger.controllerId,
+          playerId: triggerControllerId,
           sourcePermanentId: trigger.permanentId,
           sourceName: trigger.cardName,
           triggerType: 'tap',
@@ -1347,17 +1352,22 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             
             for (const trigger of triggers) {
               // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-              const controller = String((trigger as any).controllerId || playerId);
-              const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
-              const ok = isInterveningIfSatisfied(
-                ctx as any,
-                controller,
-                String(trigger.description || (trigger as any).effect || ""),
-                sourcePerm
-              );
-              if (ok === false) {
-                debug(2, `[combat] Skipping attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
-                continue;
+              const triggerControllerId = ((trigger as any).controllerId || playerId) as PlayerID;
+              try {
+                const controller = String(triggerControllerId);
+                const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+                const ok = isInterveningIfSatisfied(
+                  ctx as any,
+                  controller,
+                  String(trigger.description || (trigger as any).effect || ""),
+                  sourcePerm
+                );
+                if (ok === false) {
+                  debug(2, `[combat] Skipping attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+                  continue;
+                }
+              } catch {
+                // Conservative fallback: keep the trigger if evaluation fails.
               }
 
               // Check if this is an optional mana payment trigger
@@ -1372,7 +1382,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   cardName: trigger.cardName,
                   effect: trigger.effect,
                   manaCost: trigger.manaCost,
-                  controller: playerId,
+                  controller: triggerControllerId,
                   description: trigger.description,
                 };
                 
@@ -1382,7 +1392,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                                     permanent?.card?.image_uris?.normal;
                 
                 // Emit payment prompt to the controlling player
-                emitToPlayer(io, playerId, "attackTriggerManaPaymentPrompt", {
+                emitToPlayer(io, triggerControllerId, "attackTriggerManaPaymentPrompt", {
                   gameId,
                   triggerId,
                   permanentId: trigger.permanentId,
@@ -1466,7 +1476,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 const stackItem: any = {
                   id: triggerId,
                   type: 'triggered_ability',
-                  controller: playerId,
+                  controller: triggerControllerId,
                   source: trigger.permanentId,
                   sourceName: trigger.cardName,
                   description: trigger.description,
@@ -1487,7 +1497,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 io.to(gameId).emit("triggeredAbility", {
                   gameId,
                   triggerId,
-                  playerId,
+                  playerId: triggerControllerId,
                   sourcePermanentId: trigger.permanentId,
                   sourceName: trigger.cardName,
                   triggerType: trigger.triggerType,
@@ -2045,17 +2055,22 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             
             for (const trigger of triggers) {
               // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-              const controller = String((trigger as any).controllerId || playerId);
-              const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
-              const ok = isInterveningIfSatisfied(
-                ctx as any,
-                controller,
-                String(trigger.description || trigger.effect || ""),
-                sourcePerm
-              );
-              if (ok === false) {
-                debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
-                continue;
+              const triggerControllerId = ((trigger as any).controllerId || playerId) as PlayerID;
+              try {
+                const controller = String(triggerControllerId);
+                const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+                const ok = isInterveningIfSatisfied(
+                  ctx as any,
+                  controller,
+                  String(trigger.description || trigger.effect || ""),
+                  sourcePerm
+                );
+                if (ok === false) {
+                  debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+                  continue;
+                }
+              } catch {
+                // Conservative fallback: keep the trigger if evaluation fails.
               }
 
               // Push onto stack
@@ -2064,7 +2079,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               const stackItem: any = {
                 id: triggerId,
                 type: 'triggered_ability',
-                controller: playerId,
+                controller: triggerControllerId,
                 source: trigger.permanentId,
                 sourceName: trigger.cardName,
                 description: trigger.description,
@@ -2079,7 +2094,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               io.to(gameId).emit("triggeredAbility", {
                 gameId,
                 triggerId,
-                playerId,
+                playerId: triggerControllerId,
                 sourcePermanentId: trigger.permanentId,
                 sourceName: trigger.cardName,
                 triggerType: 'blocks',
