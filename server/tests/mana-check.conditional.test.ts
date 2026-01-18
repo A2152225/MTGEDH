@@ -88,6 +88,9 @@ describe('Conditional Mana Sources', () => {
       expect(mana.red).toBe(1); // From Exotic Orchard mirroring opponent's Mountain
       expect(mana.green).toBe(1); // From Exotic Orchard mirroring opponent's Forest
       expect(mana.colorless).toBe(0);
+
+      // Conditional sources should not be treated as unconditional "anyColor" sources
+      expect((mana as any).anyColor || 0).toBe(0);
     });
 
     it('should not allow casting 4-color commander with insufficient colors', () => {
@@ -570,6 +573,9 @@ describe('Conditional Mana Sources', () => {
       expect(mana.black).toBe(0);
       expect(mana.red).toBe(0);
       expect(mana.green).toBe(0);
+
+      // Conditional sources should not be treated as unconditional "anyColor" sources
+      expect((mana as any).anyColor || 0).toBe(0);
     });
 
     it('should work with mana-producing artifacts (not just lands)', () => {

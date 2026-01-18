@@ -35,6 +35,60 @@ import {
   detectAdditionalCost,
 } from "./land-helpers";
 
+/**
+ * Emit any queued damage-received triggers to the appropriate controllers.
+ *
+ * These triggers are queued into `game.state.pendingDamageTriggers` by state modules
+ * (combat damage, fight, spell damage, etc) and are emitted after priority handling.
+ *
+ * Returns the number of trigger prompts emitted.
+ */
+export function emitPendingDamageTriggers(
+  io: Server,
+  game: InMemoryGame,
+  gameId: string,
+  emitFn: (io: Server, playerId: string, event: string, payload: any) => void = emitToPlayer
+): number {
+  const pendingTriggers = (game.state as any).pendingDamageTriggers;
+  if (!pendingTriggers || typeof pendingTriggers !== "object") return 0;
+
+  const triggerIds = Object.keys(pendingTriggers);
+  if (triggerIds.length === 0) return 0;
+
+  let emitted = 0;
+
+  for (const triggerId of triggerIds) {
+    const trigger = pendingTriggers[triggerId];
+    if (!trigger) continue;
+
+    const { sourceId, sourceName, controller, damageAmount, targetType, targetRestriction } = trigger;
+
+    const battlefield = (game.state as any).battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p?.id === sourceId);
+    const imageUrl = sourcePerm?.card?.image_uris?.small || sourcePerm?.card?.image_uris?.normal;
+
+    emitFn(io, controller, "damageTriggerTargetRequest", {
+      gameId,
+      triggerId,
+      source: {
+        id: sourceId,
+        name: sourceName,
+        imageUrl,
+      },
+      damageAmount,
+      targetType,
+      targetRestriction: targetRestriction || "",
+      title: `${sourceName} - Damage Trigger`,
+      description: `${sourceName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ""}.`,
+    });
+
+    emitted++;
+    debug(2, `[emitPendingDamageTriggers] Emitted damage trigger for ${sourceName} (${damageAmount} damage) to ${controller}`);
+  }
+
+  return emitted;
+}
+
 // Note: SHOCK_LANDS, BOUNCE_LANDS, isShockLand, isBounceLand, detectScryOnETB, 
 // detectSacrificeUnlessPayETB, detectETBTappedPattern, evaluateConditionalLandETB,
 // getLandSubtypes are now imported from ./land-helpers.ts
@@ -5507,42 +5561,7 @@ export function registerGameActions(io: Server, socket: Socket) {
    * - Spell damage effects
    */
   function checkAndEmitDamageTriggers(io: Server, game: InMemoryGame, gameId: string) {
-    const pendingTriggers = (game.state as any).pendingDamageTriggers;
-    if (!pendingTriggers || typeof pendingTriggers !== 'object') return;
-    
-    const triggerIds = Object.keys(pendingTriggers);
-    if (triggerIds.length === 0) return;
-    
-    // Emit each pending trigger to its controller
-    for (const triggerId of triggerIds) {
-      const trigger = pendingTriggers[triggerId];
-      if (!trigger) continue;
-      
-      const { sourceId, sourceName, controller, damageAmount, targetType, targetRestriction } = trigger;
-      
-      // Find the source permanent to get its image
-      const battlefield = (game.state as any).battlefield || [];
-      const sourcePerm = battlefield.find((p: any) => p?.id === sourceId);
-      const imageUrl = sourcePerm?.card?.image_uris?.small || sourcePerm?.card?.image_uris?.normal;
-      
-      // Emit trigger to the controller for target selection
-      emitToPlayer(io, controller, "damageTriggerTargetRequest", {
-        gameId,
-        triggerId,
-        source: {
-          id: sourceId,
-          name: sourceName,
-          imageUrl,
-        },
-        damageAmount,
-        targetType,
-        targetRestriction: targetRestriction || '',
-        title: `${sourceName} - Damage Trigger`,
-        description: `${sourceName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
-      });
-      
-      debug(2, `[checkAndEmitDamageTriggers] Emitted damage trigger for ${sourceName} (${damageAmount} damage) to ${controller}`);
-    }
+    emitPendingDamageTriggers(io, game, gameId);
   }
 
   /**
