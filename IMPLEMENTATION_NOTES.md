@@ -3,7 +3,7 @@
 ## Issues Addressed
 
 ### Issue #1: Steel Hellkite X Ability Support
-**Status**: ✅ Infrastructure Complete (Backend game logic pending)
+**Status**: ✅ Infrastructure Complete (Initial backend support added; more patterns pending)
 
 Implemented complete UI and protocol support for activated abilities with X in their cost (e.g., Steel Hellkite's `{X}: Destroy all nonland permanents with mana value X`).
 
@@ -151,14 +151,10 @@ async function processActivateAbility(
 
 ### For X Abilities:
 
-1. **Backend Game Logic** (Card-Specific):
-   - The infrastructure is complete, but card-specific logic needs implementation
-   - Similar to how `rules-engine/src/xSpells.ts` handles X spells
-   - Need to implement X ability resolution in `processActivateAbility`
-   - Examples to implement:
-     - Steel Hellkite: `{X}: Destroy all nonland permanents with mana value X`
-     - Chalice of the Void: ETB with X counters
-     - Hangarback Walker: ETB with X +1/+1 counters
+1. **Backend Coverage** (still incomplete):
+  - Pattern-based X activated abilities are detected and routed through the Resolution Queue.
+  - Execution exists for a small set of patterns (and some variants are still stubbed).
+  - Remaining work is expanding pattern coverage and correctness for more cards/wordings.
 
 2. **Mana Calculation**:
    - Calculate available mana to set suggested max X value
@@ -167,7 +163,7 @@ async function processActivateAbility(
 
 3. **Testing**:
    - Manual UI testing
-   - Create test cases for specific X abilities
+  - Create test cases for specific X abilities/patterns
    - Verify X value is properly applied in game effects
 
 ### For Commander Casting:

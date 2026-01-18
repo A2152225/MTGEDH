@@ -95,7 +95,7 @@ export interface InMemoryGame {
   getPendingInteractions?: () => any;
 
   // Event lifecycle
-  applyEvent?: (e: GameEvent) => void;
+  applyEvent: (e: GameEvent) => void;
   replay?: (events: GameEvent[]) => void;
   reset?: (preservePlayers?: boolean) => void;
   skip?: (playerId: PlayerID) => void;
