@@ -4,6 +4,7 @@ import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid, parsePT, parseWordNumber } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
+import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager } from "../resolution/index.js";
@@ -375,6 +376,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         // Push death triggers onto the stack
         state.stack = state.stack || [];
         for (const trigger of deathTriggers) {
+          // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+          const ok = isInterveningIfSatisfied(ctx as any, String(trigger.source.controllerId), String(trigger.effect || ''));
+          if (ok === false) continue;
+
           const triggerId = uid("trigger");
           state.stack.push({
             id: triggerId,
@@ -773,6 +778,10 @@ export function runSBA(ctx: GameContext) {
               // Push death triggers onto the stack
               state.stack = state.stack || [];
               for (const trigger of deathTriggers) {
+                // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+                const ok = isInterveningIfSatisfied(ctx as any, String(trigger.source.controllerId), String(trigger.effect || ''));
+                if (ok === false) continue;
+
                 const triggerId = uid("trigger");
                 state.stack.push({
                   id: triggerId,

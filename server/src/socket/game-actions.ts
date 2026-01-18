@@ -11,6 +11,7 @@ import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selec
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
+import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
@@ -4809,8 +4810,30 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check for spell-cast triggers (Jeskai Ascendancy, Beast Whisperer, etc.)
       try {
+        // Track spells cast this turn (for Storm and other "cast this turn" checks)
+        try {
+          game.state.spellsCastThisTurn = game.state.spellsCastThisTurn || [];
+          game.state.spellsCastThisTurn.push({
+            id: cardId,
+            name: cardInHand?.name,
+            casterId: playerId,
+            ts: Date.now(),
+          });
+        } catch (err) {
+          debugWarn(2, '[castSpellFromHand] Failed to track spellsCastThisTurn:', err);
+        }
+
+        const ctxForInterveningIf = { state: game.state } as any;
         const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand);
         for (const trigger of spellCastTriggers) {
+          // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+          const triggerText = String(trigger.description || trigger.effect || "");
+          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId || playerId), triggerText);
+          if (ok === false) {
+            debug(2, `[castSpellFromHand] Skipping spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
+            continue;
+          }
+
           debug(2, `[castSpellFromHand] Triggered: ${trigger.cardName} - ${trigger.description}`);
           
           // Handle different trigger effects
@@ -4935,6 +4958,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               (effectLower.includes('tap or untap target') || 
                effectLower.includes('untap target') ||
                effectLower.includes('tap target'))) {
+            // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+            const triggerText = String(trigger.description || trigger.effect || "");
+            const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(playerId), triggerText);
+            if (ok === false) {
+              debug(2, `[castSpellFromHand] Skipping targeted spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
+              continue;
+            }
+
             // Push to stack for target selection
             game.state.stack = game.state.stack || [];
             const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -4990,6 +5021,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         const allPlayerIds = (game.state?.players || []).map((p: any) => p.id);
         const battlefield = game.state?.battlefield || [];
+        const ctxForInterveningIf = { state: game.state } as any;
         
         // Track if this is the first noncreature spell the caster has cast this turn
         const spellTypeLine = (cardInHand?.type_line || '').toLowerCase();
@@ -5014,6 +5046,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         );
         
         for (const trigger of opponentTriggers) {
+          // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+          const triggerText = String(trigger.description || (trigger as any).effect || "");
+          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId), triggerText);
+          if (ok === false) {
+            debug(2, `[castSpellFromHand] Skipping opponent spell trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
+            continue;
+          }
+
           debug(2, `[castSpellFromHand] Opponent spell trigger: ${trigger.cardName} - ${trigger.description}`);
           
           // Push the trigger to the stack for resolution

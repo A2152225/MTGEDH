@@ -6,6 +6,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { isInterveningIfSatisfied } from "./intervening-if.js";
 
 export interface CardDrawTrigger {
   permanentId: string;
@@ -91,6 +92,13 @@ export function getCardDrawTriggers(
     const permTriggers = detectCardDrawTriggers(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
+      // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
+      // would trigger, the ability does not trigger and should not be put on the stack.
+      // If the condition is unrecognized, keep the trigger (conservative fallback).
+      const interveningText = trigger.effect || '';
+      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permController, interveningText);
+      if (ok === false) continue;
+
       // Check if this trigger applies
       switch (trigger.triggerType) {
         case "opponent_draws":

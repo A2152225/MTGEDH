@@ -51,6 +51,7 @@ import {
   KNOWN_PRECOMBAT_MAIN_TRIGGERS,
 } from "./triggers/card-data-tables.js";
 import { escapeCardNameForRegex } from "./triggers/types.js";
+import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 
 // Re-export from modularized submodules
 export { calculateDevotion, getDevotionManaAmount } from "./triggers/devotion.js";
@@ -2056,24 +2057,42 @@ export function getBeginningOfCombatTriggers(
       // "At the beginning of combat on your turn" - only for controller on their turn
       if (hasOnYourTurn) {
         if (permanent.controller === activePlayerId) {
-          triggers.push(trigger);
-          triggerCount++;
-          debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on YOUR turn (controller=${permanent.controller}, active=${activePlayerId})`);
+          const interveningText = trigger.effect || trigger.description || '';
+          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+          if (ok !== false) {
+            triggers.push(trigger);
+            triggerCount++;
+            debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on YOUR turn (controller=${permanent.controller}, active=${activePlayerId})`);
+          } else {
+            debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - unmet intervening-if at trigger time`);
+          }
         } else {
           debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - not controller's turn (controller=${permanent.controller}, active=${activePlayerId})`);
         }
       }
       // "At the beginning of each combat" - triggers regardless of whose combat
       else if (hasEachCombat) {
-        triggers.push(trigger);
-        triggerCount++;
-        debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on EACH combat`);
+        const interveningText = trigger.effect || trigger.description || '';
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        if (ok !== false) {
+          triggers.push(trigger);
+          triggerCount++;
+          debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on EACH combat`);
+        } else {
+          debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - unmet intervening-if at trigger time`);
+        }
       }
       // Default: if no explicit timing is specified, assume "on your turn"
       else if (permanent.controller === activePlayerId) {
-        triggers.push(trigger);
-        triggerCount++;
-        debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers (default - controller's turn)`);
+        const interveningText = trigger.effect || trigger.description || '';
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        if (ok !== false) {
+          triggers.push(trigger);
+          triggerCount++;
+          debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers (default - controller's turn)`);
+        } else {
+          debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - unmet intervening-if at trigger time`);
+        }
       } else {
         debug(2, `[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - default assumes 'on your turn' (controller=${permanent.controller}, active=${activePlayerId})`);
       }

@@ -10750,9 +10750,19 @@ async function putCardOntoBattlefield(
     'etb_create_token',
     'etb_counter',
   ]);
+
+  // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+  // This path bypasses the usual ETB trigger plumbing in stack.ts, so we must filter here.
+  const { isInterveningIfSatisfied } = await import("../state/modules/triggers/intervening-if.js");
+  const ctxForInterveningIf = { state } as any;
+
   const allTriggers = getETBTriggersForPermanent(card, newPermanent);
   for (const trigger of allTriggers) {
     if (selfETBTriggerTypes.has(trigger.triggerType)) {
+      const triggerText = String(trigger.description || trigger.effect || "");
+      const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(controller), triggerText);
+      if (ok === false) continue;
+
       state.stack = state.stack || [];
       state.stack.push({
         id: uid("trigger"),

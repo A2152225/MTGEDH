@@ -11,6 +11,7 @@ import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { getAttackTriggersForCreatures } from "../state/modules/triggers/combat.js";
+import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -118,6 +119,13 @@ function processTapTriggersForAttackers(
       debug(2, `[combat] Found ${allTapTriggers.length} tap trigger(s) for game ${gameId}`);
       
       for (const trigger of allTapTriggers) {
+        // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+        const ok = isInterveningIfSatisfied(ctx as any, String(trigger.controllerId), String(trigger.description || trigger.effect || ""));
+        if (ok === false) {
+          debug(2, `[combat] Skipping tap trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+          continue;
+        }
+
         // Push trigger onto stack
         game.state.stack = game.state.stack || [];
         const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1331,6 +1339,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             debug(2, `[combat] Found ${triggers.length} attack trigger(s) for game ${gameId}`);
             
             for (const trigger of triggers) {
+              // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+              const ok = isInterveningIfSatisfied(ctx as any, String(playerId), String(trigger.description || (trigger as any).effect || ""));
+              if (ok === false) {
+                debug(2, `[combat] Skipping attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+                continue;
+              }
+
               // Check if this is an optional mana payment trigger
               if (trigger.manaCost && !trigger.mandatory) {
                 // Don't auto-push to stack - instead emit a payment prompt
@@ -2015,6 +2030,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             debug(2, `[combat] Found ${triggers.length} block trigger(s) for game ${gameId}`);
             
             for (const trigger of triggers) {
+              // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
+              const ok = isInterveningIfSatisfied(ctx as any, String(playerId), String(trigger.description || trigger.effect || ""));
+              if (ok === false) {
+                debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
+                continue;
+              }
+
               // Push onto stack
               game.state.stack = game.state.stack || [];
               const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

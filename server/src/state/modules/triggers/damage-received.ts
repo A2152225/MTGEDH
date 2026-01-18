@@ -19,6 +19,25 @@
 
 import type { GameContext } from "../../context.js";
 import { KNOWN_DAMAGE_RECEIVED_TRIGGERS, KNOWN_DAMAGE_RECEIVED_AURAS, KNOWN_DAMAGE_RECEIVED_EQUIPMENT } from "./card-data-tables.js";
+import { isInterveningIfSatisfied } from "./intervening-if.js";
+
+function escapeRegex(text: string): string {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractDamageReceivedAbilityText(oracleText: string, creatureName: string): string | null {
+  const raw = String(oracleText || "");
+  const nameEscaped = escapeRegex(String(creatureName || ""));
+
+  const pattern = new RegExp(
+    `(whenever\\s+(?:this creature|${nameEscaped}|enchanted creature|equipped creature)\\s+is\\s+dealt\\s+damage[^.]*)(?:\\.|$)`,
+    "i"
+  );
+
+  const m = raw.match(pattern);
+  if (!m) return null;
+  return String(m[1] || "").trim();
+}
 
 /**
  * Information about a damage trigger that needs target selection
@@ -46,19 +65,22 @@ export interface DamageTriggerInfo {
 export function getDamageReceivedTrigger(
   permanent: any,
   state: any
-): { targetType: string; effect: string; targetRestriction?: string } | null {
+): { controllerId: string; targetType: string; effect: string; targetRestriction?: string; oracleTextForInterveningIf?: string } | null {
   if (!permanent) return null;
 
   const card = permanent.card || {};
   const oracleText = (card.oracle_text || "").toLowerCase();
   const creatureName = (card.name || "").toLowerCase();
+  const oracleTextForInterveningIf = extractDamageReceivedAbilityText(card.oracle_text || "", card.name || "") || (card.oracle_text || "");
 
   // Check known cards table first (for optimization)
   if (KNOWN_DAMAGE_RECEIVED_TRIGGERS[creatureName]) {
     const triggerInfo = KNOWN_DAMAGE_RECEIVED_TRIGGERS[creatureName];
     return {
+      controllerId: permanent.controller,
       targetType: triggerInfo.targetType,
       effect: triggerInfo.effect,
+      oracleTextForInterveningIf,
     };
   }
 
@@ -72,16 +94,24 @@ export function getDamageReceivedTrigger(
         if (KNOWN_DAMAGE_RECEIVED_AURAS[attachmentName]) {
           const triggerInfo = KNOWN_DAMAGE_RECEIVED_AURAS[attachmentName];
           return {
+            controllerId: attachment.controller || permanent.controller,
             targetType: triggerInfo.targetType,
             effect: triggerInfo.effect,
+            oracleTextForInterveningIf:
+              extractDamageReceivedAbilityText(attachment.card?.oracle_text || "", attachment.card?.name || "") ||
+              (attachment.card?.oracle_text || ""),
           };
         }
         
         if (KNOWN_DAMAGE_RECEIVED_EQUIPMENT[attachmentName]) {
           const triggerInfo = KNOWN_DAMAGE_RECEIVED_EQUIPMENT[attachmentName];
           return {
+            controllerId: attachment.controller || permanent.controller,
             targetType: triggerInfo.targetType,
             effect: triggerInfo.effect,
+            oracleTextForInterveningIf:
+              extractDamageReceivedAbilityText(attachment.card?.oracle_text || "", attachment.card?.name || "") ||
+              (attachment.card?.oracle_text || ""),
           };
         }
       }
@@ -123,9 +153,11 @@ export function getDamageReceivedTrigger(
     }
     
     return {
+      controllerId: permanent.controller,
       targetType,
       effect,
       targetRestriction,
+      oracleTextForInterveningIf,
     };
   }
 
@@ -154,6 +186,17 @@ export function processDamageReceivedTriggers(
   
   if (!triggerInfo) return;
 
+  // Intervening-if (Rule 603.4): if the condition is recognized and false at trigger time,
+  // the ability does not trigger and must not be queued.
+  try {
+    const controllerId = String(triggerInfo.controllerId || permanent.controller || "");
+    const text = String(triggerInfo.oracleTextForInterveningIf || "").trim();
+    const ok = isInterveningIfSatisfied(ctx, controllerId, text);
+    if (ok === false) return;
+  } catch {
+    // Conservative fallback: keep the trigger if evaluation fails.
+  }
+
   const card = permanent.card || {};
   const creatureName = card.name || "Unknown";
   const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -163,7 +206,7 @@ export function processDamageReceivedTriggers(
     triggerId,
     sourceId: permanent.id,
     sourceName: creatureName,
-    controller: permanent.controller,
+    controller: triggerInfo.controllerId || permanent.controller,
     damageAmount,
     triggerType: 'dealt_damage',
     targetType: triggerInfo.targetType as any,

@@ -33,6 +33,7 @@ import {
 } from "./triggered-abilities.js";
 import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
+import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT, uid, applyLifeGain } from "../utils.js";
@@ -2006,6 +2007,12 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.noncreatureSpellsCastThisTurn = {};
       debug(2, `${ts()} [nextTurn] Cleared noncreatureSpellsCastThisTurn for new turn`);
     }
+
+    // Clear spells cast this turn list (for Storm and "if N or more spells were cast this turn" templates)
+    if ((ctx as any).state.spellsCastThisTurn) {
+      (ctx as any).state.spellsCastThisTurn = [];
+      debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
+    }
     
     // Clear justSkippedToPhase flag when starting a new turn
     // Players need to use phase navigator again if they want priority protection
@@ -2818,6 +2825,23 @@ export function nextStep(ctx: GameContext) {
           const triggersByController = new Map<string, typeof triggers>();
           for (const trigger of triggers) {
             const controller = trigger.controllerId || turnPlayer;
+
+            // Intervening-if (Rule 603.4): if the condition is recognized and false at trigger time,
+            // the ability does not trigger and must not be put on the stack.
+            // If unrecognized, keep it (conservative fallback).
+            try {
+              const text = String(trigger.description || trigger.effect || '').trim();
+              const battlefield = (ctx as any).state?.battlefield || [];
+              const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+              const ok = isInterveningIfSatisfied(ctx as any, String(controller), text, sourcePerm);
+              if (ok === false) {
+                debug(2, `${ts()} [nextStep] Skipping ${triggerType} trigger due to unmet intervening-if: ${trigger.cardName} - ${text}`);
+                continue;
+              }
+            } catch {
+              // Keep trigger on any evaluation error.
+            }
+
             const existing = triggersByController.get(controller) || [];
             existing.push(trigger);
             triggersByController.set(controller, existing);

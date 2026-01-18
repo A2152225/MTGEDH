@@ -73,8 +73,23 @@ function didPlayerAttackThisTurn(ctx: GameContext, playerId: string): boolean {
   return battlefield.some((p: any) => p && p.controller === playerId && p.attackedThisTurn);
 }
 
+function getCreaturesAttackedThisTurnCount(ctx: GameContext, playerId: string): number {
+  const tracked = (ctx as any).state?.creaturesAttackedThisTurn;
+  const v = tracked?.[playerId];
+  if (typeof v === "number") return v;
+
+  const battlefield = (ctx as any).state?.battlefield || [];
+  return battlefield.filter((p: any) => p && p.controller === playerId && p.attackedThisTurn).length;
+}
+
+function getSpellsCastThisTurnCount(ctx: GameContext): number {
+  const spells = (ctx as any).state?.spellsCastThisTurn;
+  if (Array.isArray(spells)) return spells.length;
+  return 0;
+}
+
 function getPlayerLife(ctx: GameContext, playerId: string): number {
-  const life = (ctx as any).life || {};
+  const life = (ctx as any).state?.life || (ctx as any).life || {};
   const v = life[playerId];
   return typeof v === "number" ? v : 40;
 }
@@ -92,6 +107,11 @@ function getHandCount(ctx: GameContext, playerId: string): number {
 function getTurnPlayerId(ctx: GameContext): string | null {
   const state: any = (ctx as any).state || {};
   return (state.turnPlayer || state.activePlayer || null) as string | null;
+}
+
+function getActivePlayerId(ctx: GameContext): string | null {
+  const state: any = (ctx as any).state || {};
+  return (state.activePlayer || state.turnPlayer || null) as string | null;
 }
 
 function getOpponentIds(ctx: GameContext, controllerId: string): string[] {
@@ -158,9 +178,69 @@ export function extractInterveningIfClause(text: string): string | null {
 export function evaluateInterveningIfClause(
   ctx: GameContext,
   controllerId: string,
-  clauseText: string
+  clauseText: string,
+  sourcePermanent?: any
 ): boolean | null {
   const clause = toLower(clauseText);
+
+  // "if it isn't renowned" / "if it's not renowned" (Renown)
+  // This refers to the source permanent.
+  if (/^if\s+(?:it\s+is\s+not|it\s+isn'?t|it'?s\s+not)\s+renowned$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.renowned !== true;
+  }
+
+  // "if it is renowned"
+  if (/^if\s+it\s+is\s+renowned$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.renowned === true;
+  }
+
+  // "if it's your turn" / "if it is your turn"
+  if (/^if\s+(?:it'?s|it\s+is)\s+your\s+turn$/i.test(clause)) {
+    const active = getActivePlayerId(ctx);
+    if (!active) return null;
+    return active === controllerId;
+  }
+
+  // Life comparisons vs opponents
+  // - "if no opponent has more life than you"
+  // - "if an opponent has more life than you"
+  // - "if you have more life than an opponent"
+  // - "if you have more life than each opponent"
+  {
+    const noOppMore = clause.match(/^if\s+no\s+opponent\s+has\s+more\s+life\s+than\s+you$/i);
+    if (noOppMore) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return true;
+      return oppIds.every((opp) => getPlayerLife(ctx, opp) <= yourLife);
+    }
+
+    const oppMore = clause.match(/^if\s+an\s+opponent\s+has\s+more\s+life\s+than\s+you$/i);
+    if (oppMore) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return false;
+      return oppIds.some((opp) => getPlayerLife(ctx, opp) > yourLife);
+    }
+
+    const youMoreThanEach = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+each\s+opponent$/i);
+    if (youMoreThanEach) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return true;
+      return oppIds.every((opp) => yourLife > getPlayerLife(ctx, opp));
+    }
+
+    const youMoreThanAn = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+an\s+opponent$/i);
+    if (youMoreThanAn) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return false;
+      return oppIds.some((opp) => yourLife > getPlayerLife(ctx, opp));
+    }
+  }
 
   // "if that player controls more creatures/lands than you" (Keeper of the Accord, etc.)
   {
@@ -216,6 +296,26 @@ export function evaluateInterveningIfClause(
     return didPlayerAttackThisTurn(ctx, controllerId);
   }
 
+  // "if you attacked with N or more creatures this turn" (Planechase and similar)
+  {
+    const m = clause.match(/^if\s+you\s+attacked\s+with\s+([a-z0-9]+)\s+or\s+more\s+creatures\s+this\s+turn$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return getCreaturesAttackedThisTurnCount(ctx, controllerId) >= n;
+    }
+  }
+
+  // "if N or more spells were cast this turn" (Archenemy/Planechase and similar)
+  {
+    const m = clause.match(/^if\s+([a-z0-9]+)\s+or\s+more\s+spells\s+were\s+cast\s+this\s+turn$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return getSpellsCastThisTurnCount(ctx) >= n;
+    }
+  }
+
   // "if you control no X"
   {
     const m = clause.match(/^if\s+you\s+control\s+no\s+([a-z0-9\-\s']+)$/i);
@@ -249,6 +349,16 @@ export function evaluateInterveningIfClause(
     }
   }
 
+  // "if you control a/an X" (existence)
+  {
+    const m = clause.match(/^if\s+you\s+control\s+(?:a|an)\s+([a-z0-9\-\s']+)$/i);
+    if (m) {
+      const nounRaw = m[1].trim().replace(/\s+/g, " ");
+      const noun = nounRaw.endsWith("s") ? nounRaw.slice(0, -1) : nounRaw;
+      return countByPermanentType(ctx, controllerId, noun) >= 1;
+    }
+  }
+
   // "if you control N or more X"
   {
     const m = clause.match(/^if\s+you\s+control\s+([a-z0-9]+)\s+or\s+more\s+([a-z0-9\-\s']+)$/i);
@@ -270,6 +380,69 @@ export function evaluateInterveningIfClause(
       // Generic permanent-type counts: lands, creatures, artifacts, enchantments, etc.
       const typeToken = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
       return countByPermanentType(ctx, controllerId, typeToken) >= n;
+    }
+  }
+
+  // "if you control at least N X"
+  {
+    const m = clause.match(/^if\s+you\s+control\s+at\s+least\s+([a-z0-9]+)\s+([a-z0-9\-\s']+)$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const subjectRaw = m[2].trim().replace(/\s+/g, " ");
+
+      const landSubtype = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      if (["plain", "island", "swamp", "mountain", "forest"].includes(landSubtype)) {
+        const subtypeLookup = landSubtype === "plain" ? "plains" : `${landSubtype}s`;
+        return countLandsWithSubtype(ctx, controllerId, subtypeLookup) >= n;
+      }
+
+      if (subjectRaw === "basic lands") return countBasicLands(ctx, controllerId) >= n;
+
+      const typeToken = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      return countByPermanentType(ctx, controllerId, typeToken) >= n;
+    }
+  }
+
+  // "if you control exactly N X"
+  {
+    const m = clause.match(/^if\s+you\s+control\s+exactly\s+([a-z0-9]+)\s+([a-z0-9\-\s']+)$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const subjectRaw = m[2].trim().replace(/\s+/g, " ");
+
+      const landSubtype = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      if (["plain", "island", "swamp", "mountain", "forest"].includes(landSubtype)) {
+        const subtypeLookup = landSubtype === "plain" ? "plains" : `${landSubtype}s`;
+        return countLandsWithSubtype(ctx, controllerId, subtypeLookup) === n;
+      }
+
+      if (subjectRaw === "basic lands") return countBasicLands(ctx, controllerId) === n;
+
+      const typeToken = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      return countByPermanentType(ctx, controllerId, typeToken) === n;
+    }
+  }
+
+  // "if you control N or fewer X"
+  {
+    const m = clause.match(/^if\s+you\s+control\s+([a-z0-9]+)\s+or\s+fewer\s+([a-z0-9\-\s']+)$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const subjectRaw = m[2].trim().replace(/\s+/g, " ");
+
+      const landSubtype = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      if (["plain", "island", "swamp", "mountain", "forest"].includes(landSubtype)) {
+        const subtypeLookup = landSubtype === "plain" ? "plains" : `${landSubtype}s`;
+        return countLandsWithSubtype(ctx, controllerId, subtypeLookup) <= n;
+      }
+
+      if (subjectRaw === "basic lands") return countBasicLands(ctx, controllerId) <= n;
+
+      const typeToken = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      return countByPermanentType(ctx, controllerId, typeToken) <= n;
     }
   }
 
@@ -297,9 +470,10 @@ export function evaluateInterveningIfClause(
 export function isInterveningIfSatisfied(
   ctx: GameContext,
   controllerId: string,
-  descriptionOrEffect: string
+  descriptionOrEffect: string,
+  sourcePermanent?: any
 ): boolean | null {
   const clause = extractInterveningIfClause(descriptionOrEffect);
   if (!clause) return null;
-  return evaluateInterveningIfClause(ctx, controllerId, clause);
+  return evaluateInterveningIfClause(ctx, controllerId, clause, sourcePermanent);
 }

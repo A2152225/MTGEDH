@@ -21,6 +21,7 @@ import type { BeginningOfCombatTrigger, EndOfCombatTrigger } from "./types.js";
 import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
+import { isInterveningIfSatisfied } from "./intervening-if.js";
 
 // ============================================================================
 // Trigger Doubling (Roaming Throne, Isshin, Teysa Karlov, etc.)
@@ -956,15 +957,27 @@ export function getBeginningOfCombatTriggers(
       
       if (hasOnYourTurn) {
         if (permanent.controller === activePlayerId) {
+          const interveningText = trigger.effect || trigger.description || '';
+          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+          if (ok !== false) {
+            triggers.push(trigger);
+            triggerCount++;
+          }
+        }
+      } else if (hasEachCombat) {
+        const interveningText = trigger.effect || trigger.description || '';
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
         }
-      } else if (hasEachCombat) {
-        triggers.push(trigger);
-        triggerCount++;
       } else if (permanent.controller === activePlayerId) {
-        triggers.push(trigger);
-        triggerCount++;
+        const interveningText = trigger.effect || trigger.description || '';
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        if (ok !== false) {
+          triggers.push(trigger);
+          triggerCount++;
+        }
       }
     }
   }
@@ -1016,7 +1029,12 @@ export function getEndOfCombatTriggers(
     if (!permanent || !permanent.card) continue;
     
     const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent);
-    triggers.push(...permTriggers);
+    for (const trigger of permTriggers) {
+      const interveningText = trigger.effect || trigger.description || '';
+      const ok = isInterveningIfSatisfied(ctx, (trigger as any).controllerId || permanent.controller, interveningText);
+      if (ok === false) continue;
+      triggers.push(trigger);
+    }
   }
   
   return triggers;

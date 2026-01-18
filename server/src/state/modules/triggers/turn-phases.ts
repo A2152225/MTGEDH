@@ -16,6 +16,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { isInterveningIfSatisfied } from "./intervening-if.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -174,6 +175,13 @@ export function getEndStepTriggers(
     const permTriggers = detectEndStepTriggers(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
+      // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
+      // would trigger, the ability does not trigger and should not be put on the stack.
+      // If the condition is unrecognized, keep the trigger (conservative fallback).
+      const interveningText = trigger.effect || trigger.description || '';
+      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+      if (ok === false) continue;
+
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
       
       // Check for "each opponent's end step" triggers (Keeper of the Accord style)
@@ -321,6 +329,13 @@ export function getDrawStepTriggers(
     const permTriggers = detectDrawStepTriggers(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
+      // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
+      // would trigger, the ability does not trigger and should not be put on the stack.
+      // If the condition is unrecognized, keep the trigger (conservative fallback).
+      const interveningText = trigger.effect || trigger.description || '';
+      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+      if (ok === false) continue;
+
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
       
       if (lowerOracle.includes('your draw step')) {
