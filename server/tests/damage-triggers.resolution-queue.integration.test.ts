@@ -21,7 +21,7 @@ function createNoopIo() {
 }
 
 function createMockIo(
-  emitted: Array<{ room?: string; event: string; payload: any }>,
+  emitted: Array<{ room?: string; event: string; payload: any; from?: string }>,
   sockets: any[] = []
 ) {
   return {
@@ -35,7 +35,7 @@ function createMockIo(
   } as any;
 }
 
-function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>) {
+function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any; from?: string }>) {
   const handlers: Record<string, Function> = {};
   const socket = {
     data: { playerId, spectator: false },
@@ -44,7 +44,7 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
       handlers[ev] = fn;
     },
     emit: (event: string, payload: any) => {
-      emitted.push({ event, payload });
+      emitted.push({ event, payload, from: playerId });
     },
   } as any;
   return { socket, handlers };
@@ -230,6 +230,103 @@ describe('Damage triggers via Resolution Queue (integration)', () => {
     expect((game.state as any).life[p2]).toBe(37);
   });
 
+  it('chains damage triggers: damaging a trigger-permanent enqueues a follow-up step', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+
+    // Two Brash Taunters: resolving P1's trigger deals damage to P2's Taunter,
+    // which should create a new damage trigger for P2.
+    (game.state as any).battlefield = [
+      {
+        id: 'taunter_1',
+        controller: p1,
+        damageMarked: 0,
+        card: {
+          name: 'Brash Taunter',
+          type_line: 'Creature — Goblin',
+          image_uris: { small: 'https://example.com/taunter1.jpg' },
+        },
+      },
+      {
+        id: 'taunter_2',
+        controller: p2,
+        damageMarked: 0,
+        card: {
+          name: 'Brash Taunter',
+          type_line: 'Creature — Goblin',
+          image_uris: { small: 'https://example.com/taunter2.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).pendingDamageTriggers = {
+      trig_1: {
+        sourceId: 'taunter_1',
+        sourceName: 'Brash Taunter',
+        controller: p1,
+        damageAmount: 5,
+        triggerType: 'dealt_damage',
+        targetType: 'any',
+        targetRestriction: 'any target',
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any; from?: string }> = [];
+    const { socket: s1, handlers: h1 } = createMockSocket(p1, emitted);
+    const { socket: s2, handlers: h2 } = createMockSocket(p2, emitted);
+    s1.rooms.add(gameId);
+    s2.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [s1, s2]);
+    registerResolutionHandlers(io as any, s1 as any);
+    registerResolutionHandlers(io as any, s2 as any);
+
+    const enqueued = emitPendingDamageTriggers(io as any, game as any, gameId);
+    expect(enqueued).toBe(1);
+    expect((game.state as any).priority).toBe(null);
+
+    const step1 = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(step1.playerId).toBe(p1);
+
+    // P1 targets the other Brash Taunter
+    expect(typeof h1['submitResolutionResponse']).toBe('function');
+    await h1['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['taunter_2'] });
+
+    // Follow-up trigger should be enqueued for P2, keeping us in resolution mode.
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.length).toBe(1);
+    const step2 = queueAfter.steps[0] as any;
+    expect(step2.playerId).toBe(p2);
+    expect(step2.damageReceivedTrigger).toBe(true);
+    expect((game.state as any).priority).toBe(null);
+
+    // P2 points their trigger back at P1 (player target)
+    expect(typeof h2['submitResolutionResponse']).toBe('function');
+    await h2['submitResolutionResponse']({ gameId, stepId: step2.id, selections: [p1] });
+
+    // After the chain completes, priority should be restored.
+    expect((game.state as any).priority).toBe(p1);
+    expect((game.state as any).life[p1]).toBe(35);
+
+    // Sanity: at least two resolution prompts occurred (one per step)
+    const promptCount = emitted.filter(e => e.event === 'resolutionStepPrompt').length;
+    expect(promptCount).toBeGreaterThanOrEqual(2);
+  });
+
   it('applies each_opponent damage immediately (no resolution step)', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -240,12 +337,13 @@ describe('Damage triggers via Resolution Queue (integration)', () => {
     const p3 = 'p3';
 
     (game.state as any).players = [
-      { id: p1, name: 'P1', spectator: false, life: 40 },
-      { id: p2, name: 'P2', spectator: false, life: 40 },
-      { id: p3, name: 'P3', spectator: false, life: 40 },
+      { id: p1, name: 'P1', spectator: false, life: 30 },
+      { id: p2, name: 'P2', spectator: false, life: 30 },
+      { id: p3, name: 'P3', spectator: false, life: 30 },
     ];
-    (game.state as any).startingLife = 40;
-    (game.state as any).life = { [p1]: 40, [p2]: 40, [p3]: 40 };
+    (game.state as any).startingLife = 30;
+    // Intentionally omit one opponent life entry to ensure we default to startingLife, not hard-coded 40.
+    (game.state as any).life = { [p1]: 30, [p3]: 30 };
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
@@ -282,9 +380,9 @@ describe('Damage triggers via Resolution Queue (integration)', () => {
     expect(processed).toBe(1);
 
     // Immediate life loss for opponents only
-    expect((game.state as any).life[p1]).toBe(40);
-    expect((game.state as any).life[p2]).toBe(38);
-    expect((game.state as any).life[p3]).toBe(38);
+    expect((game.state as any).life[p1]).toBe(30);
+    expect((game.state as any).life[p2]).toBe(28);
+    expect((game.state as any).life[p3]).toBe(28);
 
     // No Resolution Queue step or client prompt
     expect(ResolutionQueueManager.getQueue(gameId)?.steps?.length || 0).toBe(0);

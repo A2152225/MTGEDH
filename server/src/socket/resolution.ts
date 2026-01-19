@@ -42,6 +42,7 @@ import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
 import { processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
+import { emitPendingDamageTriggers } from "./damage-triggers.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste } from "./game-actions.js";
@@ -6016,6 +6017,10 @@ async function handleTargetSelectionResponse(
           targetRestriction: nextTrigger.targetRestriction,
         };
       });
+
+      // Convert any newly-created pending damage triggers into Resolution Queue steps immediately
+      // so follow-up triggers chain naturally in resolution mode.
+      emitPendingDamageTriggers(io as any, game as any, gameId);
     }
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();

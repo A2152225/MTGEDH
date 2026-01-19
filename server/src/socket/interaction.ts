@@ -1,3 +1,4 @@
+import { enqueueEdictCreatureSacrificeStep } from './sacrifice-resolution.js';
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
@@ -2485,44 +2486,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const playersToSacrifice = getPlayersWhoMustSacrifice(game as any, trigger.source.controllerId);
             
             for (const targetPlayerId of playersToSacrifice) {
-              // Get creatures controlled by this player
-              const creatures = battlefield.filter((p: any) => 
-                p?.controller === targetPlayerId && 
-                (p?.card?.type_line || "").toLowerCase().includes("creature")
-              );
-              
-              if (creatures.length > 0) {
-                // Emit sacrifice selection request to the player
-                emitToPlayer(io, targetPlayerId, "sacrificeSelectionRequest", {
-                  gameId,
-                  triggerId: `sac_${Date.now()}_${trigger.source.permanentId}`,
-                  sourceName: trigger.source.cardName,
-                  sourceController: trigger.source.controllerId,
-                  reason: trigger.effect,
-                  creatures: creatures.map((c: any) => ({
-                    id: c.id,
-                    name: c.card?.name || "Unknown",
-                    imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
-                    typeLine: c.card?.type_line,
-                  })),
-                });
-                
-                io.to(gameId).emit("chat", {
-                  id: `m_${Date.now()}_sac_${targetPlayerId}`,
-                  gameId,
-                  from: "system",
-                  message: `${getPlayerName(game, targetPlayerId)} must sacrifice a creature.`,
-                  ts: Date.now(),
-                });
-              } else {
-                io.to(gameId).emit("chat", {
-                  id: `m_${Date.now()}_nosac_${targetPlayerId}`,
-                  gameId,
-                  from: "system",
-                  message: `${getPlayerName(game, targetPlayerId)} has no creatures to sacrifice.`,
-                  ts: Date.now(),
-                });
-              }
+              enqueueEdictCreatureSacrificeStep(io as any, game as any, gameId, targetPlayerId, {
+                sourceName: trigger.source.cardName,
+                sourceControllerId: trigger.source.controllerId,
+                reason: trigger.effect,
+                sourceId: trigger.source.permanentId,
+              });
             }
           }
         }
