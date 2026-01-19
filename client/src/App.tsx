@@ -207,6 +207,7 @@ export function App() {
     cardName: string; 
     manaCost?: string;
     oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
+    forcedAlternateCostId?: string;
     tax?: number;
     isCommander?: boolean;
     targets?: string[];  // Targets selected via requestCastSpell flow
@@ -1402,158 +1403,17 @@ export function App() {
     };
   }, [safeView?.id, you]);
 
-  // Target selection request listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        // Convert payload targets to TargetOption format
-        const targets: TargetOption[] = (payload.targets || []).map((t: any) => ({
-          id: t.id,
-          type: t.type || 'permanent',
-          name: t.name,
-          displayName: t.displayName,
-          imageUrl: t.imageUrl,
-          controller: t.controller,
-          typeLine: t.typeLine,
-          life: t.life,
-          zone: t.zone,
-          owner: t.owner,
-          card: t.card,
-        }));
-
-        setTargetModalData({
-          title: payload.title || 'Select Targets',
-          description: payload.description,
-          source: payload.source,
-          targets,
-          minTargets: payload.minTargets ?? 1,
-          maxTargets: payload.maxTargets ?? 1,
-          effectId: payload.effectId,
-        });
-        setTargetModalOpen(true);
-      }
-    };
-    socket.on("targetSelectionRequest", handler);
-    return () => {
-      socket.off("targetSelectionRequest", handler);
-    };
-  }, [safeView?.id]);
+  // Legacy targetSelectionRequest listener removed - target selection is Resolution Queue-only.
 
   // Payment required listener (for MTG-compliant spell casting: targets first, then payment)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      manaCost: string;
-      effectId: string;
-      targets?: string[];
-      imageUrl?: string;
-      // NOTE: Runtime can include legacy shapes here; normalize defensively.
-      costReduction?: any;
-      convokeOptions?: any;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        // Transform payload types to match state type.
-        // costReduction can be either the documented array form or a legacy object form.
-        let transformedCostReduction:
-          | { generic: number; colors: Record<string, number>; messages: string[] }
-          | undefined;
-
-        const cr = payload.costReduction;
-        if (Array.isArray(cr)) {
-          transformedCostReduction = {
-            generic: cr.reduce((sum, r) => sum + (r?.amount ?? 0), 0),
-            colors: {},
-            messages: cr.map(r => String(r?.source ?? '')).filter(Boolean),
-          };
-        } else if (cr && typeof cr === 'object') {
-          const generic = typeof cr.generic === 'number' ? cr.generic : 0;
-          const colors = cr.colors && typeof cr.colors === 'object' ? cr.colors : {};
-          const messages = Array.isArray(cr.messages) ? cr.messages.map((m: any) => String(m)).filter(Boolean) : [];
-          if (generic !== 0 || Object.keys(colors).length > 0 || messages.length > 0) {
-            transformedCostReduction = { generic, colors, messages };
-          }
-        }
-
-        // convokeOptions can be either the documented array form or a legacy object form.
-        let transformedConvokeOptions:
-          | { availableCreatures: Array<{ id: string; name: string; colors: string[]; canTapFor: string[] }>; messages: string[] }
-          | undefined;
-
-        const co = payload.convokeOptions;
-        if (Array.isArray(co)) {
-          transformedConvokeOptions = {
-            availableCreatures: co.map(c => ({
-              id: c.permanentId,
-              name: c.name,
-              colors: c.colors,
-              canTapFor: c.colors, // Assume creatures can tap for their colors
-            })),
-            messages: [],
-          };
-        } else if (co && typeof co === 'object') {
-          const availableCreaturesRaw = Array.isArray(co.availableCreatures) ? co.availableCreatures : [];
-          const availableCreatures = availableCreaturesRaw
-            .map((c: any) => ({
-              id: String(c?.id ?? ''),
-              name: String(c?.name ?? ''),
-              colors: Array.isArray(c?.colors) ? c.colors : [],
-              canTapFor: Array.isArray(c?.canTapFor) ? c.canTapFor : (Array.isArray(c?.colors) ? c.colors : []),
-            }))
-            .filter((c: { id: string; name: string }) => c.id && c.name);
-          const messages = Array.isArray(co.messages) ? co.messages.map((m: any) => String(m)).filter(Boolean) : [];
-          if (availableCreatures.length > 0 || messages.length > 0) {
-            transformedConvokeOptions = { availableCreatures, messages };
-          }
-        }
-        
-        // Store the pending targets and effectId so we can include them when casting
-        setSpellToCast({
-          cardId: payload.cardId,
-          cardName: payload.cardName,
-          manaCost: payload.manaCost,
-          targets: payload.targets,
-          effectId: payload.effectId,
-          costReduction: transformedCostReduction,
-          convokeOptions: transformedConvokeOptions,
-        });
-        setCastSpellModalOpen(true);
-      }
-    };
-    socket.on("paymentRequired", handler);
-    return () => {
-      socket.off("paymentRequired", handler);
-    };
-  }, [safeView?.id]);
+  // Legacy paymentRequired listener removed - spell payment is handled via Resolution Queue.
 
   // Opening hand actions prompt is handled via Resolution Queue (opening_hand_actions).
 
   // Life payment request listener (for Toxic Deluge, Hatred, etc.)
   // Legacy lifePaymentRequest listener removed - now handled via Resolution Queue (life_payment).
 
-  // Life payment complete listener - re-trigger spell cast with life payment info
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      lifePayment: number;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        // Continue the spell cast with the life payment info
-        socket.emit("castSpellFromHand", {
-          gameId: safeView.id,
-          cardId: payload.cardId,
-          payment: [{ lifePayment: payload.lifePayment }],
-        });
-      }
-    };
-    socket.on("lifePaymentComplete", handler);
-    return () => {
-      socket.off("lifePaymentComplete", handler);
-    };
-  }, [safeView?.id]);
+  // Life payment completion is handled via castSpellFromHandContinue.
 
 
   // Legacy MDFC face selection request listener removed - now handled via Resolution Queue (resolutionStepPrompt).
@@ -1601,16 +1461,31 @@ export function App() {
       if (!safeView?.id || payload?.gameId !== safeView.id) return;
       if (!payload?.cardId) return;
 
-      socket.emit('castSpellFromHand', {
-        gameId: safeView.id,
-        cardId: payload.cardId,
-        payment: payload.payment,
-        targets: payload.targets,
-        xValue: payload.xValue,
-        alternateCostId: payload.alternateCostId,
-        skipInteractivePrompts: payload.skipInteractivePrompts,
-        convokeTappedCreatures: payload.convokeTappedCreatures,
-      } as any);
+      // If this continuation includes an effectId, it is completing an MTG-compliant cast
+      // (targets first, then payment), so route through completeCastSpell.
+      if (payload?.effectId) {
+        socket.emit('completeCastSpell', {
+          gameId: safeView.id,
+          cardId: payload.cardId,
+          targets: payload.targets,
+          payment: payload.payment,
+          effectId: payload.effectId,
+          xValue: payload.xValue,
+          alternateCostId: payload.alternateCostId,
+          convokeTappedCreatures: payload.convokeTappedCreatures,
+        } as any);
+      } else {
+        socket.emit('castSpellFromHand', {
+          gameId: safeView.id,
+          cardId: payload.cardId,
+          payment: payload.payment,
+          targets: payload.targets,
+          xValue: payload.xValue,
+          alternateCostId: payload.alternateCostId,
+          skipInteractivePrompts: payload.skipInteractivePrompts,
+          convokeTappedCreatures: payload.convokeTappedCreatures,
+        } as any);
+      }
     };
 
     socket.on('castSpellFromHandContinue', handler);
@@ -1940,6 +1815,26 @@ export function App() {
           });
           setAnyColorManaModalOpen(true);
         }
+      }
+
+      // Phyrexian mana payment choice via Resolution Queue
+      else if (step.type === 'mana_payment_choice' && step.spellPaymentRequired === true) {
+        const cr = (step as any).costReduction;
+        const co = (step as any).convokeOptions;
+
+        setSpellToCast({
+          cardId: String((step as any).cardId || step.sourceId || ''),
+          cardName: String((step as any).cardName || step.sourceName || 'Spell'),
+          manaCost: String((step as any).manaCost || ''),
+          targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
+          effectId: String((step as any).effectId || ''),
+          costReduction: cr,
+          convokeOptions: co,
+          forcedAlternateCostId: (step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined,
+          // Track the resolution step id so confirm/cancel responds via the queue.
+          paymentStepId: String(step.id),
+        } as any);
+        setCastSpellModalOpen(true);
       }
 
       // Phyrexian mana payment choice via Resolution Queue
@@ -3376,6 +3271,25 @@ export function App() {
   // Handle cast spell confirmation from modal - works for both hand and commander spells
   const handleCastSpellConfirm = (payment: PaymentItem[], alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => {
     if (!safeView || !spellToCast) return;
+
+    // Resolution Queue spell payment: respond to the step instead of emitting payment completion directly.
+    const paymentStepId = (spellToCast as any).paymentStepId as string | undefined;
+    if (paymentStepId) {
+      socket.emit('submitResolutionResponse', {
+        gameId: safeView.id,
+        stepId: paymentStepId,
+        selections: {
+          payment: payment.length > 0 ? payment : undefined,
+          xValue,
+          alternateCostId,
+          convokeTappedCreatures,
+        },
+        cancelled: false,
+      });
+      setCastSpellModalOpen(false);
+      setSpellToCast(null);
+      return;
+    }
     
     debug(2, `[Client] Casting ${spellToCast.isCommander ? 'commander' : 'spell'}: ${spellToCast.cardName} with payment:`, payment);
     if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
@@ -3419,12 +3333,13 @@ export function App() {
   };
 
   const handleCastSpellCancel = () => {
-    // Notify server to clean up pending state if this was a MTG-compliant cast with effectId
-    if (safeView && spellToCast?.effectId) {
-      socket.emit("targetSelectionCancel", {
+    // If this was a Resolution Queue spell payment step, cancel via submitResolutionResponse.
+    if (safeView && spellToCast && (spellToCast as any).paymentStepId) {
+      socket.emit('submitResolutionResponse', {
         gameId: safeView.id,
-        cardId: spellToCast.cardId,
-        effectId: spellToCast.effectId,
+        stepId: String((spellToCast as any).paymentStepId),
+        selections: {},
+        cancelled: true,
       });
     }
     setCastSpellModalOpen(false);
@@ -3779,23 +3694,13 @@ export function App() {
   // Target selection handlers
   const handleTargetConfirm = (selectedTargetIds: string[]) => {
     if (!safeView || !targetModalData) return;
-    
-    // Check if this came from Resolution Queue
-    if (targetModalData.useResolutionQueue && targetModalData.stepId) {
-      // Use Resolution Queue response system
+
+    if (targetModalData.stepId) {
       socket.emit("submitResolutionResponse", {
         gameId: safeView.id,
         stepId: targetModalData.stepId,
         selections: selectedTargetIds,
         cancelled: false,
-      });
-    } else {
-      // Legacy flow using targetSelectionConfirm
-      socket.emit("targetSelectionConfirm", {
-        gameId: safeView.id,
-        cardId: targetModalData?.cardId || "",
-        targets: selectedTargetIds,
-        effectId: targetModalData?.effectId,
       });
     }
     setTargetModalOpen(false);
@@ -3804,20 +3709,11 @@ export function App() {
 
   const handleTargetCancel = () => {
     if (!safeView) return;
-    
-    // Check if this came from Resolution Queue
-    if (targetModalData && targetModalData.useResolutionQueue && targetModalData.stepId) {
-      // Use Resolution Queue cancel system
+
+    if (targetModalData?.stepId) {
       socket.emit("cancelResolutionStep", {
         gameId: safeView.id,
         stepId: targetModalData.stepId,
-      });
-    } else {
-      // Legacy flow using targetSelectionCancel
-      socket.emit("targetSelectionCancel", {
-        gameId: safeView.id,
-        cardId: targetModalData?.cardId || "",
-        effectId: targetModalData?.effectId,
       });
     }
     setTargetModalOpen(false);
@@ -5411,6 +5307,7 @@ export function App() {
         cardName={spellToCast?.cardName || ''}
         manaCost={spellToCast?.manaCost}
         oracleText={spellToCast?.oracleText}
+        forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
         availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
         otherCardsInHand={useMemo(() => {
           if (!safeView || !you || !spellToCast) return [];

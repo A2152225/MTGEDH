@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { PaymentPicker } from './PaymentPicker';
 import { FloatingManaPool } from './FloatingManaPool';
 import type { PaymentItem, ManaColor } from '../../../shared/src';
@@ -425,6 +425,7 @@ interface CastSpellModalProps {
   cardName: string;
   manaCost?: string;
   oracleText?: string;
+  forcedAlternateCostId?: string;
   availableSources: Array<{ id: string; name: string; options: Color[] }>;
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
@@ -452,6 +453,7 @@ export function CastSpellModal({
   cardName,
   manaCost,
   oracleText,
+  forcedAlternateCostId,
   availableSources,
   otherCardsInHand = [],
   floatingMana,
@@ -465,6 +467,14 @@ export function CastSpellModal({
   const [xValue, setXValue] = useState(0);
   const [selectedCostId, setSelectedCostId] = useState('normal');
   const [selectedConvokeCreatures, setSelectedConvokeCreatures] = useState<string[]>([]);
+
+  // When the server forces an alternate cost (e.g., Miracle), lock the selection.
+  useEffect(() => {
+    if (!open) return;
+    if (forcedAlternateCostId && forcedAlternateCostId.length > 0) {
+      setSelectedCostId(forcedAlternateCostId);
+    }
+  }, [open, forcedAlternateCostId]);
 
   // Parse alternate costs from oracle text
   const alternateCosts = useMemo(() => {
@@ -590,9 +600,13 @@ export function CastSpellModal({
         count: getManaCountForSource(permanentId),
       }));
     }
+    const effectiveCostId = forcedAlternateCostId && forcedAlternateCostId.length > 0
+      ? forcedAlternateCostId
+      : selectedCostId;
+
     onConfirm(
-      finalPayment, 
-      selectedCostId !== 'normal' ? selectedCostId : undefined, 
+      finalPayment,
+      effectiveCostId !== 'normal' ? effectiveCostId : undefined,
       xValue,
       selectedConvokeCreatures.length > 0 ? selectedConvokeCreatures : undefined
     );
@@ -614,7 +628,7 @@ export function CastSpellModal({
   const hasFloatingManaToUse = floatingManaUsage && Object.values(floatingManaUsage).some(v => v > 0);
   
   // Show alternate cost selector if there are options
-  const showAlternateCosts = alternateCosts.length > 1;
+  const showAlternateCosts = alternateCosts.length > 1 && !(forcedAlternateCostId && forcedAlternateCostId.length > 0);
   const isForceAltCostSelected = selectedCostId === 'force_of_will';
 
   return (
