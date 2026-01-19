@@ -64,6 +64,9 @@ export enum ResolutionStepType {
   PLAYER_CHOICE = 'player_choice',
   OPTION_CHOICE = 'option_choice',
   MANA_PAYMENT_CHOICE = 'mana_payment_choice',
+
+  // Mutate casting (choose target non-Human creature you own, then top/bottom)
+  MUTATE_TARGET_SELECTION = 'mutate_target_selection',
   
   // Legacy pending* field types
   PONDER_EFFECT = 'ponder_effect',
@@ -245,6 +248,31 @@ export interface TargetSelectionStep extends BaseResolutionStep {
   readonly selectedMode?: ChoiceOption;
   /** Optional context for spell casting target selection */
   readonly spellCastContext?: SpellCastContext;
+}
+
+/**
+ * Mutate target selection step
+ * Used when casting a creature for its mutate cost (Rule 702.140).
+ */
+export interface MutateTargetSelectionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.MUTATE_TARGET_SELECTION;
+  readonly effectId: string;
+  readonly cardId: string;
+  readonly cardName: string;
+  readonly mutateCost: string;
+  readonly imageUrl?: string;
+  readonly validTargets: readonly {
+    id: string;
+    name: string;
+    typeLine: string;
+    power?: string;
+    toughness?: string;
+    imageUrl?: string;
+    controller: string;
+    owner: string;
+    isAlreadyMutated?: boolean;
+    mutationCount?: number;
+  }[];
 }
 
 /**
@@ -793,6 +821,7 @@ export interface ActivatedAbilityStep extends BaseResolutionStep {
  */
 export type ResolutionStep = 
   | TargetSelectionStep
+  | MutateTargetSelectionStep
   | FightTargetStep
   | TapUntapTargetStep
   | CounterMovementStep

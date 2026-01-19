@@ -2249,6 +2249,15 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('phyrexianChoices' in step) fields.phyrexianChoices = (step as any).phyrexianChoices;
       if ('playerLife' in step) fields.playerLife = (step as any).playerLife;
       break;
+
+    case ResolutionStepType.MUTATE_TARGET_SELECTION:
+      if ('effectId' in step) fields.effectId = (step as any).effectId;
+      if ('cardId' in step) fields.cardId = (step as any).cardId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('mutateCost' in step) fields.mutateCost = (step as any).mutateCost;
+      if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
+      if ('validTargets' in step) fields.validTargets = (step as any).validTargets;
+      break;
     
     case ResolutionStepType.CREATURE_TYPE_CHOICE:
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
@@ -5445,6 +5454,10 @@ async function handleStepResponse(
       
     case ResolutionStepType.TARGET_SELECTION:
       void handleTargetSelectionResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.MUTATE_TARGET_SELECTION:
+      await handleMutateTargetSelectionResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.TRIGGER_ORDER:
@@ -12609,6 +12622,59 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  // ===== MUTATE CAST MODE (Rule 702.140a) =====
+  // Some mutate creatures need an explicit cast-mode selection: cast normally vs cast for mutate.
+  if (stepData?.mutateCastModeChoice === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'cancel' : null) || 'cancel';
+    const mutateCardId = String(stepData?.mutateCardId || step.sourceId || '').trim();
+    const faceIndex = stepData?.mutateFaceIndex != null ? Number(stepData.mutateFaceIndex) : undefined;
+
+    if (!mutateCardId) {
+      debugWarn(1, `[Resolution] mutateCastModeChoice: missing mutateCardId/sourceId`);
+      return;
+    }
+
+    if (response.cancelled || choiceId === 'cancel') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} cancelled casting ${String(stepData?.sourceName || step.sourceName || 'a card')}.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    const fakeSocket: any = {
+      data: { playerId, spectator: false },
+      emit: (event: string, payload: any) => {
+        emitToPlayer(io, playerId as any, event as any, payload);
+      },
+    };
+
+    if (choiceId === 'cast_mutate') {
+      await requestCastSpellForSocket(
+        io,
+        fakeSocket,
+        { gameId, cardId: mutateCardId, faceIndex },
+        { skipPriorityCheck: true, forcedAlternateCostId: 'mutate', skipMutateModePrompt: true }
+      );
+    } else {
+      await requestCastSpellForSocket(
+        io,
+        fakeSocket,
+        { gameId, cardId: mutateCardId, faceIndex },
+        { skipPriorityCheck: true, skipMutateModePrompt: true }
+      );
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   // ===== LEGACY TRIGGER PROMPT (triggerQueue) =====
   // Some older trigger flows queued a trigger in game.state.triggerQueue and prompted via a bespoke
   // triggerPrompt Socket.IO event. We now represent that prompt as an OPTION_CHOICE resolution step.
@@ -15658,6 +15724,100 @@ async function handleOptionChoiceResponse(
     broadcastGame(io, game, gameId);
     return;
   }
+}
+
+async function handleMutateTargetSelectionResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const stepData = step as any;
+  const effectId = String(stepData.effectId || step.sourceId || '').trim();
+  const cardId = String(stepData.cardId || '').trim();
+  const cardName = String(stepData.cardName || step.sourceName || 'Mutate');
+
+  if (!effectId) {
+    debugWarn(1, '[Resolution] MUTATE_TARGET_SELECTION missing effectId');
+    return;
+  }
+
+  if (response.cancelled) {
+    if ((game.state as any)?.pendingSpellCasts?.[effectId]) delete (game.state as any).pendingSpellCasts[effectId];
+    if ((game.state as any)?.pendingTargets?.[effectId]) delete (game.state as any).pendingTargets[effectId];
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} cancelled casting ${cardName} for its mutate cost.`,
+      ts: Date.now(),
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  const sel = (response.selections || {}) as any;
+  const targetPermanentId = String(sel.targetPermanentId || sel.targetId || '').trim();
+  const onTop = Boolean(sel.onTop);
+
+  const validTargets: any[] = Array.isArray(stepData.validTargets) ? stepData.validTargets : [];
+  if (!targetPermanentId || !validTargets.some((t: any) => String(t?.id) === targetPermanentId)) {
+    emitToPlayer(io, pid as any, 'error', {
+      code: 'INVALID_TARGET',
+      message: 'Invalid mutate target selection',
+    });
+    return;
+  }
+
+  const pendingCast = (game.state as any)?.pendingSpellCasts?.[effectId];
+  if (!pendingCast) {
+    emitToPlayer(io, pid as any, 'error', { code: 'NO_PENDING_CAST', message: 'No pending spell cast found' });
+    return;
+  }
+
+  pendingCast.targets = [targetPermanentId];
+  pendingCast.mutateTarget = targetPermanentId;
+  pendingCast.mutateOnTop = onTop;
+  pendingCast.forcedAlternateCostId = 'mutate';
+  pendingCast.mutateCost = String(stepData.mutateCost || pendingCast.manaCost || '');
+
+  const existingPaymentStep = ResolutionQueueManager
+    .getStepsForPlayer(gameId, pid as any)
+    .find((s: any) =>
+      s?.type === ResolutionStepType.MANA_PAYMENT_CHOICE &&
+      (s as any)?.spellPaymentRequired === true &&
+      String((s as any)?.effectId || '') === String(effectId)
+    );
+
+  if (!existingPaymentStep) {
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: pid as any,
+      sourceId: cardId,
+      sourceName: cardName,
+      sourceImage: stepData.imageUrl || step.sourceImage,
+      description: `Pay costs to cast ${cardName} (Mutate).`,
+      mandatory: true,
+
+      spellPaymentRequired: true,
+      cardId,
+      cardName,
+      manaCost: pendingCast.mutateCost || pendingCast.manaCost,
+      effectId,
+      targets: [targetPermanentId],
+      imageUrl: stepData.imageUrl || step.sourceImage,
+      costReduction: pendingCast.costReduction,
+      convokeOptions: pendingCast.convokeOptions,
+      forcedAlternateCostId: 'mutate',
+    } as any);
+  }
+
+  if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+  broadcastGame(io, game, gameId);
 }
 
 /**

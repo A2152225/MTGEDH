@@ -21,6 +21,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
+import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -1865,6 +1866,7 @@ export async function requestCastSpellForSocket(
   options?: {
     skipPriorityCheck?: boolean;
     forcedAlternateCostId?: string;
+    skipMutateModePrompt?: boolean;
   }
 ): Promise<void> {
   try {
@@ -1985,7 +1987,7 @@ export async function requestCastSpellForSocket(
       }
     }
 
-    // Forced alternate cost (Miracle)
+    // Forced alternate cost (Miracle / Mutate)
     if (options?.forcedAlternateCostId === 'miracle') {
       if (!cardInHand.isFirstDrawnThisTurn) {
         socket.emit('error', {
@@ -2007,9 +2009,69 @@ export async function requestCastSpellForSocket(
       manaCost = miracleInfo.miracleCost;
     }
 
-    // Check if this spell requires targets
+    // Mutate alternate cost: override mana cost now; target selection is handled via a dedicated step.
+    const isForcedMutate = options?.forcedAlternateCostId === 'mutate';
+    if (isForcedMutate) {
+      const mutateCost = parseMutateCost(oracleText) || parseMutateCost(cardInHand.oracle_text || '');
+      if (!mutateCost) {
+        socket.emit('error', { code: 'NO_MUTATE', message: 'This card does not have mutate.' });
+        return;
+      }
+      manaCost = mutateCost;
+    }
+
+    // Effective type line for the face being cast (used by several downstream checks)
     const effectiveTypeLine = faceTypeLine || typeLine;
-    const isInstantOrSorcery = effectiveTypeLine.includes("instant") || effectiveTypeLine.includes("sorcery");
+    const isInstantOrSorcery = effectiveTypeLine.includes('instant') || effectiveTypeLine.includes('sorcery');
+
+    // Mutate casting-mode prompt (for mutate creatures).
+    // Mutate reminder text lives on the card, but a creature spell only targets when cast for its mutate cost.
+    // We prompt once here to choose normal vs mutate.
+    if (
+      options?.skipMutateModePrompt !== true &&
+      options?.forcedAlternateCostId == null &&
+      !isInstantOrSorcery &&
+      effectiveTypeLine.includes('creature')
+    ) {
+      const ctx: any = { state: game.state };
+      const hasMutate = /\bmutate\b/i.test(String(oracleText || ''));
+      const mutateCost = hasMutate ? (parseMutateCost(oracleText) || parseMutateCost(cardInHand.oracle_text || '')) : undefined;
+      const canMutate = Boolean(mutateCost) && hasMutateAlternateCost(ctx, playerId as any, cardInHand as any);
+
+      if (canMutate) {
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.mutateCastModeChoice === true && String((s as any)?.mutateCardId || '') === String(cardId));
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: playerId as any,
+            sourceId: String(cardId),
+            sourceName: cardName,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `Choose how to cast ${cardName}.`,
+            mandatory: true,
+            options: [
+              { id: 'cast_normal', label: 'Cast Normally' },
+              { id: 'cast_mutate', label: `Cast with Mutate${mutateCost ? ` (${mutateCost})` : ''}` },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+
+            mutateCastModeChoice: true,
+            mutateCardId: String(cardId),
+            mutateFaceIndex: faceIndex,
+            mutateCost,
+          } as any);
+        }
+
+        debug(2, `[requestCastSpell] Queued mutate casting-mode choice for ${cardName}`);
+        return;
+      }
+    }
+
+    // Check if this spell requires targets
     const isAura = effectiveTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
     const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
     const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
@@ -2019,6 +2081,73 @@ export async function requestCastSpellForSocket(
       isAura;
 
     const effectId = `cast_${cardId}_${Date.now()}`;
+
+    // Forced Mutate: use dedicated mutate target selection regardless of card type.
+    if (isForcedMutate) {
+      const effectId = `cast_${cardId}_${Date.now()}`;
+      const ctx: any = { state: game.state };
+      const valid = getValidMutateTargets(ctx, playerId as any);
+
+      if (valid.length === 0) {
+        socket.emit('error', {
+          code: 'NO_VALID_TARGETS',
+          message: `No valid mutate targets for ${cardName}`,
+        });
+        return;
+      }
+
+      const costReduction = calculateCostReduction(game, playerId, cardInHand);
+      const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
+
+      (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+      (game.state as any).pendingSpellCasts[effectId] = {
+        cardId,
+        cardName,
+        manaCost,
+        playerId,
+        faceIndex,
+        validTargetIds: valid.map((t: any) => String(t.permanentId)),
+        card: { ...cardInHand },
+        forcedAlternateCostId: 'mutate',
+        mutateCost: manaCost,
+        costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+        convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+      };
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.MUTATE_TARGET_SELECTION,
+        playerId: playerId as any,
+        sourceId: effectId,
+        sourceName: cardName,
+        sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        description: `Choose a creature to mutate onto for ${cardName}.`,
+        mandatory: true,
+
+        effectId,
+        cardId,
+        cardName,
+        mutateCost: manaCost,
+        imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        validTargets: valid.map((t: any) => {
+          const perm: any = (game.state.battlefield || []).find((p: any) => p && String(p.id) === String(t.permanentId));
+          return {
+            id: String(t.permanentId),
+            name: String(t.cardName || 'Creature'),
+            typeLine: String(t.typeLine || ''),
+            power: t.power,
+            toughness: t.toughness,
+            imageUrl: t.imageUrl,
+            controller: String(t.controller || ''),
+            owner: String(t.owner || ''),
+            isAlreadyMutated: Boolean((perm as any)?.mutatedStack),
+            mutationCount: Number((perm as any)?.mutatedStack?.length || 0),
+          };
+        }),
+      } as any);
+
+      debug(2, `[requestCastSpell] Added MUTATE_TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${valid.length} valid targets)`);
+      return;
+    }
 
     if (needsTargets) {
       let validTargetList: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string }[] = [];
@@ -5787,6 +5916,23 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
         const pendingCast = (game.state as any).pendingSpellCasts[effectId];
         debug(2, `[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
+
+        // Mutate metadata is stored on pendingCast; copy it to the actual card object in hand before casting.
+        if (String(pendingCast?.forcedAlternateCostId || '') === 'mutate') {
+          try {
+            const zones = (game.state as any)?.zones?.[playerId];
+            const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+            const cardObj = hand.find((c: any) => c && String(c.id) === String(cardId));
+            if (cardObj) {
+              (cardObj as any).isMutating = true;
+              (cardObj as any).mutateTarget = String(pendingCast?.mutateTarget || (pendingCast?.targets?.[0] ?? ''));
+              (cardObj as any).mutateOnTop = Boolean(pendingCast?.mutateOnTop);
+              (cardObj as any).mutateCost = String(pendingCast?.mutateCost || pendingCast?.manaCost || '');
+            }
+          } catch (e) {
+            debugWarn(1, '[completeCastSpell] Failed to apply mutate metadata:', e);
+          }
+        }
         
         // CRITICAL FIX: Always prefer pending targets over client-sent targets
         // This prevents the infinite targeting loop when client doesn't send targets back
@@ -8484,196 +8630,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
-  // ============================================================================
-  // Miracle Handling (Rule 702.94)
-  // ============================================================================
-
-  /**
-   * Handle miracle cast - player chose to cast a spell for its miracle cost
-   * This is called when a player decides to cast a spell for its miracle cost
-   * after drawing it as the first card this turn.
-   */
-  socket.on("castMiracle", ({ gameId, cardId, payment }: {
-    gameId: string;
-    cardId: string;
-    payment?: PaymentItem[];
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId || socket.data.spectator) return;
-
-      // Find the card in hand
-      const zones = game.state?.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", {
-          code: "NO_HAND",
-          message: "Hand not found",
-        });
-        return;
-      }
-
-      const hand = zones.hand as any[];
-      const cardInHand = hand.find((c: any) => c?.id === cardId);
-      
-      if (!cardInHand) {
-        socket.emit("error", {
-          code: "CARD_NOT_IN_HAND",
-          message: "Card not found in hand",
-        });
-        return;
-      }
-
-      // Verify this card was the first drawn this turn
-      if (!cardInHand.isFirstDrawnThisTurn) {
-        socket.emit("error", {
-          code: "NOT_FIRST_DRAWN",
-          message: "Miracle can only be cast on the first card drawn this turn",
-        });
-        return;
-      }
-
-      // Verify the card has miracle
-      const { hasMiracle, miracleCost } = checkMiracle(cardInHand);
-      if (!hasMiracle) {
-        socket.emit("error", {
-          code: "NO_MIRACLE",
-          message: "This card does not have miracle",
-        });
-        return;
-      }
-
-      // Process the miracle cost payment and cast
-      // (Similar to castSpellFromHand but with miracle cost)
-      const parsedCost = parseManaCost(miracleCost || '');
-      
-      // Handle mana payment (same as regular casting)
-      if (payment && payment.length > 0) {
-        const globalBattlefield = game.state?.battlefield || [];
-        for (const { permanentId, mana, count } of payment) {
-          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
-          if (!permanent) continue;
-          if ((permanent as any).tapped) continue;
-          
-          (permanent as any).tapped = true;
-          
-          const manaColorMap: Record<string, string> = {
-            'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless',
-          };
-          
-          // Initialize mana pool
-          game.state.manaPool = game.state.manaPool || {};
-          (game.state.manaPool as any)[playerId] = (game.state.manaPool as any)[playerId] || {
-            white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-          };
-          
-          const manaAmount = count || 1;
-          const poolKey = manaColorMap[mana];
-          if (poolKey && manaAmount > 0) {
-            (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
-          }
-        }
-      }
-
-      // Consume mana from pool
-      const pool = getOrInitManaPool(game.state, playerId);
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[castMiracle]');
-
-      // Remove from hand and add to stack
-      const idx = hand.findIndex((c: any) => c?.id === cardId);
-      if (idx !== -1) {
-        const [removedCard] = hand.splice(idx, 1);
-        zones.handCount = hand.length;
-        
-        // Clear the first drawn flag
-        delete removedCard.isFirstDrawnThisTurn;
-        delete removedCard.drawnAt;
-        
-        // Add to stack
-        game.state.stack = game.state.stack || [];
-        const stackItem = {
-          id: `stack_${Date.now()}_${cardId}`,
-          controller: playerId,
-          card: { ...removedCard, zone: "stack" },
-          targets: [],
-          castWithMiracle: true,
-        };
-        game.state.stack.push(stackItem as any);
-      }
-
-      // Bump sequence
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
-
-      // Persist the event
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "castMiracle", {
-          playerId,
-          cardId,
-          cardName: cardInHand.name,
-          miracleCost,
-        });
-      } catch (e) {
-        debugWarn(1, "appendEvent(castMiracle) failed:", e);
-      }
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `Γ£¿ ${getPlayerName(game, playerId)} cast ${cardInHand.name} for its miracle cost!`,
-        ts: Date.now(),
-      });
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `castMiracle error for game ${gameId}:`, err);
-      socket.emit("error", {
-        code: "CAST_MIRACLE_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
-  /**
-   * Handle declining miracle - player chose not to cast the spell for miracle cost
-   * The card remains in hand as a normal card.
-   */
-  socket.on("declineMiracle", ({ gameId, cardId }: {
-    gameId: string;
-    cardId: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId || socket.data.spectator) return;
-
-      // Find the card in hand and clear the miracle flag
-      const zones = game.state?.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) return;
-
-      const hand = zones.hand as any[];
-      const cardInHand = hand.find((c: any) => c?.id === cardId);
-      
-      if (cardInHand) {
-        // Clear the first drawn flag - player declined miracle
-        delete cardInHand.isFirstDrawnThisTurn;
-        delete cardInHand.drawnAt;
-        
-        debug(2, `[declineMiracle] ${playerId} declined miracle for ${cardInHand.name}`);
-      }
-
-      // Bump sequence
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `declineMiracle error for game ${gameId}:`, err);
-    }
-  });
+  // Legacy Miracle socket handlers removed — Miracle is handled via the Resolution Queue.
 
   // Legacy modeSelectionConfirm handler removed - now handled via Resolution Queue (mode_selection).
 
@@ -9990,252 +9947,6 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
-  // ==========================================================================
-  // MUTATE SUPPORT
-  // ==========================================================================
-
-  /**
-   * Request mutate target selection for a creature spell being cast with mutate
-   * This is called when a player chooses to cast a spell for its mutate cost
-   */
-  socket.on("requestMutateTargets", ({ gameId, cardId }: {
-    gameId: string;
-    cardId: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as string | undefined;
-      if (!game || !playerId) return;
-
-      const zones = game.state.zones?.[playerId];
-      if (!zones) return;
-
-      // Find the card being cast
-      let card: any = null;
-      const hand = zones.hand as any[];
-      if (hand) {
-        card = hand.find((c: any) => c?.id === cardId);
-      }
-
-      if (!card) {
-        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found" });
-        return;
-      }
-
-      // Parse mutate cost from oracle text
-      const oracleText = card.oracle_text || '';
-      const mutateMatch = oracleText.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      const mutateCost = mutateMatch ? mutateMatch[1].trim() : undefined;
-
-      if (!mutateCost) {
-        socket.emit("error", { code: "NO_MUTATE", message: "Card does not have mutate" });
-        return;
-      }
-
-      // Find valid mutate targets (non-Human creatures the player owns)
-      const battlefield = game.state.battlefield || [];
-      const validTargets = battlefield.filter((perm: any) => {
-        if (!perm || perm.owner !== playerId) return false;
-        const typeLine = (perm.card?.type_line || '').toLowerCase();
-        return typeLine.includes('creature') && !typeLine.includes('human');
-      }).map((perm: any) => ({
-        id: perm.id,
-        name: perm.card?.name || 'Unknown',
-        typeLine: perm.card?.type_line || '',
-        power: perm.card?.power,
-        toughness: perm.card?.toughness,
-        imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
-        controller: perm.controller,
-        owner: perm.owner,
-        // Check if already mutated
-        isAlreadyMutated: !!(perm as any).mutatedStack,
-        mutationCount: (perm as any).mutatedStack?.length || 0,
-      }));
-
-      socket.emit("mutateTargetsResponse", {
-        gameId,
-        cardId,
-        cardName: card.name,
-        mutateCost,
-        imageUrl: card.image_uris?.small || card.image_uris?.normal,
-        validTargets,
-      });
-
-      debug(2, `[requestMutateTargets] Found ${validTargets.length} valid mutate targets for ${card.name}`);
-    } catch (err: any) {
-      debugError(1, `requestMutateTargets error:`, err);
-      socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  /**
-   * Confirm mutate target selection and cast the spell with mutate
-   */
-  socket.on("confirmMutateTarget", ({ gameId, cardId, targetPermanentId, onTop }: {
-    gameId: string;
-    cardId: string;
-    targetPermanentId: string;
-    onTop: boolean;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as string | undefined;
-      if (!game || !playerId) return;
-
-      const zones = game.state.zones?.[playerId];
-      if (!zones) return;
-
-      // Find the card being cast
-      const hand = zones.hand as any[];
-      const cardIndex = hand?.findIndex((c: any) => c?.id === cardId);
-      if (cardIndex === -1 || !hand) {
-        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in hand" });
-        return;
-      }
-
-      const card = hand[cardIndex];
-
-      // Find the target permanent
-      const battlefield = game.state.battlefield || [];
-      const targetPerm = battlefield.find((p: any) => p?.id === targetPermanentId);
-      if (!targetPerm) {
-        socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target permanent not found" });
-        return;
-      }
-
-      // Validate target is still valid
-      if (targetPerm.owner !== playerId) {
-        socket.emit("error", { code: "INVALID_TARGET", message: "Target must be a creature you own" });
-        return;
-      }
-
-      const typeLine = (targetPerm.card?.type_line || '').toLowerCase();
-      if (!typeLine.includes('creature') || typeLine.includes('human')) {
-        socket.emit("error", { code: "INVALID_TARGET", message: "Target must be a non-Human creature" });
-        return;
-      }
-
-      // Parse mutate cost
-      const oracleText = card.oracle_text || '';
-      const mutateMatch = oracleText.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      const mutateCost = mutateMatch ? mutateMatch[1].trim() : '{0}';
-
-      // Store mutate information on the card for when it resolves
-      (card as any).isMutating = true;
-      (card as any).mutateTarget = targetPermanentId;
-      (card as any).mutateOnTop = onTop;
-      (card as any).mutateCost = mutateCost;
-
-      // Put on stack as a mutating creature spell
-      const stack = game.state.stack || [];
-      const stackItem = {
-        id: `stack_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-        type: 'spell' as const,
-        controller: playerId,
-        card: { ...card, zone: 'stack' },
-        targets: [targetPermanentId],
-        targetDetails: [{
-          id: targetPermanentId,
-          type: 'permanent' as const,
-          name: targetPerm.card?.name || 'Unknown',
-          controllerId: targetPerm.controller,
-        }],
-        isMutating: true,
-        mutateOnTop: onTop,
-      };
-
-      stack.push(stackItem);
-      game.state.stack = stack;
-
-      // Remove from hand
-      hand.splice(cardIndex, 1);
-      zones.handCount = hand.length;
-
-      // Announce the mutate cast
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `≡ƒº¼ ${getPlayerName(game, playerId)} casts ${card.name} with mutate (${mutateCost}), targeting ${targetPerm.card?.name || 'a creature'} (${onTop ? 'on top' : 'on bottom'}).`,
-        ts: Date.now(),
-      });
-
-      // Persist event for replay
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "castWithMutate", {
-          playerId,
-          cardId,
-          cardName: card.name,
-          targetPermanentId,
-          targetName: targetPerm.card?.name,
-          onTop,
-          mutateCost,
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(castWithMutate) failed:', e);
-      }
-
-      if (typeof (game as any).bumpSeq === "function") {
-        (game as any).bumpSeq();
-      }
-
-      broadcastGame(io, game, gameId);
-
-      debug(2, `[confirmMutateTarget] ${playerId} cast ${card.name} with mutate onto ${targetPerm.card?.name}`);
-    } catch (err: any) {
-      debugError(1, `confirmMutateTarget error:`, err);
-      socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  /**
-   * Cancel mutate and cast the creature normally instead
-   * This is used when the target becomes illegal (Rule 702.140b)
-   */
-  socket.on("castMutateNormally", ({ gameId, cardId }: {
-    gameId: string;
-    cardId: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as string | undefined;
-      if (!game || !playerId) return;
-
-      // Find the card on the stack that was being mutated
-      const stack = game.state.stack || [];
-      const stackItemIndex = stack.findIndex((item: any) => 
-        item.card?.id === cardId && item.isMutating
-      );
-
-      if (stackItemIndex === -1) {
-        socket.emit("error", { code: "NOT_FOUND", message: "Mutating spell not found on stack" });
-        return;
-      }
-
-      // Remove mutate properties and let it resolve as normal creature
-      const stackItem = stack[stackItemIndex] as any;
-      delete stackItem.isMutating;
-      delete stackItem.mutateOnTop;
-      stackItem.targets = [];
-      stackItem.targetDetails = [];
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `≡ƒº¼ ${stackItem.card?.name || 'Creature'}'s mutate target is invalid. It will resolve as a normal creature.`,
-        ts: Date.now(),
-      });
-
-      broadcastGame(io, game, gameId);
-
-      debug(2, `[castMutateNormally] Mutate target invalid, ${stackItem.card?.name} will enter normally`);
-    } catch (err: any) {
-      debugError(1, `castMutateNormally error:`, err);
-      socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  // Legacy alternate-cost selection UI has been removed.
-  // Alternate costs are handled through the primary casting flow + Resolution Queue.
+  // Legacy bespoke mutate socket handlers removed.
+  // Mutate cast mode + target selection are handled via the Resolution Queue.
 }

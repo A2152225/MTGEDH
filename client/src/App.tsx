@@ -803,6 +803,8 @@ export function App() {
     toughness?: string;
     mutateCost: string;
     targets: MutateTarget[];
+    stepId?: string;
+    mandatory?: boolean;
   } | null>(null);
   
   // Auto-pass steps - which steps to automatically pass priority on
@@ -1857,6 +1859,20 @@ export function App() {
         setPhyrexianManaModalOpen(true);
       }
 
+      // Mutate target selection via Resolution Queue
+      else if (step.type === 'mutate_target_selection') {
+        setMutateModalData({
+          cardId: String(step.cardId || step.sourceId || ''),
+          cardName: String(step.cardName || step.sourceName || 'Mutate'),
+          imageUrl: step.imageUrl || step.sourceImage,
+          mutateCost: String(step.mutateCost || ''),
+          targets: Array.isArray(step.validTargets) ? step.validTargets : [],
+          stepId: String(step.id),
+          mandatory: step.mandatory !== false,
+        });
+        setMutateModalOpen(true);
+      }
+
       // Handle Two-pile split resolution step
       else if (step.type === 'two_pile_split') {
         const request: TwoPileSplitRequest = {
@@ -2512,44 +2528,6 @@ export function App() {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
     };
   }, [safeView?.id]);
-
-  // Mutate target selection listener
-  useEffect(() => {
-    const handleMutateTargetsResponse = (data: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      mutateCost: string;
-      imageUrl?: string;
-      validTargets: MutateTarget[];
-    }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      setMutateModalData({
-        cardId: data.cardId,
-        cardName: data.cardName,
-        imageUrl: data.imageUrl,
-        mutateCost: data.mutateCost,
-        targets: data.validTargets,
-      });
-      setMutateModalOpen(true);
-    };
-
-    const handleRequestMutateTargetSelection = (data: { gameId: string; cardId: string }) => {
-      if (!safeView || data.gameId !== safeView.id) return;
-      // Request mutate targets from the server
-      socket.emit("requestMutateTargets", { gameId: safeView.id, cardId: data.cardId });
-    };
-
-    socket.on("mutateTargetsResponse", handleMutateTargetsResponse);
-    socket.on("requestMutateTargetSelection", handleRequestMutateTargetSelection);
-
-    return () => {
-      socket.off("mutateTargetsResponse", handleMutateTargetsResponse);
-      socket.off("requestMutateTargetSelection", handleRequestMutateTargetSelection);
-    };
-  }, [safeView?.id]);
-
-
 
   // Explore prompt handler
   // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
@@ -6413,31 +6391,25 @@ export function App() {
         }}
         targets={mutateModalData?.targets || []}
         onConfirm={(targetId, onTop) => {
-          if (safeView?.id && mutateModalData) {
-            socket.emit("confirmMutateTarget", {
-              gameId: safeView.id,
-              cardId: mutateModalData.cardId,
+          if (!safeView?.id || !mutateModalData?.stepId) return;
+          socket.emit('submitResolutionResponse', {
+            gameId: safeView.id,
+            stepId: mutateModalData.stepId,
+            selections: {
               targetPermanentId: targetId,
               onTop,
-            });
-            setMutateModalOpen(false);
-            setMutateModalData(null);
-          }
-        }}
-        onCancel={() => {
+            },
+            cancelled: false,
+          });
           setMutateModalOpen(false);
           setMutateModalData(null);
         }}
-        onCastNormally={() => {
-          if (safeView?.id && mutateModalData) {
-            // Cancel mutate, cast normally instead
-            socket.emit("castMutateNormally", {
-              gameId: safeView.id,
-              cardId: mutateModalData.cardId,
-            });
-            setMutateModalOpen(false);
-            setMutateModalData(null);
+        onCancel={() => {
+          if (safeView?.id && mutateModalData?.stepId && mutateModalData.mandatory) {
+            socket.emit('cancelResolutionStep', { gameId: safeView.id, stepId: mutateModalData.stepId });
           }
+          setMutateModalOpen(false);
+          setMutateModalData(null);
         }}
       />
 
