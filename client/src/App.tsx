@@ -35,7 +35,6 @@ import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCar
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
-import { ManaPaymentTriggerModal } from "./components/ManaPaymentTriggerModal";
 import { ColorChoiceModal } from "./components/ColorChoiceModal";
 import { CardNameChoiceModal } from "./components/CardNameChoiceModal";
 import { AnyColorManaModal } from "./components/AnyColorManaModal";
@@ -393,21 +392,6 @@ export function App() {
     stepId?: string;
   } | null>(null);
   
-  // Sacrifice selection modal state (for Grave Pact, Dictate of Erebos, etc.)
-  const [sacrificeModalOpen, setSacrificeModalOpen] = useState(false);
-  const [sacrificeModalData, setSacrificeModalData] = useState<{
-    triggerId: string;
-    sourceName: string;
-    sourceController: string;
-    reason: string;
-    creatures: Array<{
-      id: string;
-      name: string;
-      imageUrl?: string;
-      typeLine?: string;
-    }>;
-  } | null>(null);
-  
   // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
   // (Legacy abilitySacrificeRequest flow removed; sacrifice-as-cost uses Resolution Queue TARGET_SELECTION)
   
@@ -545,15 +529,6 @@ export function App() {
   } | null>(null);
   
   // Mana Payment Trigger Modal state - for attack triggers with optional mana payment (e.g., Casal)
-  const [manaPaymentTriggerModalOpen, setManaPaymentTriggerModalOpen] = useState(false);
-  const [manaPaymentTriggerModalData, setManaPaymentTriggerModalData] = useState<{
-    triggerId: string;
-    cardName: string;
-    cardImageUrl?: string;
-    manaCost: string;
-    effect: string;
-    description: string;
-  } | null>(null);
   
   // MDFC Face Selection Modal state - for Modal Double-Faced Cards like Blightstep Pathway
   const [mdfcFaceModalOpen, setMdfcFaceModalOpen] = useState(false);
@@ -1367,41 +1342,6 @@ export function App() {
   // Mulligan bottom selection prompt listener (London Mulligan)
   // (Legacy mulliganBottomPrompt removed; mulligan bottom uses Resolution Queue HAND_TO_BOTTOM)
 
-  // Triggered ability prompt listener
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id && payload.trigger) {
-        const trigger = payload.trigger;
-        // Check if this source is in the ignored list (auto-resolve shortcut)
-        const sourceKey = trigger.sourceId || trigger.sourceName;
-        if (sourceKey && ignoredTriggerSources.has(sourceKey)) {
-          // Increment the count for this ignored source
-          setIgnoredTriggerSources(prev => {
-            const next = new Map(prev);
-            const existing = next.get(sourceKey);
-            if (existing) {
-              next.set(sourceKey, { ...existing, count: existing.count + 1 });
-            }
-            return next;
-          });
-          // Auto-resolve this trigger without showing modal
-          socket.emit("resolveTrigger", {
-            gameId: safeView!.id,
-            triggerId: trigger.id,
-            choice: { accepted: true, autoResolved: true },
-          });
-          return;
-        }
-        setPendingTriggers(prev => [...prev, payload.trigger]);
-        setTriggerModalOpen(true);
-      }
-    };
-    socket.on("triggerPrompt", handler);
-    return () => {
-      socket.off("triggerPrompt", handler);
-    };
-  }, [safeView?.id, ignoredTriggerSources]);
-
   // Listen for batch trigger resolution summary to update auto-resolve counts
   React.useEffect(() => {
     const handler = (payload: any) => {
@@ -1656,34 +1596,6 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Attack trigger mana payment prompt listener (for Casal, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      triggerId: string;
-      cardName: string;
-      cardImageUrl?: string;
-      manaCost: string;
-      effect: string;
-      description: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setManaPaymentTriggerModalData({
-          triggerId: payload.triggerId,
-          cardName: payload.cardName,
-          cardImageUrl: payload.cardImageUrl,
-          manaCost: payload.manaCost,
-          effect: payload.effect,
-          description: payload.description,
-        });
-        setManaPaymentTriggerModalOpen(true);
-      }
-    };
-    socket.on("attackTriggerManaPaymentPrompt", handler);
-    return () => {
-      socket.off("attackTriggerManaPaymentPrompt", handler);
-    };
-  }, [safeView?.id]);
 
   // Legacy MDFC face selection request listener removed - now handled via Resolution Queue (resolutionStepPrompt).
 
@@ -1849,38 +1761,6 @@ export function App() {
       setManaPool(statePool);
     }
   }, [safeView, you]);
-
-  // Sacrifice selection listener (for Grave Pact, Dictate of Erebos, etc.)
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      triggerId: string;
-      sourceName: string;
-      sourceController: string;
-      reason: string;
-      creatures: Array<{
-        id: string;
-        name: string;
-        imageUrl?: string;
-        typeLine?: string;
-      }>;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        setSacrificeModalData({
-          triggerId: payload.triggerId,
-          sourceName: payload.sourceName,
-          sourceController: payload.sourceController,
-          reason: payload.reason,
-          creatures: payload.creatures,
-        });
-        setSacrificeModalOpen(true);
-      }
-    };
-    socket.on("sacrificeSelectionRequest", handler);
-    return () => {
-      socket.off("sacrificeSelectionRequest", handler);
-    };
-  }, [safeView?.id]);
 
   // Undo request listener
   React.useEffect(() => {
@@ -5989,37 +5869,6 @@ export function App() {
         }}
       />
 
-      {/* Sacrifice Selection Modal (for Grave Pact, Dictate of Erebos, etc.) */}
-      <TargetSelectionModal
-        open={sacrificeModalOpen}
-        title={`Sacrifice a Creature`}
-        description={sacrificeModalData ? `${sacrificeModalData.sourceName} triggers: ${sacrificeModalData.reason}` : undefined}
-        targets={sacrificeModalData?.creatures.map(c => ({
-          id: c.id,
-          type: 'permanent' as const,
-          name: c.name,
-          imageUrl: c.imageUrl,
-          typeLine: c.typeLine,
-        })) || []}
-        minTargets={1}
-        maxTargets={1}
-        onConfirm={(selectedIds) => {
-          if (selectedIds.length > 0 && sacrificeModalData && safeView?.id) {
-            socket.emit("sacrificeSelected", {
-              gameId: safeView.id,
-              triggerId: sacrificeModalData.triggerId,
-              permanentId: selectedIds[0],
-            });
-            setSacrificeModalOpen(false);
-            setSacrificeModalData(null);
-          }
-        }}
-        onCancel={() => {
-          // Sacrifice is mandatory - inform the user they must select
-          alert("You must sacrifice a creature to this triggered ability.");
-        }}
-      />
-
       {/* Life Payment Modal (Toxic Deluge, Hatred, etc.) */}
       <LifePaymentModal
         open={lifePaymentModalOpen}
@@ -6055,38 +5904,6 @@ export function App() {
           }
           setLifePaymentModalOpen(false);
           setLifePaymentModalData(null);
-        }}
-      />
-
-      {/* Mana Payment Trigger Modal (Casal attack triggers, etc.) */}
-      <ManaPaymentTriggerModal
-        open={manaPaymentTriggerModalOpen}
-        cardName={manaPaymentTriggerModalData?.cardName || ''}
-        cardImageUrl={manaPaymentTriggerModalData?.cardImageUrl}
-        manaCost={manaPaymentTriggerModalData?.manaCost || ''}
-        effect={manaPaymentTriggerModalData?.effect || ''}
-        description={manaPaymentTriggerModalData?.description || ''}
-        onPayMana={() => {
-          if (safeView?.id && manaPaymentTriggerModalData) {
-            socket.emit("respondAttackTriggerPayment", {
-              gameId: safeView.id,
-              triggerId: manaPaymentTriggerModalData.triggerId,
-              payMana: true,
-            });
-            setManaPaymentTriggerModalOpen(false);
-            setManaPaymentTriggerModalData(null);
-          }
-        }}
-        onDecline={() => {
-          if (safeView?.id && manaPaymentTriggerModalData) {
-            socket.emit("respondAttackTriggerPayment", {
-              gameId: safeView.id,
-              triggerId: manaPaymentTriggerModalData.triggerId,
-              payMana: false,
-            });
-            setManaPaymentTriggerModalOpen(false);
-            setManaPaymentTriggerModalData(null);
-          }
         }}
       />
 

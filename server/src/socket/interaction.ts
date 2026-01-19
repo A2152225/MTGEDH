@@ -6115,84 +6115,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // See resolution.ts MANA_PAYMENT_CHOICE handling
 
   // ============================================================================
-  // Sacrifice Selection (for Grave Pact, Dictate of Erebos, etc.)
+  // NOTE: The legacy sacrificeSelected handler has been removed.
+  // Sacrifice selection is now handled by the Resolution Queue system:
+  // - UPKEEP_SACRIFICE (edict style: sacrifice 1 creature)
+  // - TARGET_SELECTION with sacrificeSelection metadata (sacrifice N permanents of a given type)
+  // See resolution.ts handleTargetSelectionResponse.
   // ============================================================================
-
-  /**
-   * Handle sacrifice selection response from a player
-   * This is used when a Grave Pact-style effect requires opponents to sacrifice
-   */
-  socket.on("sacrificeSelected", ({ 
-    gameId, 
-    triggerId, 
-    permanentId 
-  }: { 
-    gameId: string; 
-    triggerId: string; 
-    permanentId: string;
-  }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
-
-    const game = ensureGame(gameId);
-    if (!game) {
-      socket.emit("error", {
-        code: "GAME_NOT_FOUND",
-        message: "Game not found",
-      });
-      return;
-    }
-
-    const battlefield = game.state?.battlefield || [];
-    
-    // Find the permanent to sacrifice
-    const permIndex = battlefield.findIndex((p: any) => 
-      p?.id === permanentId && p?.controller === pid
-    );
-    
-    if (permIndex === -1) {
-      socket.emit("error", {
-        code: "PERMANENT_NOT_FOUND",
-        message: "Permanent not found or not controlled by you",
-      });
-      return;
-    }
-    
-    const permanent = battlefield[permIndex];
-    const card = (permanent as any).card;
-    const cardName = card?.name || "Unknown";
-    
-    // Remove from battlefield
-    battlefield.splice(permIndex, 1);
-    
-    // Move to graveyard
-    const zones = (game.state as any)?.zones?.[pid];
-    if (zones) {
-      zones.graveyard = zones.graveyard || [];
-      zones.graveyard.push({ ...card, zone: "graveyard" });
-      zones.graveyardCount = zones.graveyard.length;
-    }
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "sacrificeSelected", { 
-      playerId: pid, 
-      permanentId,
-      triggerId,
-    });
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} sacrificed ${cardName} to the triggered ability.`,
-      ts: Date.now(),
-    });
-    
-    broadcastGame(io, game, gameId);
-  });
 
   // ============================================================================
   // Mana Pool Manipulation (moved to mana-handlers.ts)

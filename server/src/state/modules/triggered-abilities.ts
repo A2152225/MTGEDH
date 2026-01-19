@@ -789,6 +789,8 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
+
+  const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i;
   
   // Check known cards
   for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
@@ -803,6 +805,16 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
         value: info.value,
         mandatory: true,
       };
+
+      // Some known-card entries encode optional mana payments (e.g. Casal):
+      // "You may pay {1}{G}. If you do, transform her."
+      // Treat these as optional prompts rather than mandatory auto-effects.
+      const maybeOptionalPayment = String(info.effect || '').match(optionalManaPaymentPattern);
+      if (maybeOptionalPayment) {
+        (trigger as any).manaCost = maybeOptionalPayment[1];
+        trigger.effect = String(maybeOptionalPayment[2] || '').trim();
+        trigger.mandatory = false;
+      }
       
       // Add create tokens based on count data (for Myrel, Shield of Argive, etc.)
       if (info.createTokensBasedOnCount) {
@@ -874,13 +886,13 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   }
   
   // Generic "whenever ~ attacks"
-  const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+attacks,?\s*([^.]+)/i);
+  const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+attacks,?\s*([^\n]+)/i);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
     
     // Check if this is an optional mana payment trigger (e.g., Casal)
     // Pattern: "you may pay {X}. If you do, ..."
-    const mayPayMatch = effectText.match(/you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i);
+    const mayPayMatch = effectText.match(optionalManaPaymentPattern);
     
     if (mayPayMatch) {
       // Optional mana payment trigger

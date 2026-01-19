@@ -36,6 +36,7 @@ import {
   applyUpdateCountersBulk,
   createToken,
   removePermanent,
+  movePermanentToGraveyard,
   applyEngineEffects,
   runSBA,
   movePermanentToExile,
@@ -1171,7 +1172,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const permId = (e as any).permanentId;
         if (!permId) break;
         try {
-          removePermanent(ctx as any, permId);
+          movePermanentToGraveyard(ctx as any, permId, true);
         } catch (err) {
           debugWarn(1, "applyEvent(sacrificePermanent): failed", err);
         }
@@ -1179,12 +1180,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "sacrificeSelected": {
-        // Multiple permanents sacrificed (e.g., for Diabolic Intent)
-        const permanentIds = (e as any).permanentIds as string[] || [];
-        if (permanentIds.length === 0) break;
+        // DEPRECATED legacy event name for multiple sacrifices.
+        // Kept for event replay/backward compatibility.
+        const permanentIds = ((e as any).permanentIds as string[]) || ((e as any).permanentId ? [String((e as any).permanentId)] : []);
+        if (!Array.isArray(permanentIds) || permanentIds.length === 0) break;
         try {
           for (const permId of permanentIds) {
-            removePermanent(ctx as any, permId);
+            movePermanentToGraveyard(ctx as any, permId, true);
           }
         } catch (err) {
           debugWarn(1, "applyEvent(sacrificeSelected): failed", err);

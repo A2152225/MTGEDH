@@ -8935,7 +8935,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Request sacrifice selection from a player due to an edict effect
    */
-  socket.on("requestSacrificeSelection", ({ gameId, effectId, sourceName, targetPlayerId, permanentType, count }: {
+  socket.on("requestSacrificeSelection", async ({ gameId, effectId, sourceName, targetPlayerId, permanentType, count }: {
     gameId: string;
     effectId: string;
     sourceName: string;
@@ -8979,19 +8979,82 @@ export function registerGameActions(io: Server, socket: Socket) {
         toughness: p.baseToughness,
       }));
 
-      // Emit to the target player
-      emitToPlayer(io, targetPlayerId, "sacrificeSelectionRequest", {
-        gameId,
-        triggerId: effectId,
-        sourceName,
-        sourceController: socket.data.playerId,
-        reason: `${sourceName} requires you to sacrifice ${count} ${permanentType}(s)`,
-        creatures: eligiblePermanents,
-        count,
-        permanentType,
-      });
+      // Unified Resolution Queue prompt for all remaining sacrifice-selection cases.
+      const requiredCount = Math.max(0, Number(count || 0));
+      const reason = `${sourceName} requires you to sacrifice ${requiredCount} ${permanentType}(s)`;
 
-      debug(2, `[requestSacrificeSelection] ${targetPlayerId} must sacrifice ${count} ${permanentType}(s) due to ${sourceName}`);
+      if (eligiblePermanents.length === 0 || requiredCount <= 0) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, targetPlayerId)} has no ${permanentType === 'permanent' ? 'permanents' : `${permanentType}s`} to sacrifice.`,
+          ts: Date.now(),
+        });
+        return;
+      }
+
+      // If there's no choice (must sacrifice all available), auto-apply.
+      if (eligiblePermanents.length <= requiredCount) {
+        const ctx = {
+          state: game.state,
+          libraries: (game as any).libraries,
+          bumpSeq: () => {
+            if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          },
+          rng: (game as any).rng,
+          gameId,
+        } as any;
+
+        const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+        const sacrificed: string[] = [];
+
+        for (const p of eligiblePermanents) {
+          const perm = (game.state?.battlefield || []).find((bp: any) => bp && bp.id === p.id);
+          const nm = String(perm?.card?.name || p.name || 'permanent');
+          const ok = movePermanentToGraveyard(ctx, p.id, true);
+          if (ok) sacrificed.push(nm);
+        }
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, targetPlayerId)} sacrifices ${sacrificed.join(', ') || 'permanents'} (${sourceName}).`,
+          ts: Date.now(),
+        });
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: targetPlayerId as any,
+        sourceName,
+        sourceId: effectId,
+        description: reason,
+        mandatory: true,
+        validTargets: eligiblePermanents.map((p: any) => ({
+          id: p.id,
+          label: p.name,
+          description: 'permanent',
+          imageUrl: p.imageUrl,
+          typeLine: p.typeLine,
+        })),
+        targetTypes: ['permanent'],
+        minTargets: requiredCount,
+        maxTargets: requiredCount,
+        targetDescription: `permanent to sacrifice`,
+
+        sacrificeSelection: true,
+        sacrificePermanentType: permanentType,
+        sacrificeCount: requiredCount,
+        sacrificeReason: reason,
+        sacrificeSourceName: sourceName,
+        sacrificeEffectId: effectId,
+      } as any);
+
+      debug(2, `[requestSacrificeSelection] (Resolution Queue) ${targetPlayerId} must sacrifice ${requiredCount} ${permanentType}(s) due to ${sourceName}`);
     } catch (err: any) {
       debugError(1, `requestSacrificeSelection error for game ${gameId}:`, err);
       socket.emit("error", { code: "SACRIFICE_REQUEST_ERROR", message: err?.message ?? String(err) });

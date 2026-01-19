@@ -355,6 +355,8 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
+
+  const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i;
   
   // Also check grantedAbilities on the permanent for temporary abilities
   // These are abilities granted by other cards (e.g., "gains firebending 4 until end of turn")
@@ -443,13 +445,15 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   // Generic "whenever ~ attacks" - match ~, this creature, or the actual card name
   // Use consistent regex escaping approach
   const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
-  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePatternEscaped})\\s+attacks,?\\s*([^.]+)`, 'i');
+  // Capture the full ability line (including periods) so patterns like
+  // "you may pay {1}{G}. If you do, ..." can be recognized.
+  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePatternEscaped})\\s+attacks,?\\s*([^\\n]+)`, 'i');
   const attacksMatch = oracleText.match(attacksPattern);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
     
     // Check for optional mana payment trigger
-    const mayPayMatch = effectText.match(/you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i);
+    const mayPayMatch = effectText.match(optionalManaPaymentPattern);
     
     if (mayPayMatch) {
       triggers.push({

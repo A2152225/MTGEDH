@@ -15,6 +15,162 @@ import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+
+export type PendingAttackTriggerManaPayment = {
+  permanentId: string;
+  cardName: string;
+  effect?: string;
+  manaCost: string;
+  description?: string;
+};
+
+export function resolveAttackTriggerManaPaymentChoice(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: PlayerID,
+  pendingTrigger: PendingAttackTriggerManaPayment,
+  payMana: boolean
+): void {
+  const { permanentId, cardName, effect, manaCost } = pendingTrigger;
+
+  if (payMana) {
+    // Player chose to pay - validate and consume mana
+    const parsedCost = parseManaCost(manaCost);
+    const pool = getOrInitManaPool(game.state, playerId);
+    const totalAvailable = calculateTotalAvailableMana(pool, []);
+
+    const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+    if (validationError) {
+      emitToPlayer(io, playerId, "error", {
+        code: "INSUFFICIENT_MANA",
+        message: `Cannot pay ${manaCost}: ${validationError}`,
+      });
+
+      // Treat as decline (do not apply effect) to avoid leaving the game in a stuck state.
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} couldn't pay ${manaCost} for ${cardName}'s trigger.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Consume mana
+    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
+    broadcastManaPoolUpdate(io, gameId, playerId, pool as any, `Paid ${manaCost} for ${cardName}`, game);
+
+    // Execute the effect (e.g., transform Casal)
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p?.id === permanentId);
+
+    if (permanent && effect && effect.toLowerCase().includes("transform")) {
+      // Handle transform
+      const cardFaces = (permanent.card as any)?.card_faces;
+      if (Array.isArray(cardFaces) && cardFaces.length >= 2) {
+        const wasTransformed = (permanent as any).transformed;
+        (permanent as any).transformed = !wasTransformed;
+
+        // Get the new face
+        const newFaceIndex = wasTransformed ? 0 : 1;
+        const newFace = cardFaces[newFaceIndex];
+
+        // Update permanent's visible card data
+        permanent.card = {
+          ...permanent.card,
+          name: newFace.name,
+          type_line: newFace.type_line,
+          oracle_text: newFace.oracle_text,
+          power: newFace.power,
+          toughness: newFace.toughness,
+          mana_cost: newFace.mana_cost,
+          colors: newFace.colors,
+        } as any;
+
+        // Check if this is Casal transforming to Pathbreaker Owlbear
+        const newName = newFace.name || "";
+        if (newName.toLowerCase().includes("pathbreaker owlbear")) {
+          // Apply the buff: other legendary creatures get +2/+2 and trample until end of turn
+          const legendaryCreatures = battlefield.filter(
+            (p: any) =>
+              p?.controller === playerId &&
+              p?.id !== permanentId && // Exclude Casal herself
+              (p?.card?.type_line || "").toLowerCase().includes("legendary") &&
+              (p?.card?.type_line || "").toLowerCase().includes("creature")
+          );
+
+          for (const creature of legendaryCreatures) {
+            // Add temporary buff modifier
+            const existingModifiers = creature.modifiers || [];
+            creature.modifiers = [
+              ...existingModifiers,
+              {
+                type: "pt_buff",
+                sourceId: permanentId,
+                power: 2,
+                toughness: 2,
+                keywords: ["Trample"],
+                duration: "end_of_turn",
+                appliedAt: Date.now(),
+              } as any,
+            ];
+          }
+
+          if (legendaryCreatures.length > 0) {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `🐻 ${newName}: ${legendaryCreatures.length} legendary creature${legendaryCreatures.length > 1 ? "s" : ""} get +2/+2 and gain trample until end of turn!`,
+              ts: Date.now(),
+            });
+          }
+        }
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `💰 ${getPlayerName(game, playerId)} paid ${manaCost}. ${cardName} transforms into ${newFace.name}!`,
+          ts: Date.now(),
+        });
+      }
+    }
+
+    // Bump sequence and broadcast
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+
+    debug(2, `[combat] ${playerId} paid ${manaCost} for ${cardName}'s attack trigger`);
+    return;
+  }
+
+  // Player chose not to pay
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, playerId)} declined to pay ${manaCost} for ${cardName}'s trigger.`,
+    ts: Date.now(),
+  });
+
+  if (typeof (game as any).bumpSeq === "function") {
+    (game as any).bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+
+  debug(2, `[combat] ${playerId} declined to pay for ${cardName}'s attack trigger`);
+}
 
 /**
  * Get goad status for a creature.
@@ -1372,38 +1528,47 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
               // Check if this is an optional mana payment trigger
               if (trigger.manaCost && !trigger.mandatory) {
-                // Don't auto-push to stack - instead emit a payment prompt
-                const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                
-                // Store pending trigger for later resolution
-                game.state.pendingAttackTriggers = game.state.pendingAttackTriggers || {};
-                game.state.pendingAttackTriggers[triggerId] = {
-                  permanentId: trigger.permanentId,
-                  cardName: trigger.cardName,
-                  effect: trigger.effect,
-                  manaCost: trigger.manaCost,
-                  controller: triggerControllerId,
-                  description: trigger.description,
-                };
-                
-                // Get card image for the modal
+                // Don't auto-push to stack - instead enqueue a Resolution Queue prompt
                 const permanent = battlefield.find((p: any) => p?.id === trigger.permanentId);
-                const cardImageUrl = permanent?.card?.image_uris?.small || 
-                                    permanent?.card?.image_uris?.normal;
-                
-                // Emit payment prompt to the controlling player
-                emitToPlayer(io, triggerControllerId, "attackTriggerManaPaymentPrompt", {
-                  gameId,
-                  triggerId,
+                const cardImageUrl =
+                  permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
+
+                ResolutionQueueManager.addStep(gameId, {
+                  type: ResolutionStepType.OPTION_CHOICE,
+                  playerId: triggerControllerId,
+                  description: trigger.description || `${trigger.cardName}: You may pay ${trigger.manaCost}.`,
+                  mandatory: false,
+                  sourceId: String(trigger.permanentId || ''),
+                  sourceName: trigger.cardName,
+                  sourceImage: cardImageUrl,
+                  options: [
+                    {
+                      id: 'pay_mana',
+                      label: `Pay ${trigger.manaCost}`,
+                      description: `If you do: ${trigger.effect || 'resolve effect'}`,
+                    },
+                    {
+                      id: 'decline',
+                      label: `Decline`,
+                      description: 'Do not pay the optional cost.',
+                    },
+                  ],
+                  minSelections: 0,
+                  maxSelections: 1,
+                  priority: -1,
+
+                  attackTriggerManaPaymentChoice: true,
                   permanentId: trigger.permanentId,
                   cardName: trigger.cardName,
-                  cardImageUrl,
                   manaCost: trigger.manaCost,
                   effect: trigger.effect,
-                  description: trigger.description,
-                });
-                
-                debug(2, `[combat] Attack trigger with mana payment for ${trigger.cardName}: ${trigger.manaCost} to ${trigger.effect}`);
+                  triggerDescription: trigger.description,
+                } as any);
+
+                debug(
+                  2,
+                  `[combat] Enqueued attack trigger mana payment choice for ${trigger.cardName}: ${trigger.manaCost} to ${trigger.effect}`
+                );
               } else if ((trigger.triggerType as string) === 'firebending') {
                 // Firebending - add red mana immediately, lasts until end of combat
                 const manaAmount = typeof trigger.value === 'number' ? trigger.value : 1;
@@ -1647,120 +1812,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Remove from pending
       delete game.state.pendingAttackTriggers[triggerId];
 
-      if (payMana) {
-        // Player chose to pay - validate and consume mana
-        const parsedCost = parseManaCost(manaCost);
-        const pool = getOrInitManaPool(game.state, playerId);
-        const totalAvailable = calculateTotalAvailableMana(pool, []);
-        
-        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-        if (validationError) {
-          socket.emit("error", { 
-            code: "INSUFFICIENT_MANA", 
-            message: `Cannot pay ${manaCost}: ${validationError}` 
-          });
-          return;
-        }
-        
-        // Consume mana
-        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
-        broadcastManaPoolUpdate(io, gameId, playerId, pool as any, `Paid ${manaCost} for ${cardName}`, game);
-        
-        // Execute the effect (e.g., transform Casal)
-        const battlefield = game.state?.battlefield || [];
-        const permanent = battlefield.find((p: any) => p?.id === permanentId);
-        
-        if (permanent && effect && effect.toLowerCase().includes('transform')) {
-          // Handle transform
-          const cardFaces = (permanent.card as any)?.card_faces;
-          if (Array.isArray(cardFaces) && cardFaces.length >= 2) {
-            const wasTransformed = (permanent as any).transformed;
-            (permanent as any).transformed = !wasTransformed;
-            
-            // Get the new face
-            const newFaceIndex = wasTransformed ? 0 : 1;
-            const newFace = cardFaces[newFaceIndex];
-            
-            // Update permanent's visible card data
-            permanent.card = {
-              ...permanent.card,
-              name: newFace.name,
-              type_line: newFace.type_line,
-              oracle_text: newFace.oracle_text,
-              power: newFace.power,
-              toughness: newFace.toughness,
-              mana_cost: newFace.mana_cost,
-              colors: newFace.colors,
-            } as any;
-            
-            // Check if this is Casal transforming to Pathbreaker Owlbear
-            const newName = newFace.name || '';
-            if (newName.toLowerCase().includes('pathbreaker owlbear')) {
-              // Apply the buff: other legendary creatures get +2/+2 and trample until end of turn
-              const legendaryCreatures = battlefield.filter((p: any) => 
-                p?.controller === playerId && 
-                p?.id !== permanentId && // Exclude Casal herself
-                (p?.card?.type_line || '').toLowerCase().includes('legendary') &&
-                (p?.card?.type_line || '').toLowerCase().includes('creature')
-              );
-              
-              for (const creature of legendaryCreatures) {
-                // Add temporary buff modifier
-                const existingModifiers = creature.modifiers || [];
-                creature.modifiers = [
-                  ...existingModifiers,
-                  {
-                    type: 'pt_buff',
-                    sourceId: permanentId,
-                    power: 2,
-                    toughness: 2,
-                    keywords: ['Trample'],
-                    duration: 'end_of_turn',
-                    appliedAt: Date.now(),
-                  } as any
-                ];
-              }
-              
-              if (legendaryCreatures.length > 0) {
-                io.to(gameId).emit("chat", {
-                  id: `m_${Date.now()}`,
-                  gameId,
-                  from: "system",
-                  message: `🐻 ${newName}: ${legendaryCreatures.length} legendary creature${legendaryCreatures.length > 1 ? 's' : ''} get +2/+2 and gain trample until end of turn!`,
-                  ts: Date.now(),
-                });
-              }
-            }
-            
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `💰 ${getPlayerName(game, playerId)} paid ${manaCost}. ${cardName} transforms into ${newFace.name}!`,
-              ts: Date.now(),
-            });
-          }
-        }
-        
-        // Bump sequence and broadcast
-        if (typeof (game as any).bumpSeq === "function") {
-          (game as any).bumpSeq();
-        }
-        broadcastGame(io, game, gameId);
-        
-        debug(2, `[combat] ${playerId} paid ${manaCost} for ${cardName}'s attack trigger`);
-      } else {
-        // Player chose not to pay
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} declined to pay ${manaCost} for ${cardName}'s trigger.`,
-          ts: Date.now(),
-        });
-        
-        debug(2, `[combat] ${playerId} declined to pay for ${cardName}'s attack trigger`);
-      }
+      resolveAttackTriggerManaPaymentChoice(
+        io,
+        game,
+        gameId,
+        playerId,
+        { permanentId, cardName, effect, manaCost, description },
+        payMana
+      );
       
     } catch (err: any) {
       debugError(1, `[combat] respondAttackTriggerPayment error:`, err);

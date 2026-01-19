@@ -30,7 +30,7 @@ import {
   broadcastManaPoolUpdate,
 } from "./util.js";
 import { checkAndPromptOpeningHandActions } from "./opening-hand.js";
-import { executeDeclareAttackers } from "./combat.js";
+import { executeDeclareAttackers, resolveAttackTriggerManaPaymentChoice } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB } from "./ai.js";
@@ -5957,10 +5957,61 @@ async function handleTargetSelectionResponse(
   }
 
   // ========================================================================
+  // SACRIFICE SELECTION (Grave Pact / Dictate of Erebos variants, etc.)
+  // These are enqueued as TARGET_SELECTION steps with sacrificeSelection metadata.
+  // ========================================================================
+  const stepAny = step as any;
+  if (stepAny?.sacrificeSelection === true) {
+    const permanentType = String(stepAny?.sacrificePermanentType || 'permanent');
+    const sourceName = String(stepAny?.sacrificeSourceName || step.sourceName || 'Effect');
+    const reason = String(stepAny?.sacrificeReason || step.description || '').trim();
+
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+
+    const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const sacrificedNames: string[] = [];
+
+    for (const permanentId of selections) {
+      const perm = battlefield.find((p: any) => p && String(p.id) === String(permanentId));
+      if (!perm || String(perm.controller || '') !== String(pid)) {
+        debugWarn(1, `[Resolution] sacrificeSelection invalid permanent/controller: ${permanentId}`);
+        continue;
+      }
+
+      const typeLine = String(perm.card?.type_line || '').toLowerCase();
+      if (permanentType !== 'permanent' && !typeLine.includes(permanentType)) {
+        debugWarn(1, `[Resolution] sacrificeSelection type mismatch (${permanentType}): ${permanentId}`);
+        continue;
+      }
+
+      const name = String(perm.card?.name || 'permanent');
+      const ok = movePermanentToGraveyard(ctx, String(permanentId), true);
+      if (ok) sacrificedNames.push(name);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} sacrifices ${sacrificedNames.join(', ') || 'permanents'}${sourceName ? ` (${sourceName})` : ''}${reason ? `: ${reason}` : ''}.`,
+      ts: Date.now(),
+    });
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
   // DAMAGE-RECEIVED TRIGGER TARGETING (Brash Taunter, Boros Reckoner, etc.)
   // These triggers are enqueued as TARGET_SELECTION steps from pendingDamageTriggers.
   // ========================================================================
-  const stepAny = step as any;
   if (stepAny?.damageReceivedTrigger === true) {
     const damageTrigger = (stepAny?.damageTrigger || {}) as any;
 
@@ -12282,6 +12333,103 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  // ===== LEGACY TRIGGER PROMPT (triggerQueue) =====
+  // Some older trigger flows queued a trigger in game.state.triggerQueue and prompted via a bespoke
+  // triggerPrompt Socket.IO event. We now represent that prompt as an OPTION_CHOICE resolution step.
+  if (stepData?.legacyTriggerPrompt === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
+    const accepted = !response.cancelled && choiceId !== 'decline';
+    const legacyTriggerId = String(stepData?.legacyTriggerId || '').trim();
+
+    const triggerQueue = ((game.state as any)?.triggerQueue || []) as any[];
+    const triggerIndex = legacyTriggerId ? triggerQueue.findIndex((t: any) => String(t?.id) === legacyTriggerId) : -1;
+    if (triggerIndex === -1) {
+      debugWarn(1, `[Resolution] legacyTriggerPrompt: trigger not found in triggerQueue (id='${legacyTriggerId}')`);
+      return;
+    }
+
+    const trigger = triggerQueue[triggerIndex];
+
+    if (!accepted) {
+      triggerQueue.splice(triggerIndex, 1);
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} declines ${String(trigger?.sourceName || step.sourceName || 'a triggered ability')}.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Put the trigger on the stack (legacy behavior)
+    const stackItem = {
+      id: `stack_trigger_${Date.now()}`,
+      type: 'ability',
+      controller: playerId,
+      card: {
+        id: String(trigger?.sourceId || stepData?.legacyTriggerSourceId || step.sourceId || ''),
+        name: `${String(trigger?.sourceName || stepData?.legacyTriggerSourceName || step.sourceName || 'Triggered Ability')} (trigger)`,
+        type_line: 'Triggered Ability',
+        oracle_text: String(trigger?.effect || stepData?.legacyTriggerEffect || step.description || ''),
+      },
+      targets: (trigger?.targets || stepData?.legacyTriggerTargets || []) as any,
+      legacyChoice: choiceId,
+    };
+
+    (game.state as any).stack = (game.state as any).stack || [];
+    (game.state as any).stack.push(stackItem);
+    triggerQueue.splice(triggerIndex, 1);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${String(trigger?.sourceName || step.sourceName || 'A triggered ability')}'s triggered ability goes on the stack.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== COMBAT: OPTIONAL ATTACK TRIGGER MANA PAYMENT (Casal, etc.) =====
+  // This is queued from server/socket/combat.ts when an attack trigger has "you may pay {..}. If you do, ...".
+  if (stepData?.attackTriggerManaPaymentChoice === true) {
+    const choiceId = extractId(selectedOption) || 'decline';
+    const controllerId = String(response.playerId);
+
+    const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+    const cardName = String(stepData?.cardName || step.sourceName || '').trim();
+    const manaCost = String(stepData?.manaCost || '').trim();
+    const effect = String(stepData?.effect || '').trim();
+    const description = String(stepData?.triggerDescription || step.description || '').trim();
+
+    const willPay = !response.cancelled && choiceId === 'pay_mana';
+
+    if (!permanentId || !cardName || !manaCost) {
+      debugWarn(
+        1,
+        `[Resolution] attackTriggerManaPaymentChoice: missing context (permanentId='${permanentId}', cardName='${cardName}', manaCost='${manaCost}')`
+      );
+      return;
+    }
+
+    resolveAttackTriggerManaPaymentChoice(
+      io,
+      game,
+      gameId,
+      controllerId as any,
+      { permanentId, cardName, effect, manaCost, description },
+      willPay
+    );
+    return;
+  }
 
   // ===== FORCE OF WILL / FORCE OF NEGATION STYLE ALTERNATE COST =====
   // Exile a blue card from hand (and optionally pay 1 life), then resume the cast.
