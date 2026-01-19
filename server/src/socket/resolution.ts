@@ -702,6 +702,26 @@ async function handleAIResolutionStep(
         debug(2, `[Resolution] AI library search: selected ${selectedCardIds.length} card(s) from ${availableCards.length} available`);
         break;
       }
+
+      case ResolutionStepType.GRAVEYARD_SELECTION: {
+        const stepData = step as any;
+        const validTargets: any[] = Array.isArray(stepData.validTargets) ? stepData.validTargets : [];
+        const minTargets = Math.max(0, Number(stepData.minTargets ?? 0));
+        const maxTargets = Math.max(minTargets, Number(stepData.maxTargets ?? minTargets));
+
+        const desired = Math.min(validTargets.length, Math.max(minTargets, Math.min(maxTargets, maxTargets || minTargets || 0)));
+        const selectedCardIds = validTargets.slice(0, desired).map((c: any) => String(c?.id || ''));
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: selectedCardIds.filter(Boolean),
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI graveyard selection: selected ${selectedCardIds.length} card(s)`);
+        break;
+      }
       
       case ResolutionStepType.SCRY: {
         // AI keeps all cards on top (simple strategy - could be improved)
@@ -2257,6 +2277,19 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('mutateCost' in step) fields.mutateCost = (step as any).mutateCost;
       if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
       if ('validTargets' in step) fields.validTargets = (step as any).validTargets;
+      break;
+
+    case ResolutionStepType.GRAVEYARD_SELECTION:
+      if ('effectId' in step) fields.effectId = (step as any).effectId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('title' in step) fields.title = (step as any).title;
+      if ('targetPlayerId' in step) fields.targetPlayerId = (step as any).targetPlayerId;
+      if ('filter' in step) fields.filter = (step as any).filter;
+      if ('minTargets' in step) fields.minTargets = (step as any).minTargets;
+      if ('maxTargets' in step) fields.maxTargets = (step as any).maxTargets;
+      if ('destination' in step) fields.destination = (step as any).destination;
+      if ('validTargets' in step) fields.validTargets = (step as any).validTargets;
+      if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
       break;
     
     case ResolutionStepType.CREATURE_TYPE_CHOICE:
@@ -5458,6 +5491,10 @@ async function handleStepResponse(
 
     case ResolutionStepType.MUTATE_TARGET_SELECTION:
       await handleMutateTargetSelectionResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.GRAVEYARD_SELECTION:
+      await handleGraveyardSelectionResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.TRIGGER_ORDER:
@@ -15814,6 +15851,146 @@ async function handleMutateTargetSelectionResponse(
       convokeOptions: pendingCast.convokeOptions,
       forcedAlternateCostId: 'mutate',
     } as any);
+  }
+
+  if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+  broadcastGame(io, game, gameId);
+}
+
+async function handleGraveyardSelectionResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId as any;
+  const stepData = step as any;
+
+  const effectId = String(stepData.effectId || step.sourceId || '').trim();
+  const cardName = String(stepData.cardName || step.sourceName || 'Effect');
+  const title = String(stepData.title || cardName || 'Select from Graveyard');
+  const targetPlayerId = String(stepData.targetPlayerId || pid || '').trim();
+  const destination = (stepData.destination || 'hand') as 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+
+  if (!targetPlayerId) {
+    emitToPlayer(io, pid, 'error', { code: 'NO_TARGET_PLAYER', message: 'No graveyard specified for selection' });
+    return;
+  }
+
+  if (response.cancelled) {
+    // Optional steps may be cancelled; mandatory steps should generally not be.
+    debug(2, `[Resolution] GRAVEYARD_SELECTION cancelled by ${pid} (${title})`);
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  let selectedCardIds: string[] = [];
+  if (Array.isArray(response.selections)) {
+    selectedCardIds = (response.selections as any[]).map((s: any) => String(s)).filter(Boolean);
+  } else if (typeof response.selections === 'object' && response.selections) {
+    const obj = response.selections as any;
+    if (Array.isArray(obj.selectedCardIds)) selectedCardIds = obj.selectedCardIds.map((s: any) => String(s)).filter(Boolean);
+  }
+
+  const minTargets = Math.max(0, Number(stepData.minTargets ?? 0));
+  const maxTargets = Math.max(minTargets, Number(stepData.maxTargets ?? minTargets));
+  if (selectedCardIds.length < minTargets || selectedCardIds.length > maxTargets) {
+    emitToPlayer(io, pid, 'error', {
+      code: 'INVALID_SELECTION_COUNT',
+      message: `Select ${minTargets === maxTargets ? minTargets : `${minTargets}-${maxTargets}`} card(s).`,
+    });
+    return;
+  }
+
+  const validTargets: any[] = Array.isArray(stepData.validTargets) ? stepData.validTargets : [];
+  const validIds = new Set(validTargets.map((t: any) => String(t?.id || '')));
+  for (const id of selectedCardIds) {
+    if (!validIds.has(String(id))) {
+      emitToPlayer(io, pid, 'error', { code: 'INVALID_TARGET', message: 'Invalid graveyard card selection' });
+      return;
+    }
+  }
+
+  const zones = (game.state as any).zones = (game.state as any).zones || {};
+  zones[targetPlayerId] = zones[targetPlayerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
+  const srcZones = zones[targetPlayerId] as any;
+  srcZones.graveyard = Array.isArray(srcZones.graveyard) ? srcZones.graveyard : [];
+
+  zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
+  const dstZones = zones[pid] as any;
+  dstZones.hand = Array.isArray(dstZones.hand) ? dstZones.hand : [];
+
+  const movedCards: string[] = [];
+  const movedCardIds: string[] = [];
+
+  for (const cardId of selectedCardIds) {
+    const idx = (srcZones.graveyard as any[]).findIndex((c: any) => c && String(c.id) === String(cardId));
+    if (idx === -1) continue;
+    const card = (srcZones.graveyard as any[]).splice(idx, 1)[0];
+    movedCardIds.push(String(cardId));
+    movedCards.push(String(card?.name || cardId));
+
+    if (destination === 'hand') {
+      (dstZones.hand as any[]).push({ ...(card as any), zone: 'hand' });
+    } else if (destination === 'battlefield') {
+      const battlefield = (game.state as any).battlefield = (game.state as any).battlefield || [];
+      const typeLine = String((card as any)?.type_line || '').toLowerCase();
+      const isCreature = typeLine.includes('creature');
+      battlefield.push({
+        id: uid('perm'),
+        controller: pid,
+        owner: pid,
+        tapped: false,
+        counters: {},
+        basePower: isCreature ? parsePT((card as any).power) : undefined,
+        baseToughness: isCreature ? parsePT((card as any).toughness) : undefined,
+        summoningSickness: isCreature,
+        card: { ...(card as any), zone: 'battlefield' },
+      });
+    } else if (destination === 'library_top' || destination === 'library_bottom') {
+      const lib = (game as any).libraries?.get(pid) || [];
+      const libCard = { ...(card as any), zone: 'library' };
+      if (destination === 'library_top') (lib as any[]).unshift(libCard);
+      else (lib as any[]).push(libCard);
+      (game as any).libraries?.set(pid, lib);
+      dstZones.libraryCount = (lib as any[]).length;
+    }
+  }
+
+  srcZones.graveyardCount = (srcZones.graveyard as any[]).length;
+  dstZones.handCount = (dstZones.hand as any[]).length;
+
+  // Persist event for replay (legacy name retained).
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'confirmGraveyardTargets', {
+      playerId: pid,
+      effectId,
+      selectedCardIds: movedCardIds,
+      destination,
+      movedCards,
+    });
+  } catch (e) {
+    debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);
+  }
+
+  if (movedCards.length > 0) {
+    const destName = destination === 'hand'
+      ? 'hand'
+      : destination === 'battlefield'
+        ? 'battlefield'
+        : destination === 'library_top'
+          ? 'top of library'
+          : 'bottom of library';
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} moves ${movedCards.join(', ')} from graveyard to ${destName} (${cardName}).`,
+      ts: Date.now(),
+    });
   }
 
   if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();

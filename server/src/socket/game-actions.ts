@@ -9234,14 +9234,16 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // ==========================================================================
-  // GRAVEYARD TARGET SELECTION
+  // GRAVEYARD TARGET SELECTION (Resolution Queue)
   // ==========================================================================
-  
+
   /**
-   * Request graveyard target selection (Elena Turk, Red XIII, Unfinished Business)
-   * Sends a list of valid graveyard targets to the client for selection.
+   * Legacy entrypoint: Request graveyard card selection.
+   * This previously emitted a bespoke `graveyardTargetsResponse` and expected a
+   * bespoke `confirmGraveyardTargets` follow-up. It now enqueues a Resolution Queue
+   * step so the unified interaction UI can handle it.
    */
-  socket.on("requestGraveyardTargets", ({ gameId, effectId, cardName, filter, minTargets, maxTargets, targetPlayerId }: {
+  socket.on("requestGraveyardTargets", ({ gameId, effectId, cardName, filter, minTargets, maxTargets, targetPlayerId, destination, title, description }: {
     gameId: string;
     effectId: string;
     cardName: string;
@@ -9249,6 +9251,9 @@ export function registerGameActions(io: Server, socket: Socket) {
     minTargets: number;
     maxTargets: number;
     targetPlayerId?: string; // Whose graveyard to search (defaults to self)
+    destination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+    title?: string;
+    description?: string;
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -9257,172 +9262,63 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       const searchPlayerId = targetPlayerId || playerId;
       const zones = game.state.zones?.[searchPlayerId];
-      if (!zones || !Array.isArray(zones.graveyard)) {
-        socket.emit("graveyardTargetsResponse", {
-          gameId,
-          effectId,
-          cardName,
-          validTargets: [],
-          minTargets,
-          maxTargets,
-        });
-        return;
-      }
+      const gy = zones && Array.isArray((zones as any).graveyard) ? ((zones as any).graveyard as any[]) : [];
 
-      // Filter graveyard cards based on criteria
-      const validTargets = (zones.graveyard as any[]).filter((card: any) => {
+      const filterObj = filter || {};
+      const validTargets = gy.filter((card: any) => {
         if (!card) return false;
-        const typeLine = (card.type_line || '').toLowerCase();
-        
-        // Check type filter
-        if (filter.types && filter.types.length > 0) {
-          if (!filter.types.some(t => typeLine.includes(t.toLowerCase()))) {
-            return false;
-          }
+        const typeLine = String(card.type_line || '').toLowerCase();
+
+        if (filterObj.types && filterObj.types.length > 0) {
+          if (!filterObj.types.some(t => typeLine.includes(String(t).toLowerCase()))) return false;
         }
-        
-        // Check subtype filter
-        if (filter.subtypes && filter.subtypes.length > 0) {
-          if (!filter.subtypes.some(st => typeLine.includes(st.toLowerCase()))) {
-            return false;
-          }
+
+        if (filterObj.subtypes && filterObj.subtypes.length > 0) {
+          if (!filterObj.subtypes.some(st => typeLine.includes(String(st).toLowerCase()))) return false;
         }
-        
-        // Check excluded types
-        if (filter.excludeTypes && filter.excludeTypes.length > 0) {
-          if (filter.excludeTypes.some(et => typeLine.includes(et.toLowerCase()))) {
-            return false;
-          }
+
+        if (filterObj.excludeTypes && filterObj.excludeTypes.length > 0) {
+          if (filterObj.excludeTypes.some(et => typeLine.includes(String(et).toLowerCase()))) return false;
         }
-        
+
         return true;
       }).map((card: any) => ({
-        id: card.id,
-        name: card.name,
+        id: String(card.id),
+        name: String(card.name || card.id),
         typeLine: card.type_line,
         manaCost: card.mana_cost,
         imageUrl: card.image_uris?.small || card.image_uris?.normal,
       }));
 
-      socket.emit("graveyardTargetsResponse", {
-        gameId,
-        effectId,
-        cardName,
-        validTargets,
-        minTargets,
-        maxTargets,
-        targetPlayerId: searchPlayerId,
-      });
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) => (s as any)?.type === ResolutionStepType.GRAVEYARD_SELECTION && String((s as any)?.effectId || '') === String(effectId));
 
-      debug(2, `[requestGraveyardTargets] Found ${validTargets.length} valid targets in ${searchPlayerId}'s graveyard for ${cardName}`);
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.GRAVEYARD_SELECTION,
+          playerId: playerId as any,
+          sourceName: cardName,
+          sourceId: effectId,
+          description: String(description || `Select card(s) from ${getPlayerName(game, searchPlayerId)}'s graveyard.`),
+          mandatory: Number(minTargets || 0) > 0,
+          effectId,
+          cardName,
+          title: String(title || cardName || 'Select from Graveyard'),
+          targetPlayerId: searchPlayerId,
+          filter: filterObj,
+          minTargets: Number(minTargets || 0),
+          maxTargets: Number(maxTargets || 1),
+          destination: destination || 'hand',
+          validTargets,
+          imageUrl: undefined,
+        } as any);
+      }
+
+      debug(2, `[requestGraveyardTargets] (Resolution Queue) ${playerId} selecting from ${searchPlayerId}'s graveyard for ${cardName} (${validTargets.length} candidate(s))`);
     } catch (err: any) {
       debugError(1, `requestGraveyardTargets error for game ${gameId}:`, err);
       socket.emit("error", { code: "GRAVEYARD_TARGETS_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  /**
-   * Handle graveyard target selection confirmation
-   */
-  socket.on("confirmGraveyardTargets", ({ gameId, effectId, selectedCardIds, destination }: {
-    gameId: string;
-    effectId: string;
-    selectedCardIds: string[];
-    destination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.graveyard)) {
-        socket.emit("error", { code: "NO_GRAVEYARD", message: "Graveyard not found" });
-        return;
-      }
-
-      const movedCards: string[] = [];
-
-      for (const cardId of selectedCardIds) {
-        const cardIndex = (zones.graveyard as any[]).findIndex((c: any) => c?.id === cardId);
-        if (cardIndex === -1) continue;
-
-        const card = zones.graveyard[cardIndex] as any;
-        (zones.graveyard as any[]).splice(cardIndex, 1);
-        movedCards.push(card.name || cardId);
-
-        switch (destination) {
-          case 'hand':
-            zones.hand = zones.hand || [];
-            (zones.hand as any[]).push({ ...(card as any), zone: 'hand' });
-            zones.handCount = zones.hand.length;
-            break;
-          case 'battlefield':
-            const battlefield = game.state.battlefield || [];
-            const typeLine = ((card as any).type_line || '').toLowerCase();
-            const isCreature = typeLine.includes('creature');
-            battlefield.push({
-              id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-              controller: playerId,
-              owner: playerId,
-              tapped: false,
-              counters: {},
-              basePower: isCreature ? parseInt((card as any).power || '0', 10) : undefined,
-              baseToughness: isCreature ? parseInt((card as any).toughness || '0', 10) : undefined,
-              summoningSickness: isCreature,
-              card: { ...(card as any), zone: 'battlefield' },
-            });
-            break;
-          case 'library_top':
-            const lib = game.libraries?.get(playerId) || [];
-            (lib as any[]).unshift({ ...(card as any), zone: 'library' });
-            game.libraries?.set(playerId, lib);
-            zones.libraryCount = lib.length;
-            break;
-          case 'library_bottom':
-            const libBottom = game.libraries?.get(playerId) || [];
-            (libBottom as any[]).push({ ...(card as any), zone: 'library' });
-            game.libraries?.set(playerId, libBottom);
-            zones.libraryCount = libBottom.length;
-            break;
-        }
-      }
-
-      zones.graveyardCount = zones.graveyard.length;
-
-      // Persist event for replay
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "confirmGraveyardTargets", {
-          playerId,
-          effectId,
-          selectedCardIds,
-          destination,
-          movedCards,
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);
-      }
-
-      if (movedCards.length > 0) {
-        const destName = destination === 'hand' ? 'hand' : 
-                        destination === 'battlefield' ? 'battlefield' :
-                        destination === 'library_top' ? 'top of library' : 'bottom of library';
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `≡ƒô£ ${getPlayerName(game, playerId)} returns ${movedCards.join(', ')} from graveyard to ${destName}.`,
-          ts: Date.now(),
-        });
-
-        debug(1, `[confirmGraveyardTargets] ${playerId} moved ${movedCards.join(', ')} to ${destName}`);
-      }
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `confirmGraveyardTargets error for game ${gameId}:`, err);
-      socket.emit("error", { code: "GRAVEYARD_CONFIRM_ERROR", message: err?.message ?? String(err) });
     }
   });
 

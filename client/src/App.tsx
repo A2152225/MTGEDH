@@ -65,6 +65,7 @@ import { BatchExploreModal, type ExploreResult } from "./components/BatchExplore
 import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
 import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
+import { GraveyardSelectionModal, type GraveyardCard } from "./components/GraveyardSelectionModal";
 import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./components/IgnoredCardsPanel";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
@@ -805,6 +806,19 @@ export function App() {
     targets: MutateTarget[];
     stepId?: string;
     mandatory?: boolean;
+  } | null>(null);
+
+  // Graveyard selection modal state (Resolution Queue)
+  const [graveyardSelectionModalOpen, setGraveyardSelectionModalOpen] = useState(false);
+  const [graveyardSelectionModalData, setGraveyardSelectionModalData] = useState<{
+    stepId: string;
+    mandatory: boolean;
+    title: string;
+    description: string;
+    sourceCard?: { name: string; imageUrl?: string };
+    validTargets: GraveyardCard[];
+    minTargets: number;
+    maxTargets: number;
   } | null>(null);
   
   // Auto-pass steps - which steps to automatically pass priority on
@@ -1871,6 +1885,34 @@ export function App() {
           mandatory: step.mandatory !== false,
         });
         setMutateModalOpen(true);
+      }
+
+      // Graveyard card selection via Resolution Queue
+      else if (step.type === 'graveyard_selection') {
+        const validTargets: GraveyardCard[] = Array.isArray(step.validTargets)
+          ? step.validTargets.map((t: any) => ({
+              id: String(t?.id || ''),
+              name: String(t?.name || 'Unknown'),
+              typeLine: t?.typeLine,
+              manaCost: t?.manaCost,
+              imageUrl: t?.imageUrl,
+            }))
+          : [];
+
+        setGraveyardSelectionModalData({
+          stepId: String(step.id),
+          mandatory: step.mandatory !== false,
+          title: String(step.title || step.cardName || step.sourceName || 'Select from Graveyard'),
+          description: String(step.description || ''),
+          sourceCard: {
+            name: String(step.cardName || step.sourceName || 'Effect'),
+            imageUrl: step.imageUrl || step.sourceImage,
+          },
+          validTargets,
+          minTargets: Math.max(0, Number(step.minTargets ?? 0)),
+          maxTargets: Math.max(0, Number(step.maxTargets ?? (step.minTargets ?? 0))),
+        });
+        setGraveyardSelectionModalOpen(true);
       }
 
       // Handle Two-pile split resolution step
@@ -6410,6 +6452,49 @@ export function App() {
           }
           setMutateModalOpen(false);
           setMutateModalData(null);
+        }}
+      />
+
+      {/* Graveyard Selection Modal */}
+      <GraveyardSelectionModal
+        open={graveyardSelectionModalOpen}
+        title={graveyardSelectionModalData?.title || 'Select from Graveyard'}
+        description={graveyardSelectionModalData?.description || ''}
+        sourceCard={graveyardSelectionModalData?.sourceCard}
+        validTargets={graveyardSelectionModalData?.validTargets || []}
+        minTargets={graveyardSelectionModalData?.minTargets ?? 0}
+        maxTargets={graveyardSelectionModalData?.maxTargets ?? 0}
+        onConfirm={(selectedIds) => {
+          if (!safeView?.id || !graveyardSelectionModalData?.stepId) return;
+          socket.emit('submitResolutionResponse', {
+            gameId: safeView.id,
+            stepId: graveyardSelectionModalData.stepId,
+            selections: { selectedCardIds: selectedIds },
+            cancelled: false,
+          });
+          setGraveyardSelectionModalOpen(false);
+          setGraveyardSelectionModalData(null);
+        }}
+        onCancel={() => {
+          if (!safeView?.id || !graveyardSelectionModalData?.stepId) {
+            setGraveyardSelectionModalOpen(false);
+            setGraveyardSelectionModalData(null);
+            return;
+          }
+
+          if (graveyardSelectionModalData.mandatory) {
+            socket.emit('cancelResolutionStep', { gameId: safeView.id, stepId: graveyardSelectionModalData.stepId });
+          } else {
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: graveyardSelectionModalData.stepId,
+              selections: {},
+              cancelled: true,
+            });
+          }
+
+          setGraveyardSelectionModalOpen(false);
+          setGraveyardSelectionModalData(null);
         }}
       />
 

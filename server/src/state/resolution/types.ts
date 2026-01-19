@@ -67,6 +67,9 @@ export enum ResolutionStepType {
 
   // Mutate casting (choose target non-Human creature you own, then top/bottom)
   MUTATE_TARGET_SELECTION = 'mutate_target_selection',
+
+  // Select cards from a graveyard (reanimation/return-to-hand style effects)
+  GRAVEYARD_SELECTION = 'graveyard_selection',
   
   // Legacy pending* field types
   PONDER_EFFECT = 'ponder_effect',
@@ -273,6 +276,30 @@ export interface MutateTargetSelectionStep extends BaseResolutionStep {
     isAlreadyMutated?: boolean;
     mutationCount?: number;
   }[];
+}
+
+/**
+ * Graveyard selection step
+ * Used when an effect requires selecting one or more cards from a graveyard.
+ */
+export interface GraveyardSelectionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.GRAVEYARD_SELECTION;
+  readonly effectId: string;
+  readonly cardName: string;
+  readonly title: string;
+  readonly targetPlayerId: string; // whose graveyard is searched
+  readonly filter?: { types?: string[]; subtypes?: string[]; excludeTypes?: string[] };
+  readonly minTargets: number;
+  readonly maxTargets: number;
+  readonly destination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+  readonly validTargets: readonly {
+    id: string;
+    name: string;
+    typeLine?: string;
+    manaCost?: string;
+    imageUrl?: string;
+  }[];
+  readonly imageUrl?: string;
 }
 
 /**
@@ -822,6 +849,7 @@ export interface ActivatedAbilityStep extends BaseResolutionStep {
 export type ResolutionStep = 
   | TargetSelectionStep
   | MutateTargetSelectionStep
+  | GraveyardSelectionStep
   | FightTargetStep
   | TapUntapTargetStep
   | CounterMovementStep
