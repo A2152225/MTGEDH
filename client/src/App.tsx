@@ -344,6 +344,7 @@ export function App() {
   
   // Opening hand actions modal state (Leylines)
   const [openingHandActionsModalOpen, setOpeningHandActionsModalOpen] = useState(false);
+  const [openingHandActionsStepId, setOpeningHandActionsStepId] = useState<string | null>(null);
   
   // Library search modal state (Tutors)
   const [librarySearchModalOpen, setLibrarySearchModalOpen] = useState(false);
@@ -1401,37 +1402,6 @@ export function App() {
     };
   }, [safeView?.id, you]);
 
-  // Library search request listener (Tutor effects)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      // Only show modal if this is for our game AND either:
-      // 1. No playerId specified (direct socket emit to us), OR
-      // 2. The playerId matches us (broadcast with player filter)
-      if (payload.gameId === safeView?.id && (!payload.playerId || payload.playerId === you)) {
-        setLibrarySearchData({
-          cards: payload.cards || [],
-          title: payload.title || 'Search Library',
-          description: payload.description,
-          filter: payload.filter,
-          maxSelections: payload.maxSelections || 1,
-          moveTo: payload.moveTo || 'hand',
-          shuffleAfter: payload.shuffleAfter !== false,
-          targetPlayerId: payload.targetPlayerId, // For searching opponent's library
-          // Split destination props
-          splitDestination: payload.splitDestination || false,
-          toBattlefield: payload.toBattlefield || 0,
-          toHand: payload.toHand || 0,
-          entersTapped: payload.entersTapped || false,
-        });
-        setLibrarySearchModalOpen(true);
-      }
-    };
-    socket.on("librarySearchRequest", handler);
-    return () => {
-      socket.off("librarySearchRequest", handler);
-    };
-  }, [safeView?.id, you]);
-
   // Target selection request listener
   React.useEffect(() => {
     const handler = (payload: any) => {
@@ -1557,18 +1527,7 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Opening hand actions prompt listener (for Leylines after mulligan)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
-        setOpeningHandActionsModalOpen(true);
-      }
-    };
-    socket.on("openingHandActionsPrompt", handler);
-    return () => {
-      socket.off("openingHandActionsPrompt", handler);
-    };
-  }, [safeView?.id]);
+  // Opening hand actions prompt is handled via Resolution Queue (opening_hand_actions).
 
   // Life payment request listener (for Toxic Deluge, Hatred, etc.)
   // Legacy lifePaymentRequest listener removed - now handled via Resolution Queue (life_payment).
@@ -1659,39 +1618,6 @@ export function App() {
       socket.off('castSpellFromHandContinue', handler);
     };
   }, [safeView?.id]);
-
-  // Overload cast request listener - after mode selection, need to pay the overload cost
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      cardName: string;
-      overloadCost: string;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        // Open the cast spell modal with the overload cost
-        // Find the card in hand to get full details including oracle text
-        const hand = (safeView as any).hand || [];
-        const cardInHand = hand.find((c: any) => c?.id === payload.cardId);
-        
-        if (cardInHand) {
-          setSpellToCast({
-            cardId: payload.cardId,
-            cardName: payload.cardName,
-            manaCost: cardInHand.mana_cost, // Use the card's normal mana cost
-            oracleText: cardInHand.oracle_text, // Include oracle text so alternate costs are parsed
-            effectId: payload.effectId,
-          });
-          setCastSpellModalOpen(true);
-        }
-      }
-    };
-    socket.on("overloadCastRequest", handler);
-    return () => {
-      socket.off("overloadCastRequest", handler);
-    };
-  }, [safeView?.id, (safeView as any)?.hand]);
 
   // MDFC face selection complete listener - continue playing the land
   React.useEffect(() => {
@@ -2436,6 +2362,12 @@ export function App() {
           stepId: step.id,  // Store for resolution response
         });
         setLibrarySearchModalOpen(true);
+      }
+
+      // Handle Opening Hand Actions resolution step (Leylines)
+      else if (step.type === 'opening_hand_actions') {
+        setOpeningHandActionsStepId(step.id);
+        setOpeningHandActionsModalOpen(true);
       }
       // Handle color choice via resolution queue (Throne of Eldraine, Caged Sun, etc.)
       else if (step.type === 'color_choice') {
@@ -3818,26 +3750,15 @@ export function App() {
   ) => {
     if (!safeView || !librarySearchData) return;
     
-    // If we have a stepId, use the resolution queue system
-    if ((librarySearchData as any).stepId) {
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId: (librarySearchData as any).stepId,
-        selections: selectedCardIds,
-        cancelled: false,
-        // Include split assignments for Cultivate/Kodama's Reach effects
-        splitAssignments,
-        moveTo,
-      });
-    } else {
-      // Legacy handler for backward compatibility
-      socket.emit("librarySearchSelect", {
-        gameId: safeView.id,
-        selectedCardIds: selectedCardIds,
-        moveTo: moveTo,
-        splitAssignments,
-      });
-    }
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: (librarySearchData as any).stepId,
+      selections: selectedCardIds,
+      cancelled: false,
+      // Include split assignments for Cultivate/Kodama's Reach effects
+      splitAssignments,
+      moveTo,
+    });
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };
@@ -3845,20 +3766,12 @@ export function App() {
   const handleLibrarySearchCancel = () => {
     if (!safeView || !librarySearchData) return;
     
-    // If we have a stepId, use the resolution queue system
-    if ((librarySearchData as any).stepId) {
-      socket.emit("submitResolutionResponse", {
-        gameId: safeView.id,
-        stepId: (librarySearchData as any).stepId,
-        selections: [],
-        cancelled: true,
-      });
-    } else {
-      // Legacy handler for backward compatibility
-      socket.emit("librarySearchCancel", {
-        gameId: safeView.id,
-      });
-    }
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: (librarySearchData as any).stepId,
+      selections: [],
+      cancelled: true,
+    });
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
   };
@@ -3914,19 +3827,30 @@ export function App() {
   // Opening hand actions handlers (Leylines)
   const handleOpeningHandActionsConfirm = (selectedCardIds: string[]) => {
     if (!safeView) return;
-    socket.emit("playOpeningHandCards", {
+    if (!openingHandActionsStepId) return;
+
+    socket.emit('submitResolutionResponse', {
       gameId: safeView.id,
-      cardIds: selectedCardIds,
+      stepId: openingHandActionsStepId,
+      selections: selectedCardIds,
+      cancelled: false,
     });
     setOpeningHandActionsModalOpen(false);
+    setOpeningHandActionsStepId(null);
   };
 
   const handleOpeningHandActionsSkip = () => {
     if (!safeView) return;
-    socket.emit("skipOpeningHandActions", {
+    if (!openingHandActionsStepId) return;
+
+    socket.emit('submitResolutionResponse', {
       gameId: safeView.id,
+      stepId: openingHandActionsStepId,
+      selections: [],
+      cancelled: true,
     });
     setOpeningHandActionsModalOpen(false);
+    setOpeningHandActionsStepId(null);
   };
 
   // Undo handlers

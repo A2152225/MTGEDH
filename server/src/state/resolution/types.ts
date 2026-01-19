@@ -46,6 +46,8 @@ export enum ResolutionStepType {
   DAMAGE_DIVISION = 'damage_division',
   DISCARD_SELECTION = 'discard_selection',
   HAND_TO_BOTTOM = 'hand_to_bottom',
+  // Opening hand actions (Leylines, Chancellor effects)
+  OPENING_HAND_ACTIONS = 'opening_hand_actions',
   BOTTOM_ORDER = 'bottom_order',
   TOKEN_CEASES_TO_EXIST = 'token_ceases_to_exist',
   COPY_CEASES_TO_EXIST = 'copy_ceases_to_exist',
@@ -464,6 +466,15 @@ export interface DiscardSelectionStep extends BaseResolutionStep {
 }
 
 /**
+ * Opening hand actions (Leylines, Chancellor effects)
+ * Player may put some cards from their opening hand onto the battlefield before the game starts.
+ */
+export interface OpeningHandActionsStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.OPENING_HAND_ACTIONS;
+  readonly leylineCount?: number;
+}
+
+/**
  * Commander zone choice resolution step
  */
 export interface CommanderZoneChoiceStep extends BaseResolutionStep {
@@ -794,6 +805,7 @@ export type ResolutionStep =
   | SquadCostPaymentStep
   | ModeSelectionStep
   | DiscardSelectionStep
+  | OpeningHandActionsStep
   | CommanderZoneChoiceStep
   | TriggerOrderStep
   | LibrarySearchStep
