@@ -9367,7 +9367,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           validTargets: opponents.map((o: any) => ({
             id: o.id,
             label: o.name,
-            description: 'opponent',
+            // Client target selection modal infers target kind from `type` or well-known `description`.
+            // Use `player` so opponent selections render as player targets.
+            type: 'player',
+            description: 'player',
           })),
           targetTypes: ['player'],
           minTargets: Math.max(0, minOpponents),

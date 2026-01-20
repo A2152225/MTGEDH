@@ -8256,37 +8256,49 @@ function handleTriggerOrderResponse(
     return;
   }
   
-  // Actually reorder the triggers on the stack
+  // Actually reorder the triggers on the stack.
   // IMPORTANT: In this codebase, the top of stack is the END of the array (stack.pop()).
   // The client provides the desired RESOLUTION order (first in list resolves first).
-  // Therefore, the first chosen trigger must be placed LAST in the stack array.
+  // Therefore, the first chosen trigger must be placed LAST among that player's triggers.
+  //
+  // CRITICAL: Preserve APNAP ordering across players.
+  // Triggers from other players may already be above these in the stack. We must not
+  // remove-and-push (which would move them to the very top). Instead, reorder in-place
+  // within the stack slots currently occupied by the chosen triggers.
   const stack = game.state?.stack || [];
-  
-  // Find the trigger items on the stack by ID or triggerId
-  // We check both because triggers might be stored with either field
-  const foundTriggerItems = orderedTriggerIds.map(id => 
-    stack.find((item: any) => item.id === id || item.triggerId === id)
-  ).filter(Boolean);
-  
-  if (foundTriggerItems.length > 0) {
-    // Remove all these triggers from stack
-    for (const trigger of foundTriggerItems) {
-      const idx = stack.indexOf(trigger);
-      if (idx !== -1) {
-        stack.splice(idx, 1);
-      }
-    }
-    
-    // Add them back so that orderedTriggerIds[0] becomes the top-of-stack (last element).
-    // foundTriggerItems is in the same order as orderedTriggerIds.
-    for (let i = foundTriggerItems.length - 1; i >= 0; i--) {
-      stack.push(foundTriggerItems[i]);
-    }
-    
-    debug(1, `[Resolution] Reordered ${foundTriggerItems.length} triggers on stack`);
-  } else {
-    debugWarn(2, `[Resolution] No trigger items found on stack to reorder`);
+
+  const itemsById = new Map<string, any>();
+  const indices: number[] = [];
+
+  for (const triggerId of orderedTriggerIds) {
+    const idx = stack.findIndex((item: any) => item?.id === triggerId || item?.triggerId === triggerId);
+    if (idx === -1) continue;
+    indices.push(idx);
+    itemsById.set(triggerId, stack[idx]);
   }
+
+  if (indices.length === 0) {
+    debugWarn(2, `[Resolution] No trigger items found on stack to reorder`);
+    debug(1, `[Resolution] Trigger order: ${orderedTriggerIds?.join(', ')}`);
+    return;
+  }
+
+  // Preserve the set of stack positions currently used by these triggers.
+  const targetIndices = indices.slice().sort((a, b) => a - b);
+
+  // Place items so that orderedTriggerIds[0] resolves first.
+  // That means it must be the top-most among these triggers (highest index).
+  const placementOrder = orderedTriggerIds
+    .map((id) => itemsById.get(id))
+    .filter(Boolean)
+    .reverse();
+
+  const count = Math.min(targetIndices.length, placementOrder.length);
+  for (let i = 0; i < count; i++) {
+    stack[targetIndices[i]] = placementOrder[i];
+  }
+
+  debug(1, `[Resolution] Reordered ${count} triggers on stack (in-place)`);
   
   debug(1, `[Resolution] Trigger order: ${orderedTriggerIds?.join(', ')}`);
   

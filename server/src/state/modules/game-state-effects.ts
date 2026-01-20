@@ -1814,9 +1814,23 @@ export function calculateModifiedDamage(
   
   // Defender's effects - applied to minimize damage
   if (defenderEffects.length > 0) {
-    const defenderResult = applyDamageReplacementsMinimized(result, defenderEffects);
-    result = defenderResult.finalAmount;
-    allApplied.push(...defenderResult.appliedEffects);
+    const pref = getReplacementEffectPreference(ctx, damageReceiver, 'damage');
+
+    // Default: minimize damage received.
+    // Override: allow the receiving player to opt into maximizing damage received
+    // (e.g., Selfless Squire / Stuffy Doll style incentives).
+    if (pref?.useCustomOrder && Array.isArray(pref.customOrder) && pref.customOrder.length > 0) {
+      const ordered = sortEffectsByCustomOrder(defenderEffects, pref.customOrder);
+      const defenderResult = applyReplacementsCustomOrder(result, ordered);
+      result = defenderResult.finalAmount;
+      allApplied.push(...defenderResult.appliedEffects);
+    } else {
+      const defenderResult = pref?.useCustomOrder
+        ? applyDamageReplacementsMaximized(result, defenderEffects)
+        : applyDamageReplacementsMinimized(result, defenderEffects);
+      result = defenderResult.finalAmount;
+      allApplied.push(...defenderResult.appliedEffects);
+    }
   }
   
   return { amount: Math.max(0, result), modifiers: allApplied };
@@ -2052,6 +2066,44 @@ export interface ReplacementEffect {
   value?: number;     // For 'add_flat' type
   source: string;     // Card name that provides this effect
   controllerId?: string; // Who controls the source
+}
+
+type ReplacementEffectPreferenceState = {
+  /**
+   * Stored on game state as player preference.
+   * Currently used as a simple override toggle, and optionally with a custom order list.
+   */
+  useCustomOrder?: boolean;
+  /** Optional explicit custom order by source name. */
+  customOrder?: string[];
+};
+
+function getReplacementEffectPreference(
+  ctx: GameContext,
+  playerId: string,
+  effectType: 'damage' | 'life_gain' | 'counters' | 'tokens'
+): ReplacementEffectPreferenceState | null {
+  const prefs = (ctx.state as any)?.replacementEffectPreferences?.[playerId];
+  const pref = prefs?.[effectType];
+  return pref && typeof pref === 'object' ? (pref as ReplacementEffectPreferenceState) : null;
+}
+
+function sortEffectsByCustomOrder(
+  effects: ReplacementEffect[],
+  customOrder: string[]
+): ReplacementEffect[] {
+  const orderIndex = new Map<string, number>();
+  for (let i = 0; i < customOrder.length; i++) {
+    orderIndex.set(String(customOrder[i]), i);
+  }
+
+  // Stable-ish ordering: known entries first in the specified order, then the rest.
+  return [...effects].sort((a, b) => {
+    const ai = orderIndex.has(a.source) ? (orderIndex.get(a.source) as number) : Number.POSITIVE_INFINITY;
+    const bi = orderIndex.has(b.source) ? (orderIndex.get(b.source) as number) : Number.POSITIVE_INFINITY;
+    if (ai !== bi) return ai - bi;
+    return String(a.source).localeCompare(String(b.source));
+  });
 }
 
 /**
@@ -2675,7 +2727,10 @@ export function applyCounterReplacements(
   counterType: string
 ): { finalCount: number; appliedEffects: string[] } {
   const effects = detectCounterReplacementEffects(ctx, controllerId, counterType);
-  const result = applyBeneficialReplacements(baseCount, effects);
+  const pref = getReplacementEffectPreference(ctx, controllerId, 'counters');
+  const result = pref?.useCustomOrder && Array.isArray(pref.customOrder) && pref.customOrder.length > 0
+    ? applyReplacementsCustomOrder(baseCount, sortEffectsByCustomOrder(effects, pref.customOrder))
+    : applyBeneficialReplacements(baseCount, effects);
   return { finalCount: result.finalAmount, appliedEffects: result.appliedEffects };
 }
 
@@ -2689,6 +2744,10 @@ export function applyLifeGainReplacements(
   playerId: string
 ): { finalAmount: number; appliedEffects: string[] } {
   const effects = detectLifeGainReplacementEffects(ctx, playerId);
+  const pref = getReplacementEffectPreference(ctx, playerId, 'life_gain');
+  if (pref?.useCustomOrder && Array.isArray(pref.customOrder) && pref.customOrder.length > 0) {
+    return applyReplacementsCustomOrder(baseAmount, sortEffectsByCustomOrder(effects, pref.customOrder));
+  }
   return applyBeneficialReplacements(baseAmount, effects);
 }
 
@@ -2765,7 +2824,10 @@ export function applyTokenCreationReplacements(
   controllerId: string
 ): { finalCount: number; appliedEffects: string[] } {
   const effects = detectTokenCreationReplacementEffects(ctx, controllerId);
-  const result = applyBeneficialReplacements(baseCount, effects);
+  const pref = getReplacementEffectPreference(ctx, controllerId, 'tokens');
+  const result = pref?.useCustomOrder && Array.isArray(pref.customOrder) && pref.customOrder.length > 0
+    ? applyReplacementsCustomOrder(baseCount, sortEffectsByCustomOrder(effects, pref.customOrder))
+    : applyBeneficialReplacements(baseCount, effects);
   return { finalCount: result.finalAmount, appliedEffects: result.appliedEffects };
 }
 

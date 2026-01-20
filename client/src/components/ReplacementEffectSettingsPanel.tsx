@@ -91,7 +91,7 @@ export function ReplacementEffectSettingsPanel({
     { 
       key: 'damage', 
       label: 'Damage Received',
-      description: 'When you receive damage with multiple modifiers (Gisela, Furnace of Rath, etc.)',
+      description: 'When you receive damage with multiple modifiers (Gisela, Furnace of Rath, etc.). Default minimizes damage; you can override to maximize damage received.',
     },
     { 
       key: 'life_gain', 
@@ -162,7 +162,7 @@ export function ReplacementEffectSettingsPanel({
         <p style={{ fontSize: 13, color: '#a0aec0', marginBottom: 20 }}>
           Configure how replacement effects are ordered. By default, the game applies effects
           in the optimal order (maximizing beneficial effects, minimizing harmful ones).
-          Enable custom ordering if you want to choose the order yourself each time.
+          Use the override for damage if you have cards that benefit from taking more damage.
         </p>
 
         {loading ? (
@@ -198,7 +198,9 @@ export function ReplacementEffectSettingsPanel({
                     marginLeft: 16,
                   }}>
                     <span style={{ fontSize: 12, color: '#a0aec0' }}>
-                      {preferences[key]?.useCustomOrder ? 'Custom' : 'Auto'}
+                      {key === 'damage'
+                        ? (preferences[key]?.useCustomOrder ? 'Maximize' : 'Minimize')
+                        : (preferences[key]?.useCustomOrder ? 'Override' : 'Auto')}
                     </span>
                     <div
                       style={{
@@ -228,7 +230,7 @@ export function ReplacementEffectSettingsPanel({
                   </label>
                 </div>
                 
-                {preferences[key]?.useCustomOrder && (
+                {preferences[key]?.useCustomOrder && key === 'damage' && (
                   <div style={{ 
                     marginTop: 12, 
                     padding: '8px 12px', 
@@ -237,7 +239,7 @@ export function ReplacementEffectSettingsPanel({
                     fontSize: 12,
                     color: '#f6ad55',
                   }}>
-                    ⚠️ You will be prompted to choose the order each time multiple effects apply.
+                    Override enabled: damage modifiers will be applied to maximize damage received.
                   </div>
                 )}
               </div>
