@@ -11,6 +11,7 @@ import { games } from "../src/socket/socket";
 import { ensureGame } from "../src/socket/util";
 import { GamePhase } from "../../shared/src/types";
 import { initDb, createGameIfNotExists } from "../src/db";
+import { ResolutionQueueManager } from "../src/state/resolution";
 
 // Mock the scryfall service module used by the handler
 vi.mock("../src/services/scryfall", () => {
@@ -52,7 +53,7 @@ describe("registerDeckHandlers importDeck path", () => {
     await initDb();
   });
 
-  test("emits importWipeConfirmRequest when importing mid-game", async () => {
+  test("enqueues import wipe confirm via Resolution Queue when importing mid-game", async () => {
     // Create minimal mock io and socket capturing emitted events
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
 
@@ -93,6 +94,12 @@ describe("registerDeckHandlers importDeck path", () => {
     // First ensure the game exists and set it to a mid-game phase
     const game = ensureGame(gameId);
     expect(game).toBeDefined();
+
+    // Ensure at least 2 active players so a confirm step is created for the non-initiator.
+    (game.state as any).players = [
+      { id: "p_socket", name: "p_socket", spectator: false },
+      { id: "p2", name: "p2", spectator: false },
+    ];
     
     // Set to mid-game phase (not pre-game) to trigger importWipeConfirmed
     // Note: Using COMBAT phase because PRECOMBAT_MAIN contains "PRE" which would
@@ -112,14 +119,17 @@ describe("registerDeckHandlers importDeck path", () => {
     // Debug: log all emitted events to see what's happening
     // console.log("Emitted events:", emitted.map(e => ({ room: e.room, event: e.event })));
 
-    // Look for an importWipeConfirmRequest emit (mid-game behavior)
-    // The mid-game import triggers a confirmation request flow
-    const requestMatched = emitted.find(e => e.room === gameId && e.event === "importWipeConfirmRequest") || emitted.find(e => e.event === "importWipeConfirmRequest");
-    expect(requestMatched).toBeDefined();
-    expect(requestMatched!.payload).toBeDefined();
-    expect(requestMatched!.payload.confirmId).toBeDefined();
-    expect(requestMatched!.payload.gameId).toBe(gameId);
-    expect(requestMatched!.payload.initiator).toBe("p_socket");
+    // The mid-game import triggers a confirmation flow.
+    // We keep importWipeConfirmUpdate broadcasts, but the prompt itself is now a Resolution Queue step.
+    const updateMatched = emitted.find(e => e.room === gameId && e.event === "importWipeConfirmUpdate") || emitted.find(e => e.event === "importWipeConfirmUpdate");
+    expect(updateMatched).toBeDefined();
+    expect(updateMatched!.payload).toBeDefined();
+    expect(updateMatched!.payload.confirmId).toBeDefined();
+
+    const confirmId = String(updateMatched!.payload.confirmId);
+    const stepsForP2 = ResolutionQueueManager.getStepsForPlayer(gameId, "p2" as any);
+    const step = stepsForP2.find(s => (s as any).importWipeConfirm === true && String((s as any).confirmId || "") === confirmId);
+    expect(step).toBeDefined();
 
     // After mid-game import, phase should be reset to PRE_GAME
     const view = game.viewFor("p_socket");

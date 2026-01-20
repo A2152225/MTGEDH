@@ -3603,62 +3603,6 @@ export function App() {
     setVoteData(null);
   };
 
-  // Trigger handlers
-  const handleResolveTrigger = (triggerId: string, choice: any) => {
-    // Deprecated: legacy triggerPrompt/triggerQueue flow.
-    // Trigger decisions should arrive via Resolution Queue and be submitted with submitResolutionResponse.
-    console.warn('[trigger] resolveTrigger is deprecated; ignoring legacy trigger resolution', { triggerId, choice });
-    setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
-    if (pendingTriggers.length <= 1) {
-      setTriggerModalOpen(false);
-    }
-  };
-
-  const handleSkipTrigger = (triggerId: string) => {
-    // Deprecated: legacy triggerPrompt/triggerQueue flow.
-    console.warn('[trigger] skipTrigger is deprecated; ignoring legacy trigger skip', { triggerId });
-    setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
-    if (pendingTriggers.length <= 1) {
-      setTriggerModalOpen(false);
-    }
-  };
-
-  // Handle "ignore this source" from modal - auto-resolve all future triggers from this source
-  const handleIgnoreTriggerSource = (triggerId: string, sourceId: string, sourceName: string) => {
-    if (!safeView) return;
-    
-    // Find the trigger to get its effect and image
-    const trigger = pendingTriggers.find(t => t.id === triggerId);
-    const effect = trigger?.effect || '';
-    const imageUrl = trigger?.imageUrl;
-    
-    // Add source to ignored map (use sourceId if available, fallback to sourceName)
-    const sourceKey = sourceId || sourceName;
-    setIgnoredTriggerSources(prev => {
-      const next = new Map(prev);
-      next.set(sourceKey, { sourceId: sourceId || undefined, sourceName, count: 1, effect, imageUrl });
-      return next;
-    });
-
-    // Also enable server-side yielding (for stack priority) when possible
-    if (sourceId) {
-      socket.emit('yieldToTriggerSource', {
-        gameId: safeView.id,
-        sourceId,
-        sourceName,
-      });
-    }
-    
-    // Legacy trigger resolution is deprecated; Resolution Queue handles trigger prompts.
-    console.warn('[trigger] ignoreTriggerSource used on deprecated legacy trigger prompt', { triggerId, sourceId, sourceName });
-    
-    // Remove this trigger from pending
-    setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
-    if (pendingTriggers.length <= 1) {
-      setTriggerModalOpen(false);
-    }
-  };
-
   // Handle "ignore this source" from stack UI - for triggers already on stack
   const handleIgnoreTriggerSourceFromStack = (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => {
     if (!safeView) return;
@@ -5595,10 +5539,7 @@ export function App() {
       <TriggeredAbilityModal
         open={triggerModalOpen}
         triggers={pendingTriggers}
-        onResolve={handleResolveTrigger}
-        onSkip={handleSkipTrigger}
         onOrderConfirm={handleOrderTriggersConfirm}
-        onIgnoreSource={handleIgnoreTriggerSource}
       />
 
       {/* Mulligan Bottom Selection Modal (London Mulligan) */}

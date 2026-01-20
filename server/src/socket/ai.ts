@@ -2287,13 +2287,6 @@ export async function handleAIPriority(
       }
     }
     
-    // Also check for triggers in the trigger queue that need ordering (legacy cleanup)
-    const triggerQueue = (game.state as any).triggerQueue || [];
-    if (triggerQueue.length > 0) {
-      debugWarn(1, `[AI] Found deprecated triggerQueue state - cleaning up`);
-      delete (game.state as any).triggerQueue;
-    }
-    
     // Clean up any legacy Kynaios choice state
     const pendingKynaiosChoice = (game.state as any).pendingKynaiosChoice;
     if (pendingKynaiosChoice) {

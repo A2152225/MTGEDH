@@ -23,8 +23,10 @@ export interface TriggerPromptData {
 export interface TriggeredAbilityModalProps {
   open: boolean;
   triggers: TriggerPromptData[];
-  onResolve: (triggerId: string, choice: any) => void;
-  onSkip: (triggerId: string) => void;
+  // Legacy: non-order trigger prompts were historically resolved via bespoke socket events.
+  // New trigger interactions should go through the Resolution Queue.
+  onResolve?: (triggerId: string, choice: any) => void;
+  onSkip?: (triggerId: string) => void;
   onOrderConfirm?: (orderedTriggerIds: string[]) => void; // New callback for batch ordering
   onIgnoreSource?: (triggerId: string, sourceId: string, sourceName: string) => void; // Auto-resolve future triggers from this source
 }
@@ -63,9 +65,9 @@ export function TriggeredAbilityModal({
 
   const handleMayChoice = (triggerId: string, doit: boolean) => {
     if (doit) {
-      onResolve(triggerId, { accepted: true });
+      onResolve?.(triggerId, { accepted: true });
     } else {
-      onSkip(triggerId);
+      onSkip?.(triggerId);
     }
   };
 
@@ -84,7 +86,7 @@ export function TriggeredAbilityModal({
 
   const handleTargetConfirm = (triggerId: string) => {
     const targets = selectedTargets.get(triggerId) || [];
-    onResolve(triggerId, { targets });
+    onResolve?.(triggerId, { targets });
     setSelectedTargets(prev => {
       const next = new Map(prev);
       next.delete(triggerId);
@@ -103,7 +105,7 @@ export function TriggeredAbilityModal({
   const handleChoiceConfirm = (triggerId: string) => {
     const choice = selectedChoices.get(triggerId);
     if (choice) {
-      onResolve(triggerId, { choice });
+      onResolve?.(triggerId, { choice });
       setSelectedChoices(prev => {
         const next = new Map(prev);
         next.delete(triggerId);
@@ -162,6 +164,7 @@ export function TriggeredAbilityModal({
       onOrderConfirm(orderedTriggers.map(t => t.id));
     } else {
       // Fallback: resolve each trigger in order
+      if (!onResolve) return;
       for (const trigger of orderedTriggers) {
         onResolve(trigger.id, { order: orderedTriggers.indexOf(trigger) });
       }
@@ -547,7 +550,8 @@ export function TriggeredAbilityModal({
             </div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button
-                onClick={() => onSkip(currentTrigger.id)}
+                onClick={() => onSkip?.(currentTrigger.id)}
+                disabled={!onSkip}
                 style={{
                   padding: '10px 20px',
                   borderRadius: 8,
@@ -612,7 +616,8 @@ export function TriggeredAbilityModal({
             </div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button
-                onClick={() => onSkip(currentTrigger.id)}
+                onClick={() => onSkip?.(currentTrigger.id)}
+                disabled={!onSkip}
                 style={{
                   padding: '10px 20px',
                   borderRadius: 8,
@@ -654,7 +659,13 @@ export function TriggeredAbilityModal({
             </div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
               <button
-                onClick={() => onResolve(currentTrigger.id, { order: 'stack' })}
+                onClick={() => {
+                  if (onOrderConfirm) {
+                    onOrderConfirm([currentTrigger.id]);
+                  } else {
+                    onResolve?.(currentTrigger.id, { order: 'stack' });
+                  }
+                }}
                 style={{
                   padding: '12px 28px',
                   borderRadius: 8,

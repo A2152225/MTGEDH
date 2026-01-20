@@ -1596,17 +1596,6 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
-      case "resolveTrigger": {
-        // Resolve a triggered ability
-        // The specific effect depends on the trigger type
-        const triggerId = (e as any).triggerId;
-        const choice = (e as any).choice;
-        // Most trigger resolution is handled by specific logic elsewhere
-        // This is primarily for logging/replay tracking
-        ctx.bumpSeq();
-        break;
-      }
-
       case "joinForcesInitiated":
       case "joinForcesComplete": {
         // Join forces spell mechanics

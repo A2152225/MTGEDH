@@ -1484,9 +1484,6 @@ export function broadcastGame(
   // This ensures human players with auto-pass enabled don't get stuck with priority
   checkAndTriggerAutoPass(io, game, gameId);
   
-  // Check for pending trigger ordering and emit prompts
-  checkAndEmitTriggerOrderingPrompts(io, game, gameId);
-  
   // Check for pending Kynaios and Tiro style choices (play land or draw)
   checkAndEmitKynaiosChoicePrompts(io, game, gameId);
   
@@ -1528,27 +1525,6 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
  * Check if any player needs to order multiple simultaneous triggers
  * and emit the appropriate prompts
  */
-function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, gameId: string): void {
-  try {
-    const triggerQueue = (game.state as any)?.triggerQueue || [];
-    
-    // Clean up deprecated pendingTriggerOrdering state if found
-    // Trigger ordering is now handled by the Resolution Queue system
-    const pendingTriggerOrdering = (game.state as any)?.pendingTriggerOrdering;
-    if (pendingTriggerOrdering && Object.keys(pendingTriggerOrdering).length > 0) {
-      debugWarn(1, `[util] DEPRECATED: Found legacy pendingTriggerOrdering state - cleaning up`);
-      delete (game.state as any).pendingTriggerOrdering;
-      delete (game.state as any)._triggerOrderingPromptedPlayers;
-    }
-    
-    // Note: Trigger ordering prompts are now handled by Resolution Queue
-    // This function only cleans up legacy state
-    
-  } catch (e) {
-    debugWarn(1, '[util] checkAndEmitTriggerOrderingPrompts error:', e);
-  }
-}
-
 /**
  * Legacy proliferate prompt function removed
  * Proliferate is now handled through processPendingProliferate() in resolution queue

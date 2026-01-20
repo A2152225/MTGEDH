@@ -328,70 +328,6 @@ function checkPendingInteractions(ctx: GameContext): {
     // Migrate legacy pending state to Resolution Queue (one-time, best-effort)
     // =========================================================================
 
-    // Convert legacy triggerQueue -> ResolutionStepType.OPTION_CHOICE (cleanup)
-    // Some older flows queued "may" triggers in state.triggerQueue and relied on bespoke socket events.
-    // We now represent those as OPTION_CHOICE resolution steps and clear triggerQueue.
-    if (gameId && Array.isArray(state.triggerQueue) && state.triggerQueue.length > 0) {
-      try {
-        const triggerQueue = state.triggerQueue as any[];
-        let createdAny = false;
-
-        for (const trigger of triggerQueue) {
-          const triggerId = String(trigger?.id || '').trim();
-          const controllerId = String(trigger?.controllerId || trigger?.controller || '').trim();
-          if (!triggerId || !controllerId) continue;
-
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, controllerId as any)
-            .find(s => (s as any)?.legacyTriggerPrompt === true && String((s as any)?.legacyTriggerId || '') === triggerId);
-          if (existing) {
-            continue;
-          }
-
-          ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.OPTION_CHOICE,
-            playerId: controllerId as any,
-            sourceId: String(trigger?.sourceId || ''),
-            sourceName: String(trigger?.sourceName || 'Triggered Ability'),
-            sourceImage: trigger?.imageUrl,
-            description: String(trigger?.effect || trigger?.description || `${String(trigger?.sourceName || 'Triggered Ability')} triggered.`),
-            mandatory: false,
-            options: [
-              { id: 'accept', label: 'Put on stack' },
-              { id: 'decline', label: 'Decline' },
-            ],
-            minSelections: 1,
-            maxSelections: 1,
-            priority: -1,
-
-            legacyTriggerPrompt: true,
-            legacyTriggerId: triggerId,
-
-            // Fallback context in case the triggerQueue entry is missing by the time the step resolves.
-            legacyTriggerSourceId: String(trigger?.sourceId || ''),
-            legacyTriggerSourceName: String(trigger?.sourceName || ''),
-            legacyTriggerEffect: String(trigger?.effect || ''),
-            legacyTriggerTargets: trigger?.targets || [],
-          } as any);
-
-          createdAny = true;
-        }
-
-        // Clear legacy triggerQueue to avoid old UIs / checks blocking indefinitely.
-        delete state.triggerQueue;
-
-        if (createdAny) {
-          result.hasPending = true;
-          if (!result.pendingTypes.includes('trigger_queue')) {
-            result.pendingTypes.push('trigger_queue');
-          }
-          result.details.triggerQueue = 'migrated_to_resolution_queue';
-        }
-      } catch (err) {
-        debugWarn(1, `${ts()} [checkPendingInteractions] Failed to migrate triggerQueue:`, err);
-      }
-    }
-
     // Convert legacy pendingDiscardSelection -> ResolutionStepType.DISCARD_SELECTION (cleanup)
     // This prevents older game states from blocking step advancement forever.
     if (gameId && state.pendingDiscardSelection && Object.keys(state.pendingDiscardSelection).length > 0) {
@@ -2994,8 +2930,8 @@ export function nextStep(ctx: GameContext) {
               continue;
             }
             
-            // If player has multiple triggers, store them for ordering
-            // They will be added to triggerQueue for the socket layer to handle
+            // If player has multiple triggers, require an explicit ordering via Resolution Queue
+            // (TRIGGER_ORDER) before continuing.
             if (playerTriggers.length > 1) {
               debug(2, `${ts()} [nextStep] Player ${playerId} has ${playerTriggers.length} triggers to order`);
               

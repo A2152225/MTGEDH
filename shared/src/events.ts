@@ -84,8 +84,7 @@ export interface ClientToServerEvents {
   // Flip a coin
   flipCoin: (payload: { gameId: GameID }) => void;
 
-  // import confirm responses
-  confirmImportResponse: (payload: { gameId: GameID; confirmId: string; accept: boolean }) => void;
+  // NOTE: deck import confirmations are handled via Resolution Queue (submitResolutionResponse)
 
   // debug / admin
   dumpCommanderState: (payload: { gameId: GameID }) => void;
@@ -288,13 +287,7 @@ export interface ClientToServerEvents {
   updateCountersBulk: (payload: { gameId: GameID; permanentId: string; counters?: Record<string, number>; updates?: Record<string, number> }) => void;
 
   // ===== TRIGGER HANDLING EVENTS =====
-  
-  // Resolve a triggered ability
-  resolveTrigger: (payload: { gameId: GameID; triggerId: string; choice?: any; choices?: any }) => void;
-  
-  // Skip/ignore a triggered ability
-  skipTrigger: (payload: { gameId: GameID; triggerId: string }) => void;
-  
+
   // Sacrifice unless pay choice
   sacrificeUnlessPayChoice: (payload: { gameId: GameID; permanentId: string; pay?: boolean; payMana?: boolean }) => void;
 
@@ -376,9 +369,8 @@ export interface ClientToServerEvents {
   
   // Request judge assistance
   requestJudge: (payload: { gameId: GameID; reason?: string }) => void;
-  
-  // Respond to judge confirmation
-  judgeConfirmResponse: (payload: { gameId: GameID; confirmId: string; accept: boolean }) => void;
+
+  // NOTE: judge confirmations are handled via Resolution Queue (submitResolutionResponse)
 
   // ===== SPELL CASTING =====
   
@@ -579,7 +571,6 @@ export interface ServerToClientEvents {
   importedDeckCandidates: (payload: { gameId: GameID; candidates: KnownCardRef[] }) => void;
 
   // import confirmation workflow
-  importWipeConfirmRequest: (payload: any) => void;
   importWipeConfirmUpdate: (payload: any) => void;
   importWipeCancelled: (payload: any) => void;
   importWipeConfirmed: (payload: any) => void;

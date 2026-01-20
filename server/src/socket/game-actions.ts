@@ -6178,11 +6178,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         // ========================================================================
         const pendingSkip = (game.state as any).pendingPhaseSkip;
         if (pendingSkip && game.state.stack && game.state.stack.length === 0) {
-          const noTriggerQueue = !(game.state as any).triggerQueue || (game.state as any).triggerQueue.length === 0;
+          const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
+          const noPendingResolutionSteps = !queueSummary.hasPending;
           const noPendingOrdering = !(game.state as any).pendingTriggerOrdering || 
                                     Object.keys((game.state as any).pendingTriggerOrdering).length === 0;
           
-          if (noTriggerQueue && noPendingOrdering) {
+          if (noPendingResolutionSteps && noPendingOrdering) {
             debug(2, `[passPriority] Continuing pending phase skip from BEGIN_COMBAT to ${pendingSkip.targetStep}`);
             
             // Update phase and step to the originally requested target
@@ -7027,12 +7028,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         return;
       }
-      
-      // Ensure there are no pending triggers that need to be resolved
-      if ((game.state as any).triggerQueue && (game.state as any).triggerQueue.length > 0) {
+
+      // Ensure there are no pending Resolution Queue interactions that need to be resolved
+      const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
+      if (queueSummary.hasPending) {
         socket.emit("error", {
           code: "SKIP_TO_PHASE",
-          message: "Cannot skip phases while there are pending triggers. Resolve or order them first.",
+          message: "Cannot skip phases while there are pending interactions. Resolve them first.",
         });
         return;
       }

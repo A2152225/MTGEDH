@@ -2330,7 +2330,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
         fields.availableMana = (step as any).availableMana;
       }
 
-      // Custom: deck import wipe confirmations (legacy importWipeConfirmRequest migrated to RQ)
+      // Custom: deck import wipe confirmations (Resolution Queue)
       if ((step as any)?.importWipeConfirm === true) {
         fields.importWipeConfirm = true;
         fields.kind = (step as any).kind;
@@ -2342,7 +2342,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
         fields.voters = (step as any).voters;
       }
 
-      // Custom: judge confirmations (legacy judgeConfirmRequest/judgeConfirmResponse migrated to RQ)
+      // Custom: judge confirmations (Resolution Queue)
       if ((step as any)?.judgeConfirm === true) {
         fields.judgeConfirm = true;
         fields.kind = (step as any).kind;
@@ -12639,7 +12639,7 @@ async function handleOptionChoiceResponse(
     return null;
   };
 
-  // ===== DECK IMPORT WIPE CONFIRM (migrated from importWipeConfirmRequest / confirmImportResponse) =====
+  // ===== DECK IMPORT WIPE CONFIRM =====
   if (stepData?.importWipeConfirm === true) {
     const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
     const confirmId = String(stepData?.confirmId || '').trim();
@@ -12653,7 +12653,7 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== JUDGE CONFIRM (migrated from judgeConfirmRequest / judgeConfirmResponse) =====
+  // ===== JUDGE CONFIRM =====
   if (stepData?.judgeConfirm === true) {
     const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
     const confirmId = String(stepData?.confirmId || '').trim();
@@ -12770,76 +12770,6 @@ async function handleOptionChoiceResponse(
         { skipPriorityCheck: true, skipMutateModePrompt: true }
       );
     }
-
-    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-    broadcastGame(io, game, gameId);
-    return;
-  }
-
-  // ===== LEGACY TRIGGER PROMPT (triggerQueue) =====
-  // Some older trigger flows queued a trigger in game.state.triggerQueue and prompted via a bespoke
-  // triggerPrompt Socket.IO event. We now represent that prompt as an OPTION_CHOICE resolution step.
-  if (stepData?.legacyTriggerPrompt === true) {
-    const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
-    const accepted = !response.cancelled && choiceId !== 'decline';
-    const legacyTriggerId = String(stepData?.legacyTriggerId || '').trim();
-
-    const fallback = {
-      sourceId: String(stepData?.legacyTriggerSourceId || step.sourceId || ''),
-      sourceName: String(stepData?.legacyTriggerSourceName || step.sourceName || 'Triggered Ability'),
-      effect: String(stepData?.legacyTriggerEffect || step.description || ''),
-      targets: (stepData?.legacyTriggerTargets || []) as any,
-    };
-
-    const triggerQueue = ((game.state as any)?.triggerQueue || []) as any[];
-    const triggerIndex = legacyTriggerId ? triggerQueue.findIndex((t: any) => String(t?.id) === legacyTriggerId) : -1;
-    const trigger = triggerIndex >= 0 ? triggerQueue[triggerIndex] : null;
-    if (!trigger && !fallback.sourceId && !fallback.sourceName && !fallback.effect) {
-      debugWarn(1, `[Resolution] legacyTriggerPrompt: trigger not found in triggerQueue (id='${legacyTriggerId}') and no fallback context`);
-      return;
-    }
-
-    if (!accepted) {
-      if (triggerIndex >= 0) triggerQueue.splice(triggerIndex, 1);
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${getPlayerName(game, playerId)} declines ${String((trigger as any)?.sourceName || fallback.sourceName || step.sourceName || 'a triggered ability')}.`,
-        ts: Date.now(),
-      });
-
-      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-      broadcastGame(io, game, gameId);
-      return;
-    }
-
-    // Put the trigger on the stack (legacy behavior)
-    const stackItem = {
-      id: `stack_trigger_${Date.now()}`,
-      type: 'ability',
-      controller: playerId,
-      card: {
-        id: String((trigger as any)?.sourceId || fallback.sourceId || ''),
-        name: `${String((trigger as any)?.sourceName || fallback.sourceName || step.sourceName || 'Triggered Ability')} (trigger)`,
-        type_line: 'Triggered Ability',
-        oracle_text: String((trigger as any)?.effect || fallback.effect || ''),
-      },
-      targets: (((trigger as any)?.targets || fallback.targets || []) as any),
-      legacyChoice: choiceId,
-    };
-
-    (game.state as any).stack = (game.state as any).stack || [];
-    (game.state as any).stack.push(stackItem);
-    if (triggerIndex >= 0) triggerQueue.splice(triggerIndex, 1);
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${String((trigger as any)?.sourceName || fallback.sourceName || step.sourceName || 'A triggered ability')}'s triggered ability goes on the stack.`,
-      ts: Date.now(),
-    });
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
