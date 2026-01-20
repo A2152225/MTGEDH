@@ -75,6 +75,7 @@ export interface UseGameSocketState {
   handleCommanderConfirm: (names: string[], ids?: string[]) => void;
   fetchDebug: () => void;
   respondToConfirm: (accept: boolean) => void;
+  openConfirmFromResolutionStep: (step: any) => void;
 
   setCmdSuggestedGameId: (gid: GameID | null) => void;
   setCmdSuggestedNames: (names: string[]) => void;
@@ -154,6 +155,7 @@ export function useGameSocket(): UseGameSocketState {
   const [confirmVotes, setConfirmVotes] =
     useState<ImportConfirmVotes | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [confirmStepId, setConfirmStepId] = useState<string | null>(null);
 
   // imported candidates
   const [importedCandidates, setImportedCandidates] = useState<KnownCardRef[]>(
@@ -521,6 +523,7 @@ export function useGameSocket(): UseGameSocketState {
       setConfirmId(payload.confirmId);
       setConfirmVotes(initial);
       setConfirmOpen(true);
+      setConfirmStepId(null);
     };
     const onConfirmUpdate = (update: any) => {
       if (!update || !update.confirmId) return;
@@ -536,6 +539,7 @@ export function useGameSocket(): UseGameSocketState {
         setConfirmPayload(null);
         setConfirmVotes(null);
         setConfirmId(null);
+        setConfirmStepId(null);
 
         const kind = confirmPayload?.kind || "import";
         const base =
@@ -560,6 +564,7 @@ export function useGameSocket(): UseGameSocketState {
         setConfirmPayload(null);
         setConfirmVotes(null);
         setConfirmId(null);
+        setConfirmStepId(null);
 
         if (kind === "judge") {
           setLastInfo("Judge request approved.");
@@ -631,14 +636,12 @@ export function useGameSocket(): UseGameSocketState {
       }
     };
 
-    // import confirm events
-    socket.on("importWipeConfirmRequest", onConfirmRequest);
+    // import confirm events (request is now via Resolution Queue)
     socket.on("importWipeConfirmUpdate", onConfirmUpdate);
     socket.on("importWipeCancelled", onConfirmCancelled);
     socket.on("importWipeConfirmed", onConfirmConfirmed);
 
-    // judge confirm events
-    socket.on("judgeConfirmRequest", onConfirmRequest);
+    // judge confirm events (prompt is now via Resolution Queue)
     socket.on("judgeConfirmUpdate", onConfirmUpdate);
     socket.on("judgeCancelled", onConfirmCancelled);
     socket.on("judgeConfirmed", onConfirmConfirmed);
@@ -696,12 +699,10 @@ export function useGameSocket(): UseGameSocketState {
       socket.off("debugLibraryDump");
       socket.off("debugImportedDeckBuffer");
 
-      socket.off("importWipeConfirmRequest", onConfirmRequest);
       socket.off("importWipeConfirmUpdate", onConfirmUpdate);
       socket.off("importWipeCancelled", onConfirmCancelled);
       socket.off("importWipeConfirmed", onConfirmConfirmed);
 
-      socket.off("judgeConfirmRequest", onConfirmRequest);
       socket.off("judgeConfirmUpdate", onConfirmUpdate);
       socket.off("judgeCancelled", onConfirmCancelled);
       socket.off("judgeConfirmed", onConfirmConfirmed);
@@ -958,20 +959,17 @@ export function useGameSocket(): UseGameSocketState {
   const respondToConfirm = useCallback(
     (accept: boolean) => {
       if (!safeView || !confirmId || !you || !confirmPayload) return;
-      const kind = confirmPayload.kind || "import";
-
-      if (kind === "judge") {
-        socket.emit("judgeConfirmResponse", {
+      // Confirms are handled via Resolution Queue (OPTION_CHOICE)
+      if (confirmStepId) {
+        socket.emit('submitResolutionResponse', {
           gameId: safeView.id,
-          confirmId,
-          accept,
+          stepId: confirmStepId,
+          selections: [accept ? 'accept' : 'decline'],
+          cancelled: false,
         });
       } else {
-        socket.emit("confirmImportResponse", {
-          gameId: safeView.id,
-          confirmId,
-          accept,
-        });
+        // eslint-disable-next-line no-console
+        console.warn('[useGameSocket] Missing confirmStepId; cannot submit confirm via Resolution Queue');
       }
 
       setConfirmVotes((prev) =>
@@ -983,7 +981,62 @@ export function useGameSocket(): UseGameSocketState {
           : prev
       );
     },
-    [safeView, confirmId, you, confirmPayload]
+    [safeView, confirmId, you, confirmPayload, confirmStepId]
+  );
+
+  const openConfirmFromResolutionStep = useCallback(
+    (step: any) => {
+      try {
+        const incomingConfirmId = String(step?.confirmId || '').trim();
+        if (!incomingConfirmId) return;
+
+        const voters = Array.isArray(step?.voters)
+          ? step.voters
+          : (Array.isArray(step?.players) ? step.players : []);
+
+        const initiator = String(step?.initiator || '');
+        const kindFromStep = String(step?.kind || '').trim();
+        const isJudge = step?.judgeConfirm === true || kindFromStep === 'judge';
+        const payload = {
+          kind: isJudge ? 'judge' : 'import',
+          confirmId: incomingConfirmId,
+          gameId: safeView?.id,
+          initiator,
+          deckName: step?.deckName,
+          resolvedCount: step?.resolvedCount,
+          expectedCount: step?.expectedCount,
+          players: voters,
+        };
+
+        // Avoid thrashing if we're already showing the same confirmation.
+        if (confirmOpen && confirmId === incomingConfirmId) {
+          setConfirmStepId(String(step?.id || ''));
+          return;
+        }
+
+        const initial: ImportConfirmVotes = {};
+        const providedResponses = step?.responses && typeof step.responses === 'object' ? step.responses : null;
+        if (providedResponses) {
+          for (const pid of voters || []) {
+            const v = (providedResponses as any)[pid];
+            initial[pid] = v === 'yes' || v === 'no' ? v : 'pending';
+          }
+        } else {
+          for (const pid of voters || []) initial[pid] = 'pending';
+        }
+        if (initiator) initial[initiator] = 'yes';
+
+        setConfirmPayload(payload);
+        setConfirmId(incomingConfirmId);
+        setConfirmVotes(initial);
+        setConfirmOpen(true);
+        setConfirmStepId(String(step?.id || ''));
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[useGameSocket] openConfirmFromResolutionStep failed', err);
+      }
+    },
+    [safeView?.id, confirmOpen, confirmId]
   );
 
   return {
@@ -1037,5 +1090,6 @@ export function useGameSocket(): UseGameSocketState {
     handleCommanderConfirm,
     fetchDebug,
     respondToConfirm,
+    openConfirmFromResolutionStep,
   };
 }

@@ -8811,18 +8811,22 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
   const battlefield = state.battlefield || [];
   
   for (const perm of battlefield) {
-    if (perm.controller !== controller) continue;
     const permName = (perm.card?.name || '').toLowerCase();
     const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+
+    // Primal Vigor is global (applies regardless of controller)
+    if (permName.includes('primal vigor')) {
+      multiplier *= 2;
+      continue;
+    }
+
+    if (perm.controller !== controller) continue;
     
     // Ojer Taq, Deepest Foundation: "If one or more creature tokens would be created under your control, three times that many of those tokens are created instead."
-    // This is a 3x multiplier, not additive with 2x multipliers
+    // This is a 3x multiplier and it STACKS with other token multipliers.
     if (permName.includes('ojer taq') ||
         (permOracle.includes('three times that many') && permOracle.includes('token'))) {
-      // Ojer Taq triples, which supersedes doubling effects
-      // Per MTG rules, you apply the highest multiplier
-      multiplier = Math.max(multiplier, 3);
-      continue; // Don't stack with doublers
+      multiplier *= 3;
     }
     
     // Anointed Procession: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
@@ -8836,7 +8840,6 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
         permName.includes('parallel lives') ||
         permName.includes('doubling season') ||
         permName.includes('mondrak, glory dominus') ||
-        permName.includes('primal vigor') ||
         permName.includes('adrix and nev') ||
         (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
         (permOracle.includes('twice that many') && permOracle.includes('token'))) {

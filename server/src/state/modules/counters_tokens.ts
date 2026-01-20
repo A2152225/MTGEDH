@@ -3,6 +3,7 @@ import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid, parsePT, parseWordNumber } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { applyBeneficialReplacements, applyReplacementsCustomOrder, type ReplacementEffect } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
@@ -143,34 +144,40 @@ export function applyCounterModifications(
     
     // Only apply modifications when adding counters (positive amounts)
     if (amount > 0) {
-      // STEP 1: Apply all halving effects first (Vorinclex opponent penalty)
+      // MTG 616.1: the affected player (controller of the permanent receiving counters)
+      // chooses the order. Default behavior should maximize benefit (add_flat before doublers,
+      // and push halving/prevention last).
+      const effects: ReplacementEffect[] = [];
+
       for (const mod of modifiers) {
         if (mod.halvesOpponentCounters) {
-          const before = amount;
-          amount = Math.floor(amount / 2);
-          debug(2, `[applyCounterModifications] ${mod.cardName} halved counters: ${before} -> ${amount}`);
+          effects.push({ type: 'halve', source: mod.cardName, controllerId: mod.controller });
         }
-      }
-      
-      // STEP 2: Apply all doubling effects (these compound: 2 doublers = 4x)
-      for (const mod of modifiers) {
         if (mod.doublesYourCounters) {
-          const before = amount;
-          amount = amount * 2;
-          debug(2, `[applyCounterModifications] ${mod.cardName} doubled counters: ${before} -> ${amount}`);
+          effects.push({ type: 'double', source: mod.cardName, controllerId: mod.controller });
+        }
+        if (counterType.includes('+1/+1') && mod.addsBonusCounter > 0) {
+          effects.push({ type: 'add_flat', value: mod.addsBonusCounter, source: mod.cardName, controllerId: mod.controller });
         }
       }
-      
-      // STEP 3: Apply bonus counter effects (Hardened Scales +1)
-      // Only applies to +1/+1 counters being placed on creatures
-      if (counterType.includes('+1/+1')) {
-        for (const mod of modifiers) {
-          if (mod.addsBonusCounter > 0) {
-            const before = amount;
-            amount += mod.addsBonusCounter;
-            debug(2, `[applyCounterModifications] ${mod.cardName} added bonus: ${before} -> ${amount}`);
-          }
-        }
+
+      const pref = (gameState as any)?.replacementEffectPreferences?.[targetController]?.counters;
+      const mode: 'minimize' | 'maximize' | 'custom' | 'auto' = pref?.mode
+        ? pref.mode
+        : (pref?.useCustomOrder ? 'custom' : 'auto');
+
+      if (mode === 'custom' && Array.isArray(pref?.customOrder) && pref.customOrder.length > 0) {
+        const orderIndex = new Map<string, number>();
+        for (let i = 0; i < pref.customOrder.length; i++) orderIndex.set(String(pref.customOrder[i]), i);
+        const ordered = [...effects].sort((a, b) => {
+          const ai = orderIndex.has(a.source) ? (orderIndex.get(a.source) as number) : Number.POSITIVE_INFINITY;
+          const bi = orderIndex.has(b.source) ? (orderIndex.get(b.source) as number) : Number.POSITIVE_INFINITY;
+          if (ai !== bi) return ai - bi;
+          return String(a.source).localeCompare(String(b.source));
+        });
+        amount = applyReplacementsCustomOrder(amount, ordered).finalAmount;
+      } else {
+        amount = applyBeneficialReplacements(amount, effects).finalAmount;
       }
     }
     
@@ -230,15 +237,21 @@ export function createToken(
     let multiplier = 1;
     
     for (const perm of battlefield) {
-      if (perm.controller !== controller) continue;
       const permName = (perm.card?.name || '').toLowerCase();
       const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+
+      // Primal Vigor is global (applies regardless of controller)
+      if (permName.includes('primal vigor')) {
+        multiplier *= 2;
+        continue;
+      }
+
+      if (perm.controller !== controller) continue;
       
       // Ojer Taq: triples tokens (3x multiplier)
       if (permName.includes('ojer taq') ||
           (permOracle.includes('three times that many') && permOracle.includes('token'))) {
-        multiplier = Math.max(multiplier, 3);
-        continue;
+        multiplier *= 3;
       }
       
       // Token doublers (Anointed Procession, Doubling Season, Elspeth, etc.)
@@ -246,7 +259,6 @@ export function createToken(
           permName.includes('parallel lives') ||
           permName.includes('doubling season') ||
           permName.includes('mondrak, glory dominus') ||
-          permName.includes('primal vigor') ||
           (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
           (permOracle.includes('twice that many') && permOracle.includes('token'))) {
         multiplier *= 2;

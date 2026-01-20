@@ -50,6 +50,8 @@ import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../ut
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
+import { handleImportWipeConfirmVote } from "./deck.js";
+import { handleJudgeConfirmVote } from "./judge.js";
 
 /**
  * Handle AI player resolution steps automatically
@@ -2326,6 +2328,28 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
         fields.declineEffect = (step as any).declineEffect;
         fields.triggerText = (step as any).triggerText;
         fields.availableMana = (step as any).availableMana;
+      }
+
+      // Custom: deck import wipe confirmations (legacy importWipeConfirmRequest migrated to RQ)
+      if ((step as any)?.importWipeConfirm === true) {
+        fields.importWipeConfirm = true;
+        fields.kind = (step as any).kind;
+        fields.confirmId = (step as any).confirmId;
+        fields.initiator = (step as any).initiator;
+        fields.deckName = (step as any).deckName;
+        fields.resolvedCount = (step as any).resolvedCount;
+        fields.expectedCount = (step as any).expectedCount;
+        fields.voters = (step as any).voters;
+      }
+
+      // Custom: judge confirmations (legacy judgeConfirmRequest/judgeConfirmResponse migrated to RQ)
+      if ((step as any)?.judgeConfirm === true) {
+        fields.judgeConfirm = true;
+        fields.kind = (step as any).kind;
+        fields.confirmId = (step as any).confirmId;
+        fields.initiator = (step as any).initiator;
+        fields.voters = (step as any).voters;
+        fields.responses = (step as any).responses;
       }
       break;
       
@@ -12615,6 +12639,34 @@ async function handleOptionChoiceResponse(
     return null;
   };
 
+  // ===== DECK IMPORT WIPE CONFIRM (migrated from importWipeConfirmRequest / confirmImportResponse) =====
+  if (stepData?.importWipeConfirm === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
+    const confirmId = String(stepData?.confirmId || '').trim();
+    if (!confirmId) {
+      debugWarn(1, '[Resolution] importWipeConfirm: missing confirmId');
+      return;
+    }
+
+    const accept = !response.cancelled && choiceId === 'accept';
+    handleImportWipeConfirmVote(io, gameId, confirmId, playerId as any, accept);
+    return;
+  }
+
+  // ===== JUDGE CONFIRM (migrated from judgeConfirmRequest / judgeConfirmResponse) =====
+  if (stepData?.judgeConfirm === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
+    const confirmId = String(stepData?.confirmId || '').trim();
+    if (!confirmId) {
+      debugWarn(1, '[Resolution] judgeConfirm: missing confirmId');
+      return;
+    }
+
+    const accept = !response.cancelled && choiceId === 'accept';
+    handleJudgeConfirmVote(io, game, gameId, confirmId, String(playerId), accept);
+    return;
+  }
+
   // ===== MIRACLE (Rule 702.94) =====
   // The draw module queues a Miracle prompt as an OPTION_CHOICE step.
   // If accepted, we kick off the normal requestCastSpell flow but force the alternate cost to Miracle.
@@ -12732,22 +12784,28 @@ async function handleOptionChoiceResponse(
     const accepted = !response.cancelled && choiceId !== 'decline';
     const legacyTriggerId = String(stepData?.legacyTriggerId || '').trim();
 
+    const fallback = {
+      sourceId: String(stepData?.legacyTriggerSourceId || step.sourceId || ''),
+      sourceName: String(stepData?.legacyTriggerSourceName || step.sourceName || 'Triggered Ability'),
+      effect: String(stepData?.legacyTriggerEffect || step.description || ''),
+      targets: (stepData?.legacyTriggerTargets || []) as any,
+    };
+
     const triggerQueue = ((game.state as any)?.triggerQueue || []) as any[];
     const triggerIndex = legacyTriggerId ? triggerQueue.findIndex((t: any) => String(t?.id) === legacyTriggerId) : -1;
-    if (triggerIndex === -1) {
-      debugWarn(1, `[Resolution] legacyTriggerPrompt: trigger not found in triggerQueue (id='${legacyTriggerId}')`);
+    const trigger = triggerIndex >= 0 ? triggerQueue[triggerIndex] : null;
+    if (!trigger && !fallback.sourceId && !fallback.sourceName && !fallback.effect) {
+      debugWarn(1, `[Resolution] legacyTriggerPrompt: trigger not found in triggerQueue (id='${legacyTriggerId}') and no fallback context`);
       return;
     }
 
-    const trigger = triggerQueue[triggerIndex];
-
     if (!accepted) {
-      triggerQueue.splice(triggerIndex, 1);
+      if (triggerIndex >= 0) triggerQueue.splice(triggerIndex, 1);
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `${getPlayerName(game, playerId)} declines ${String(trigger?.sourceName || step.sourceName || 'a triggered ability')}.`,
+        message: `${getPlayerName(game, playerId)} declines ${String((trigger as any)?.sourceName || fallback.sourceName || step.sourceName || 'a triggered ability')}.`,
         ts: Date.now(),
       });
 
@@ -12762,24 +12820,24 @@ async function handleOptionChoiceResponse(
       type: 'ability',
       controller: playerId,
       card: {
-        id: String(trigger?.sourceId || stepData?.legacyTriggerSourceId || step.sourceId || ''),
-        name: `${String(trigger?.sourceName || stepData?.legacyTriggerSourceName || step.sourceName || 'Triggered Ability')} (trigger)`,
+        id: String((trigger as any)?.sourceId || fallback.sourceId || ''),
+        name: `${String((trigger as any)?.sourceName || fallback.sourceName || step.sourceName || 'Triggered Ability')} (trigger)`,
         type_line: 'Triggered Ability',
-        oracle_text: String(trigger?.effect || stepData?.legacyTriggerEffect || step.description || ''),
+        oracle_text: String((trigger as any)?.effect || fallback.effect || ''),
       },
-      targets: (trigger?.targets || stepData?.legacyTriggerTargets || []) as any,
+      targets: (((trigger as any)?.targets || fallback.targets || []) as any),
       legacyChoice: choiceId,
     };
 
     (game.state as any).stack = (game.state as any).stack || [];
     (game.state as any).stack.push(stackItem);
-    triggerQueue.splice(triggerIndex, 1);
+    if (triggerIndex >= 0) triggerQueue.splice(triggerIndex, 1);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${String(trigger?.sourceName || step.sourceName || 'A triggered ability')}'s triggered ability goes on the stack.`,
+      message: `${String((trigger as any)?.sourceName || fallback.sourceName || step.sourceName || 'A triggered ability')}'s triggered ability goes on the stack.`,
       ts: Date.now(),
     });
 

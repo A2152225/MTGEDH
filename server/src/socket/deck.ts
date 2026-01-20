@@ -27,6 +27,8 @@ import type { KnownCardRef, PlayerID, GameState } from "../../../shared/src";
 import { GamePhase, createCardFromScryfall } from "../../../shared/src";
 import { COMMANDER_PRECONS } from "../../../shared/src/precons";
 
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+
 // NEW: helpers to push candidate/suggest events to player's sockets
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import {
@@ -94,6 +96,127 @@ type PendingConfirm = {
 };
 
 const pendingImportConfirmations: Map<string, PendingConfirm> = new Map();
+
+function cancelImportWipeConfirmResolutionSteps(gameId: string, confirmId: string) {
+  try {
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const ids = queue.steps
+      .filter(s => (s as any)?.importWipeConfirm === true && String((s as any)?.confirmId || '') === String(confirmId))
+      .map(s => s.id);
+    for (const id of ids) {
+      ResolutionQueueManager.cancelStep(gameId, id);
+    }
+  } catch (err) {
+    debugWarn(1, 'cancelImportWipeConfirmResolutionSteps failed', err);
+  }
+}
+
+function enqueueImportWipeConfirmToResolutionQueue(
+  gameId: string,
+  confirmId: string,
+  pendingConfirm: PendingConfirm,
+  voters: PlayerID[],
+  timeoutMs: number
+) {
+  try {
+    const initiator = pendingConfirm.initiator;
+    const deckName = pendingConfirm.deckName;
+    const resolvedCount = pendingConfirm.resolvedCards?.length || 0;
+    const expectedCount = pendingConfirm.parsedCount;
+
+    for (const pid of voters) {
+      // Initiator is auto-yes in the legacy flow.
+      if (pid === initiator) continue;
+
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find(s => (s as any)?.importWipeConfirm === true && String((s as any)?.confirmId || '') === String(confirmId));
+      if (existing) continue;
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: pid,
+        sourceName: 'Deck Import',
+        description: `Confirm deck import wipe${deckName ? `: ${deckName}` : ''}. This will reset the game state.`,
+        mandatory: true,
+        timeoutMs,
+        options: [
+          { id: 'accept', label: 'Approve' },
+          { id: 'decline', label: 'Reject' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+
+        importWipeConfirm: true,
+        kind: 'import',
+        confirmId,
+        initiator,
+        deckName,
+        resolvedCount,
+        expectedCount,
+        voters,
+      } as any);
+    }
+  } catch (err) {
+    debugWarn(1, 'enqueueImportWipeConfirmToResolutionQueue failed', err);
+  }
+}
+
+export function handleImportWipeConfirmVote(
+  io: Server,
+  gameId: string,
+  confirmId: string,
+  voterId: PlayerID,
+  accept: boolean
+) {
+  const pending = pendingImportConfirmations.get(confirmId);
+  if (!pending) {
+    return;
+  }
+
+  if (pending.gameId !== gameId) {
+    return;
+  }
+
+  if (!(String(voterId) in pending.responses)) {
+    return;
+  }
+
+  const prev = pending.responses[String(voterId)];
+  if (prev !== 'pending') {
+    return;
+  }
+
+  pending.responses[String(voterId)] = accept ? 'yes' : 'no';
+
+  debug(1, '[deck] import wipe confirm vote (RQ)', {
+    gameId,
+    confirmId,
+    voterId,
+    accept,
+    responses: pending.responses,
+  });
+
+  broadcastConfirmUpdate(io, confirmId, pending);
+
+  const anyNo = Object.values(pending.responses).some((v) => v === 'no');
+  if (anyNo) {
+    cancelConfirmation(io, confirmId, 'voted_no');
+    return;
+  }
+
+  const allYes = Object.values(pending.responses).every((v) => v === 'yes');
+  if (allYes) {
+    debug(1, '[deck] all players accepted import (RQ)', {
+      gameId,
+      confirmId,
+    });
+    applyConfirmedImport(io, confirmId).catch((err) => {
+      debugError(1, 'applyConfirmedImport failed:', err);
+      cancelConfirmation(io, confirmId, 'apply_failed');
+    });
+  }
+}
 
 function broadcastConfirmUpdate(
   io: Server,
@@ -217,6 +340,10 @@ function cancelConfirmation(
 ) {
   const p = pendingImportConfirmations.get(confirmId);
   if (!p) return;
+
+  // Prevent stale RQ prompts from appearing after cancel/timeout.
+  cancelImportWipeConfirmResolutionSteps(p.gameId, confirmId);
+
   if (p.timeout) {
     try {
       clearTimeout(p.timeout);
@@ -397,6 +524,10 @@ async function applyConfirmedImport(
     });
     return;
   }
+
+  // Prevent stale RQ prompts from appearing after confirmation.
+  cancelImportWipeConfirmResolutionSteps(p.gameId, confirmId);
+
   if (p.timeout) {
     try {
       clearTimeout(p.timeout);
@@ -1435,25 +1566,22 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       try {
-        debug(1, "[deck] emitting importWipeConfirmRequest", {
+        debug(1, "[deck] enqueueing import wipe confirmation (Resolution Queue)", {
           gameId,
           confirmId,
           initiator: pid,
           players: players.length,
           resolvedCount: resolvedCards.length,
         });
-        io.to(gameId).emit("importWipeConfirmRequest", {
-          confirmId,
+        enqueueImportWipeConfirmToResolutionQueue(
           gameId,
-          initiator: pid,
-          deckName: effectiveDeckName,
-          resolvedCount: resolvedCards.length,
-          expectedCount: pendingConfirm.parsedCount,
-          players,
-          timeoutMs: TIMEOUT_MS,
-        });
+          confirmId,
+          pendingConfirm,
+          players as any,
+          TIMEOUT_MS
+        );
       } catch (err) {
-        debugWarn(1, "importDeck: emit importWipeConfirmRequest failed", err);
+        debugWarn(1, "importDeck: enqueue import wipe confirm failed", err);
       }
 
       broadcastConfirmUpdate(io, confirmId, pendingConfirm);
@@ -1473,88 +1601,6 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
       } catch (e) {
         debugWarn(1, "importDeck: auto-apply single-player failed", e);
-      }
-    }
-  );
-
-  // Handle confirmation responses
-  socket.on(
-    "confirmImportResponse",
-    ({
-      gameId,
-      confirmId,
-      accept,
-    }: {
-      gameId: string;
-      confirmId: string;
-      accept: boolean;
-    }) => {
-      try {
-        if (!gameId || typeof gameId !== "string") {
-          socket.emit("error", {
-            code: "CONFIRM_MISSING_GAME",
-            message: "gameId required",
-          });
-          return;
-        }
-        const pid = socket.data.playerId as PlayerID | undefined;
-        if (!pid) return;
-        const pending = pendingImportConfirmations.get(confirmId);
-        if (!pending) {
-          socket.emit("error", {
-            code: "CONFIRM_NOT_FOUND",
-            message: "Confirmation not found or expired",
-          });
-          return;
-        }
-        if (pending.gameId !== gameId) {
-          socket.emit("error", {
-            code: "CONFIRM_MISMATCH",
-            message: "GameId mismatch",
-          });
-          return;
-        }
-        if (!(pid in pending.responses)) {
-          socket.emit("error", {
-            code: "CONFIRM_NOT_A_PLAYER",
-            message: "You are not part of this confirmation",
-          });
-          return;
-        }
-
-        pending.responses[pid] = accept ? "yes" : "no";
-        debug(1, "[deck] confirmImportResponse", {
-          gameId,
-          confirmId,
-          playerId: pid,
-          accept,
-          responses: pending.responses,
-        });
-        broadcastConfirmUpdate(io, confirmId, pending);
-
-        const anyNo = Object.values(pending.responses).some(
-          (v) => v === "no"
-        );
-        if (anyNo) {
-          cancelConfirmation(io, confirmId, "voted_no");
-          return;
-        }
-
-        const allYes = Object.values(pending.responses).every(
-          (v) => v === "yes"
-        );
-        if (allYes) {
-          debug(1, "[deck] all players accepted import", {
-            gameId,
-            confirmId,
-          });
-          applyConfirmedImport(io, confirmId).catch((err) => {
-            debugError(1, "applyConfirmedImport failed:", err);
-            cancelConfirmation(io, confirmId, "apply_failed");
-          });
-        }
-      } catch (err) {
-        debugError(1, "confirmImportResponse handler failed:", err);
       }
     }
   );
@@ -1963,18 +2009,15 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
 
         try {
-          io.to(gameId).emit("importWipeConfirmRequest", {
-            confirmId,
+          enqueueImportWipeConfirmToResolutionQueue(
             gameId,
-            initiator: pid,
-            deckName,
-            resolvedCount: resolvedCards.length,
-            expectedCount: parsedCount,
-            players,
-            timeoutMs: TIMEOUT_MS,
-          });
+            confirmId,
+            pendingConfirm,
+            players as any,
+            TIMEOUT_MS
+          );
         } catch (err) {
-          debugWarn(1, "useSavedDeck: emit importWipeConfirmRequest failed", err);
+          debugWarn(1, "useSavedDeck: enqueue import wipe confirm failed", err);
         }
 
         broadcastConfirmUpdate(io, confirmId, pendingConfirm);
@@ -3267,25 +3310,22 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
 
         try {
-          debug(1, "[deck] emitting importWipeConfirmRequest", {
+          debug(1, "[deck] enqueueing import wipe confirmation (Resolution Queue)", {
             gameId,
             confirmId,
             initiator: pid,
             players: players.length,
             resolvedCount: resolvedCards.length,
           });
-          io.to(gameId).emit("importWipeConfirmRequest", {
-            confirmId,
+          enqueueImportWipeConfirmToResolutionQueue(
             gameId,
-            initiator: pid,
-            deckName,
-            resolvedCount: resolvedCards.length,
-            expectedCount: pendingConfirm.parsedCount,
-            players,
-            timeoutMs: TIMEOUT_MS,
-          });
+            confirmId,
+            pendingConfirm,
+            players as any,
+            TIMEOUT_MS
+          );
         } catch (err) {
-          debugWarn(1, "importDeckFromUrl: emit importWipeConfirmRequest failed", err);
+          debugWarn(1, "importDeckFromUrl: enqueue import wipe confirm failed", err);
         }
 
         broadcastConfirmUpdate(io, confirmId, pendingConfirm);

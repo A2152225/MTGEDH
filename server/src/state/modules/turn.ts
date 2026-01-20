@@ -17,7 +17,7 @@
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
-import { recalculatePlayerEffects, applyCombatDamageReplacement, clearTemporaryLandBonuses } from "./game-state-effects.js";
+import { recalculatePlayerEffects, applyCombatDamageReplacement, clearTemporaryLandBonuses, processLifeChange } from "./game-state-effects.js";
 import { detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
 import { 
   getBeginningOfCombatTriggers, 
@@ -36,7 +36,7 @@ import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./u
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
-import { calculateAllPTBonuses, parsePT, uid, applyLifeGain } from "../utils.js";
+import { calculateAllPTBonuses, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
@@ -46,6 +46,62 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
   return new Date().toISOString();
+}
+
+function applyLifeGainViaProcessLifeChange(
+  ctx: GameContext,
+  playerId: PlayerID,
+  amount: number,
+  source?: string
+): { actualChange: number; message: string } {
+  if (amount <= 0) {
+    return { actualChange: 0, message: 'No life to gain' };
+  }
+
+  const state = (ctx as any).state;
+  const startingLife = state?.startingLife || 40;
+  const currentLife = state?.life?.[playerId] ?? startingLife;
+
+  const result = processLifeChange(ctx, playerId, amount, true);
+  if (result.prevented || result.finalAmount === 0) {
+    return {
+      actualChange: 0,
+      message: result.reason ? `Life gain prevented: ${result.reason}` : 'Life gain prevented',
+    };
+  }
+
+  if (!state.life) state.life = {};
+  state.life[playerId] = currentLife + result.finalAmount;
+
+  const player = (state.players || []).find((p: any) => p.id === playerId);
+  if (player) {
+    player.life = state.life[playerId];
+  }
+
+  // Preserve the existing heuristic life-gain triggers behavior.
+  // Do NOT trigger if the gain became loss (e.g., Tainted Remedy).
+  if (result.finalAmount > 0) {
+    try {
+      triggerLifeGainEffects(state, playerId, result.finalAmount);
+    } catch (err) {
+      debugWarn(1, '[dealCombatDamage] Error triggering life gain effects:', err);
+    }
+  }
+
+  if (result.finalAmount < 0) {
+    const lost = Math.abs(result.finalAmount);
+    return {
+      actualChange: result.finalAmount,
+      message: source
+        ? `Lost ${lost} life from ${source}${result.reason ? ` (${result.reason})` : ''}`
+        : `Lost ${lost} life${result.reason ? ` (${result.reason})` : ''}`,
+    };
+  }
+
+  return {
+    actualChange: result.finalAmount,
+    message: source ? `Gained ${result.finalAmount} life from ${source}` : `Gained ${result.finalAmount} life`,
+  };
 }
 
 function processPendingFlickerReturnsAtBeginningOfEndStep(ctx: GameContext, turnPlayer: PlayerID) {
@@ -271,6 +327,70 @@ function checkPendingInteractions(ctx: GameContext): {
     // =========================================================================
     // Migrate legacy pending state to Resolution Queue (one-time, best-effort)
     // =========================================================================
+
+    // Convert legacy triggerQueue -> ResolutionStepType.OPTION_CHOICE (cleanup)
+    // Some older flows queued "may" triggers in state.triggerQueue and relied on bespoke socket events.
+    // We now represent those as OPTION_CHOICE resolution steps and clear triggerQueue.
+    if (gameId && Array.isArray(state.triggerQueue) && state.triggerQueue.length > 0) {
+      try {
+        const triggerQueue = state.triggerQueue as any[];
+        let createdAny = false;
+
+        for (const trigger of triggerQueue) {
+          const triggerId = String(trigger?.id || '').trim();
+          const controllerId = String(trigger?.controllerId || trigger?.controller || '').trim();
+          if (!triggerId || !controllerId) continue;
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, controllerId as any)
+            .find(s => (s as any)?.legacyTriggerPrompt === true && String((s as any)?.legacyTriggerId || '') === triggerId);
+          if (existing) {
+            continue;
+          }
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: controllerId as any,
+            sourceId: String(trigger?.sourceId || ''),
+            sourceName: String(trigger?.sourceName || 'Triggered Ability'),
+            sourceImage: trigger?.imageUrl,
+            description: String(trigger?.effect || trigger?.description || `${String(trigger?.sourceName || 'Triggered Ability')} triggered.`),
+            mandatory: false,
+            options: [
+              { id: 'accept', label: 'Put on stack' },
+              { id: 'decline', label: 'Decline' },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            priority: -1,
+
+            legacyTriggerPrompt: true,
+            legacyTriggerId: triggerId,
+
+            // Fallback context in case the triggerQueue entry is missing by the time the step resolves.
+            legacyTriggerSourceId: String(trigger?.sourceId || ''),
+            legacyTriggerSourceName: String(trigger?.sourceName || ''),
+            legacyTriggerEffect: String(trigger?.effect || ''),
+            legacyTriggerTargets: trigger?.targets || [],
+          } as any);
+
+          createdAny = true;
+        }
+
+        // Clear legacy triggerQueue to avoid old UIs / checks blocking indefinitely.
+        delete state.triggerQueue;
+
+        if (createdAny) {
+          result.hasPending = true;
+          if (!result.pendingTypes.includes('trigger_queue')) {
+            result.pendingTypes.push('trigger_queue');
+          }
+          result.details.triggerQueue = 'migrated_to_resolution_queue';
+        }
+      } catch (err) {
+        debugWarn(1, `${ts()} [checkPendingInteractions] Failed to migrate triggerQueue:`, err);
+      }
+    }
 
     // Convert legacy pendingDiscardSelection -> ResolutionStepType.DISCARD_SELECTION (cleanup)
     // This prevents older game states from blocking step advancement forever.
@@ -1121,7 +1241,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             // Lifelink: Controller gains life equal to damage dealt
             if (keywords.lifelink) {
-              const lifeGainResult = applyLifeGain(state, attackerController, actualDamage, `${card.name || 'Attacker'} (lifelink)`);
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, actualDamage, `${card.name || 'Attacker'} (lifelink)`);
               
               result.lifeGainForPlayers[attackerController] = 
                 (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -1145,7 +1265,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                    (auraOracle.includes('enchanted creature deals') && auraOracle.includes('damage to') && 
                     auraOracle.includes('gain life equal')))) {
                 const auraController = aura.controller || attackerController;
-                const lifeGainResult = applyLifeGain(state, auraController, actualDamage, aura.card?.name || 'Aura');
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, auraController as PlayerID, actualDamage, aura.card?.name || 'Aura');
                 
                 result.lifeGainForPlayers[auraController] = 
                   (result.lifeGainForPlayers[auraController] || 0) + lifeGainResult.actualChange;
@@ -1219,7 +1339,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             // Lifelink for damage dealt to blocker
             if (keywords.lifelink) {
-              const lifeGainResult = applyLifeGain(state, attackerController, damageToBlocker, `${card.name || 'Attacker'} (lifelink)`);
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageToBlocker, `${card.name || 'Attacker'} (lifelink)`);
               
               result.lifeGainForPlayers[attackerController] = 
                 (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -1256,7 +1376,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             // Lifelink for trample damage
             if (keywords.lifelink) {
-              const lifeGainResult = applyLifeGain(state, attackerController, remainingDamage, `${card.name || 'Attacker'} (lifelink trample)`);
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, remainingDamage, `${card.name || 'Attacker'} (lifelink trample)`);
               
               result.lifeGainForPlayers[attackerController] = 
                 (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -1365,7 +1485,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // Lifelink for blocker
             if (blockerKeywords.lifelink) {
               const blockerController = blocker.controller;
-              const lifeGainResult = applyLifeGain(state, blockerController, blockerPower, `${blockerCard.name || 'Blocker'} (lifelink)`);
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, blockerController as PlayerID, blockerPower, `${blockerCard.name || 'Blocker'} (lifelink)`);
               
               result.lifeGainForPlayers[blockerController] = 
                 (result.lifeGainForPlayers[blockerController] || 0) + lifeGainResult.actualChange;

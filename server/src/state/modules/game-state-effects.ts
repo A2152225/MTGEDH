@@ -840,11 +840,35 @@ export function processLifeChange(
     if (!canGainLife(ctx, playerId)) {
       return { finalAmount: 0, prevented: true, reason: "Can't gain life" };
     }
-    
-    // Check for Tainted Remedy effect
+
+    // MTG 616.1: if multiple replacement effects apply to a life gain event,
+    // the affected player chooses the order.
+    // Default behavior: maximize beneficial outcomes, minimize harmful ones.
+    const pref = getReplacementEffectPreference(ctx, playerId, 'life_gain');
+    const mode = getReplacementEffectMode(pref, 'life_gain');
+
+    // Check for Tainted Remedy effect (life gain becomes life loss)
     if (lifeGainBecomesLoss(ctx, playerId)) {
+      // Default/auto should minimize harm by converting first.
+      // Allow override (maximize/custom) to apply gain modifiers first.
+      if (mode === 'maximize') {
+        const { finalAmount } = applyLifeGainReplacements(ctx, amount, playerId);
+        return { finalAmount: -finalAmount, prevented: false, reason: "Life gain becomes life loss" };
+      }
+
+      if (mode === 'custom' && Array.isArray(pref?.customOrder) && pref.customOrder.length > 0) {
+        const idx = pref.customOrder.findIndex(s => String(s).toLowerCase().includes('tainted remedy'));
+        if (idx > 0) {
+          const { finalAmount } = applyLifeGainReplacements(ctx, amount, playerId);
+          return { finalAmount: -finalAmount, prevented: false, reason: "Life gain becomes life loss" };
+        }
+      }
+
       return { finalAmount: -amount, prevented: false, reason: "Life gain becomes life loss" };
     }
+
+    const gainResult = applyLifeGainReplacements(ctx, amount, playerId);
+    return { finalAmount: gainResult.finalAmount, prevented: false };
   }
   
   return { finalAmount: amount, prevented: false };
@@ -2091,15 +2115,16 @@ export function applyBeneficialReplacements(
   const appliedEffects: string[] = [];
   let amount = baseAmount;
   
-  // Sort effects: add_flat first, then double, then triple
+  // Sort effects to maximize the final value.
+  // Note: halving/prevention are generally harmful, so apply them last.
   const sortedEffects = [...effects].sort((a, b) => {
     const order: Record<ReplacementEffectType, number> = {
       'add_flat': 1,
-      'halve': 2,        // Rarely beneficial, but include for completeness
-      'halve_round_up': 2,
-      'double': 3,
-      'triple': 4,
-      'prevent': 5,
+      'double': 2,
+      'triple': 3,
+      'halve_round_up': 4,
+      'halve': 5,
+      'prevent': 6,
     };
     return (order[a.type] || 99) - (order[b.type] || 99);
   });
@@ -2622,6 +2647,7 @@ export function detectTokenCreationReplacementEffects(
   
   for (const perm of battlefield) {
     const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
     const controller = perm.controller;
     
     // Doubling Season - doubles tokens created
@@ -2669,12 +2695,35 @@ export function detectTokenCreationReplacementEffects(
         controllerId: controller,
       });
     }
+
+    // Adrix and Nev, Twincasters - doubles tokens created
+    if (cardName.includes('adrix and nev') && controller === controllerId) {
+      effects.push({
+        type: 'double',
+        source: "Adrix and Nev, Twincasters",
+        controllerId: controller,
+      });
+    }
     
     // Ojer Taq, Deepest Foundation - triples tokens created
     if (cardName.includes("ojer taq, deepest foundation") && controller === controllerId) {
       effects.push({
         type: 'triple',
         source: "Ojer Taq, Deepest Foundation",
+        controllerId: controller,
+      });
+    }
+
+    // Generic token doublers (covers many Elspeth templates and similar):
+    // "If one or more tokens would be created under your control, twice that many ... are created instead."
+    if (
+      controller === controllerId &&
+      oracleText.includes('tokens would be created under your control') &&
+      oracleText.includes('twice that many')
+    ) {
+      effects.push({
+        type: 'double',
+        source: perm.card?.name || 'Token doubler',
         controllerId: controller,
       });
     }

@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent } from "./util";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 
 /**
  * Judge voting metadata stored on the game object (runtime only).
@@ -18,6 +19,7 @@ interface JudgeRuntimeState {
     requesterId: string;
     voters: string[];
     responses: Record<string, "yes" | "no" | "pending">;
+    timeout?: NodeJS.Timeout | null;
   };
 }
 
@@ -68,6 +70,196 @@ function computeAndMaybeBumpPlayerVersion(game: any): number {
   return jr.playerVersion;
 }
 
+function cancelJudgeConfirmResolutionSteps(gameId: string, confirmId: string) {
+  try {
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const ids = queue.steps
+      .filter(
+        (s) =>
+          (s as any)?.judgeConfirm === true &&
+          String((s as any)?.confirmId || "") === String(confirmId)
+      )
+      .map((s) => s.id);
+    for (const id of ids) {
+      ResolutionQueueManager.cancelStep(gameId, id);
+    }
+  } catch (err) {
+    debugWarn(1, "cancelJudgeConfirmResolutionSteps failed", err);
+  }
+}
+
+function enqueueJudgeConfirmToResolutionQueue(
+  gameId: string,
+  confirmId: string,
+  requesterId: string,
+  voters: string[],
+  responses: Record<string, "yes" | "no" | "pending">,
+  timeoutMs: number
+) {
+  try {
+    for (const pid of voters) {
+      // Requester is auto-yes in the legacy flow.
+      if (pid === requesterId) continue;
+
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find(
+          (s) =>
+            (s as any)?.judgeConfirm === true &&
+            String((s as any)?.confirmId || "") === String(confirmId)
+        );
+      if (existing) continue;
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: pid as any,
+        sourceName: "Judge Vote",
+        description: `Approve player ${requesterId} as judge?`,
+        mandatory: true,
+        timeoutMs,
+        options: [
+          { id: "accept", label: "Approve" },
+          { id: "decline", label: "Reject" },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+
+        judgeConfirm: true,
+        kind: "judge",
+        confirmId,
+        initiator: requesterId,
+        voters,
+        responses,
+      } as any);
+    }
+  } catch (err) {
+    debugWarn(1, "enqueueJudgeConfirmToResolutionQueue failed", err);
+  }
+}
+
+export function handleJudgeConfirmVote(
+  io: Server,
+  game: any,
+  gameId: string,
+  confirmId: string,
+  voterId: string,
+  accept: boolean
+) {
+  try {
+    if (!game) return;
+    const jr = getJudgeRuntime(game);
+    const vote = jr.currentVote;
+    if (!vote || vote.confirmId !== confirmId) return;
+    if (!vote.voters.includes(voterId)) return;
+
+    const prev = vote.responses[voterId];
+    if (prev !== "pending") return;
+
+    vote.responses[voterId] = accept ? "yes" : "no";
+
+    io.to(gameId).emit("judgeConfirmUpdate", {
+      gameId,
+      confirmId,
+      responses: vote.responses,
+    });
+
+    const anyNo = Object.values(vote.responses).includes("no");
+    if (anyNo) {
+      const version = computeAndMaybeBumpPlayerVersion(game);
+      jr.bannedRequesters.set(vote.requesterId, version);
+
+      if (vote.timeout) {
+        try {
+          clearTimeout(vote.timeout);
+        } catch {
+          // ignore
+        }
+      }
+
+      jr.currentVote = undefined;
+      cancelJudgeConfirmResolutionSteps(gameId, confirmId);
+
+      io.to(gameId).emit("judgeCancelled", {
+        gameId,
+        confirmId,
+        reason: "Judge request was rejected by at least one player.",
+      });
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `Judge request for player ${vote.requesterId} was rejected.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    const allYes = Object.values(vote.responses).every((v) => v === "yes");
+    if (!allYes) return;
+
+    // Success: grant judge role
+    jr.judgeId = vote.requesterId;
+
+    if (vote.timeout) {
+      try {
+        clearTimeout(vote.timeout);
+      } catch {
+        // ignore
+      }
+    }
+
+    jr.currentVote = undefined;
+    cancelJudgeConfirmResolutionSteps(gameId, confirmId);
+
+    appendGameEvent(game, gameId, "judgeGranted", {
+      judgeId: vote.requesterId,
+    });
+
+    io.to(gameId).emit("judgeConfirmed", {
+      gameId,
+      confirmId,
+      judgeId: vote.requesterId,
+    });
+
+    // Tag judge role on sockets for this player in this game
+    try {
+      const judgeId = vote.requesterId;
+      for (const [, s] of io.of("/").sockets) {
+        try {
+          if (s.data?.gameId === gameId && s.data?.playerId === judgeId) {
+            (s.data as any).role = "judge";
+          }
+        } catch {
+          // ignore per-socket errors
+        }
+      }
+    } catch (e) {
+      debugWarn(1, "Failed to tag judge role on sockets:", e);
+    }
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `Player ${vote.requesterId} is now acting as judge (full visibility).`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === "function") {
+      try {
+        (game as any).bumpSeq();
+      } catch {
+        // ignore
+      }
+    }
+
+    broadcastGame(io, game, gameId);
+  } catch (err: any) {
+    debugError(1, "handleJudgeConfirmVote failed:", err);
+  }
+}
+
 /**
  * Register judge-related socket handlers.
  *
@@ -75,7 +267,7 @@ function computeAndMaybeBumpPlayerVersion(game: any): number {
  * - Client sends "requestJudge" (triggered via /judge in chat).
  * - Server checks ban conditions and starts a unanimous vote among active players.
  * - Emits:
- *   - "judgeConfirmRequest"
+ *   - (prompt is now via Resolution Queue OPTION_CHOICE)
  *   - "judgeConfirmUpdate"
  *   - "judgeCancelled"
  *   - "judgeConfirmed"
@@ -152,6 +344,7 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
         requesterId,
         voters,
         responses,
+        timeout: null,
       };
 
       // System chat: announce judge vote
@@ -163,15 +356,46 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      // Emit request to all active players (reuse confirm-like payload)
-      io.to(gameId).emit("judgeConfirmRequest", {
+      // Prompt voters via Resolution Queue (per-player OPTION_CHOICE)
+      const VOTE_TIMEOUT_MS = 60_000;
+      enqueueJudgeConfirmToResolutionQueue(
         gameId,
         confirmId,
-        kind: "judge",
-        initiator: requesterId,
-        players: voters,
+        requesterId,
+        voters,
         responses,
-      });
+        VOTE_TIMEOUT_MS
+      );
+
+      // Server-side timeout so votes don't hang indefinitely.
+      jr.currentVote.timeout = setTimeout(() => {
+        try {
+          const game2 = ensureGame(gameId);
+          if (!game2) return;
+          const jr2 = getJudgeRuntime(game2);
+          const v2 = jr2.currentVote;
+          if (!v2 || v2.confirmId !== confirmId) return;
+
+          jr2.currentVote = undefined;
+          cancelJudgeConfirmResolutionSteps(gameId, confirmId);
+
+          io.to(gameId).emit("judgeCancelled", {
+            gameId,
+            confirmId,
+            reason: "Judge request timed out.",
+          });
+
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `Judge request for player ${requesterId} timed out.`,
+            ts: Date.now(),
+          });
+        } catch (e) {
+          debugWarn(1, "judge vote timeout handler failed", e);
+        }
+      }, VOTE_TIMEOUT_MS);
     } catch (err: any) {
       debugError(1, "requestJudge handler failed:", err);
       socket.emit("error", {
@@ -180,140 +404,4 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
       });
     }
   });
-
-  // Player responds to judge vote
-  socket.on(
-    "judgeConfirmResponse",
-    ({
-      gameId,
-      confirmId,
-      accept,
-    }: {
-      gameId: string;
-      confirmId: string;
-      accept: boolean;
-    }) => {
-      try {
-        const game = ensureGame(gameId);
-        const playerId = socket.data.playerId;
-        if (!game || !playerId) return;
-
-        const jr = getJudgeRuntime(game);
-        const vote = jr.currentVote;
-        if (!vote || vote.confirmId !== confirmId) {
-          // stale / no-op
-          return;
-        }
-
-        if (!vote.voters.includes(playerId)) {
-          // Not a voter
-          return;
-        }
-
-        const prev = vote.responses[playerId];
-        if (prev !== "pending") {
-          // Already voted
-          return;
-        }
-
-        vote.responses[playerId] = accept ? "yes" : "no";
-
-        // Broadcast update
-        io.to(gameId).emit("judgeConfirmUpdate", {
-          gameId,
-          confirmId,
-          responses: vote.responses,
-        });
-
-        // If any "no" → fail immediately
-        const anyNo = Object.values(vote.responses).includes("no");
-        if (anyNo) {
-          // Mark requester as banned for current playerVersion
-          const version = computeAndMaybeBumpPlayerVersion(game);
-          jr.bannedRequesters.set(vote.requesterId, version);
-
-          // Clear vote
-          jr.currentVote = undefined;
-
-          io.to(gameId).emit("judgeCancelled", {
-            gameId,
-            confirmId,
-            reason: "Judge request was rejected by at least one player.",
-          });
-
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `Judge request for player ${vote.requesterId} was rejected.`,
-            ts: Date.now(),
-          });
-
-          return;
-        }
-
-        // See if all are "yes"
-        const allYes = Object.values(vote.responses).every((v) => v === "yes");
-        if (!allYes) {
-          return;
-        }
-
-        // Success: grant judge role
-        jr.judgeId = vote.requesterId;
-        jr.currentVote = undefined;
-
-        // Optionally record engine-level event
-        appendGameEvent(game, gameId, "judgeGranted", {
-          judgeId: vote.requesterId,
-        });
-
-        // Broadcast judgeConfirmed
-        io.to(gameId).emit("judgeConfirmed", {
-          gameId,
-          confirmId,
-          judgeId: vote.requesterId,
-        });
-		// NEW: mark judge role on sockets for this player in this game
-try {
-  const judgeId = vote.requesterId;
-  for (const [id, s] of io.of("/").sockets) {
-    try {
-      if (s.data?.gameId === gameId && s.data?.playerId === judgeId) {
-        (s.data as any).role = "judge";
-      }
-    } catch {
-      // ignore per-socket errors
-    }
-  }
-} catch (e) {
-  debugWarn(1, "Failed to tag judge role on sockets:", e);
-}
-
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `Player ${vote.requesterId} is now acting as judge (full visibility).`,
-          ts: Date.now(),
-        });
-
-        // Ensure sequence bumped before broadcast
-        if (typeof (game as any).bumpSeq === "function") {
-          try {
-            (game as any).bumpSeq();
-          } catch {
-            /* ignore */
-          }
-        }
-
-        broadcastGame(io, game, gameId);
-      } catch (err: any) {
-        debugError(1, "judgeConfirmResponse handler failed:", err);
-        socket.emit("error", {
-          code: "JUDGE_CONFIRM_ERROR",
-          message: err?.message ?? String(err),
-        });
-      }
-    }
-  );
 }

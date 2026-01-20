@@ -141,6 +141,7 @@ export function App() {
     handleCommanderConfirm,
     fetchDebug,
     respondToConfirm,
+    openConfirmFromResolutionStep,
   } = useGameSocket();
 
   const [imagePref, setImagePref] = useState<ImagePref>(
@@ -1815,6 +1816,12 @@ export function App() {
       
       // Handle Option Choice resolution step
       else if (step.type === 'option_choice' || step.type === 'modal_choice') {
+        // Deck import wipe confirmations are handled via the existing confirm modal UI.
+        if (step.importWipeConfirm === true || step.judgeConfirm === true) {
+          openConfirmFromResolutionStep(step);
+          return;
+        }
+
         if (step.opponentMayPayChoice === true) {
           const prompt: OpponentMayPayPrompt = {
             promptId: String(step.promptId || ''),
@@ -2617,7 +2624,7 @@ export function App() {
     return () => {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
     };
-  }, [safeView?.id]);
+  }, [safeView?.id, openConfirmFromResolutionStep, you]);
 
   // Explore prompt handler
   // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
@@ -2849,37 +2856,8 @@ export function App() {
   }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
 
   const damageReplacementEffectActiveCount = useMemo(() => {
-    if (!safeView) return 0;
-    const battlefield = (safeView.battlefield || []) as any[];
-
-    const isDamageReplacementLike = (nameRaw: string, oracleRaw: string) => {
-      const name = nameRaw.toLowerCase();
-      const oracle = oracleRaw.toLowerCase();
-
-      // Known common “damage gets bigger/smaller” replacement/modifier effects.
-      const known = [
-        'gisela, blade of goldnight',
-        'furnace of rath',
-        'dictate of the twin gods',
-        'fiery emancipation',
-      ];
-      if (known.some(k => name.includes(k))) return true;
-
-      // Heuristic: oracle-text pattern for damage replacement/modifier effects.
-      if (!oracle.includes('would deal damage') && !oracle.includes('damage') && !oracle.includes('damage is')) return false;
-      const hasIfWouldDeal = oracle.includes('if') && oracle.includes('would deal') && oracle.includes('damage');
-      const hasInstead = oracle.includes('instead');
-      const hasScaling = oracle.includes('double') || oracle.includes('triple') || oracle.includes('half') || oracle.includes('prevent');
-      return (hasIfWouldDeal && (hasInstead || hasScaling)) || (hasInstead && hasScaling && oracle.includes('damage'));
-    };
-
-    let count = 0;
-    for (const perm of battlefield) {
-      const cardName = String(perm?.card?.name || '');
-      const oracle = String(perm?.card?.oracle_text || '');
-      if (isDamageReplacementLike(cardName, oracle)) count++;
-    }
-    return count;
+    const n = Number((safeView as any)?.replacementEffectHints?.damageActiveCount ?? 0);
+    return Number.isFinite(n) ? n : 0;
   }, [safeView]);
 
   // Auto-collapse join panel once you're an active player
@@ -3627,12 +3605,9 @@ export function App() {
 
   // Trigger handlers
   const handleResolveTrigger = (triggerId: string, choice: any) => {
-    if (!safeView) return;
-    socket.emit("resolveTrigger", {
-      gameId: safeView.id,
-      triggerId,
-      choice,
-    });
+    // Deprecated: legacy triggerPrompt/triggerQueue flow.
+    // Trigger decisions should arrive via Resolution Queue and be submitted with submitResolutionResponse.
+    console.warn('[trigger] resolveTrigger is deprecated; ignoring legacy trigger resolution', { triggerId, choice });
     setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
     if (pendingTriggers.length <= 1) {
       setTriggerModalOpen(false);
@@ -3640,11 +3615,8 @@ export function App() {
   };
 
   const handleSkipTrigger = (triggerId: string) => {
-    if (!safeView) return;
-    socket.emit("skipTrigger", {
-      gameId: safeView.id,
-      triggerId,
-    });
+    // Deprecated: legacy triggerPrompt/triggerQueue flow.
+    console.warn('[trigger] skipTrigger is deprecated; ignoring legacy trigger skip', { triggerId });
     setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
     if (pendingTriggers.length <= 1) {
       setTriggerModalOpen(false);
@@ -3677,12 +3649,8 @@ export function App() {
       });
     }
     
-    // Resolve this trigger
-    socket.emit("resolveTrigger", {
-      gameId: safeView.id,
-      triggerId,
-      choice: { accepted: true, autoResolved: true },
-    });
+    // Legacy trigger resolution is deprecated; Resolution Queue handles trigger prompts.
+    console.warn('[trigger] ignoreTriggerSource used on deprecated legacy trigger prompt', { triggerId, sourceId, sourceName });
     
     // Remove this trigger from pending
     setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));

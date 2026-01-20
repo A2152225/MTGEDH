@@ -11,6 +11,7 @@ import type { GameContext } from "../context.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonusesWithSources, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { computeContinuousEffects } from "../../rules-engine/staticEffects.js";
+import { detectDamageReplacementEffects } from "./game-state-effects.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -47,6 +48,27 @@ export function viewFor(
 ): ClientGameView {
   const { state, libraries, commandZone, inactive, poison, experience } = ctx;
   const zones = state.zones || {};
+
+  // Server-computed hints for client UX gating (avoid oracle-text heuristics client-side).
+  // For damage replacement ordering, a player has a meaningful choice only when >=2 effects apply
+  // to a single damage event (MTG 616.1). We approximate by taking the maximum count over all
+  // possible opponents as the damage dealer.
+  let damageReplacementActiveCount = 0;
+  try {
+    if (viewer !== "spectator:judge") {
+      const viewerId = viewer as PlayerID;
+      const playerIds = Array.isArray(state.players) ? (state.players as any[]).map((p) => p?.id).filter(Boolean) : [];
+      for (const dealerId of playerIds) {
+        if (!dealerId || dealerId === viewerId) continue;
+        const effects = detectDamageReplacementEffects(ctx, String(dealerId), viewerId, true);
+        damageReplacementActiveCount = Math.max(damageReplacementActiveCount, effects.length);
+        if (damageReplacementActiveCount > 1) break;
+      }
+    }
+  } catch {
+    // Best-effort only; never break view construction.
+    damageReplacementActiveCount = 0;
+  }
 
   // Compute continuous effects for ability grants (Avacyn, Svyelun, etc.)
   const continuousEffects = computeContinuousEffects(state);
@@ -283,6 +305,9 @@ export function viewFor(
     commandZone: viewCommandZone,
     poisonCounters: poison,
     experienceCounters: experience,
+    replacementEffectHints: {
+      damageActiveCount: damageReplacementActiveCount,
+    },
     // Map turnNumber to turn for client compatibility
     turn: (state as any).turnNumber ?? 1,
     // Set viewer field for playable cards calculation
