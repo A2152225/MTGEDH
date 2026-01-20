@@ -6143,11 +6143,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     effectType,
     useCustomOrder,
     customOrder,
+    mode,
   }: {
     gameId: string;
     effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
-    useCustomOrder: boolean;
+    useCustomOrder?: boolean;
     customOrder?: string[];  // Source names in desired order
+    mode?: 'minimize' | 'maximize' | 'custom' | 'auto';
   }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -6162,18 +6164,38 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     (game.state as any).replacementEffectPreferences = (game.state as any).replacementEffectPreferences || {};
     (game.state as any).replacementEffectPreferences[pid] = (game.state as any).replacementEffectPreferences[pid] || {};
     
+    const normalizedMode: 'minimize' | 'maximize' | 'custom' | 'auto' = (() => {
+      if (mode) return mode;
+
+      // Back-compat: previous API was a boolean toggle.
+      // For damage: toggle means maximize vs minimize.
+      // For others: toggle means custom vs auto.
+      if (effectType === 'damage') {
+        return useCustomOrder ? 'maximize' : 'minimize';
+      }
+      return useCustomOrder ? 'custom' : 'auto';
+    })();
+
+    const normalizedCustomOrder = Array.isArray(customOrder) ? customOrder : [];
+    const normalizedUseCustomOrder = normalizedMode === 'maximize' || normalizedMode === 'custom';
+
     (game.state as any).replacementEffectPreferences[pid][effectType] = {
-      useCustomOrder,
-      customOrder: customOrder || [],
+      mode: normalizedMode,
+      useCustomOrder: normalizedUseCustomOrder,
+      customOrder: normalizedCustomOrder,
       updatedAt: Date.now(),
     };
 
     // Bump game sequence
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
 
-    const orderDescription = useCustomOrder 
-      ? `custom order: ${(customOrder || []).join(' → ')}`
-      : 'default (optimal) order';
+    const orderDescription = normalizedMode === 'custom'
+      ? `custom order: ${normalizedCustomOrder.join(' → ') || '(none)'}`
+      : normalizedMode === 'maximize'
+        ? 'maximize'
+        : normalizedMode === 'minimize'
+          ? 'minimize'
+          : 'default (optimal) order';
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -6187,8 +6209,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     socket.emit("replacementEffectOrderUpdated", {
       gameId,
       effectType,
-      useCustomOrder,
-      customOrder,
+      mode: normalizedMode,
+      useCustomOrder: normalizedUseCustomOrder,
+      customOrder: normalizedCustomOrder,
     });
 
     broadcastGame(io, game, gameId);

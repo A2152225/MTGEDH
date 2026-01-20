@@ -23,6 +23,11 @@ interface PhaseNavigatorProps {
   stackEmpty: boolean;
   allPlayersReady?: boolean; // True if all players have decks and kept hands
   phaseAdvanceBlockReason?: string | null; // Reason why advancing is blocked
+  // Replacement effect ordering quick-toggle (damage)
+  showDamageReplacementToggle?: boolean;
+  damageReplacementMode?: 'minimize' | 'maximize' | 'custom' | 'auto';
+  onSetDamageReplacementMode?: (mode: 'minimize' | 'maximize' | 'custom' | 'auto') => void;
+  onOpenReplacementEffectSettings?: () => void;
   onNextStep: () => void;
   onPassPriority: () => void;
   onAdvancingChange?: (isAdvancing: boolean) => void;
@@ -65,6 +70,10 @@ export function PhaseNavigator({
   stackEmpty,
   allPlayersReady = true,
   phaseAdvanceBlockReason,
+  showDamageReplacementToggle = false,
+  damageReplacementMode = 'minimize',
+  onSetDamageReplacementMode,
+  onOpenReplacementEffectSettings,
   onNextStep,
   onPassPriority,
   onAdvancingChange,
@@ -345,6 +354,98 @@ export function PhaseNavigator({
           ✕
         </button>
       </div>
+
+      {/* Damage replacement ordering quick toggle (only when multiple effects are active) */}
+      {showDamageReplacementToggle && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 10,
+            padding: '6px 8px',
+            borderRadius: 8,
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.10)',
+          }}
+        >
+          <div style={{ fontSize: 10, color: '#cbd5e1' }}>
+            Damage order
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetDamageReplacementMode?.('minimize');
+              }}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: damageReplacementMode === 'minimize' || damageReplacementMode === 'auto'
+                  ? '1px solid rgba(52,211,153,0.9)'
+                  : '1px solid rgba(255,255,255,0.15)',
+                background: damageReplacementMode === 'minimize' || damageReplacementMode === 'auto'
+                  ? 'rgba(16,185,129,0.18)'
+                  : 'rgba(0,0,0,0.15)',
+                color: damageReplacementMode === 'minimize' || damageReplacementMode === 'auto'
+                  ? '#34d399'
+                  : '#cbd5e1',
+                cursor: 'pointer',
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+              title="Prefer least damage taken (default)"
+            >
+              Least
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetDamageReplacementMode?.('maximize');
+              }}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: damageReplacementMode === 'maximize'
+                  ? '1px solid rgba(159,122,234,0.95)'
+                  : '1px solid rgba(255,255,255,0.15)',
+                background: damageReplacementMode === 'maximize'
+                  ? 'rgba(159,122,234,0.18)'
+                  : 'rgba(0,0,0,0.15)',
+                color: damageReplacementMode === 'maximize'
+                  ? '#c4b5fd'
+                  : '#cbd5e1',
+                cursor: 'pointer',
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+              title="Prefer most damage taken (Selfless Squire / redirect setups)"
+            >
+              Most
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenReplacementEffectSettings?.();
+              }}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: '1px solid rgba(255,255,255,0.15)',
+                background: 'rgba(0,0,0,0.15)',
+                color: '#cbd5e1',
+                cursor: 'pointer',
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+              title="Open replacement effect settings"
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Phase grid - simplified 4 columns, 2 rows */}
       <div style={{ 

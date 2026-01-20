@@ -1768,72 +1768,25 @@ export function calculateModifiedDamage(
   if (effects.length === 0) {
     return { amount: damageAmount, modifiers: [] };
   }
-  
-  // The attacker wants to MAXIMIZE damage to opponents
-  // The defender wants to MINIMIZE damage received
-  // 
-  // Per MTG rules, the affected player/object's controller chooses order.
-  // For damage to a player, that player chooses (to minimize).
-  // But some effects belong to the attacker (Fiery Emancipation, Torbran).
-  // 
-  // Simplification: 
-  // - Effects owned by attacker (maximize): +1 first, then doublers
-  // - Effects owned by defender (minimize): halve first, then doublers, then +1
-  // - Global effects (Furnace of Rath): just apply them
-  
-  const attackerEffects = effects.filter(e => e.controllerId === damageDealer);
-  const defenderEffects = effects.filter(e => e.controllerId === damageReceiver);
-  const globalEffects = effects.filter(e => 
-    e.controllerId !== damageDealer && e.controllerId !== damageReceiver
-  );
-  
-  let result = damageAmount;
-  const allApplied: string[] = [];
-  
-  // Attacker's effects - applied in beneficial order (maximize damage)
-  if (attackerEffects.length > 0) {
-    const attackerResult = applyDamageReplacementsMaximized(result, attackerEffects);
-    result = attackerResult.finalAmount;
-    allApplied.push(...attackerResult.appliedEffects);
-  }
-  
-  // Global effects (like Furnace of Rath) - just apply doublers
-  for (const effect of globalEffects) {
-    const before = result;
-    if (effect.type === 'double') {
-      result *= 2;
-      allApplied.push(`${effect.source}: doubled (${before} -> ${result})`);
-    } else if (effect.type === 'triple') {
-      result *= 3;
-      allApplied.push(`${effect.source}: tripled (${before} -> ${result})`);
-    } else if (effect.type === 'add_flat') {
-      result += effect.value || 1;
-      allApplied.push(`${effect.source}: +${effect.value || 1} (${before} -> ${result})`);
-    }
-  }
-  
-  // Defender's effects - applied to minimize damage
-  if (defenderEffects.length > 0) {
-    const pref = getReplacementEffectPreference(ctx, damageReceiver, 'damage');
 
-    // Default: minimize damage received.
-    // Override: allow the receiving player to opt into maximizing damage received
-    // (e.g., Selfless Squire / Stuffy Doll style incentives).
-    if (pref?.useCustomOrder && Array.isArray(pref.customOrder) && pref.customOrder.length > 0) {
-      const ordered = sortEffectsByCustomOrder(defenderEffects, pref.customOrder);
-      const defenderResult = applyReplacementsCustomOrder(result, ordered);
-      result = defenderResult.finalAmount;
-      allApplied.push(...defenderResult.appliedEffects);
-    } else {
-      const defenderResult = pref?.useCustomOrder
-        ? applyDamageReplacementsMaximized(result, defenderEffects)
-        : applyDamageReplacementsMinimized(result, defenderEffects);
-      result = defenderResult.finalAmount;
-      allApplied.push(...defenderResult.appliedEffects);
-    }
+  // MTG Rule 616.1: if multiple replacement effects apply to a damage event,
+  // the affected player chooses the order to apply them.
+  const pref = getReplacementEffectPreference(ctx, damageReceiver, 'damage');
+  const mode = getReplacementEffectMode(pref, 'damage');
+
+  if (mode === 'custom' && Array.isArray(pref?.customOrder) && pref.customOrder.length > 0) {
+    const ordered = sortEffectsByCustomOrder(effects, pref.customOrder);
+    const customResult = applyReplacementsCustomOrder(damageAmount, ordered);
+    return { amount: Math.max(0, customResult.finalAmount), modifiers: customResult.appliedEffects };
   }
-  
-  return { amount: Math.max(0, result), modifiers: allApplied };
+
+  if (mode === 'maximize') {
+    const maxResult = applyDamageReplacementsMaximized(damageAmount, effects);
+    return { amount: Math.max(0, maxResult.finalAmount), modifiers: maxResult.appliedEffects };
+  }
+
+  const minResult = applyDamageReplacementsMinimized(damageAmount, effects);
+  return { amount: Math.max(0, minResult.finalAmount), modifiers: minResult.appliedEffects };
 }
 
 /**
@@ -2073,10 +2026,24 @@ type ReplacementEffectPreferenceState = {
    * Stored on game state as player preference.
    * Currently used as a simple override toggle, and optionally with a custom order list.
    */
+  mode?: 'minimize' | 'maximize' | 'custom' | 'auto';
   useCustomOrder?: boolean;
   /** Optional explicit custom order by source name. */
   customOrder?: string[];
 };
+
+function getReplacementEffectMode(
+  pref: ReplacementEffectPreferenceState | null,
+  effectType: 'damage' | 'life_gain' | 'counters' | 'tokens'
+): 'minimize' | 'maximize' | 'custom' | 'auto' {
+  if (pref?.mode) return pref.mode;
+
+  // Back-compat: older state stored only a boolean toggle.
+  if (effectType === 'damage') {
+    return pref?.useCustomOrder ? 'maximize' : 'minimize';
+  }
+  return pref?.useCustomOrder ? 'custom' : 'auto';
+}
 
 function getReplacementEffectPreference(
   ctx: GameContext,

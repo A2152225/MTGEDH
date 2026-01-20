@@ -575,6 +575,10 @@ export function App() {
   
   // Replacement Effect Settings Panel state
   const [replacementEffectSettingsOpen, setReplacementEffectSettingsOpen] = useState(false);
+
+  // Replacement effect ordering (persisted preference) - used for the PhaseNavigator quick toggle.
+  type ReplacementEffectMode = 'minimize' | 'maximize' | 'custom' | 'auto';
+  const [damageReplacementMode, setDamageReplacementMode] = useState<ReplacementEffectMode>('minimize');
   
   // Color Choice Modal state - for Caged Sun, Gauntlet of Power, etc.
   const [colorChoiceModalOpen, setColorChoiceModalOpen] = useState(false);
@@ -1418,6 +1422,50 @@ export function App() {
       socket.off("ignoredCardsUpdated" as any, handler);
     };
   }, [safeView?.id, you]);
+
+  // Replacement effect preference sync (used by PhaseNavigator)
+  React.useEffect(() => {
+    if (!safeView?.id || !you) return;
+    socket.emit('getReplacementEffectOrder', { gameId: safeView.id, effectType: 'damage' });
+  }, [safeView?.id, you]);
+
+  React.useEffect(() => {
+    const coerceDamageMode = (pref: any): ReplacementEffectMode => {
+      if (pref?.mode) return pref.mode;
+      // Back-compat: older server/client used a boolean toggle for damage.
+      return pref?.useCustomOrder ? 'maximize' : 'minimize';
+    };
+
+    const handleResponse = (data: any) => {
+      if (data?.gameId !== safeView?.id) return;
+      // Server can return either a single preference or an object of preferences.
+      if (data?.effectType === 'damage' && data?.preference) {
+        setDamageReplacementMode(coerceDamageMode(data.preference));
+        return;
+      }
+      if (data?.preferences?.damage) {
+        setDamageReplacementMode(coerceDamageMode(data.preferences.damage));
+      }
+    };
+
+    const handleUpdated = (data: any) => {
+      if (data?.gameId !== safeView?.id) return;
+      if (data?.effectType !== 'damage') return;
+      if (data?.mode) {
+        setDamageReplacementMode(data.mode);
+        return;
+      }
+      // Back-compat
+      setDamageReplacementMode(data?.useCustomOrder ? 'maximize' : 'minimize');
+    };
+
+    socket.on('replacementEffectOrderResponse', handleResponse);
+    socket.on('replacementEffectOrderUpdated', handleUpdated);
+    return () => {
+      socket.off('replacementEffectOrderResponse', handleResponse);
+      socket.off('replacementEffectOrderUpdated', handleUpdated);
+    };
+  }, [safeView?.id]);
 
   // Legacy targetSelectionRequest listener removed - target selection is Resolution Queue-only.
 
@@ -2799,6 +2847,40 @@ export function App() {
     if (!allPlayersKeptHands) return 'Waiting for all players to keep hands';
     return null;
   }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
+
+  const damageReplacementEffectActiveCount = useMemo(() => {
+    if (!safeView) return 0;
+    const battlefield = (safeView.battlefield || []) as any[];
+
+    const isDamageReplacementLike = (nameRaw: string, oracleRaw: string) => {
+      const name = nameRaw.toLowerCase();
+      const oracle = oracleRaw.toLowerCase();
+
+      // Known common “damage gets bigger/smaller” replacement/modifier effects.
+      const known = [
+        'gisela, blade of goldnight',
+        'furnace of rath',
+        'dictate of the twin gods',
+        'fiery emancipation',
+      ];
+      if (known.some(k => name.includes(k))) return true;
+
+      // Heuristic: oracle-text pattern for damage replacement/modifier effects.
+      if (!oracle.includes('would deal damage') && !oracle.includes('damage') && !oracle.includes('damage is')) return false;
+      const hasIfWouldDeal = oracle.includes('if') && oracle.includes('would deal') && oracle.includes('damage');
+      const hasInstead = oracle.includes('instead');
+      const hasScaling = oracle.includes('double') || oracle.includes('triple') || oracle.includes('half') || oracle.includes('prevent');
+      return (hasIfWouldDeal && (hasInstead || hasScaling)) || (hasInstead && hasScaling && oracle.includes('damage'));
+    };
+
+    let count = 0;
+    for (const perm of battlefield) {
+      const cardName = String(perm?.card?.name || '');
+      const oracle = String(perm?.card?.oracle_text || '');
+      if (isDamageReplacementLike(cardName, oracle)) count++;
+    }
+    return count;
+  }, [safeView]);
 
   // Auto-collapse join panel once you're an active player
   React.useEffect(() => {
@@ -4591,6 +4673,19 @@ export function App() {
           stackEmpty={!((safeView as any).stack?.length > 0)}
           allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
           phaseAdvanceBlockReason={phaseAdvanceBlockReason}
+          showDamageReplacementToggle={damageReplacementEffectActiveCount > 1}
+          damageReplacementMode={damageReplacementMode}
+          onSetDamageReplacementMode={(mode) => {
+            if (!safeView?.id) return;
+            setDamageReplacementMode(mode);
+            socket.emit('setReplacementEffectOrder', {
+              gameId: safeView.id,
+              effectType: 'damage',
+              mode,
+              customOrder: [],
+            });
+          }}
+          onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
           onAdvancingChange={setPhaseNavigatorAdvancing}
