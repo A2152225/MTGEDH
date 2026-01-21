@@ -447,6 +447,12 @@ export function applyLifeGain(
     if (player) {
       player.life = gameState.life[playerId];
     }
+
+    // Track life lost this turn.
+    try {
+      gameState.lifeLostThisTurn = gameState.lifeLostThisTurn || {};
+      gameState.lifeLostThisTurn[playerId] = (gameState.lifeLostThisTurn[playerId] || 0) + amount;
+    } catch {}
     
     return { 
       actualChange: -amount, 
@@ -485,6 +491,12 @@ export function applyLifeGain(
   
   if (!gameState.life) gameState.life = {};
   gameState.life[playerId] = currentLife + modifiedAmount;
+
+  // Track life gained this turn.
+  try {
+    gameState.lifeGainedThisTurn = gameState.lifeGainedThisTurn || {};
+    gameState.lifeGainedThisTurn[playerId] = (gameState.lifeGainedThisTurn[playerId] || 0) + modifiedAmount;
+  } catch {}
   
   // Sync to player object
   const player = (gameState.players || []).find((p: any) => p.id === playerId);

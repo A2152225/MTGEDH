@@ -228,6 +228,13 @@ function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsD
       for (const player of players) {
         if (player.id !== drawingPlayerId && (ctx as any).life) {
           (ctx as any).life[player.id] = ((ctx as any).life[player.id] ?? 40) - cardsDrawn;
+
+          // Track life lost this turn.
+          try {
+            (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+            (ctx.state as any).lifeLostThisTurn[player.id] = ((ctx.state as any).lifeLostThisTurn[player.id] || 0) + cardsDrawn;
+          } catch {}
+
           debug(1, `[drawTrigger] Psychosis Crawler: ${player.name || player.id} lost ${cardsDrawn} life`);
         }
       }

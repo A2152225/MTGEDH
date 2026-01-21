@@ -340,6 +340,17 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const card = (perm as any).card;
   const isToken = (perm as any).isToken === true;
   const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
+
+  // Per-turn tracking for morbid/revolt-style conditions
+  try {
+    (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
+    (state as any).permanentLeftBattlefieldThisTurn[String(controller)] = true;
+    if (isCreature) {
+      (state as any).creatureDiedThisTurn = true;
+    }
+  } catch {
+    // best-effort tracking only
+  }
   
   // Fire death triggers BEFORE the creature leaves (for both tokens and non-tokens)
   // Rule 700.4: "Dies" means "is put into a graveyard from the battlefield"
@@ -565,7 +576,16 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
   const { state, bumpSeq } = ctx;
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
   if (idx >= 0) {
-    state.battlefield.splice(idx,1);
+    const perm = state.battlefield.splice(idx,1)[0];
+    try {
+      const controller = (perm as any)?.controller || (perm as any)?.owner;
+      if (controller) {
+        (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
+        (state as any).permanentLeftBattlefieldThisTurn[String(controller)] = true;
+      }
+    } catch {
+      // best-effort tracking only
+    }
     bumpSeq();
     runSBA(ctx);
     
@@ -593,7 +613,18 @@ export function movePermanentToExile(
   if (idx < 0) return;
   const perm = state.battlefield.splice(idx,1)[0];
   const owner = ((perm as any).owner || (perm as any).controller) as PlayerID;
+  const controller = ((perm as any).controller || owner) as PlayerID;
   const card = perm.card as any;
+
+  // Per-turn tracking for revolt-style conditions (a permanent left the battlefield)
+  try {
+    if (controller) {
+      (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
+      (state as any).permanentLeftBattlefieldThisTurn[String(controller)] = true;
+    }
+  } catch {
+    // best-effort tracking only
+  }
 
   // Defensive: If we can't determine an owner/controller, don't write to zones[undefined].
   if (!owner) {

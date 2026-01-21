@@ -1061,12 +1061,32 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const delta = (e as any).delta;
         if (!pid) break;
         try {
+          const startingLife = (ctx.state as any)?.startingLife ?? 40;
+          const current = ctx.life ? (ctx.life[pid] ?? startingLife) : startingLife;
+
+          let next: number | null = null;
           if (typeof life === 'number') {
             // Absolute set
-            if (ctx.life) ctx.life[pid] = life;
+            next = life;
           } else if (typeof delta === 'number') {
             // Relative adjustment
-            if (ctx.life) ctx.life[pid] = (ctx.life[pid] ?? ctx.state.startingLife ?? 40) + delta;
+            next = current + delta;
+          }
+
+          if (next !== null) {
+            // Apply
+            if (ctx.life) ctx.life[pid] = next;
+
+            // Track gained/lost for this turn.
+            const diff = next - current;
+            const stateAny = ctx.state as any;
+            if (diff > 0) {
+              stateAny.lifeGainedThisTurn = stateAny.lifeGainedThisTurn || {};
+              stateAny.lifeGainedThisTurn[pid] = (stateAny.lifeGainedThisTurn[pid] || 0) + diff;
+            } else if (diff < 0) {
+              stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+              stateAny.lifeLostThisTurn[pid] = (stateAny.lifeLostThisTurn[pid] || 0) + Math.abs(diff);
+            }
           }
           ctx.bumpSeq();
         } catch (err) {

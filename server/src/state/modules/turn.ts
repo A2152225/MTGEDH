@@ -73,6 +73,17 @@ function applyLifeGainViaProcessLifeChange(
   if (!state.life) state.life = {};
   state.life[playerId] = currentLife + result.finalAmount;
 
+  // Track life gained/lost this turn (used by intervening-if clauses like "if you gained 3 or more life this turn").
+  try {
+    if (result.finalAmount > 0) {
+      (state as any).lifeGainedThisTurn = (state as any).lifeGainedThisTurn || {};
+      (state as any).lifeGainedThisTurn[playerId] = ((state as any).lifeGainedThisTurn[playerId] || 0) + result.finalAmount;
+    } else if (result.finalAmount < 0) {
+      (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
+      (state as any).lifeLostThisTurn[playerId] = ((state as any).lifeLostThisTurn[playerId] || 0) + Math.abs(result.finalAmount);
+    }
+  } catch {}
+
   const player = (state.players || []).find((p: any) => p.id === playerId);
   if (player) {
     player.life = state.life[playerId];
@@ -1142,6 +1153,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (actualDamage > 0) {
             const currentLife = life[defendingPlayerId] ?? startingLife;
             life[defendingPlayerId] = currentLife - actualDamage;
+
+            // Track life lost this turn for common oracle checks.
+            try {
+              state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+              state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + actualDamage;
+            } catch {}
             
             result.damageToPlayers[defendingPlayerId] = 
               (result.damageToPlayers[defendingPlayerId] || 0) + actualDamage;
@@ -2079,6 +2096,33 @@ export function nextTurn(ctx: GameContext) {
 
     // Clear spells cast this turn list (for Storm and "if N or more spells were cast this turn" templates)
     if ((ctx as any).state.spellsCastThisTurn) {
+      // Preserve minimal last-turn history for common oracle checks like
+      // "If no spells were cast last turn" (e.g., some werewolf / day-night templates).
+      (ctx as any).state.spellsCastLastTurnCount = Array.isArray((ctx as any).state.spellsCastThisTurn)
+        ? (ctx as any).state.spellsCastThisTurn.length
+        : 0;
+
+      // Preserve per-player counts as well (best-effort: depends on tracked spell objects having casterId).
+      try {
+        const counts: Record<string, number> = {};
+        const spells = Array.isArray((ctx as any).state.spellsCastThisTurn) ? (ctx as any).state.spellsCastThisTurn : [];
+        for (const s of spells) {
+          const casterId = (s as any)?.casterId;
+          if (!casterId) continue;
+          const key = String(casterId);
+          counts[key] = (counts[key] || 0) + 1;
+        }
+        (ctx as any).state.spellsCastLastTurnByPlayerCounts = counts;
+
+        // Convenience: how many spells did the previous turn's active player cast?
+        // Note: `current` is the old turn player (before we assigned `next`).
+        if (typeof current === 'string' && current) {
+          (ctx as any).state.spellsCastLastTurnByActivePlayerCount = counts[String(current)] || 0;
+        }
+      } catch (err) {
+        // best-effort only
+      }
+
       (ctx as any).state.spellsCastThisTurn = [];
       debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
     }
@@ -2100,10 +2144,21 @@ export function nextTurn(ctx: GameContext) {
     
     // Reset cards drawn this turn for all players (for miracle tracking)
     (ctx as any).state.cardsDrawnThisTurn = {};
+
+    // Reset life gain/loss tracking for this turn.
+    (ctx as any).state.lifeGainedThisTurn = {};
+    (ctx as any).state.lifeLostThisTurn = {};
+
+    // Reset land-ETB tracking for this turn.
+    (ctx as any).state.landsEnteredBattlefieldThisTurn = {};
     
     // Reset tracking of creatures that dealt damage to players this turn
     // This is used for cards like Reciprocate that can only target creatures that dealt damage to you this turn
     (ctx as any).state.creaturesThatDealtDamageToPlayer = {};
+
+    // Reset morbid/revolt-style per-turn flags
+    (ctx as any).state.creatureDiedThisTurn = false;
+    (ctx as any).state.permanentLeftBattlefieldThisTurn = {};
 
     // Recalculate player effects based on battlefield (Exploration, Font of Mythos, etc.)
     try {
