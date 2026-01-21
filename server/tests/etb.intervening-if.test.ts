@@ -216,4 +216,47 @@ describe('Intervening-if ETB triggers', () => {
     expect(trigger).toBeDefined();
     expect(String(trigger?.description || '')).toMatch(/if you control another knight/i);
   });
+
+  it("initializes day/night to day when a daybound/nightbound permanent enters", () => {
+    const g = createInitialGameState('t_day_night_init_on_etb');
+
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+
+    const dayboundCreature = {
+      id: 'dw_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'dw_card',
+        name: 'Daybound Test',
+        type_line: 'Creature — Werewolf',
+        oracle_text: 'Daybound (If a player casts no spells during their own turn, it becomes night next turn.)',
+      },
+      tapped: false,
+    };
+
+    (g.state.battlefield as any).push(dayboundCreature);
+    expect((g.state as any).dayNight).toBeUndefined();
+    triggerETBEffectsForPermanent(g as any, dayboundCreature, p1);
+    expect((g.state as any).dayNight).toBe('day');
+
+    // Should not override an existing day/night state.
+    (g.state as any).dayNight = 'night';
+    const nightboundCreature = {
+      id: 'nb_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'nb_card',
+        name: 'Nightbound Test',
+        type_line: 'Creature — Werewolf',
+        oracle_text: 'Nightbound (If a player casts at least two spells during their own turn, it becomes day next turn.)',
+      },
+      tapped: false,
+    };
+    (g.state.battlefield as any).push(nightboundCreature);
+    triggerETBEffectsForPermanent(g as any, nightboundCreature, p1);
+    expect((g.state as any).dayNight).toBe('night');
+  });
 });

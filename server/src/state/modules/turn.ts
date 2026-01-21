@@ -2126,6 +2126,35 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.spellsCastThisTurn = [];
       debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
     }
+
+    // Reset per-turn day/night change tracking before applying the beginning-of-turn transition.
+    try {
+      (ctx as any).state.dayNightChangedThisTurn = false;
+      delete (ctx as any).state.dayNightChangedFrom;
+      delete (ctx as any).state.dayNightChangedTo;
+    } catch {}
+
+    // Day/Night (701.26) — minimal authoritative state.
+    // If the game has become day/night, it stays that way until it changes.
+    // At the beginning of each turn, check spells cast during the previous turn:
+    // - If it's day and no spells were cast last turn, it becomes night.
+    // - If it's night and two or more spells were cast last turn, it becomes day.
+    try {
+      const dn = (ctx as any).state.dayNight;
+      const spellsLastTurn =
+        (ctx as any).state.spellsCastLastTurnByActivePlayerCount ?? (ctx as any).state.spellsCastLastTurnCount;
+      if ((dn === 'day' || dn === 'night') && typeof spellsLastTurn === 'number') {
+        let nextDn: 'day' | 'night' | null = null;
+        if (dn === 'day' && spellsLastTurn === 0) nextDn = 'night';
+        if (dn === 'night' && spellsLastTurn >= 2) nextDn = 'day';
+        if (nextDn && nextDn !== dn) {
+          (ctx as any).state.dayNight = nextDn;
+          (ctx as any).state.dayNightChangedThisTurn = true;
+          (ctx as any).state.dayNightChangedFrom = dn;
+          (ctx as any).state.dayNightChangedTo = nextDn;
+        }
+      }
+    } catch {}
     
     // Clear justSkippedToPhase flag when starting a new turn
     // Players need to use phase navigator again if they want priority protection
@@ -2151,6 +2180,12 @@ export function nextTurn(ctx: GameContext) {
 
     // Reset land-ETB tracking for this turn.
     (ctx as any).state.landsEnteredBattlefieldThisTurn = {};
+
+    // Reset die roll tracking for this turn.
+    (ctx as any).state.dieRollsThisTurn = {};
+
+    // Reset dungeon completion tracking for this turn.
+    (ctx as any).state.completedDungeonThisTurn = {};
     
     // Reset tracking of creatures that dealt damage to players this turn
     // This is used for cards like Reciprocate that can only target creatures that dealt damage to you this turn

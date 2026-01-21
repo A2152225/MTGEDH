@@ -69,6 +69,23 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p2), "If it's an opponent's turn, draw a card.")).toBe(true);
   });
 
+  it('supports day/night transition templates: "If it became day/night this turn" (including "day became night")', () => {
+    const g = createInitialGameState('t_intervening_if_eval_became_day_night');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).dayNightChangedThisTurn = true;
+    (g.state as any).dayNightChangedTo = 'day';
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If it became day this turn, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If it became night this turn, draw a card.')).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If night became day this turn, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If day became night this turn, draw a card.')).toBe(false);
+
+    (g.state as any).dayNightChangedTo = 'night';
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If it became night this turn, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If it became day this turn, draw a card.')).toBe(false);
+  });
+
   it('supports "If you control exactly N lands"', () => {
     const g = createInitialGameState('t_intervening_if_eval_exactly');
     const p1 = 'p1' as PlayerID;
@@ -728,5 +745,121 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(
       isInterveningIfSatisfied(g as any, String(p1), 'If it dealt damage to an opponent this turn, draw a card.', src1)
     ).toBe(true);
+  });
+
+  it('supports cast-time metadata: "If you cast it during your main phase"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_cast_timing');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const srcTrue = { id: 's1', controller: p1, owner: p1, castDuringOwnMainPhase: true };
+    const srcFalse = { id: 's2', controller: p1, owner: p1, castDuringOwnMainPhase: false };
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you cast it during your main phase, draw a card.', srcTrue)).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you cast it during your main phase, draw a card.', srcFalse)).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you cast it during your main phase, draw a card.')).toBe(null);
+  });
+
+  it('supports foretold metadata: "If it/that spell was foretold"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_foretold');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If it was foretold, draw a card.', { card: { castFromForetell: true } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If that spell was foretold, draw a card.', { castFromForetell: false })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If it was foretold, draw a card.')).toBe(null);
+  });
+
+  it('supports mana colors spent to cast: "If {R} was spent..." and "If N colors..."', () => {
+    const g = createInitialGameState('t_intervening_if_eval_mana_spent');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const src = { manaColorsSpent: ['red', 'green'] };
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If {R} was spent to cast it, draw a card.', src)).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If blue mana was spent to cast this spell, draw a card.', src)).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If two or more colors of mana were spent to cast it, draw a card.', src)).toBe(true);
+  });
+
+  it('supports chosen-color clauses: "If you chose red" / "If the chosen color is red"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_chosen_color');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you chose red, draw a card.', { chosenColor: 'red' })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If the chosen color is blue, draw a card.', { chosenColor: 'red' })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you chose red, draw a card.')).toBe(null);
+  });
+
+  it('supports day/night state: "If it\'s day" and "If it\'s day and ..."', () => {
+    const g = createInitialGameState('t_intervening_if_eval_day_night');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).dayNight = 'day';
+    (g.state as any).battlefield = [
+      { id: 'a1', controller: p1, owner: p1, card: { name: 'Sol Ring', type_line: 'Artifact' } },
+    ];
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), "If it's day, draw a card.")).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), "If it's night, draw a card.")).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), "If it's day and you control an artifact, draw a card.")).toBe(true);
+
+    (g.state as any).dayNight = 'night';
+    expect(isInterveningIfSatisfied(g as any, String(p1), "If it's day, draw a card.")).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), "If it's day and you control an artifact, draw a card.")).toBe(false);
+  });
+
+  it('supports die-roll history: "If you rolled a N" / "If you rolled N or higher this turn"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_die_rolls');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled a ten this turn, draw a card.')).toBe(null);
+
+    (g.state as any).dieRollsThisTurn = {
+      [p1]: [
+        { sides: 20, result: 10, timestamp: 1 },
+        { sides: 6, result: 2, timestamp: 2 },
+      ],
+    };
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled a ten this turn, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled a two, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled a twelve this turn, draw a card.')).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled 12 or higher this turn, draw a card.')).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled 10 or higher this turn, draw a card.')).toBe(true);
+  });
+
+  it('supports die-roll history: "If you rolled a die this turn" and "If you rolled N or less this turn"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_die_rolls_more');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled a die this turn, draw a card.')).toBe(false);
+
+    (g.state as any).dieRollsThisTurn = {
+      [p1]: [{ sides: 20, result: 3 }],
+    };
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled a die this turn, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled 2 or less this turn, draw a card.')).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you rolled 3 or less this turn, draw a card.')).toBe(true);
+  });
+
+  it('supports dungeon completion clauses: "If you completed a dungeon" and "... this turn"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_dungeon');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you completed a dungeon, draw a card.')).toBe(null);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you completed a dungeon this turn, draw a card.')).toBe(null);
+
+    (g.state as any).completedDungeons = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you completed a dungeon, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you completed a dungeon this turn, draw a card.')).toBe(null);
+
+    (g.state as any).completedDungeonThisTurn = { [p1]: true };
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you completed a dungeon this turn, draw a card.')).toBe(true);
   });
 });

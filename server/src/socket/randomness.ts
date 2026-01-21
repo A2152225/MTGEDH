@@ -51,6 +51,20 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       const result = rollDie(sides);
       const playerName = getPlayerName(game, playerId);
       const timestamp = Date.now();
+
+      // Persist last die roll for rules that need to query it later.
+      // Keep both a global last roll and a per-player last roll for "you rolled ..." templates.
+      try {
+        const stateAny = game.state as any;
+        stateAny.lastDieRoll = { playerId, sides, result, timestamp };
+        stateAny.lastDieRollByPlayer = stateAny.lastDieRollByPlayer || {};
+        stateAny.lastDieRollByPlayer[playerId] = { sides, result, timestamp };
+        stateAny.dieRollsThisTurn = stateAny.dieRollsThisTurn || {};
+        stateAny.dieRollsThisTurn[playerId] = Array.isArray(stateAny.dieRollsThisTurn[playerId]) ? stateAny.dieRollsThisTurn[playerId] : [];
+        stateAny.dieRollsThisTurn[playerId].push({ sides, result, timestamp });
+      } catch {
+        // Best-effort only; do not break die roll flow.
+      }
       
       debug(2, `[randomness] ${playerName} rolled d${sides}: ${result}`);
       
@@ -69,7 +83,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
         id: `m_${timestamp}`,
         gameId,
         from: "system",
-        message: `🎲 ${playerName} rolled a d${sides}: ${result}`,
+        message: `${playerName} rolled a d${sides}: ${result}`,
         ts: timestamp,
       });
       
@@ -113,7 +127,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
         id: `m_${timestamp}`,
         gameId,
         from: "system",
-        message: `🪙 ${playerName} flipped a coin: ${result.toUpperCase()}`,
+        message: `${playerName} flipped a coin: ${result.toUpperCase()}`,
         ts: timestamp,
       });
       

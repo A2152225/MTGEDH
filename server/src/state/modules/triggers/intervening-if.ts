@@ -172,6 +172,69 @@ function getManaValue(cardOrPerm: any): number | null {
   return null;
 }
 
+function normalizeColorToken(token: string): string | null {
+  const t = String(token || '').trim().toLowerCase();
+  if (!t) return null;
+
+  const symbolMap: Record<string, string> = {
+    w: 'white',
+    u: 'blue',
+    b: 'black',
+    r: 'red',
+    g: 'green',
+  };
+  if (symbolMap[t]) return symbolMap[t];
+
+  if (['white', 'blue', 'black', 'red', 'green'].includes(t)) return t;
+  return null;
+}
+
+function getManaColorsSpentFromSource(source: any): string[] | null {
+  if (!source) return null;
+  const v = source?.manaColorsSpent ?? source?.card?.manaColorsSpent ?? source?.manaSpentColors ?? source?.card?.manaSpentColors;
+  if (!Array.isArray(v)) return null;
+  const out = v
+    .map((x: any) => normalizeColorToken(String(x)))
+    .filter((x: any) => typeof x === 'string' && x.length > 0);
+  return out;
+}
+
+function getChosenColorFromSource(source: any): string | null {
+  if (!source) return null;
+  const v = source?.chosenColor ?? source?.card?.chosenColor;
+  const c = normalizeColorToken(String(v || ''));
+  return c;
+}
+
+function getDieRollResultsThisTurn(ctx: GameContext, playerId: string): Array<{ sides: number; result: number; timestamp?: number }> {
+  const map = (ctx as any).state?.dieRollsThisTurn;
+  const rolls = map?.[playerId];
+  if (!Array.isArray(rolls) || rolls.length === 0) return [];
+
+  const normalized: Array<{ sides: number; result: number; timestamp?: number }> = [];
+  for (const r of rolls) {
+    const sides = parseMaybeNumber((r as any)?.sides);
+    const result = parseMaybeNumber((r as any)?.result);
+    if (sides === null || result === null) continue;
+    normalized.push({ sides, result, timestamp: (r as any)?.timestamp });
+  }
+  return normalized;
+}
+
+function isCastFromForetell(source: any): boolean | null {
+  if (!source) return null;
+  const v = source?.castFromForetell ?? source?.card?.castFromForetell ?? source?.foretold ?? source?.card?.foretold;
+  if (typeof v === 'boolean') return v;
+  return null;
+}
+
+function didCastDuringOwnMainPhase(source: any): boolean | null {
+  if (!source) return null;
+  const v = source?.castDuringOwnMainPhase ?? source?.card?.castDuringOwnMainPhase;
+  if (typeof v === 'boolean') return v;
+  return null;
+}
+
 function countControlledPermanentsBySubtype(ctx: GameContext, controllerId: string, subtypeLower: string): number {
   return countControlledPermanents(ctx, controllerId, (tl) => tl.includes(subtypeLower));
 }
@@ -444,6 +507,128 @@ export function evaluateInterveningIfClause(
 ): boolean | null {
   const clause = toLower(clauseText);
 
+  // ===== Day / Night (when state provides it) =====
+  // Most of the pre-day/night werewolf templates are handled via spells-cast-last-turn checks.
+  // For explicit day/night templates, this is best-effort because not all game states track it yet.
+  if (/^if\s+(?:it'?s|it\s+is)\s+day$/i.test(clause)) {
+    const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
+    if (typeof dn === 'string') return String(dn).toLowerCase() === 'day';
+    const isDay = (ctx as any).state?.isDay;
+    if (typeof isDay === 'boolean') return isDay;
+    return null;
+  }
+
+  if (/^if\s+(?:it'?s|it\s+is)\s+night$/i.test(clause)) {
+    const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
+    if (typeof dn === 'string') return String(dn).toLowerCase() === 'night';
+    const isNight = (ctx as any).state?.isNight;
+    if (typeof isNight === 'boolean') return isNight;
+    return null;
+  }
+
+  // "If it's day and ..." / "If it's night and ..." (common for daybound/nightbound templates)
+  {
+    const m = clause.match(/^if\s+(it'?s|it\s+is)\s+(day|night)\s+and\s+(.+)$/i);
+    if (m) {
+      const which = String(m[2] || '').toLowerCase();
+      const rest = String(m[3] || '').trim();
+      const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
+      const isDay = typeof dn === 'string' ? String(dn).toLowerCase() === 'day' : (ctx as any).state?.isDay;
+      const isNight = typeof dn === 'string' ? String(dn).toLowerCase() === 'night' : (ctx as any).state?.isNight;
+
+      if (which === 'day') {
+        if (typeof isDay !== 'boolean') return null;
+        if (!isDay) return false;
+      } else {
+        if (typeof isNight !== 'boolean') return null;
+        if (!isNight) return false;
+      }
+
+      // Evaluate the remainder as another intervening-if clause.
+      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+    }
+  }
+
+  // "If it became day/night this turn" (and the common "day became night" phrasing)
+  {
+    const m = clause.match(/^if\s+(?:it\s+)?became\s+(day|night)\s+this\s+turn(?:\s+and\s+(.+))?$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const rest = String(m[2] || '').trim();
+      const stateAny = (ctx as any).state as any;
+      if (!stateAny || !("dayNightChangedThisTurn" in stateAny)) return null;
+      const changedThisTurn = Boolean(stateAny.dayNightChangedThisTurn);
+      const changedTo = stateAny.dayNightChangedTo;
+      if (!changedThisTurn) return false;
+      if (typeof changedTo !== 'string') return null;
+      const ok = String(changedTo).toLowerCase() === which;
+      if (!rest) return ok;
+      if (!ok) return false;
+      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+    }
+  }
+  {
+    const m = clause.match(/^if\s+(day\s+became\s+night|night\s+became\s+day)\s+this\s+turn(?:\s+and\s+(.+))?$/i);
+    if (m) {
+      const phrase = String(m[1] || '').toLowerCase();
+      const which = phrase.startsWith('day became night') ? 'night' : 'day';
+      const rest = String(m[2] || '').trim();
+      const stateAny = (ctx as any).state as any;
+      if (!stateAny || !("dayNightChangedThisTurn" in stateAny)) return null;
+      const changedThisTurn = Boolean(stateAny.dayNightChangedThisTurn);
+      const changedTo = stateAny.dayNightChangedTo;
+      if (!changedThisTurn) return false;
+      if (typeof changedTo !== 'string') return null;
+      const ok = String(changedTo).toLowerCase() === which;
+      if (!rest) return ok;
+      if (!ok) return false;
+      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+    }
+  }
+
+  // ===== Die roll history (best-effort, uses state.dieRollsThisTurn) =====
+  // "If you rolled a 1" / "If you rolled a 10 or higher this turn" etc.
+  if (/^if\s+you\s+rolled\s+a\s+die\s+this\s+turn$/i.test(clause) || /^if\s+you\s+rolled\s+one\s+or\s+more\s+dice\s+this\s+turn$/i.test(clause)) {
+    const rolls = getDieRollResultsThisTurn(ctx, controllerId);
+    return rolls.length > 0;
+  }
+  {
+    const m = clause.match(/^if\s+you\s+rolled\s+a\s+([a-z0-9]+)(?:\s+this\s+turn)?$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const rolls = getDieRollResultsThisTurn(ctx, controllerId);
+      if (rolls.length === 0) return null;
+      return rolls.some((r) => r.result === n);
+    }
+  }
+  {
+    const m = clause.match(/^if\s+you\s+rolled\s+([a-z0-9]+)\s+or\s+higher\s+this\s+turn$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const rolls = getDieRollResultsThisTurn(ctx, controllerId);
+      if (rolls.length === 0) return null;
+      return rolls.some((r) => r.result >= n);
+    }
+  }
+  {
+    const m = clause.match(/^if\s+you\s+rolled\s+([a-z0-9]+)\s+or\s+less\s+this\s+turn$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const rolls = getDieRollResultsThisTurn(ctx, controllerId);
+      if (rolls.length === 0) return null;
+      return rolls.some((r) => r.result <= n);
+    }
+  }
+
+  // ===== Cast timing / metadata =====
+  // "...if you cast it during your main phase..." (requires cast-time metadata to be stored on the spell/permanent)
+  if (/^if\s+you\s+cast\s+it\s+during\s+your\s+main\s+phase$/i.test(clause)) {
+    return didCastDuringOwnMainPhase(sourcePermanent);
+  }
+
   // ===== Turn-history thresholds =====
   // "...if you gained N or more life this turn..." (Resplendent Angel, Griffin Aerie, Valkyrie Harbinger)
   {
@@ -699,6 +884,43 @@ export function evaluateInterveningIfClause(
     return wasKicked;
   }
 
+  // "if it/that spell was foretold"
+  if (/^if\s+(?:it|that\s+spell)\s+was\s+foretold$/i.test(clause)) {
+    return isCastFromForetell(sourcePermanent);
+  }
+
+  // "if {R} was spent to cast it" / "if red mana was spent to cast this spell" etc.
+  {
+    const m = clause.match(/^if\s+\{([wubrg])\}\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
+    if (m) {
+      const color = normalizeColorToken(m[1]);
+      if (!color) return null;
+      const spent = getManaColorsSpentFromSource(sourcePermanent);
+      if (!spent) return null;
+      return spent.includes(color);
+    }
+  }
+  {
+    const m = clause.match(/^if\s+(white|blue|black|red|green)\s+mana\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
+    if (m) {
+      const color = normalizeColorToken(m[1]);
+      if (!color) return null;
+      const spent = getManaColorsSpentFromSource(sourcePermanent);
+      if (!spent) return null;
+      return spent.includes(color);
+    }
+  }
+  {
+    const m = clause.match(/^if\s+([a-z0-9]+)\s+or\s+more\s+colors\s+of\s+mana\s+were\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const spent = getManaColorsSpentFromSource(sourcePermanent);
+      if (!spent) return null;
+      return new Set(spent).size >= n;
+    }
+  }
+
   // ===== Counter / modification checks =====
   // "if this creature is modified" / "if it is modified"
   if (/^if\s+(?:this\s+creature|it)\s+is\s+modified$/i.test(clause)) {
@@ -839,6 +1061,47 @@ export function evaluateInterveningIfClause(
       const creatures = getControlledCreatures(ctx, controllerId);
       return creatures.some((c: any) => String(c?.card?.name || '').toLowerCase() === nameLower);
     }
+  }
+
+  // ===== Chosen color =====
+  // "If you chose red" / "If the chosen color is red" (requires a chosenColor stored on the source)
+  {
+    const m = clause.match(/^if\s+you\s+chose\s+(white|blue|black|red|green)$/i);
+    if (m) {
+      const chosen = getChosenColorFromSource(sourcePermanent);
+      if (!chosen) return null;
+      const expected = normalizeColorToken(m[1]);
+      if (!expected) return null;
+      return chosen === expected;
+    }
+  }
+  {
+    const m = clause.match(/^if\s+the\s+chosen\s+color\s+is\s+(white|blue|black|red|green)$/i);
+    if (m) {
+      const chosen = getChosenColorFromSource(sourcePermanent);
+      if (!chosen) return null;
+      const expected = normalizeColorToken(m[1]);
+      if (!expected) return null;
+      return chosen === expected;
+    }
+  }
+
+  // ===== Dungeon completion (best-effort; authoritative if completion is tracked) =====
+  // Supports both "If you completed a dungeon" and "If you completed a dungeon this turn".
+  if (/^if\s+you\s+completed\s+a\s+dungeon(\s+this\s+turn)?$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const wantsThisTurn = /\s+this\s+turn$/i.test(clause);
+
+    if (wantsThisTurn) {
+      const thisTurn = stateAny?.completedDungeonThisTurn?.[controllerId] ?? stateAny?.dungeonCompletedThisTurn?.[controllerId];
+      if (typeof thisTurn === 'boolean') return thisTurn;
+    }
+
+    const flag = stateAny?.completedDungeon?.[controllerId] ?? stateAny?.dungeonCompleted?.[controllerId];
+    if (typeof flag === 'boolean') return flag;
+    const completedCount = stateAny?.completedDungeons?.[controllerId];
+    if (typeof completedCount === 'number') return completedCount > 0;
+    return null;
   }
 
   // ===== Mechanic-specific =====

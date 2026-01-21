@@ -14511,6 +14511,38 @@ async function handleOptionChoiceResponse(
     }
 
     prog.roomIndex = (prog.roomIndex || 0) + 1;
+
+    // Minimal dungeon completion tracking (AFR dungeons): when reaching the final room, mark completion.
+    // Room counts (number of rooms): Lost Mine = 4, Tomb = 4, Mad Mage = 7.
+    try {
+      const roomCounts: Record<string, number> = { lost_mine: 4, tomb: 4, mad_mage: 7 };
+      const roomCount = roomCounts[String(prog.dungeonId || '')] || 4;
+      const lastRoomIndex = Math.max(0, roomCount - 1);
+      if (prog.roomIndex >= lastRoomIndex) {
+        stateAny.completedDungeons = stateAny.completedDungeons || {};
+        stateAny.completedDungeons[playerId] = (stateAny.completedDungeons[playerId] || 0) + 1;
+
+        stateAny.completedDungeonThisTurn = stateAny.completedDungeonThisTurn || {};
+        stateAny.completedDungeonThisTurn[playerId] = true;
+
+        // Back-compat flags used by older evaluator logic.
+        stateAny.completedDungeon = stateAny.completedDungeon || {};
+        stateAny.completedDungeon[playerId] = true;
+
+        delete stateAny.dungeonProgress[playerId];
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, playerId)} completed ${prog.dungeonName || 'a dungeon'}.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        return;
+      }
+    } catch {}
+
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
