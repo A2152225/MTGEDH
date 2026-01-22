@@ -10,6 +10,7 @@ import { getTokenImageUrls } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
+import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -738,6 +739,11 @@ export function movePermanentToExile(
  */
 export function runSBA(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
+
+  // Day/Night: if a daybound/nightbound permanent exists while the game is neither day nor night, it gains the appropriate designation.
+  try {
+    ensureInitialDayNightDesignationFromBattlefield(state as any);
+  } catch {}
   
   // FIRST: Handle bestow/reconfigure creatures that need to unattach and restore stats
   // This must happen BEFORE applyStateBasedActions so the restored stats prevent 0-toughness destruction

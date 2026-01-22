@@ -42,6 +42,7 @@ import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { setDayNightState } from "./day-night.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -2147,12 +2148,7 @@ export function nextTurn(ctx: GameContext) {
         let nextDn: 'day' | 'night' | null = null;
         if (dn === 'day' && spellsLastTurn === 0) nextDn = 'night';
         if (dn === 'night' && spellsLastTurn >= 2) nextDn = 'day';
-        if (nextDn && nextDn !== dn) {
-          (ctx as any).state.dayNight = nextDn;
-          (ctx as any).state.dayNightChangedThisTurn = true;
-          (ctx as any).state.dayNightChangedFrom = dn;
-          (ctx as any).state.dayNightChangedTo = nextDn;
-        }
+        if (nextDn && nextDn !== dn) setDayNightState((ctx as any).state, nextDn);
       }
     } catch {}
     

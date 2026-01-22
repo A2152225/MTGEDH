@@ -282,6 +282,10 @@ function getGraveyard(ctx: GameContext, playerId: string): any[] {
 }
 
 function getGraveyardCount(ctx: GameContext, playerId: string): number {
+  const zones = getZones(ctx);
+  const z = zones?.[playerId];
+  const gc = z?.graveyardCount;
+  if (typeof gc === 'number') return gc;
   return getGraveyard(ctx, playerId).length;
 }
 
@@ -446,6 +450,33 @@ function getOpponentIds(ctx: GameContext, controllerId: string): string[] {
     .filter((id: string) => id && id !== controllerId);
 }
 
+function getAllPlayerIds(ctx: GameContext, controllerId: string): string[] {
+  const state: any = (ctx as any).state || {};
+  const players = Array.isArray(state.players) ? state.players : [];
+  const ids = players
+    .map((p: any) => String(p?.id || ''))
+    .filter((id: string) => Boolean(id));
+  if (controllerId && !ids.includes(controllerId)) ids.push(controllerId);
+  return Array.from(new Set(ids));
+}
+
+function isTiedForExtreme(
+  allIds: string[],
+  controllerId: string,
+  getValue: (pid: string) => number,
+  extreme: 'most' | 'least'
+): boolean {
+  if (!allIds.length) return false;
+
+  const yourValue = getValue(controllerId);
+  const values = allIds.map((pid) => getValue(pid));
+  const extremeValue = extreme === 'most' ? Math.max(...values) : Math.min(...values);
+  if (yourValue !== extremeValue) return false;
+
+  const tiedCount = values.filter((v) => v === extremeValue).length;
+  return tiedCount >= 2;
+}
+
 /**
  * Extract an intervening-if clause (the leading "if ...") from a triggered ability's
  * description/effect text.
@@ -524,6 +555,41 @@ export function evaluateInterveningIfClause(
     const isNight = (ctx as any).state?.isNight;
     if (typeof isNight === 'boolean') return isNight;
     return null;
+  }
+
+  // "If it's neither day nor night" (common on cards that start the designation).
+  if (/^if\s+(?:it'?s|it\s+is)\s+neither\s+day\s+nor\s+night$/i.test(clause)) {
+    const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
+    if (typeof dn === 'string') {
+      const v = String(dn).toLowerCase();
+      return v !== 'day' && v !== 'night';
+    }
+    // If the state uses boolean flags, "neither" is when both are false.
+    const isDay = (ctx as any).state?.isDay;
+    const isNight = (ctx as any).state?.isNight;
+    if (typeof isDay === 'boolean' && typeof isNight === 'boolean') return !isDay && !isNight;
+    return null;
+  }
+
+  // "If it's neither day nor night and ..."
+  {
+    const m = clause.match(/^if\s+(it'?s|it\s+is)\s+neither\s+day\s+nor\s+night\s+and\s+(.+)$/i);
+    if (m) {
+      const rest = String(m[2] || '').trim();
+      const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
+      let neither: boolean | null = null;
+      if (typeof dn === 'string') {
+        const v = String(dn).toLowerCase();
+        neither = v !== 'day' && v !== 'night';
+      } else {
+        const isDay = (ctx as any).state?.isDay;
+        const isNight = (ctx as any).state?.isNight;
+        if (typeof isDay === 'boolean' && typeof isNight === 'boolean') neither = !isDay && !isNight;
+      }
+      if (typeof neither !== 'boolean') return null;
+      if (!neither) return false;
+      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+    }
   }
 
   // "If it's day and ..." / "If it's night and ..." (common for daybound/nightbound templates)
@@ -767,7 +833,7 @@ export function evaluateInterveningIfClause(
       return oppIds.some((opp) => getPlayerLife(ctx, opp) > yourLife);
     }
 
-    const youMoreThanEach = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+each\s+opponent$/i);
+    const youMoreThanEach = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+each\s+(?:opponent|other\s+player)$/i);
     if (youMoreThanEach) {
       const yourLife = getPlayerLife(ctx, controllerId);
       const oppIds = getOpponentIds(ctx, controllerId);
@@ -781,6 +847,126 @@ export function evaluateInterveningIfClause(
       const oppIds = getOpponentIds(ctx, controllerId);
       if (!oppIds.length) return false;
       return oppIds.some((opp) => yourLife > getPlayerLife(ctx, opp));
+    }
+
+    const noOppLess = clause.match(/^if\s+no\s+opponent\s+has\s+less\s+life\s+than\s+you$/i);
+    if (noOppLess) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return true;
+      return oppIds.every((opp) => getPlayerLife(ctx, opp) >= yourLife);
+    }
+
+    const oppLess = clause.match(/^if\s+an\s+opponent\s+has\s+less\s+life\s+than\s+you$/i);
+    if (oppLess) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return false;
+      return oppIds.some((opp) => getPlayerLife(ctx, opp) < yourLife);
+    }
+
+    const youLessThanEach = clause.match(/^if\s+you\s+have\s+less\s+life\s+than\s+each\s+(?:opponent|other\s+player)$/i);
+    if (youLessThanEach) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return true;
+      return oppIds.every((opp) => yourLife < getPlayerLife(ctx, opp));
+    }
+
+    const youLessThanAn = clause.match(/^if\s+you\s+have\s+less\s+life\s+than\s+an\s+opponent$/i);
+    if (youLessThanAn) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const oppIds = getOpponentIds(ctx, controllerId);
+      if (!oppIds.length) return false;
+      return oppIds.some((opp) => yourLife < getPlayerLife(ctx, opp));
+    }
+  }
+
+  // Superlatives: life totals (ties count)
+  // - "if you have the most life" (including ties)
+  // - "if you have the least life" (including ties)
+  // - "if you have the highest/lowest life total"
+  // - Optional: "... or are tied for ..."
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+the\s+(most|least)\s+life(?:\s+total)?(?:\s+or\s+are\s+tied\s+for\s+(?:the\s+)?\1\s+life(?:\s+total)?)?$/i
+    );
+    if (m) {
+      const kind = m[1].toLowerCase();
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+
+      const yourLife = getPlayerLife(ctx, controllerId);
+      if (kind === 'most') return ids.every((pid) => getPlayerLife(ctx, pid) <= yourLife);
+      return ids.every((pid) => getPlayerLife(ctx, pid) >= yourLife);
+    }
+
+    const m2 = clause.match(
+      /^if\s+you\s+have\s+the\s+(highest|lowest)\s+life\s+total(?:\s+or\s+are\s+tied\s+for\s+(?:the\s+)?\1\s+life\s+total)?$/i
+    );
+    if (m2) {
+      const kind = m2[1].toLowerCase();
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+
+      const yourLife = getPlayerLife(ctx, controllerId);
+      if (kind === 'highest') return ids.every((pid) => getPlayerLife(ctx, pid) <= yourLife);
+      return ids.every((pid) => getPlayerLife(ctx, pid) >= yourLife);
+    }
+
+    const m3 = clause.match(/^if\s+you\s+(?:are|have)\s+tied\s+for\s+(?:the\s+)?(most|least)\s+life(?:\s+total)?$/i);
+    if (m3) {
+      const extreme = m3[1].toLowerCase() as 'most' | 'least';
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+      return isTiedForExtreme(ids, controllerId, (pid) => getPlayerLife(ctx, pid), extreme);
+    }
+
+    const m4 = clause.match(/^if\s+you\s+(?:are|have)\s+tied\s+for\s+(?:the\s+)?(highest|lowest)\s+life\s+total$/i);
+    if (m4) {
+      const extreme: 'most' | 'least' = m4[1].toLowerCase() === 'highest' ? 'most' : 'least';
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+      return isTiedForExtreme(ids, controllerId, (pid) => getPlayerLife(ctx, pid), extreme);
+    }
+  }
+
+  // Superlatives: permanents you control (ties count)
+  // - "if you control the most creatures/lands" (including ties)
+  // - "if you control the least/fewest creatures/lands" (including ties)
+  // - Optional: "... or are tied for ..."
+  {
+    const m = clause.match(
+      /^if\s+you\s+(?:control|have)\s+the\s+(most|least|fewest)\s+(creatures|lands)(?:\s+or\s+are\s+tied\s+for\s+(?:the\s+)?\1\s+\2)?$/i
+    );
+    if (m) {
+      const kind = m[1].toLowerCase();
+      const subject = m[2].toLowerCase();
+
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+
+      const getCount = (pid: string) =>
+        subject === 'creatures' ? countByPermanentType(ctx, pid, 'creature') : countByPermanentType(ctx, pid, 'land');
+
+      const yourCount = getCount(controllerId);
+      if (kind === 'most') return ids.every((pid) => getCount(pid) <= yourCount);
+      return ids.every((pid) => getCount(pid) >= yourCount);
+    }
+
+    const m2 = clause.match(/^if\s+you\s+(?:are|control|have)\s+tied\s+for\s+(?:the\s+)?(most|least|fewest)\s+(creatures|lands)$/i);
+    if (m2) {
+      const kind = m2[1].toLowerCase();
+      const extreme: 'most' | 'least' = kind === 'most' ? 'most' : 'least';
+      const subject = m2[2].toLowerCase();
+
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+
+      const getCount = (pid: string) =>
+        subject === 'creatures' ? countByPermanentType(ctx, pid, 'creature') : countByPermanentType(ctx, pid, 'land');
+
+      return isTiedForExtreme(ids, controllerId, getCount, extreme);
     }
   }
 
@@ -830,6 +1016,674 @@ export function evaluateInterveningIfClause(
             : countByPermanentType(ctx, oppId, "land");
         return oppCount > yourCount;
       });
+    }
+  }
+
+  // Opponent-relative creature/land comparisons
+  // - "if no opponent controls more creatures/lands than you"
+  // - "if an opponent controls fewer creatures/lands than you"
+  {
+    const noOppMore = clause.match(
+      /^if\s+no\s+opponent\s+(?:controls|has)\s+more\s+(creatures|lands)\s+than\s+you$/i
+    );
+    if (noOppMore) {
+      const subject = noOppMore[1].toLowerCase();
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return oppCount <= yourCount;
+      });
+    }
+
+    const oppFewer = clause.match(
+      /^if\s+an\s+opponent\s+(?:controls|has)\s+fewer\s+(creatures|lands)\s+than\s+you$/i
+    );
+    if (oppFewer) {
+      const subject = oppFewer[1].toLowerCase();
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      if (!opponentIds.length) return false;
+      return opponentIds.some((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return oppCount < yourCount;
+      });
+    }
+
+    const noOppFewer = clause.match(
+      /^if\s+no\s+opponent\s+(?:controls|has)\s+fewer\s+(creatures|lands)\s+than\s+you$/i
+    );
+    if (noOppFewer) {
+      const subject = noOppFewer[1].toLowerCase();
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return oppCount >= yourCount;
+      });
+    }
+  }
+
+  // "if you control fewer/more creatures/lands than an opponent" / "... than each opponent" / "... than each other player"
+  {
+    const m = clause.match(
+      /^if\s+you\s+(?:control|have)\s+(fewer|more)\s+(creatures|lands)\s+than\s+(an\s+opponent|each\s+opponent|each\s+other\s+player)$/i
+    );
+    if (m) {
+      const cmp = m[1].toLowerCase();
+      const subject = m[2].toLowerCase();
+      const scope = m[3].toLowerCase().replace(/\s+/g, ' ');
+
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, oppId, 'creature')
+              : countByPermanentType(ctx, oppId, 'land');
+          return cmp === 'fewer' ? yourCount < oppCount : yourCount > oppCount;
+        });
+      }
+
+      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return cmp === 'fewer' ? yourCount < oppCount : yourCount > oppCount;
+      });
+    }
+  }
+
+  // "if you control no more/no fewer creatures/lands than an opponent" / "... than each opponent" / "... than each other player"
+  {
+    const m = clause.match(
+      /^if\s+you\s+(?:control|have)\s+no\s+(more|fewer|less)\s+(creatures|lands)\s+than\s+(an\s+opponent|each\s+opponent|each\s+other\s+player)$/i
+    );
+    if (m) {
+      const cmpWord = m[1].toLowerCase();
+      const subject = m[2].toLowerCase();
+      const scope = m[3].toLowerCase().replace(/\s+/g, ' ');
+
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      const satisfies = (a: number, b: number) => (cmpWord === 'more' ? a <= b : a >= b);
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, oppId, 'creature')
+              : countByPermanentType(ctx, oppId, 'land');
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return satisfies(yourCount, oppCount);
+      });
+    }
+  }
+
+  // "if you control as many / at least as many creatures/lands as an opponent" / "... as each opponent" / "... as each other player"
+  {
+    const m = clause.match(
+      /^if\s+you\s+(?:control|have)\s+(as\s+many|at\s+least\s+as\s+many|at\s+most\s+as\s+many)\s+(creatures|lands)\s+as\s+(an\s+opponent|each\s+opponent|each\s+other\s+player)$/i
+    );
+    if (m) {
+      const cmpRaw = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const subject = m[2].toLowerCase();
+      const scope = m[3].toLowerCase().replace(/\s+/g, ' ');
+
+      const cmpKind: 'eq' | 'gte' | 'lte' = cmpRaw.startsWith('at least')
+        ? 'gte'
+        : cmpRaw.startsWith('at most')
+          ? 'lte'
+          : 'eq';
+
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+
+      const satisfies = (a: number, b: number) =>
+        cmpKind === 'gte' ? a >= b : cmpKind === 'lte' ? a <= b : a === b;
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, oppId, 'creature')
+              : countByPermanentType(ctx, oppId, 'land');
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return satisfies(yourCount, oppCount);
+      });
+    }
+  }
+
+  // "if you have fewer/more cards in hand/graveyard/library than an opponent" / "... than each opponent" / "... than each other player"
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+(fewer|less|more)\s+cards?\s+in\s+(?:your\s+)?(hand|graveyard|library)\s+than\s+(an\s+opponent|each\s+opponent|each\s+other\s+player)$/i
+    );
+    if (m) {
+      const cmp = m[1].toLowerCase();
+      const zone = m[2].toLowerCase();
+      const scope = m[3].toLowerCase().replace(/\s+/g, ' ');
+
+      const yourCount =
+        zone === 'hand'
+          ? getHandCount(ctx, controllerId)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, controllerId)
+            : getLibraryCount(ctx, controllerId);
+      const opponentIds = getOpponentIds(ctx, controllerId);
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, oppId)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, oppId)
+                : getLibraryCount(ctx, oppId);
+          return cmp === 'more' ? yourCount > oppCount : yourCount < oppCount;
+        });
+      }
+
+      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          zone === 'hand'
+            ? getHandCount(ctx, oppId)
+            : zone === 'graveyard'
+              ? getGraveyardCount(ctx, oppId)
+              : getLibraryCount(ctx, oppId);
+        return cmp === 'more' ? yourCount > oppCount : yourCount < oppCount;
+      });
+    }
+  }
+
+  // "if you have no more/no fewer cards in hand/graveyard/library than an opponent" / "... than each opponent" / "... than each other player"
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+no\s+(more|fewer|less)\s+cards?\s+in\s+(?:your\s+)?(hand|graveyard|library)\s+than\s+(an\s+opponent|each\s+opponent|each\s+other\s+player)$/i
+    );
+    if (m) {
+      const cmpWord = m[1].toLowerCase();
+      const zone = m[2].toLowerCase();
+      const scope = m[3].toLowerCase().replace(/\s+/g, ' ');
+
+      const yourCount =
+        zone === 'hand'
+          ? getHandCount(ctx, controllerId)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, controllerId)
+            : getLibraryCount(ctx, controllerId);
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      const satisfies = (a: number, b: number) => (cmpWord === 'more' ? a <= b : a >= b);
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, oppId)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, oppId)
+                : getLibraryCount(ctx, oppId);
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          zone === 'hand'
+            ? getHandCount(ctx, oppId)
+            : zone === 'graveyard'
+              ? getGraveyardCount(ctx, oppId)
+              : getLibraryCount(ctx, oppId);
+        return satisfies(yourCount, oppCount);
+      });
+    }
+  }
+
+  // Superlatives: zone sizes (ties count)
+  // - "if you have the most cards in hand/graveyard/library"
+  // - "if you have the least/fewest cards in hand/graveyard/library"
+  // - Optional: "... or are tied for ..."
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+the\s+(most|least|fewest)\s+cards?\s+in\s+(?:your\s+)?(hand|graveyard|library)(?:\s+or\s+are\s+tied\s+for\s+(?:the\s+)?\1\s+cards?\s+in\s+(?:your\s+)?\2)?$/i
+    );
+    if (m) {
+      const kind = m[1].toLowerCase();
+      const zone = m[2].toLowerCase();
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+
+      const getCount = (pid: string) =>
+        zone === 'hand'
+          ? getHandCount(ctx, pid)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, pid)
+            : getLibraryCount(ctx, pid);
+
+      const yourCount = getCount(controllerId);
+      if (kind === 'most') return ids.every((pid) => getCount(pid) <= yourCount);
+      return ids.every((pid) => getCount(pid) >= yourCount);
+    }
+
+    const m2 = clause.match(
+      /^if\s+you\s+(?:are|have)\s+tied\s+for\s+(?:the\s+)?(most|least|fewest)\s+cards?\s+in\s+(?:your\s+)?(hand|graveyard|library)$/i
+    );
+    if (m2) {
+      const kind = m2[1].toLowerCase();
+      const extreme: 'most' | 'least' = kind === 'most' ? 'most' : 'least';
+      const zone = m2[2].toLowerCase();
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+
+      const getCount = (pid: string) =>
+        zone === 'hand'
+          ? getHandCount(ctx, pid)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, pid)
+            : getLibraryCount(ctx, pid);
+
+      return isTiedForExtreme(ids, controllerId, getCount, extreme);
+    }
+  }
+
+  // "if you have as many / at least as many cards in hand/graveyard/library as an opponent" / "... as each opponent" / "... as each other player"
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+(as\s+many|at\s+least\s+as\s+many|at\s+most\s+as\s+many)\s+cards?\s+in\s+(?:your\s+)?(hand|graveyard|library)\s+as\s+(an\s+opponent|each\s+opponent|each\s+other\s+player)$/i
+    );
+    if (m) {
+      const cmpRaw = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const zone = m[2].toLowerCase();
+      const scope = m[3].toLowerCase().replace(/\s+/g, ' ');
+
+      const cmpKind: 'eq' | 'gte' | 'lte' = cmpRaw.startsWith('at least')
+        ? 'gte'
+        : cmpRaw.startsWith('at most')
+          ? 'lte'
+          : 'eq';
+
+      const yourCount =
+        zone === 'hand'
+          ? getHandCount(ctx, controllerId)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, controllerId)
+            : getLibraryCount(ctx, controllerId);
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      const satisfies = (a: number, b: number) =>
+        cmpKind === 'gte' ? a >= b : cmpKind === 'lte' ? a <= b : a === b;
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, oppId)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, oppId)
+                : getLibraryCount(ctx, oppId);
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          zone === 'hand'
+            ? getHandCount(ctx, oppId)
+            : zone === 'graveyard'
+              ? getGraveyardCount(ctx, oppId)
+              : getLibraryCount(ctx, oppId);
+        return satisfies(yourCount, oppCount);
+      });
+    }
+  }
+
+  // "if an opponent controls/has as many / at least as many creatures/lands as you" / "if no opponent controls/has ... as you"
+  {
+    const m = clause.match(
+      /^if\s+(no\s+opponent|an\s+opponent)\s+(?:controls|has)\s+(as\s+many|at\s+least\s+as\s+many|at\s+most\s+as\s+many)\s+(creatures|lands)\s+as\s+you$/i
+    );
+    if (m) {
+      const scope = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const cmpRaw = m[2].toLowerCase().replace(/\s+/g, ' ');
+      const subject = m[3].toLowerCase();
+
+      const cmpKind: 'eq' | 'gte' | 'lte' = cmpRaw.startsWith('at least')
+        ? 'gte'
+        : cmpRaw.startsWith('at most')
+          ? 'lte'
+          : 'eq';
+
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      const satisfies = (oppCount: number) =>
+        cmpKind === 'gte' ? oppCount >= yourCount : cmpKind === 'lte' ? oppCount <= yourCount : oppCount === yourCount;
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, oppId, 'creature')
+              : countByPermanentType(ctx, oppId, 'land');
+          return satisfies(oppCount);
+        });
+      }
+
+      // "no opponent" => universal negation (vacuously true if there are no opponents)
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return !satisfies(oppCount);
+      });
+    }
+  }
+
+  // "if an opponent has as many / at least as many cards in hand/graveyard/library as you" / "if no opponent has ... as you"
+  {
+    const m = clause.match(
+      /^if\s+(no\s+opponent|an\s+opponent)\s+has\s+(as\s+many|at\s+least\s+as\s+many|at\s+most\s+as\s+many)\s+cards?\s+in\s+(?:their\s+)?(hand|graveyard|library)\s+as\s+you$/i
+    );
+    if (m) {
+      const scope = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const cmpRaw = m[2].toLowerCase().replace(/\s+/g, ' ');
+      const zone = m[3].toLowerCase();
+
+      const cmpKind: 'eq' | 'gte' | 'lte' = cmpRaw.startsWith('at least')
+        ? 'gte'
+        : cmpRaw.startsWith('at most')
+          ? 'lte'
+          : 'eq';
+
+      const yourCount =
+        zone === 'hand'
+          ? getHandCount(ctx, controllerId)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, controllerId)
+            : getLibraryCount(ctx, controllerId);
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      const satisfies = (oppCount: number) =>
+        cmpKind === 'gte' ? oppCount >= yourCount : cmpKind === 'lte' ? oppCount <= yourCount : oppCount === yourCount;
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, oppId)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, oppId)
+                : getLibraryCount(ctx, oppId);
+          return satisfies(oppCount);
+        });
+      }
+
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          zone === 'hand'
+            ? getHandCount(ctx, oppId)
+            : zone === 'graveyard'
+              ? getGraveyardCount(ctx, oppId)
+              : getLibraryCount(ctx, oppId);
+        return !satisfies(oppCount);
+      });
+    }
+  }
+
+  // "if an opponent/no opponent controls/has no more/no fewer creatures/lands than you"
+  {
+    const m = clause.match(
+      /^if\s+(no\s+opponent|an\s+opponent)\s+(?:controls|has)\s+no\s+(more|fewer|less)\s+(creatures|lands)\s+than\s+you$/i
+    );
+    if (m) {
+      const scope = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const cmpWord = m[2].toLowerCase();
+      const subject = m[3].toLowerCase();
+
+      const yourCount =
+        subject === 'creatures'
+          ? countByPermanentType(ctx, controllerId, 'creature')
+          : countByPermanentType(ctx, controllerId, 'land');
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      const satisfies = (oppCount: number) => (cmpWord === 'more' ? oppCount <= yourCount : oppCount >= yourCount);
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, oppId, 'creature')
+              : countByPermanentType(ctx, oppId, 'land');
+          return satisfies(oppCount);
+        });
+      }
+
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          subject === 'creatures'
+            ? countByPermanentType(ctx, oppId, 'creature')
+            : countByPermanentType(ctx, oppId, 'land');
+        return !satisfies(oppCount);
+      });
+    }
+  }
+
+  // "if an opponent/no opponent has no more/no fewer cards in hand/graveyard/library than you"
+  {
+    const m = clause.match(
+      /^if\s+(no\s+opponent|an\s+opponent)\s+has\s+no\s+(more|fewer|less)\s+cards?\s+in\s+(?:their\s+)?(hand|graveyard|library)\s+than\s+you$/i
+    );
+    if (m) {
+      const scope = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const cmpWord = m[2].toLowerCase();
+      const zone = m[3].toLowerCase();
+
+      const yourCount =
+        zone === 'hand'
+          ? getHandCount(ctx, controllerId)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, controllerId)
+            : getLibraryCount(ctx, controllerId);
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+      const satisfies = (oppCount: number) => (cmpWord === 'more' ? oppCount <= yourCount : oppCount >= yourCount);
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, oppId)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, oppId)
+                : getLibraryCount(ctx, oppId);
+          return satisfies(oppCount);
+        });
+      }
+
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          zone === 'hand'
+            ? getHandCount(ctx, oppId)
+            : zone === 'graveyard'
+              ? getGraveyardCount(ctx, oppId)
+              : getLibraryCount(ctx, oppId);
+        return !satisfies(oppCount);
+      });
+    }
+  }
+
+  // "if an opponent has fewer/more cards in hand/graveyard/library than you" / "if no opponent has fewer/more ... than you"
+  {
+    const m = clause.match(
+      /^if\s+(no\s+opponent|an\s+opponent)\s+has\s+(fewer|less|more)\s+cards?\s+in\s+(?:their\s+)?(hand|graveyard|library)\s+than\s+you$/i
+    );
+    if (m) {
+      const scope = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const cmp = m[2].toLowerCase();
+      const zone = m[3].toLowerCase();
+
+      const yourCount =
+        zone === 'hand'
+          ? getHandCount(ctx, controllerId)
+          : zone === 'graveyard'
+            ? getGraveyardCount(ctx, controllerId)
+            : getLibraryCount(ctx, controllerId);
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, oppId)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, oppId)
+                : getLibraryCount(ctx, oppId);
+          return cmp === 'more' ? oppCount > yourCount : oppCount < yourCount;
+        });
+      }
+
+      // "no opponent" => universal negation (vacuously true if there are no opponents)
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => {
+        const oppCount =
+          zone === 'hand'
+            ? getHandCount(ctx, oppId)
+            : zone === 'graveyard'
+              ? getGraveyardCount(ctx, oppId)
+              : getLibraryCount(ctx, oppId);
+
+        return cmp === 'more' ? oppCount <= yourCount : oppCount >= yourCount;
+      });
+    }
+  }
+
+  // Opponent numeric zone thresholds
+  // - "if an opponent has at least/at most/no more/no fewer than N cards in hand/graveyard/library"
+  // - "if each opponent has ..."
+  // - "if no opponent has ..." (universal negation, vacuously true if no opponents)
+  {
+    const m = clause.match(
+      /^if\s+(an\s+opponent|each\s+opponent|each\s+other\s+player|no\s+opponent)\s+has\s+(at\s+least|at\s+most|no\s+more\s+than|no\s+(?:fewer|less)\s+than)\s+([a-z0-9]+)\s+cards?\s+in\s+(?:their\s+)?(hand|graveyard|library)$/i
+    );
+    if (m) {
+      const scope = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const cmpRaw = m[2].toLowerCase().replace(/\s+/g, ' ');
+      const n = parseCountToken(m[3]);
+      if (n === null) return null;
+      const zone = m[4].toLowerCase();
+
+      const opponentIds = getOpponentIds(ctx, controllerId);
+
+      const satisfies = (oppId: string) => {
+        const oppCount =
+          zone === 'hand'
+            ? getHandCount(ctx, oppId)
+            : zone === 'graveyard'
+              ? getGraveyardCount(ctx, oppId)
+              : getLibraryCount(ctx, oppId);
+
+        if (cmpRaw === 'at least' || cmpRaw.startsWith('no fewer') || cmpRaw.startsWith('no less')) return oppCount >= n;
+        return oppCount <= n;
+      };
+
+      if (scope === 'an opponent') {
+        if (!opponentIds.length) return false;
+        return opponentIds.some((oppId) => satisfies(oppId));
+      }
+
+      if (scope === 'no opponent') {
+        if (!opponentIds.length) return true;
+        return opponentIds.every((oppId) => !satisfies(oppId));
+      }
+
+      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (!opponentIds.length) return true;
+      return opponentIds.every((oppId) => satisfies(oppId));
     }
   }
 
@@ -1033,9 +1887,26 @@ export function evaluateInterveningIfClause(
     return sourcePermanent.tapped === true;
   }
 
-  if (/^if\s+it\s+is\s+a\s+token$/i.test(clause)) {
+  if (
+    /^if\s+it\s+isn'?t\s+tapped$/i.test(clause) ||
+    /^if\s+it\s+is\s+not\s+tapped$/i.test(clause)
+  ) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.tapped !== true;
+  }
+
+  if (/^if\s+it\s+is\s+a\s+token$/i.test(clause) || /^if\s+it'?s\s+a\s+token$/i.test(clause)) {
     if (!sourcePermanent) return null;
     return sourcePermanent.isToken === true;
+  }
+
+  if (
+    /^if\s+it\s+isn'?t\s+a\s+token$/i.test(clause) ||
+    /^if\s+it\s+is\s+not\s+a\s+token$/i.test(clause) ||
+    /^if\s+it'?s\s+not\s+a\s+token$/i.test(clause)
+  ) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.isToken !== true;
   }
 
   // "if you control a legendary <thing>"
@@ -1095,6 +1966,8 @@ export function evaluateInterveningIfClause(
     if (wantsThisTurn) {
       const thisTurn = stateAny?.completedDungeonThisTurn?.[controllerId] ?? stateAny?.dungeonCompletedThisTurn?.[controllerId];
       if (typeof thisTurn === 'boolean') return thisTurn;
+      // If we don't have per-turn tracking, we can't safely answer the "this turn" variant.
+      return null;
     }
 
     const flag = stateAny?.completedDungeon?.[controllerId] ?? stateAny?.dungeonCompleted?.[controllerId];
@@ -1140,23 +2013,190 @@ export function evaluateInterveningIfClause(
     }
   }
 
+  // "if you control your commander" / "if you control a commander"
+  // Best-effort based on commander card IDs stored in command zone metadata.
+  {
+    const wantsYour = /^if\s+you\s+control\s+your\s+commander$/i.test(clause);
+    const wantsAny = /^if\s+you\s+control\s+a\s+commander$/i.test(clause);
+    if (wantsYour || wantsAny) {
+      const cz = (ctx as any).commandZone ?? (ctx as any).state?.commandZone;
+      if (!cz || typeof cz !== 'object') return null;
+
+      const yourCommanderIds = cz?.[controllerId]?.commanderIds;
+      if (!Array.isArray(yourCommanderIds)) return null;
+
+      const commanderIdSet = new Set<string>();
+      if (wantsYour) {
+        for (const id of yourCommanderIds) commanderIdSet.add(String(id));
+      } else {
+        for (const pid of Object.keys(cz)) {
+          const ids = cz?.[pid]?.commanderIds;
+          if (Array.isArray(ids)) for (const id of ids) commanderIdSet.add(String(id));
+        }
+      }
+
+      const battlefield = (ctx as any).state?.battlefield || [];
+      return (Array.isArray(battlefield) ? battlefield : []).some((p: any) => {
+        if (!p || p.controller !== controllerId) return false;
+        const cid = p.card?.id;
+        return cid ? commanderIdSet.has(String(cid)) : false;
+      });
+    }
+  }
+
+  // "if you don't control ..." / "if you do not control ..." (common negative existence)
+  {
+    const m = clause.match(/^if\s+you\s+(?:do\s+not|don't)\s+control\s+(?:(?:a|an)\s+)?(?:any\s+)?([a-z0-9\-\s']+)$/i);
+    if (m) {
+      const subjectRaw = m[1].trim().replace(/\s+/g, " ");
+      const subjectLower = subjectRaw.toLowerCase();
+
+      if (subjectLower === 'cards in hand') return getHandCount(ctx, controllerId) === 0;
+      if (subjectLower === 'your commander') {
+        const cz = (ctx as any).commandZone ?? (ctx as any).state?.commandZone;
+        const ids = cz?.[controllerId]?.commanderIds;
+        if (!Array.isArray(ids)) return null;
+        const idSet = new Set(ids.map((id: any) => String(id)));
+        const battlefield = (ctx as any).state?.battlefield || [];
+        const controlsCommander = (Array.isArray(battlefield) ? battlefield : []).some((p: any) => {
+          if (!p || p.controller !== controllerId) return false;
+          const cid = p.card?.id;
+          return cid ? idSet.has(String(cid)) : false;
+        });
+        return !controlsCommander;
+      }
+      if (subjectLower === 'basic lands') return countBasicLands(ctx, controllerId) === 0;
+
+      const subjectToken = subjectLower.endsWith('s') ? subjectLower.slice(0, -1) : subjectLower;
+      return countByPermanentType(ctx, controllerId, subjectToken) === 0;
+    }
+  }
+
+  // "if you control no other X" (requires source permanent to exclude itself)
+  {
+    const m = clause.match(/^if\s+you\s+control\s+no\s+other\s+([a-z0-9\-\s']+)$/i);
+    if (m) {
+      if (!sourcePermanent?.id) return null;
+      const subjectRaw = m[1].trim().replace(/\s+/g, " ");
+      const subjectLower = subjectRaw.toLowerCase();
+      const sourceId = String(sourcePermanent.id);
+
+      if (subjectLower === 'cards in hand') return getHandCount(ctx, controllerId) === 0;
+      if (subjectLower === 'basic lands') {
+        const battlefield = (ctx as any).state?.battlefield || [];
+        let count = 0;
+        for (const perm of Array.isArray(battlefield) ? battlefield : []) {
+          if (!perm || perm.controller !== controllerId) continue;
+          if (String(perm.id) === sourceId) continue;
+          const tl = String(perm.card?.type_line || '').toLowerCase();
+          if (tl.includes('basic') && tl.includes('land')) count++;
+        }
+        return count === 0;
+      }
+
+      const subjectToken = subjectLower.endsWith('s') ? subjectLower.slice(0, -1) : subjectLower;
+      const battlefield = (ctx as any).state?.battlefield || [];
+      let count = 0;
+      for (const perm of Array.isArray(battlefield) ? battlefield : []) {
+        if (!perm || perm.controller !== controllerId) continue;
+        if (String(perm.id) === sourceId) continue;
+        const tl = String(perm.card?.type_line || '').toLowerCase();
+        if (tl.includes(subjectToken)) count++;
+      }
+      return count === 0;
+    }
+  }
+
   // "if you control no X"
   {
     const m = clause.match(/^if\s+you\s+control\s+no\s+([a-z0-9\-\s']+)$/i);
     if (m) {
       const nounRaw = m[1].trim();
-      if (nounRaw === "cards in hand") {
+      const nounLower = nounRaw.toLowerCase();
+
+      // Avoid swallowing numeric-comparison phrases like "no fewer than ...".
+      if (nounLower.startsWith('fewer than ') || nounLower.startsWith('less than ') || nounLower.startsWith('more than ')) {
+        // fall through
+      } else {
+
+      // Let the more-specific tapped/untapped templates handle these.
+      if (nounLower.startsWith('untapped ') || nounLower.startsWith('tapped ')) {
+        // fall through
+      } else {
+      if (nounLower === "cards in hand") {
         return getHandCount(ctx, controllerId) === 0;
       }
 
       // Special case: "no basic lands" / "no lands" etc.
-      if (nounRaw === "basic lands") return countBasicLands(ctx, controllerId) === 0;
+      if (nounLower === "basic lands") return countBasicLands(ctx, controllerId) === 0;
 
-      const noun = nounRaw.replace(/\s+/g, " ");
+      const noun = nounLower.replace(/\s+/g, " ");
       const nounSingular = noun.endsWith("s") ? noun.slice(0, -1) : noun;
 
       // Heuristic: check type line contains the noun (covers permanent types and creature types).
       return countByPermanentType(ctx, controllerId, nounSingular) === 0;
+      }
+      }
+    }
+  }
+
+  // "if you control no untapped/tapped lands" (and creatures)
+  {
+    const m = clause.match(/^if\s+you\s+control\s+no\s+(untapped|tapped)\s+(lands|land|creatures|creature)$/i);
+    if (m) {
+      const wantsUntapped = String(m[1]).toLowerCase() === 'untapped';
+      const subject = String(m[2]).toLowerCase();
+      const typeToken = subject.startsWith('land') ? 'land' : 'creature';
+
+      const battlefield = (ctx as any).state?.battlefield || [];
+      const found = (Array.isArray(battlefield) ? battlefield : []).some((p: any) => {
+        if (!p || p.controller !== controllerId) return false;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        if (!tl.includes(typeToken)) return false;
+        const tapped = p.tapped === true;
+        return wantsUntapped ? !tapped : tapped;
+      });
+
+      return !found;
+    }
+  }
+
+  // "if you control an untapped/tapped land" (and creature)
+  {
+    const m = clause.match(/^if\s+you\s+control\s+(?:an?|a)\s+(untapped|tapped)\s+(land|creature)$/i);
+    if (m) {
+      const wantsUntapped = String(m[1]).toLowerCase() === 'untapped';
+      const typeToken = String(m[2]).toLowerCase();
+
+      const battlefield = (ctx as any).state?.battlefield || [];
+      return (Array.isArray(battlefield) ? battlefield : []).some((p: any) => {
+        if (!p || p.controller !== controllerId) return false;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        if (!tl.includes(typeToken)) return false;
+        const tapped = p.tapped === true;
+        return wantsUntapped ? !tapped : tapped;
+      });
+    }
+  }
+
+  // "if an opponent controls no X" / "if no opponent controls a/an X"
+  {
+    const m1 = clause.match(/^if\s+an\s+opponent\s+controls\s+no\s+([a-z0-9\-\s']+)$/i);
+    if (m1) {
+      const noun = String(m1[1] || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const nounToken = noun.endsWith('s') ? noun.slice(0, -1) : noun;
+      const opps = getOpponentIds(ctx, controllerId);
+      if (!opps.length) return true;
+      return opps.every((oid) => countByPermanentType(ctx, oid, nounToken) === 0);
+    }
+
+    const m2 = clause.match(/^if\s+no\s+opponent\s+controls\s+an?\s+([a-z0-9\-\s']+)$/i);
+    if (m2) {
+      const noun = String(m2[1] || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const nounToken = noun.endsWith('s') ? noun.slice(0, -1) : noun;
+      const opps = getOpponentIds(ctx, controllerId);
+      if (!opps.length) return true;
+      return opps.every((oid) => countByPermanentType(ctx, oid, nounToken) === 0);
     }
   }
 
@@ -1178,8 +2218,15 @@ export function evaluateInterveningIfClause(
     const m = clause.match(/^if\s+you\s+control\s+(?:a|an)\s+([a-z0-9\-\s']+)$/i);
     if (m) {
       const nounRaw = m[1].trim().replace(/\s+/g, " ");
+      const nounLower = nounRaw.toLowerCase();
+
+      // Let the more-specific templates handle these.
+      if (nounLower.startsWith('untapped ') || nounLower.startsWith('tapped ') || nounLower.includes('with power ')) {
+        // fall through
+      } else {
       const noun = nounRaw.endsWith("s") ? nounRaw.slice(0, -1) : nounRaw;
       return countByPermanentType(ctx, controllerId, noun) >= 1;
+      }
     }
   }
 
@@ -1210,6 +2257,50 @@ export function evaluateInterveningIfClause(
   // "if you control at least N X"
   {
     const m = clause.match(/^if\s+you\s+control\s+at\s+least\s+([a-z0-9]+)\s+([a-z0-9\-\s']+)$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const subjectRaw = m[2].trim().replace(/\s+/g, " ");
+
+      const landSubtype = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      if (["plain", "island", "swamp", "mountain", "forest"].includes(landSubtype)) {
+        const subtypeLookup = landSubtype === "plain" ? "plains" : `${landSubtype}s`;
+        return countLandsWithSubtype(ctx, controllerId, subtypeLookup) >= n;
+      }
+
+      if (subjectRaw === "basic lands") return countBasicLands(ctx, controllerId) >= n;
+
+      const typeToken = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      return countByPermanentType(ctx, controllerId, typeToken) >= n;
+    }
+  }
+
+  // "if you control at most N X" / "if you control no more than N X"
+  {
+    const m = clause.match(
+      /^if\s+you\s+control\s+(?:at\s+most|no\s+more\s+than)\s+([a-z0-9]+)\s+([a-z0-9\-\s']+)$/i
+    );
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const subjectRaw = m[2].trim().replace(/\s+/g, " ");
+
+      const landSubtype = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      if (["plain", "island", "swamp", "mountain", "forest"].includes(landSubtype)) {
+        const subtypeLookup = landSubtype === "plain" ? "plains" : `${landSubtype}s`;
+        return countLandsWithSubtype(ctx, controllerId, subtypeLookup) <= n;
+      }
+
+      if (subjectRaw === "basic lands") return countBasicLands(ctx, controllerId) <= n;
+
+      const typeToken = subjectRaw.endsWith("s") ? subjectRaw.slice(0, -1) : subjectRaw;
+      return countByPermanentType(ctx, controllerId, typeToken) <= n;
+    }
+  }
+
+  // "if you control no fewer/less than N X"
+  {
+    const m = clause.match(/^if\s+you\s+control\s+no\s+(?:fewer|less)\s+than\s+([a-z0-9]+)\s+([a-z0-9\-\s']+)$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
@@ -1280,9 +2371,29 @@ export function evaluateInterveningIfClause(
     }
   }
 
+  // "if you have at least N life" / "if you have no fewer/less than N life"
+  {
+    const m = clause.match(/^if\s+you\s+have\s+(?:at\s+least|no\s+(?:fewer|less)\s+than)\s+([a-z0-9]+)\s+life$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return getPlayerLife(ctx, controllerId) >= n;
+    }
+  }
+
   // "if you have N or less/fewer life"
   {
     const m = clause.match(/^if\s+you\s+have\s+([a-z0-9]+)\s+or\s+(?:less|fewer)\s+life$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return getPlayerLife(ctx, controllerId) <= n;
+    }
+  }
+
+  // "if you have at most N life" / "if you have no more than N life"
+  {
+    const m = clause.match(/^if\s+you\s+have\s+(?:at\s+most|no\s+more\s+than)\s+([a-z0-9]+)\s+life$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
@@ -1335,6 +2446,18 @@ export function evaluateInterveningIfClause(
     }
   }
 
+  // "if you have at least N cards in hand" / "if you have no fewer/less than N cards in hand"
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+(?:at\s+least|no\s+(?:fewer|less)\s+than)\s+([a-z0-9]+)\s+cards?\s+in\s+hand$/i
+    );
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return getHandCount(ctx, controllerId) >= n;
+    }
+  }
+
   // "if you have N or fewer/less cards in hand"
   {
     const m = clause.match(/^if\s+you\s+have\s+([a-z0-9]+)\s+or\s+(?:fewer|less)\s+cards\s+in\s+hand$/i);
@@ -1342,6 +2465,36 @@ export function evaluateInterveningIfClause(
       const n = parseCountToken(m[1]);
       if (n === null) return null;
       return getHandCount(ctx, controllerId) <= n;
+    }
+  }
+
+  // "if you have at most N cards in hand" / "if you have no more than N cards in hand"
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+(?:at\s+most|no\s+more\s+than)\s+([a-z0-9]+)\s+cards?\s+in\s+hand$/i
+    );
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return getHandCount(ctx, controllerId) <= n;
+    }
+  }
+
+  // "if you have at least/at most/no more than/no fewer than N cards in (your) graveyard/library"
+  {
+    const m = clause.match(
+      /^if\s+you\s+have\s+(at\s+least|at\s+most|no\s+more\s+than|no\s+(?:fewer|less)\s+than)\s+([a-z0-9]+)\s+cards?\s+in\s+(?:your\s+)?(graveyard|library)$/i
+    );
+    if (m) {
+      const cmpRaw = m[1].toLowerCase().replace(/\s+/g, ' ');
+      const n = parseCountToken(m[2]);
+      if (n === null) return null;
+      const zone = m[3].toLowerCase();
+
+      const count = zone === 'graveyard' ? getGraveyardCount(ctx, controllerId) : getLibraryCount(ctx, controllerId);
+
+      if (cmpRaw === 'at least' || cmpRaw.startsWith('no fewer') || cmpRaw.startsWith('no less')) return count >= n;
+      return count <= n;
     }
   }
 
@@ -1358,6 +2511,27 @@ export function evaluateInterveningIfClause(
   // "if you've cast another spell this turn"
   if (/^if\s+you'?ve\s+cast\s+another\s+spell\s+this\s+turn$/i.test(clause)) {
     return getSpellsCastThisTurnByPlayerCount(ctx, controllerId) >= 2;
+  }
+
+  // "if you've cast a spell this turn" / "if you cast a spell this turn"
+  if (
+    /^if\s+you'?ve\s+cast\s+a\s+spell\s+this\s+turn$/i.test(clause) ||
+    /^if\s+you\s+cast\s+a\s+spell\s+this\s+turn$/i.test(clause)
+  ) {
+    return getSpellsCastThisTurnByPlayerCount(ctx, controllerId) >= 1;
+  }
+
+  // "if you cast two or more spells this turn"
+  if (/^if\s+you\s+cast\s+two\s+or\s+more\s+spells\s+this\s+turn$/i.test(clause)) {
+    return getSpellsCastThisTurnByPlayerCount(ctx, controllerId) >= 2;
+  }
+
+  // "if you didn't cast a spell this turn" / "if you cast no spells this turn"
+  if (
+    /^if\s+you\s+(?:did\s+not|didn't)\s+cast\s+a\s+spell\s+this\s+turn$/i.test(clause) ||
+    /^if\s+you\s+cast\s+no\s+spells\s+this\s+turn$/i.test(clause)
+  ) {
+    return getSpellsCastThisTurnByPlayerCount(ctx, controllerId) === 0;
   }
 
   // "if no spells were cast this turn"
@@ -1400,6 +2574,26 @@ export function evaluateInterveningIfClause(
     return false;
   }
 
+  // "if you cast two or more spells last turn"
+  if (/^if\s+you\s+cast\s+two\s+or\s+more\s+spells\s+last\s+turn$/i.test(clause)) {
+    const counts = getSpellsCastLastTurnByPlayerCounts(ctx);
+    if (!counts) return null;
+    const n = typeof counts[controllerId] === 'number' ? counts[controllerId] : 0;
+    return n >= 2;
+  }
+
+  // "if you cast no spells last turn"
+  if (/^if\s+you\s+cast\s+no\s+spells\s+last\s+turn$/i.test(clause)) {
+    const counts = getSpellsCastLastTurnByPlayerCounts(ctx);
+    if (counts) {
+      const n = typeof counts[controllerId] === 'number' ? counts[controllerId] : 0;
+      return n === 0;
+    }
+
+    const last = getSpellsCastLastTurnCount(ctx);
+    return last === null ? null : last === 0;
+  }
+
   // Delirium: "if there are four or more card types among cards in your graveyard"
   if (/^if\s+there\s+are\s+four\s+or\s+more\s+card\s+types\s+among\s+cards\s+in\s+your\s+graveyard$/i.test(clause)) {
     return countCardTypesInGraveyard(ctx, controllerId) >= 4;
@@ -1412,6 +2606,14 @@ export function evaluateInterveningIfClause(
 
   // Keyword shorthand: hellbent
   if (/^if\s+you\s+have\s+hellbent$/i.test(clause)) {
+    return getHandCount(ctx, controllerId) === 0;
+  }
+
+  // Hand empty variants
+  if (
+    /^if\s+you\s+have\s+no\s+cards\s+in\s+your\s+hand$/i.test(clause) ||
+    /^if\s+you\s+have\s+no\s+cards\s+in\s+hand$/i.test(clause)
+  ) {
     return getHandCount(ctx, controllerId) === 0;
   }
 
@@ -1428,6 +2630,15 @@ export function evaluateInterveningIfClause(
   // Threshold template: "If seven or more cards are in your graveyard"
   if (/^if\s+seven\s+or\s+more\s+cards?\s+are\s+in\s+your\s+graveyard$/i.test(clause)) {
     return getGraveyardCount(ctx, controllerId) >= 7;
+  }
+
+  // Graveyard empty variants
+  if (
+    /^if\s+you\s+have\s+no\s+cards\s+in\s+your\s+graveyard$/i.test(clause) ||
+    /^if\s+you\s+have\s+no\s+cards\s+in\s+graveyard$/i.test(clause) ||
+    /^if\s+your\s+graveyard\s+is\s+empty$/i.test(clause)
+  ) {
+    return getGraveyardCount(ctx, controllerId) === 0;
   }
 
   // Graveyard count templates: "If you have N or more/fewer cards in your graveyard" / "If there are N or more/fewer cards in your graveyard"

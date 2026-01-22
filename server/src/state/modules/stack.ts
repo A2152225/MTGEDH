@@ -47,6 +47,7 @@ import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } f
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
+import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
 
 /**
  * Mapping of irregular plural creature types to their singular forms.
@@ -74,16 +75,6 @@ const WORD_TO_NUMBER: Record<string, number> = {
   'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
   'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
 };
-
-function setDayNightState(state: any, next: 'day' | 'night'): void {
-  if (!state) return;
-  const prev = state.dayNight;
-  if (prev === next) return;
-  state.dayNight = next;
-  state.dayNightChangedThisTurn = true;
-  state.dayNightChangedFrom = prev;
-  state.dayNightChangedTo = next;
-}
 
 function applyExplicitDayNightChangeFromText(state: any, rawText: string): void {
   if (!state || !rawText) return;
@@ -1209,13 +1200,21 @@ export function triggerETBEffectsForPermanent(
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
 
-  // Day/Night (701.26): if a daybound/nightbound permanent enters and it's neither day nor night, it becomes day.
+  // Day/Night: ensure the game gains a designation when a daybound/nightbound permanent is present.
+  try {
+    ensureInitialDayNightDesignationFromBattlefield(state as any);
+  } catch {}
+
+  // Daybound replacement effect: if it's night, daybound permanents enter transformed.
   try {
     const dn = (state as any).dayNight;
-    if (dn !== 'day' && dn !== 'night') {
-      const oracle = String(permanent?.card?.oracle_text || '').toLowerCase();
-      if (oracle.includes('daybound') || oracle.includes('nightbound')) {
-        setDayNightState(state as any, 'day');
+    if (dn === 'night') {
+      const card: any = permanent?.card;
+      const oracle = String(card?.oracle_text || '').toLowerCase();
+      const layout = card?.layout;
+      if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(card?.card_faces) && oracle.includes('daybound')) {
+        // Apply transforms for the current designation (this will flip eligible daybound permanents).
+        applyDayNightTransforms(state as any);
       }
     }
   } catch {}
