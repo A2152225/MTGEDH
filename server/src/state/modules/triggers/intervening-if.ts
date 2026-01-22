@@ -150,6 +150,17 @@ function countCreatureCardsInGraveyard(ctx: GameContext, playerId: string): numb
   return getGraveyard(ctx, playerId).filter((c: any) => String(c?.type_line || '').toLowerCase().includes('creature')).length;
 }
 
+function isPermanentCard(card: any): boolean {
+  const tl = String(card?.type_line || '').toLowerCase();
+  if (!tl) return false;
+  // Permanent cards are everything except instants/sorceries.
+  return !tl.includes('instant') && !tl.includes('sorcery');
+}
+
+function countPermanentCardsInGraveyard(ctx: GameContext, playerId: string): number {
+  return getGraveyard(ctx, playerId).filter((c: any) => isPermanentCard(c)).length;
+}
+
 function isPermanentModified(ctx: GameContext, perm: any): boolean {
   if (!perm) return false;
   const counters = perm?.counters;
@@ -528,14 +539,22 @@ export function extractInterveningIfClause(text: string): string | null {
  * Returns:
  * - `true`  => condition recognized and satisfied
  * - `false` => condition recognized and NOT satisfied
- * - `null`  => condition not recognized (caller should conservatively treat as "unknown")
+ * - `null`  => condition recognized but cannot be evaluated from current tracked state
  */
-export function evaluateInterveningIfClause(
+const UNMATCHED_INTERVENING_IF = Symbol('intervening-if:unmatched');
+type InterveningIfInternalResult = boolean | null | typeof UNMATCHED_INTERVENING_IF;
+
+export type InterveningIfEvaluation = {
+  matched: boolean;
+  value: boolean | null;
+};
+
+function evaluateInterveningIfClauseInternal(
   ctx: GameContext,
   controllerId: string,
   clauseText: string,
   sourcePermanent?: any
-): boolean | null {
+): InterveningIfInternalResult {
   const clause = toLower(clauseText);
 
   // ===== Day / Night (when state provides it) =====
@@ -588,7 +607,7 @@ export function evaluateInterveningIfClause(
       }
       if (typeof neither !== 'boolean') return null;
       if (!neither) return false;
-      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+      return evaluateInterveningIfClauseInternal(ctx, controllerId, `if ${rest}`, sourcePermanent);
     }
   }
 
@@ -611,7 +630,7 @@ export function evaluateInterveningIfClause(
       }
 
       // Evaluate the remainder as another intervening-if clause.
-      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+      return evaluateInterveningIfClauseInternal(ctx, controllerId, `if ${rest}`, sourcePermanent);
     }
   }
 
@@ -630,7 +649,7 @@ export function evaluateInterveningIfClause(
       const ok = String(changedTo).toLowerCase() === which;
       if (!rest) return ok;
       if (!ok) return false;
-      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+      return evaluateInterveningIfClauseInternal(ctx, controllerId, `if ${rest}`, sourcePermanent);
     }
   }
   {
@@ -648,7 +667,7 @@ export function evaluateInterveningIfClause(
       const ok = String(changedTo).toLowerCase() === which;
       if (!rest) return ok;
       if (!ok) return false;
-      return evaluateInterveningIfClause(ctx, controllerId, `if ${rest}`, sourcePermanent);
+      return evaluateInterveningIfClauseInternal(ctx, controllerId, `if ${rest}`, sourcePermanent);
     }
   }
 
@@ -704,6 +723,16 @@ export function evaluateInterveningIfClause(
       if (n === null) return null;
       return getLifeGainedThisTurn(ctx, controllerId) >= n;
     }
+  }
+
+  // "...if you gained life this turn..."
+  if (/^if\s+you(?:'ve|\s+have)?\s+gained\s+life\s+this\s+turn$/i.test(clause)) {
+    return getLifeGainedThisTurn(ctx, controllerId) > 0;
+  }
+
+  // "...if you lost life this turn..."
+  if (/^if\s+you(?:'ve|\s+have)?\s+lost\s+life\s+this\s+turn$/i.test(clause)) {
+    return getLifeLostThisTurn(ctx, controllerId) > 0;
   }
 
   // "...if an opponent lost life this turn..." (Theater of Horrors/Florian-style)
@@ -1703,6 +1732,11 @@ export function evaluateInterveningIfClause(
     return didPermanentLeaveBattlefieldThisTurn(ctx, controllerId);
   }
 
+  // Alternate Revolt phrasing: "if a permanent left the battlefield under your control this turn"
+  if (/^if\s+(?:one\s+or\s+more\s+)?a\s+permanent\s+left\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
+    return didPermanentLeaveBattlefieldThisTurn(ctx, controllerId);
+  }
+
   // "if you attacked with N or more creatures this turn" (Planechase and similar)
   {
     const m = clause.match(/^if\s+you\s+attacked\s+with\s+([a-z0-9]+)\s+or\s+more\s+creatures\s+this\s+turn$/i);
@@ -1730,7 +1764,53 @@ export function evaluateInterveningIfClause(
     }
   }
 
+  // "if there are N or more permanent cards in your graveyard"
+  {
+    const m = clause.match(/^if\s+there\s+are\s+([a-z0-9]+)\s+or\s+more\s+permanent\s+cards\s+in\s+your\s+graveyard$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return countPermanentCardsInGraveyard(ctx, controllerId) >= n;
+    }
+  }
+
+  // "if you have N or more permanent cards in your graveyard"
+  {
+    const m = clause.match(/^if\s+you\s+have\s+([a-z0-9]+)\s+or\s+more\s+permanent\s+cards\s+in\s+your\s+graveyard$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return countPermanentCardsInGraveyard(ctx, controllerId) >= n;
+    }
+  }
+
   // ===== Cast-modification flags (kicker/foretell etc.) =====
+  // "if you cast it" / "if you cast this spell" (often on ETB triggers)
+  if (/^if\s+you\s+cast\s+(?:it|this\s+spell)$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const direct = (sourcePermanent as any)?.enteredFromCast ?? (sourcePermanent as any)?.wasCast ?? (sourcePermanent as any)?.card?.enteredFromCast ?? (sourcePermanent as any)?.card?.wasCast;
+    if (typeof direct === 'boolean') return direct;
+    // If we at least know the source zone of the cast, that's enough to conclude it was cast.
+    const sourceZone = (sourcePermanent as any)?.castSourceZone ?? (sourcePermanent as any)?.source ?? (sourcePermanent as any)?.card?.castSourceZone ?? (sourcePermanent as any)?.card?.source;
+    if (typeof sourceZone === 'string' && sourceZone.length > 0) return true;
+    const fromHand = (sourcePermanent as any)?.castFromHand ?? (sourcePermanent as any)?.card?.castFromHand;
+    if (typeof fromHand === 'boolean') return true;
+    return null;
+  }
+
+  // "if you cast it from your hand" / "if this spell was cast from your hand"
+  if (
+    /^if\s+you\s+cast\s+it\s+from\s+your\s+hand$/i.test(clause) ||
+    /^if\s+this\s+spell\s+was\s+cast\s+from\s+your\s+hand$/i.test(clause)
+  ) {
+    if (!sourcePermanent) return null;
+    const fromHand = (sourcePermanent as any)?.castFromHand ?? (sourcePermanent as any)?.card?.castFromHand;
+    if (typeof fromHand === 'boolean') return fromHand;
+    const sourceZone = (sourcePermanent as any)?.castSourceZone ?? (sourcePermanent as any)?.source ?? (sourcePermanent as any)?.card?.castSourceZone ?? (sourcePermanent as any)?.card?.source;
+    if (typeof sourceZone === 'string') return String(sourceZone).toLowerCase() === 'hand';
+    return null;
+  }
+
   // "if it was kicked"
   if (/^if\s+it\s+was\s+kicked$/i.test(clause)) {
     if (!sourcePermanent) return null;
@@ -1887,12 +1967,62 @@ export function evaluateInterveningIfClause(
     return sourcePermanent.tapped === true;
   }
 
+  if (/^if\s+it\s+is\s+untapped$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.tapped !== true;
+  }
+
+  if (/^if\s+this\s+(?:permanent|creature|artifact|enchantment|land|planeswalker|battle)\s+is\s+tapped$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.tapped === true;
+  }
+
+  if (/^if\s+this\s+(?:permanent|creature|artifact|enchantment|land|planeswalker|battle)\s+is\s+untapped$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.tapped !== true;
+  }
+
   if (
     /^if\s+it\s+isn'?t\s+tapped$/i.test(clause) ||
     /^if\s+it\s+is\s+not\s+tapped$/i.test(clause)
   ) {
     if (!sourcePermanent) return null;
     return sourcePermanent.tapped !== true;
+  }
+
+  if (
+    /^if\s+this\s+(?:permanent|creature|artifact|enchantment|land|planeswalker|battle)\s+isn'?t\s+tapped$/i.test(clause) ||
+    /^if\s+this\s+(?:permanent|creature|artifact|enchantment|land|planeswalker|battle)\s+is\s+not\s+tapped$/i.test(clause)
+  ) {
+    if (!sourcePermanent) return null;
+    return sourcePermanent.tapped !== true;
+  }
+
+  // "if this permanent is an enchantment" (and similar type checks)
+  {
+    const m = clause.match(/^if\s+this\s+(?:permanent|creature|artifact|enchantment|land|planeswalker|battle)\s+is\s+an?\s+(artifact|creature|enchantment|land|planeswalker|battle)$/i);
+    if (m) {
+      if (!sourcePermanent) return null;
+      const want = String(m[1] || '').toLowerCase();
+      const tl = String(sourcePermanent?.card?.type_line || '').toLowerCase();
+      if (!tl) return null;
+      return tl.includes(want);
+    }
+  }
+
+  // "if tribute was(n't) paid" (recognized; best-effort when the state tracks it)
+  if (/^if\s+tribute\s+was\s+paid$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const v = (sourcePermanent as any)?.tributePaid ?? (sourcePermanent as any)?.tributeWasPaid ?? (sourcePermanent as any)?.card?.tributePaid ?? (sourcePermanent as any)?.card?.tributeWasPaid;
+    if (typeof v === 'boolean') return v;
+    return null;
+  }
+
+  if (/^if\s+tribute\s+wasn'?t\s+paid$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const v = (sourcePermanent as any)?.tributePaid ?? (sourcePermanent as any)?.tributeWasPaid ?? (sourcePermanent as any)?.card?.tributePaid ?? (sourcePermanent as any)?.card?.tributeWasPaid;
+    if (typeof v === 'boolean') return !v;
+    return null;
   }
 
   if (/^if\s+it\s+is\s+a\s+token$/i.test(clause) || /^if\s+it'?s\s+a\s+token$/i.test(clause)) {
@@ -2848,7 +2978,28 @@ export function evaluateInterveningIfClause(
     }
   }
 
-  return null;
+  return UNMATCHED_INTERVENING_IF;
+}
+
+export function evaluateInterveningIfClause(
+  ctx: GameContext,
+  controllerId: string,
+  clauseText: string,
+  sourcePermanent?: any
+): boolean | null {
+  const v = evaluateInterveningIfClauseInternal(ctx, controllerId, clauseText, sourcePermanent);
+  return v === UNMATCHED_INTERVENING_IF ? null : v;
+}
+
+export function evaluateInterveningIfClauseDetailed(
+  ctx: GameContext,
+  controllerId: string,
+  clauseText: string,
+  sourcePermanent?: any
+): InterveningIfEvaluation {
+  const v = evaluateInterveningIfClauseInternal(ctx, controllerId, clauseText, sourcePermanent);
+  if (v === UNMATCHED_INTERVENING_IF) return { matched: false, value: null };
+  return { matched: true, value: v };
 }
 
 /**

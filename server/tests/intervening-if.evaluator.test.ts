@@ -8,6 +8,85 @@ function addPlayer(g: any, id: PlayerID, name: string) {
 }
 
 describe('Intervening-if evaluator (expanded templates)', () => {
+  it('supports cast-origin templates: "if you cast it" / "if you cast it from your hand"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_cast_origin');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const descCastIt = 'When this creature enters the battlefield, if you cast it, draw a card.';
+    const descCastFromHand = 'When this creature enters the battlefield, if you cast it from your hand, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), descCastIt, { enteredFromCast: true })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descCastIt, { enteredFromCast: false })).toBe(false);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), descCastFromHand, { castFromHand: true })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descCastFromHand, { castFromHand: false })).toBe(false);
+  });
+
+  it('supports "this <type> is tapped" templates', () => {
+    const g = createInitialGameState('t_intervening_if_eval_this_tapped');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'When this creature enters the battlefield, if this creature is tapped, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { tapped: true })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { tapped: false })).toBe(false);
+  });
+
+  it('supports explicit "untapped" wording (e.g., "if this artifact is untapped")', () => {
+    const g = createInitialGameState('t_intervening_if_eval_this_untapped');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'When this artifact enters the battlefield, if this artifact is untapped, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { tapped: false })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { tapped: true })).toBe(false);
+  });
+
+  it('supports "this permanent is an enchantment" templates', () => {
+    const g = createInitialGameState('t_intervening_if_eval_this_is_type');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'When this permanent enters the battlefield, if this permanent is an enchantment, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { type_line: 'Enchantment Creature' } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { type_line: 'Artifact Creature' } })).toBe(false);
+  });
+
+  it('supports permanent-card graveyard thresholds', () => {
+    const g = createInitialGameState('t_intervening_if_eval_gy_permanent_cards');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).zones = {
+      [p1]: {
+        graveyard: [
+          { name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          { name: 'Forest', type_line: 'Basic Land — Forest' },
+          { name: 'Pacifism', type_line: 'Enchantment — Aura' },
+          { name: 'Shock', type_line: 'Instant' },
+        ],
+        graveyardCount: 4,
+      },
+    };
+
+    const desc = 'At the beginning of your upkeep, if there are three or more permanent cards in your graveyard, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+  });
+
+  it('supports alternate Revolt phrasing: "under your control"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_revolt_under_control');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).permanentLeftBattlefieldThisTurn = { [p1]: true };
+    const desc = 'When this creature enters the battlefield, if a permanent left the battlefield under your control this turn, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).permanentLeftBattlefieldThisTurn = { [p1]: false };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
   it('supports comma-delimited upkeep template: "At the beginning of your upkeep, if no opponent has more life than you"', () => {
     const g = createInitialGameState('t_intervening_if_eval_life_no_opp_more');
     const p1 = 'p1' as PlayerID;
@@ -1508,8 +1587,15 @@ describe('Intervening-if evaluator (expanded templates)', () => {
 
     (g.state as any).lifeGainedThisTurn = { [p1]: 3 };
     expect(isInterveningIfSatisfied(g as any, String(p1), 'If you gained three or more life this turn, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you gained life this turn, draw a card.')).toBe(true);
     (g.state as any).lifeGainedThisTurn = { [p1]: 2 };
     expect(isInterveningIfSatisfied(g as any, String(p1), 'If you have gained three or more life this turn, draw a card.')).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), "If you've gained life this turn, draw a card.")).toBe(true);
+
+    (g.state as any).lifeLostThisTurn = { [p1]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you lost life this turn, draw a card.')).toBe(false);
+    (g.state as any).lifeLostThisTurn = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you lost life this turn, draw a card.')).toBe(true);
 
     (g.state as any).lifeLostThisTurn = { [p2]: 1 };
     expect(isInterveningIfSatisfied(g as any, String(p1), 'If an opponent lost life this turn, exile the top card of your library.')).toBe(true);

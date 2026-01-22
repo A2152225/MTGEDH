@@ -6,6 +6,8 @@
   "main": "src/index.ts",
   "scripts": {
       "blight:audit": "node --enable-source-maps --import tsx/esm scripts/blight-audit.ts",
+    "intervening-if:audit": "node --enable-source-maps --import tsx/esm scripts/intervening-if-audit.ts",
+    "intervening-if:categorize": "node --enable-source-maps --import tsx/esm scripts/intervening-if-categorize.ts",
     "dev": "tsx watch --watch-path=src src/index.ts",
     "dev:noreload": "npm run start",
     "start": "node --enable-source-maps --import tsx/esm src/index.ts",
