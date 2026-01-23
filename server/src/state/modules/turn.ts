@@ -2095,6 +2095,12 @@ export function nextTurn(ctx: GameContext) {
       debug(2, `${ts()} [nextTurn] Cleared noncreatureSpellsCastThisTurn for new turn`);
     }
 
+    // Clear spells cast from hand this turn counter (for intervening-if templates)
+    if ((ctx as any).state.spellsCastFromHandThisTurn) {
+      (ctx as any).state.spellsCastFromHandThisTurn = {};
+      debug(2, `${ts()} [nextTurn] Cleared spellsCastFromHandThisTurn for new turn`);
+    }
+
     // Clear spells cast this turn list (for Storm and "if N or more spells were cast this turn" templates)
     if ((ctx as any).state.spellsCastThisTurn) {
       // Preserve minimal last-turn history for common oracle checks like

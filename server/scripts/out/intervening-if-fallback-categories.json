@@ -1,0 +1,225 @@
+{
+  "meta": {
+    "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
+    "generatedAt": "2026-01-23T00:03:35.854Z",
+    "cardNameCount": 33331,
+    "printingsCount": 34191,
+    "totalInterveningIfClausesFound": 705,
+    "recognizedCount": 690,
+    "fallbackCount": 15,
+    "unknownCount": 0
+  },
+  "groupCount": 15,
+  "groups": [
+    {
+      "signature": "if sarulf has <N> or more +1/+1 counters on it",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if sarulf has one or more +1/+1 counters on it",
+          "count": 1,
+          "exampleCards": [
+            "Sarulf, Realm Eater"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if that creature is 1/1",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if that creature is 1/1",
+          "count": 1,
+          "exampleCards": [
+            "Sigil Captain"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if that spell's mana cost or that ability's activation cost contains {x}",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if that spell's mana cost or that ability's activation cost contains {x}",
+          "count": 1,
+          "exampleCards": [
+            "Unbound Flourishing"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if there are <N> or more instant and/or sorcery cards among cards in your graveyard",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if there are twenty or more instant and/or sorcery cards among cards in your graveyard",
+          "count": 1,
+          "exampleCards": [
+            "Frenzied Geistblaster"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if there are <N> or more instant and/or sorcery cards in your graveyard",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if there are three or more instant and/or sorcery cards in your graveyard",
+          "count": 1,
+          "exampleCards": [
+            "Curious Homunculus // Voracious Reader"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if there is an elf card in your graveyard and this creature has a -1/-1 counter on it",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if there is an elf card in your graveyard and this creature has a -1/-1 counter on it",
+          "count": 1,
+          "exampleCards": [
+            "Creakwood Safewright"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if this creature doesn't have a +1/+1 counter on it",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if this creature doesn't have a +1/+1 counter on it",
+          "count": 1,
+          "exampleCards": [
+            "Shatterskull Charger"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if this creature has <N> or more +1/+1 counters on it",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if this creature has one or more +1/+1 counters on it",
+          "count": 1,
+          "exampleCards": [
+            "Ingenious Prodigy"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if this creature has fewer than <N> +1/+1 counters on it",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if this creature has fewer than three +1/+1 counters on it",
+          "count": 1,
+          "exampleCards": [
+            "Runaway Steam-Kin"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if you cast them and there are <N> or more dragon and/or lesson cards in your graveyard",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if you cast them and there are three or more dragon and/or lesson cards in your graveyard",
+          "count": 1,
+          "exampleCards": [
+            "Ran and Shaw"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if you control <N> or more snakes and/or serpents",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if you control five or more snakes and/or serpents",
+          "count": 1,
+          "exampleCards": [
+            "The Cobra King"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if you control <N> or more wolves and/or werewolves",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if you control three or more wolves and/or werewolves",
+          "count": 1,
+          "exampleCards": [
+            "Tovolar, Dire Overlord // Tovolar, the Midnight Scourge"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if you control a creature with a +1/+1 counter on it",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if you control a creature with a +1/+1 counter on it",
+          "count": 1,
+          "exampleCards": [
+            "Foundry Hornet"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if you control another creature with a +1/+1 counter on it",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if you control another creature with a +1/+1 counter on it",
+          "count": 1,
+          "exampleCards": [
+            "Zegana, Utopian Speaker"
+          ]
+        }
+      ]
+    },
+    {
+      "signature": "if you have an {e}",
+      "totalCount": 1,
+      "clauseCount": 1,
+      "examples": [
+        {
+          "clause": "if you have an {e}",
+          "count": 1,
+          "exampleCards": [
+            "Wowzer, the Aspirational"
+          ]
+        }
+      ]
+    }
+  ]
+}

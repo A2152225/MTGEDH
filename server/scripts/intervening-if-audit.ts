@@ -17,7 +17,7 @@ type ClauseStats = {
   clauseLower: string;
   count: number;
   exampleCards: string[];
-  evaluation: 'recognized' | 'unknown';
+  evaluation: 'recognized' | 'fallback' | 'unknown';
   sampleResult?: boolean;
 };
 
@@ -250,12 +250,18 @@ async function main(): Promise<void> {
   for (const [clauseLower, data] of byClause.entries()) {
     const detailed = evaluateInterveningIfClauseDetailed(probeCtx, controllerId, data.clause, probeSource);
 
+    const evaluation: ClauseStats['evaluation'] = detailed.matched
+      ? detailed.fallback
+        ? 'fallback'
+        : 'recognized'
+      : 'unknown';
+
     clauses.push({
       clause: data.clause,
       clauseLower,
       count: data.count,
       exampleCards: Array.from(data.exampleCards),
-      evaluation: detailed.matched ? 'recognized' : 'unknown',
+      evaluation,
       sampleResult: detailed.matched && detailed.value !== null ? detailed.value : undefined,
     });
   }
@@ -263,6 +269,7 @@ async function main(): Promise<void> {
   clauses.sort((a, b) => b.count - a.count || a.clauseLower.localeCompare(b.clauseLower));
 
   const unknown = clauses.filter((c) => c.evaluation === 'unknown');
+  const fallback = clauses.filter((c) => c.evaluation === 'fallback');
   const recognized = clauses.filter((c) => c.evaluation === 'recognized');
 
   const report = {
@@ -273,11 +280,14 @@ async function main(): Promise<void> {
       printingsCount,
       totalInterveningIfClausesFound: clauses.length,
       recognizedCount: recognized.length,
+      fallbackCount: fallback.length,
       unknownCount: unknown.length,
     },
     recognized,
+    fallback,
     unknown,
     topRecognized: recognized.slice(0, 200),
+    topFallback: fallback.slice(0, 200),
     topUnknown: unknown.slice(0, 400),
   };
 
@@ -288,6 +298,7 @@ async function main(): Promise<void> {
   console.log(`Scanned printings: ${printingsCount}`);
   console.log(`Unique intervening-if clauses: ${clauses.length}`);
   console.log(`Recognized by evaluator (probe): ${recognized.length}`);
+  console.log(`Matched by fallback (probe): ${fallback.length}`);
   console.log(`Unknown (probe): ${unknown.length}`);
   console.log(`Wrote report: ${outJson}`);
 }

@@ -523,6 +523,12 @@ export interface GameState {
    * Reset at the start of each turn.
    */
   spellsCastThisTurn?: any[];
+  /**
+   * Tracks spells cast from hand per player per turn.
+   * Used by some intervening-if templates like "if you haven't cast a spell from your hand this turn".
+   * Reset at the start of each turn.
+   */
+  spellsCastFromHandThisTurn?: Record<PlayerID, number>;
   /** Pending library search prompts keyed by player */
   /**
    * Control change effects for temporary "gain control" effects.

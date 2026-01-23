@@ -13,8 +13,10 @@ type ClauseStats = {
 type AuditReport = {
   meta: any;
   recognized?: ClauseStats[];
+  fallback?: ClauseStats[];
   unknown?: ClauseStats[];
   topRecognized?: ClauseStats[];
+  topFallback?: ClauseStats[];
   topUnknown?: ClauseStats[];
 };
 
@@ -91,8 +93,11 @@ function signatureFor(clauseLower: string): string {
 }
 
 async function main(): Promise<void> {
-  const auditPath = process.argv[2]
-    ? path.resolve(process.argv[2])
+  const args = process.argv.slice(2);
+  const categorizeFallback = args.includes('--fallback');
+  const maybePath = args.find((a) => a && !a.startsWith('-'));
+  const auditPath = maybePath
+    ? path.resolve(maybePath)
     : path.resolve(process.cwd(), 'scripts', 'out', 'intervening-if-audit.json');
 
   if (!fs.existsSync(auditPath)) {
@@ -101,7 +106,13 @@ async function main(): Promise<void> {
   }
 
   const report = JSON.parse(fs.readFileSync(auditPath, 'utf8')) as AuditReport;
-  const unknown = Array.isArray(report.unknown) ? report.unknown : [];
+  const rows = categorizeFallback
+    ? Array.isArray(report.fallback)
+      ? report.fallback
+      : []
+    : Array.isArray(report.unknown)
+      ? report.unknown
+      : [];
 
   const buckets = new Map<
     string,
@@ -113,7 +124,7 @@ async function main(): Promise<void> {
     }
   >();
 
-  for (const entry of unknown) {
+  for (const entry of rows) {
     const sig = signatureFor(entry.clauseLower);
     const b = buckets.get(sig);
     if (!b) {
@@ -139,14 +150,14 @@ async function main(): Promise<void> {
   const outDir = path.resolve(process.cwd(), 'scripts', 'out');
   fs.mkdirSync(outDir, { recursive: true });
 
-  const outJson = path.resolve(outDir, 'intervening-if-categories.json');
+  const outJson = path.resolve(outDir, categorizeFallback ? 'intervening-if-fallback-categories.json' : 'intervening-if-categories.json');
   fs.writeFileSync(outJson, JSON.stringify({ meta: report.meta, groupCount: groups.length, groups }, null, 2), 'utf8');
 
   const topLines: string[] = [];
-  topLines.push(`# Intervening-if unknown clause categories`);
+  topLines.push(categorizeFallback ? `# Intervening-if fallback clause categories` : `# Intervening-if unknown clause categories`);
   topLines.push('');
   topLines.push(`- Generated: ${new Date().toISOString()}`);
-  topLines.push(`- Unknown clauses: ${unknown.length}`);
+  topLines.push(categorizeFallback ? `- Fallback clauses: ${rows.length}` : `- Unknown clauses: ${rows.length}`);
   topLines.push(`- Category groups: ${groups.length}`);
   topLines.push('');
 
@@ -161,10 +172,10 @@ async function main(): Promise<void> {
     topLines.push('');
   }
 
-  const outMd = path.resolve(outDir, 'intervening-if-categories.md');
+  const outMd = path.resolve(outDir, categorizeFallback ? 'intervening-if-fallback-categories.md' : 'intervening-if-categories.md');
   fs.writeFileSync(outMd, topLines.join('\n'), 'utf8');
 
-  console.log(`Unknown clauses: ${unknown.length}`);
+  console.log(categorizeFallback ? `Fallback clauses: ${rows.length}` : `Unknown clauses: ${rows.length}`);
   console.log(`Category groups: ${groups.length}`);
   console.log(`Wrote: ${outJson}`);
   console.log(`Wrote: ${outMd}`);

@@ -87,6 +87,110 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
   });
 
+  it('supports "+1/+1 counter on this creature" templates', () => {
+    const g = createInitialGameState('t_intervening_if_eval_this_counters');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const descAtLeastOne = 'When this creature enters the battlefield, if this creature has one or more +1/+1 counters on it, draw a card.';
+    const descFewerThanThree =
+      'When this creature enters the battlefield, if this creature has fewer than three +1/+1 counters on it, draw a card.';
+    const descDoesNotHave = 'When this creature enters the battlefield, if this creature doesn\'t have a +1/+1 counter on it, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), descAtLeastOne, { counters: { '+1/+1': 2 } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descAtLeastOne, { counters: { '+1/+1': 0 } })).toBe(false);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), descFewerThanThree, { counters: { '+1/+1': 2 } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descFewerThanThree, { counters: { '+1/+1': 3 } })).toBe(false);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDoesNotHave, { counters: { '+1/+1': 0 } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDoesNotHave, { counters: { '+1/+1': 1 } })).toBe(false);
+  });
+
+  it('supports instant/sorcery graveyard thresholds', () => {
+    const g = createInitialGameState('t_intervening_if_eval_gy_instants_sorceries');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).zones = {
+      [p1]: {
+        graveyard: [
+          { name: 'Shock', type_line: 'Instant' },
+          { name: 'Lightning Bolt', type_line: 'Instant' },
+          { name: 'Divination', type_line: 'Sorcery' },
+          { name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+        ],
+        graveyardCount: 4,
+      },
+    };
+
+    const descIn = 'At the beginning of your upkeep, if there are three or more instant and/or sorcery cards in your graveyard, draw a card.';
+    const descAmong =
+      'At the beginning of your upkeep, if there are three or more instant and/or sorcery cards among cards in your graveyard, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), descIn)).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descAmong)).toBe(true);
+
+    const descTwenty =
+      'At the beginning of your upkeep, if there are twenty or more instant and/or sorcery cards in your graveyard, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), descTwenty)).toBe(false);
+  });
+
+  it('supports "you control N or more <tribe> and/or <tribe>" templates', () => {
+    const g = createInitialGameState('t_intervening_if_eval_tribe_andor');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    g.state.battlefield = [
+      { id: 'c1', controller: p1, card: { type_line: 'Creature — Snake' } },
+      { id: 'c2', controller: p1, card: { type_line: 'Creature — Snake' } },
+      { id: 'c3', controller: p1, card: { type_line: 'Creature — Snake' } },
+      { id: 'c4', controller: p1, card: { type_line: 'Creature — Serpent' } },
+      { id: 'c5', controller: p1, card: { type_line: 'Creature — Serpent' } },
+    ] as any;
+
+    const desc = 'At the beginning of your upkeep, if you control five or more Snakes and/or Serpents, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    g.state.battlefield.pop();
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports energy check: "if you have an {E}"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_energy');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of your upkeep, if you have an {E}, draw a card.';
+
+    (g.state as any).energy = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).energy = { [p1]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports combined graveyard + counter check: "if there is an elf card in your graveyard and this creature has a -1/-1 counter on it"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_elf_and_counter');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).zones = {
+      [p1]: {
+        graveyard: [{ name: 'Elvish Mystic', type_line: 'Creature — Elf Druid' }],
+        graveyardCount: 1,
+      },
+    };
+
+    const desc =
+      'At the beginning of your upkeep, if there is an elf card in your graveyard and this creature has a -1/-1 counter on it, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { counters: { '-1/-1': 1 } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { counters: { '-1/-1': 0 } })).toBe(false);
+
+    (g.state as any).zones = { [p1]: { graveyard: [{ name: 'Shock', type_line: 'Instant' }], graveyardCount: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { counters: { '-1/-1': 1 } })).toBe(false);
+  });
+
   it('supports comma-delimited upkeep template: "At the beginning of your upkeep, if no opponent has more life than you"', () => {
     const g = createInitialGameState('t_intervening_if_eval_life_no_opp_more');
     const p1 = 'p1' as PlayerID;

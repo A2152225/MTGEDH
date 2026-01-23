@@ -5282,6 +5282,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const manaConsumption = isForceAltCostPaid
         ? { consumed: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
         : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+
+      const manaSpentTotal = Object.values(manaConsumption.consumed).reduce((sum, v) => sum + (typeof v === 'number' ? v : 0), 0);
       
       // Calculate converge value (number of different mana colors spent)
       // This is used by cards like Bring to Light, Radiant Flames, etc.
@@ -5379,8 +5381,19 @@ export function registerGameActions(io: Server, socket: Socket) {
               (topStackItem as any).manaColorsSpent = Object.entries(manaConsumption.consumed)
                 .filter(([color, amount]) => color !== 'colorless' && amount > 0)
                 .map(([color]) => color);
+              (topStackItem as any).manaSpentTotal = manaSpentTotal;
+              (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
               debug(1, `[castSpellFromHand] Added converge data to stack item: ${convergeValue} colors (${(topStackItem as any).manaColorsSpent.join(', ')})`);
+            } else if (game.state.stack && game.state.stack.length > 0) {
+              // Still attach total-mana info for other intervening-if templates.
+              const topStackItem = game.state.stack[game.state.stack.length - 1];
+              (topStackItem as any).manaSpentTotal = manaSpentTotal;
+              (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
             }
+
+            // Track per-turn "cast from hand" (best-effort)
+            game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
+            game.state.spellsCastFromHandThisTurn[playerId] = (game.state.spellsCastFromHandThisTurn[playerId] || 0) + 1;
             
             debug(2, `[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
           } else {
@@ -5442,6 +5455,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               manaColorsSpent: convergeValue > 0 ? Object.entries(manaConsumption.consumed)
                 .filter(([color, amount]) => color !== 'colorless' && amount > 0)
                 .map(([color]) => color) : undefined,
+              manaSpentTotal,
+              manaSpentBreakdown: { ...manaConsumption.consumed },
               // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
               // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
               // Note: faceIndex is not available in this fallback path
@@ -5465,6 +5480,10 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
             
             debug(2, `[castSpellFromHand] Player ${playerId} cast ${removedCard.name} (${cardId}) via fallback`);
+
+            // Track per-turn "cast from hand" (best-effort)
+            game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
+            game.state.spellsCastFromHandThisTurn[playerId] = (game.state.spellsCastFromHandThisTurn[playerId] || 0) + 1;
           }
         }
       } catch (e) {

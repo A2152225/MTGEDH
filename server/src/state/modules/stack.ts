@@ -5611,6 +5611,16 @@ export function resolveTopOfStack(ctx: GameContext) {
       (newPermanent.card as any).manaColorsSpent = (item as any).manaColorsSpent;
     }
 
+    if (typeof (item as any).manaSpentTotal === 'number' && !Number.isNaN((item as any).manaSpentTotal) && !wasCastWithMorph) {
+      (newPermanent as any).manaSpentTotal = (item as any).manaSpentTotal;
+      (newPermanent.card as any).manaSpentTotal = (item as any).manaSpentTotal;
+    }
+
+    if ((item as any).manaSpentBreakdown && typeof (item as any).manaSpentBreakdown === 'object' && !wasCastWithMorph) {
+      (newPermanent as any).manaSpentBreakdown = (item as any).manaSpentBreakdown;
+      (newPermanent.card as any).manaSpentBreakdown = (item as any).manaSpentBreakdown;
+    }
+
     // Track cast origin (best-effort) for intervening-if clauses like "if you cast it" / "if you cast it from your hand".
     // Only set these on permanents created from resolving a stack item.
     (newPermanent as any).enteredFromCast = true;
