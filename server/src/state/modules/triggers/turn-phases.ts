@@ -178,11 +178,38 @@ export function getEndStepTriggers(
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
-      const interveningText = trigger.effect || trigger.description || '';
-      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
-      if (ok === false) continue;
-
+      const interveningText = String(trigger.effect || trigger.description || '').trim();
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
+
+      // Many trigger detectors store only the post-comma fragment (effect text). Wrap it
+      // in a synthetic trigger header so intervening-if extraction can run.
+      let synthetic = interveningText;
+      if (!/^(?:when|whenever|at)\b/i.test(synthetic)) {
+        if (
+          trigger.triggersOnOpponentEndStep ||
+          lowerOracle.includes("each opponent's end step") ||
+          lowerOracle.includes('each opponent\'s end step')
+        ) {
+          synthetic = `At the beginning of each opponent's end step, ${synthetic}`;
+        } else if (lowerOracle.includes('your end step')) {
+          synthetic = `At the beginning of your end step, ${synthetic}`;
+        } else {
+          synthetic = `At the beginning of each end step, ${synthetic}`;
+        }
+      }
+
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        trigger.controllerId || permanent.controller,
+        synthetic,
+        permanent,
+        {
+          thatPlayerId: activePlayerId,
+          referencedPlayerId: activePlayerId,
+          theirPlayerId: activePlayerId,
+        }
+      );
+      if (ok === false) continue;
       
       // Check for "each opponent's end step" triggers (Keeper of the Accord style)
       // These trigger when it's an OPPONENT's end step, not the controller's
@@ -332,11 +359,30 @@ export function getDrawStepTriggers(
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
-      const interveningText = trigger.effect || trigger.description || '';
-      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
-      if (ok === false) continue;
-
+      const interveningText = String(trigger.effect || trigger.description || '').trim();
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
+
+      let synthetic = interveningText;
+      if (!/^(?:when|whenever|at)\b/i.test(synthetic)) {
+        if (lowerOracle.includes('each player') && lowerOracle.includes('draw step')) {
+          synthetic = `At the beginning of each player's draw step, ${synthetic}`;
+        } else {
+          synthetic = `At the beginning of your draw step, ${synthetic}`;
+        }
+      }
+
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        trigger.controllerId || permanent.controller,
+        synthetic,
+        permanent,
+        {
+          thatPlayerId: activePlayerId,
+          referencedPlayerId: activePlayerId,
+          theirPlayerId: activePlayerId,
+        }
+      );
+      if (ok === false) continue;
       
       if (lowerOracle.includes('your draw step')) {
         if (permanent.controller === activePlayerId) {

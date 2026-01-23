@@ -5584,7 +5584,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand);
         for (const trigger of spellCastTriggers) {
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-          const triggerText = String(trigger.description || trigger.effect || "");
+          const raw = String(trigger.description || trigger.effect || "").trim();
+          let triggerText = raw;
+          if (triggerText && !/^(?:when|whenever|at)\b/i.test(triggerText)) {
+            triggerText = `Whenever you cast a spell, ${triggerText}`;
+          }
           const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
           const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId || playerId), triggerText, sourcePerm);
           if (ok === false) {
@@ -5717,7 +5721,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                effectLower.includes('untap target') ||
                effectLower.includes('tap target'))) {
             // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-            const triggerText = String(trigger.description || trigger.effect || "");
+            const raw = String(trigger.description || trigger.effect || "").trim();
+            let triggerText = raw;
+            if (triggerText && !/^(?:when|whenever|at)\b/i.test(triggerText)) {
+              triggerText = `Whenever you cast a spell, ${triggerText}`;
+            }
             const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
             const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(playerId), triggerText, sourcePerm);
             if (ok === false) {
@@ -5806,9 +5814,26 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         for (const trigger of opponentTriggers) {
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
-          const triggerText = String(trigger.description || (trigger as any).effect || "");
+          const raw = String(trigger.description || (trigger as any).effect || "").trim();
+          let triggerText = raw;
+          if (triggerText && !/^(?:when|whenever|at)\b/i.test(triggerText)) {
+            triggerText = `Whenever an opponent casts a spell, ${triggerText}`;
+          }
+          const casterId = String((trigger as any).casterId || playerId || '').trim();
           const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
-          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId), triggerText, sourcePerm);
+          const ok = isInterveningIfSatisfied(
+            ctxForInterveningIf,
+            String(trigger.controllerId),
+            triggerText,
+            sourcePerm,
+            casterId
+              ? {
+                  thatPlayerId: casterId,
+                  referencedPlayerId: casterId,
+                  theirPlayerId: casterId,
+                }
+              : undefined
+          );
           if (ok === false) {
             debug(2, `[castSpellFromHand] Skipping opponent spell trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
             continue;
@@ -5830,6 +5855,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             description: trigger.description,
             triggerType: trigger.triggerType,
             mandatory: trigger.mandatory,
+            // Context for resolution-time checks and pronoun binding (e.g., "that player")
+            targetPlayer: String((trigger as any).casterId || playerId || ''),
+            triggeringPlayer: String((trigger as any).casterId || playerId || ''),
             effectData: {
               casterId: trigger.casterId,
               paymentCost: trigger.paymentCost,
@@ -7086,9 +7114,35 @@ export function registerGameActions(io: Server, socket: Socket) {
         const filteredTriggers = (triggers || []).filter((t: any) => {
           try {
             const controller = String(t?.controllerId || turnPlayer || playerId || '').trim();
-            const text = String(t?.description || t?.effect || '').trim();
+            const raw = String(t?.description || t?.effect || '').trim();
+            let text = raw;
+            if (text && !/^(?:when|whenever|at)\b/i.test(text)) {
+              const tt = String(t?.triggerType || triggerType || stopStep || '').toLowerCase();
+              if (tt.includes('upkeep')) {
+                text = `At the beginning of upkeep, ${text}`;
+              } else if (tt.includes('draw')) {
+                text = `At the beginning of draw step, ${text}`;
+              } else if (tt.includes('begin_combat') || tt.includes('begincombat') || stopStep === 'begin_combat') {
+                text = `At the beginning of combat, ${text}`;
+              } else if (tt.includes('end_step') || tt.includes('endstep') || stopStep === 'end_step') {
+                text = `At the beginning of end step, ${text}`;
+              }
+            }
             const sourcePerm = battlefield.find((p: any) => p?.id === t?.permanentId);
-            const ok = isInterveningIfSatisfied(ctxForInterveningIf, controller, text, sourcePerm);
+            const thatPlayerId = String(turnPlayer || playerId || '').trim();
+            const ok = isInterveningIfSatisfied(
+              ctxForInterveningIf,
+              controller,
+              text,
+              sourcePerm,
+              thatPlayerId
+                ? {
+                    thatPlayerId,
+                    referencedPlayerId: thatPlayerId,
+                    theirPlayerId: thatPlayerId,
+                  }
+                : undefined
+            );
             return ok !== false;
           } catch {
             // Conservative fallback: keep the trigger if evaluation fails.

@@ -11187,8 +11187,12 @@ async function putCardOntoBattlefield(
   const allTriggers = getETBTriggersForPermanent(card, newPermanent);
   for (const trigger of allTriggers) {
     if (selfETBTriggerTypes.has(trigger.triggerType)) {
-      const triggerText = String(trigger.description || trigger.effect || "");
-      const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(controller), triggerText, newPermanent);
+      const raw = String(trigger.description || trigger.effect || "").trim();
+      let textForEval = raw;
+      if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
+        textForEval = `When ~ enters the battlefield, ${textForEval}`;
+      }
+      const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(controller), textForEval, newPermanent);
       if (ok === false) continue;
 
       state.stack = state.stack || [];

@@ -74,6 +74,12 @@ function buildProbeContext(): any {
     state: {
       players: [{ id: controllerId }, { id: opp1 }, { id: opp2 }],
 
+      // Common booleans
+      // Some best-effort templates return `null` when this is true because attribution isn't tracked.
+      // Use `false` to keep those cases decidable under probe.
+      creatureDiedThisTurn: false,
+      permanentLeftBattlefieldThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+
       // Common numeric trackers
       life: { [controllerId]: 40, [opp1]: 40, [opp2]: 39 },
       poisonCounters: { [controllerId]: 0, [opp1]: 0, [opp2]: 1 },
@@ -81,15 +87,26 @@ function buildProbeContext(): any {
       lifeGainedThisTurn: { [controllerId]: 1, [opp1]: 0, [opp2]: 0 },
       lifeLostThisTurn: { [controllerId]: 0, [opp1]: 1, [opp2]: 0 },
       landsEnteredBattlefieldThisTurn: { [controllerId]: 1, [opp1]: 0, [opp2]: 0 },
+      nonlandPermanentsEnteredBattlefieldThisTurn: { [controllerId]: 2, [opp1]: 0, [opp2]: 0 },
 
       // Turn / phase-ish knobs (best effort)
       dayNight: 'day',
       isDay: true,
       isNight: false,
 
+      // Dungeons / initiative / blessing
+      initiative: controllerId,
+      cityBlessing: { [controllerId]: true, [opp1]: false, [opp2]: false },
+
+      // "Descended" (LCI) per-turn flag
+      descendedThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+
       // Spell casting trackers
-      spellsCastThisTurn: [{ id: 'spell1' }],
+      spellsCastThisTurn: [{ id: 'spell1', casterId: controllerId }],
+      // Keep legacy map for convenience, but prefer the newer keys used by the evaluator helpers.
       spellsCastLastTurn: { [controllerId]: 2, [opp1]: 0, [opp2]: 0 },
+      spellsCastLastTurnCount: 2,
+      spellsCastLastTurnByPlayerCounts: { [controllerId]: 2, [opp1]: 0, [opp2]: 0 },
 
       // Damage trackers
       creaturesThatDealtDamageToPlayer: {
@@ -103,7 +120,7 @@ function buildProbeContext(): any {
           id: 'SRC',
           controller: controllerId,
           attackedThisTurn: true,
-          card: { type_line: 'Creature — Human Knight', manaValue: 3 },
+          card: { id: 'CMD1', type_line: 'Creature — Human Knight', manaValue: 3 },
           counters: { '+1/+1': 1 },
           auras: ['aura1'],
           equipment: ['eq1'],
@@ -153,7 +170,11 @@ function buildProbeContext(): any {
       },
 
       // Commander-ish
-      commanderZone: {},
+      commandZone: {
+        [controllerId]: { commanderIds: ['CMD1'] },
+        [opp1]: { commanderIds: ['CMD2'] },
+        [opp2]: { commanderIds: ['CMD3'] },
+      },
 
       // Misc
       monarch: controllerId,
@@ -165,11 +186,24 @@ function buildProbeSource(controllerId: string): any {
   return {
     id: 'SRC',
     controller: controllerId,
+    zone: 'battlefield',
+    attackedThisTurn: true,
+    enteredFromCast: true,
+    wasCast: true,
+    castFromHand: true,
+    castSourceZone: 'hand',
+    tributePaid: false,
+    manaFromTreasureSpent: true,
     card: {
+      id: 'CMD1',
       chosenColor: 'red',
       manaColorsSpent: ['red', 'red'],
+      manaSpentBreakdown: { red: 4, blue: 0, black: 0, green: 0, white: 0, colorless: 0 },
       castFromForetell: true,
       castDuringOwnMainPhase: true,
+      wasKicked: true,
+      wasBargained: true,
+      isSuspended: true,
       manaValue: 3,
       type_line: 'Creature — Human Knight',
     },
@@ -272,6 +306,9 @@ async function main(): Promise<void> {
   const fallback = clauses.filter((c) => c.evaluation === 'fallback');
   const recognized = clauses.filter((c) => c.evaluation === 'recognized');
 
+  const recognizedDecidable = recognized.filter((c) => typeof c.sampleResult === 'boolean');
+  const recognizedNull = recognized.filter((c) => typeof c.sampleResult !== 'boolean');
+
   const report = {
     meta: {
       atomicCardsPath,
@@ -280,6 +317,8 @@ async function main(): Promise<void> {
       printingsCount,
       totalInterveningIfClausesFound: clauses.length,
       recognizedCount: recognized.length,
+      recognizedDecidableCount: recognizedDecidable.length,
+      recognizedNullCount: recognizedNull.length,
       fallbackCount: fallback.length,
       unknownCount: unknown.length,
     },
@@ -287,6 +326,8 @@ async function main(): Promise<void> {
     fallback,
     unknown,
     topRecognized: recognized.slice(0, 200),
+    topRecognizedDecidable: recognizedDecidable.slice(0, 200),
+    topRecognizedNull: recognizedNull.slice(0, 200),
     topFallback: fallback.slice(0, 200),
     topUnknown: unknown.slice(0, 400),
   };

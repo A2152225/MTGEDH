@@ -681,12 +681,39 @@ export type InterveningIfEvaluation = {
   fallback?: boolean;
 };
 
+export type InterveningIfRefs = {
+  thatPlayerId?: string;
+  referencedPlayerId?: string;
+  theirPlayerId?: string;
+};
+
+function attachInterveningIfRefs(sourcePermanent: any, refs?: InterveningIfRefs): any {
+  if (!refs) return sourcePermanent;
+
+  const thatPlayerId = refs.thatPlayerId;
+  const referencedPlayerId = refs.referencedPlayerId;
+  const theirPlayerId = refs.theirPlayerId;
+
+  if (!thatPlayerId && !referencedPlayerId && !theirPlayerId) return sourcePermanent;
+
+  const existing = sourcePermanent || {};
+  const next: any = { ...existing };
+
+  if (next.thatPlayerId == null && thatPlayerId) next.thatPlayerId = thatPlayerId;
+  if (next.referencedPlayerId == null && referencedPlayerId) next.referencedPlayerId = referencedPlayerId;
+  if (next.theirPlayerId == null && theirPlayerId) next.theirPlayerId = theirPlayerId;
+
+  return next;
+}
+
 function evaluateInterveningIfClauseInternal(
   ctx: GameContext,
   controllerId: string,
   clauseText: string,
-  sourcePermanent?: any
+  sourcePermanent?: any,
+  refs?: InterveningIfRefs
 ): InterveningIfInternalResult {
+  sourcePermanent = attachInterveningIfRefs(sourcePermanent, refs);
   const clause = toLower(clauseText);
 
   // ===== Day / Night (when state provides it) =====
@@ -4502,9 +4529,10 @@ export function evaluateInterveningIfClause(
   ctx: GameContext,
   controllerId: string,
   clauseText: string,
-  sourcePermanent?: any
+  sourcePermanent?: any,
+  refs?: InterveningIfRefs
 ): boolean | null {
-  const v = evaluateInterveningIfClauseInternal(ctx, controllerId, clauseText, sourcePermanent);
+  const v = evaluateInterveningIfClauseInternal(ctx, controllerId, clauseText, sourcePermanent, refs);
   if (v === UNMATCHED_INTERVENING_IF) return null;
   if (v === FALLBACK_INTERVENING_IF) return null;
   return v;
@@ -4514,9 +4542,10 @@ export function evaluateInterveningIfClauseDetailed(
   ctx: GameContext,
   controllerId: string,
   clauseText: string,
-  sourcePermanent?: any
+  sourcePermanent?: any,
+  refs?: InterveningIfRefs
 ): InterveningIfEvaluation {
-  const v = evaluateInterveningIfClauseInternal(ctx, controllerId, clauseText, sourcePermanent);
+  const v = evaluateInterveningIfClauseInternal(ctx, controllerId, clauseText, sourcePermanent, refs);
   if (v === UNMATCHED_INTERVENING_IF) return { matched: false, value: null };
   if (v === FALLBACK_INTERVENING_IF) return { matched: true, value: null, fallback: true };
   return { matched: true, value: v };
@@ -4529,9 +4558,10 @@ export function isInterveningIfSatisfied(
   ctx: GameContext,
   controllerId: string,
   descriptionOrEffect: string,
-  sourcePermanent?: any
+  sourcePermanent?: any,
+  refs?: InterveningIfRefs
 ): boolean | null {
   const clause = extractInterveningIfClause(descriptionOrEffect);
   if (!clause) return null;
-  return evaluateInterveningIfClause(ctx, controllerId, clause, sourcePermanent);
+  return evaluateInterveningIfClause(ctx, controllerId, clause, sourcePermanent, refs);
 }

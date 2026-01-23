@@ -1,11 +1,13 @@
 {
   "meta": {
     "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
-    "generatedAt": "2026-01-23T01:57:08.524Z",
+    "generatedAt": "2026-01-23T02:08:27.551Z",
     "cardNameCount": 33331,
     "printingsCount": 34191,
     "totalInterveningIfClausesFound": 705,
     "recognizedCount": 705,
+    "recognizedDecidableCount": 302,
+    "recognizedNullCount": 403,
     "fallbackCount": 0,
     "unknownCount": 0
   },
@@ -27,7 +29,7 @@
         "Citanul Woodreaders"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if you cast it",
@@ -45,7 +47,8 @@
         "Cresting Mosasaurus",
         "Eon Frolicker"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if a creature died this turn",
@@ -63,7 +66,8 @@
         "Emissary of the Sleepless",
         "Funnel-Web Recluse"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if a player cast two or more spells last turn",
@@ -81,7 +85,8 @@
         "Geier Reach Bandit // Vildin-Pack Alpha",
         "Grizzled Outcasts // Krallenhorde Wantons"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if no spells were cast last turn",
@@ -99,7 +104,8 @@
         "Grizzled Outcasts // Krallenhorde Wantons",
         "Hanweir Watchkeep // Bane of Hanweir"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if you attacked this turn",
@@ -193,7 +199,8 @@
         "Iname as One",
         "Radiant Performer"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if this card is in your graveyard",
@@ -287,7 +294,8 @@
         "Silkweaver Elite",
         "Solemn Recruit"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if tribute wasn't paid",
@@ -305,7 +313,8 @@
         "Siren of the Fanged Coast",
         "Snake of the Golden Grove"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control three or more creatures with different powers",
@@ -342,7 +351,8 @@
         "Roving Actuator",
         "Voidforged Titan"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if an opponent controls more lands than you",
@@ -379,7 +389,8 @@
         "Stalactite Stalker",
         "Zoyowa Lava-Tongue"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you gained 3 or more life this turn",
@@ -499,7 +510,8 @@
         "Tenacious Tomeseeker",
         "Troublemaker Ouphe"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control two or more tapped creatures",
@@ -530,7 +542,8 @@
         "Loyal Unicorn",
         "Siege-Gang Lieutenant"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if at least four mana was spent to cast it",
@@ -544,7 +557,8 @@
         "The Prima Vista",
         "Ultros, Obnoxious Octopus"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if two or more nonland permanents entered the battlefield under your control this turn",
@@ -558,7 +572,8 @@
         "Pests of Honor",
         "Raging Battle Mouse"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control three or more artifacts",
@@ -601,7 +616,8 @@
         "Shortcut to Mushrooms",
         "Vrock"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if creatures you control have total power 8 or greater",
@@ -668,7 +684,8 @@
         "Marut",
         "Mastermind Plum"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if there are seven or more cards in your graveyard",
@@ -723,7 +740,8 @@
         "Nihilith",
         "Pardic Dragon"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if this creature attacked or blocked this combat",
@@ -736,7 +754,8 @@
         "Clockwork Swarm",
         "Kjeldoran Home Guard"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if this land is tapped",
@@ -805,7 +824,8 @@
         "Rasaad yn Bashir",
         "Safana, Calimport Cutthroat"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you've cast a noncreature spell this turn",
@@ -831,7 +851,8 @@
         "Faramir, Field Commander",
         "Sméagol, Helpful Guide"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if an opponent has three or more poison counters",
@@ -895,7 +916,8 @@
         "Necromancy",
         "Stalking Yeti"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if no creatures are on the battlefield",
@@ -984,7 +1006,8 @@
         "Resplendent Griffin",
         "Twilight Prophet"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you haven't cast a spell from your hand this turn",
@@ -1008,7 +1031,8 @@
         "Grist, Voracious Larva // Grist, the Plague Swarm",
         "Prized Amalgam"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if it had no time counters on it",
@@ -1031,7 +1055,8 @@
         "Mirror of Life Trapping",
         "Wedding Ring"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {2}{U} kicker",
@@ -1042,7 +1067,8 @@
         "Nightscape Battlemage",
         "Sunscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if no mana was spent to cast it",
@@ -1053,7 +1079,8 @@
         "Lavinia, Azorius Renegade",
         "Vexing Bauble"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if that player has no cards in hand",
@@ -1123,7 +1150,7 @@
         "Erg Raiders"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if this creature is untapped",
@@ -1240,7 +1267,8 @@
         "Deceit",
         "Emptiness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {G}{G} was spent to cast it",
@@ -1250,7 +1278,8 @@
         "Vibrance",
         "Wistfulness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {R} was spent to cast it",
@@ -1271,7 +1300,8 @@
         "Catharsis",
         "Vibrance"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if {U}{U} was spent to cast it",
@@ -1281,7 +1311,8 @@
         "Deceit",
         "Wistfulness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {W}{W} was spent to cast it",
@@ -1291,7 +1322,8 @@
         "Catharsis",
         "Emptiness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if 4 or more damage was dealt to it this turn",
@@ -1513,7 +1545,8 @@
         "Ana Battlemage",
         "Thunderscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {G} kicker",
@@ -1523,7 +1556,8 @@
         "Thunderscape Battlemage",
         "Wastescape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {W} kicker",
@@ -1533,7 +1567,8 @@
         "Stormscape Battlemage",
         "Thornscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was unearthed",
@@ -1563,7 +1598,8 @@
         "Preston, the Vanisher",
         "Rapid Augmenter"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if it's attacking",
@@ -1769,7 +1805,8 @@
         "Kuon, Ogre Ascendant // Kuon's Essence",
         "Underbridge Warlock"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if two or more of those creatures are attacking you and/or planeswalkers you control",
@@ -1998,7 +2035,8 @@
         "Chainer, Nightmare Adept",
         "Phage the Untouchable"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if you didn't play a card from exile this turn",
@@ -2051,7 +2089,8 @@
         "Windy City Aven",
         "Windy City Elemental"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you haven't completed Tomb of Annihilation",
@@ -2121,8 +2160,7 @@
         "Eshki Dragonclaw",
         "Fae Offering"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if you've cast two or more spells this turn",
@@ -2162,7 +2200,8 @@
       "exampleCards": [
         "Drowner of Truth // Drowned Jungle"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {C} wasn't spent to cast it",
@@ -2171,7 +2210,8 @@
       "exampleCards": [
         "Wumpus Aberration"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if {G} was spent to cast it",
@@ -2720,7 +2760,8 @@
       "exampleCards": [
         "Ultros, Obnoxious Octopus"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if at least one other Wall creature is blocking that creature and no non-Wall creatures are blocking that creature",
@@ -2738,7 +2779,8 @@
       "exampleCards": [
         "Raggadragga, Goreguts Boss"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if at least three mana of the same color was spent to cast it",
@@ -3435,7 +3477,8 @@
       "exampleCards": [
         "Sunscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {1}{U} kicker",
@@ -3444,7 +3487,8 @@
       "exampleCards": [
         "Wastescape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {2}{B} kicker",
@@ -3453,7 +3497,8 @@
       "exampleCards": [
         "Stormscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {2}{R} kicker",
@@ -3462,7 +3507,8 @@
       "exampleCards": [
         "Nightscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {R} kicker",
@@ -3471,7 +3517,8 @@
       "exampleCards": [
         "Thornscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was the second spell you cast this turn",
@@ -4036,7 +4083,8 @@
       "exampleCards": [
         "Feast of the Victorious Dead"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if one or more of them entered from exile or was cast from exile",
@@ -5458,7 +5506,8 @@
       "exampleCards": [
         "Biowaste Blob"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control a Contested Game Ball",
@@ -6419,7 +6468,7 @@
         "Nightpack Ambusher"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if you didn't have an active tournament",
@@ -7130,7 +7179,7 @@
         "Citanul Woodreaders"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if you cast it",
@@ -7148,7 +7197,8 @@
         "Cresting Mosasaurus",
         "Eon Frolicker"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if a creature died this turn",
@@ -7166,7 +7216,8 @@
         "Emissary of the Sleepless",
         "Funnel-Web Recluse"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if a player cast two or more spells last turn",
@@ -7184,7 +7235,8 @@
         "Geier Reach Bandit // Vildin-Pack Alpha",
         "Grizzled Outcasts // Krallenhorde Wantons"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if no spells were cast last turn",
@@ -7202,7 +7254,8 @@
         "Grizzled Outcasts // Krallenhorde Wantons",
         "Hanweir Watchkeep // Bane of Hanweir"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if you attacked this turn",
@@ -7296,7 +7349,8 @@
         "Iname as One",
         "Radiant Performer"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if this card is in your graveyard",
@@ -7390,7 +7444,8 @@
         "Silkweaver Elite",
         "Solemn Recruit"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if tribute wasn't paid",
@@ -7408,7 +7463,8 @@
         "Siren of the Fanged Coast",
         "Snake of the Golden Grove"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control three or more creatures with different powers",
@@ -7445,7 +7501,8 @@
         "Roving Actuator",
         "Voidforged Titan"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if an opponent controls more lands than you",
@@ -7482,7 +7539,8 @@
         "Stalactite Stalker",
         "Zoyowa Lava-Tongue"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you gained 3 or more life this turn",
@@ -7602,7 +7660,8 @@
         "Tenacious Tomeseeker",
         "Troublemaker Ouphe"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control two or more tapped creatures",
@@ -7633,7 +7692,8 @@
         "Loyal Unicorn",
         "Siege-Gang Lieutenant"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if at least four mana was spent to cast it",
@@ -7647,7 +7707,8 @@
         "The Prima Vista",
         "Ultros, Obnoxious Octopus"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if two or more nonland permanents entered the battlefield under your control this turn",
@@ -7661,7 +7722,8 @@
         "Pests of Honor",
         "Raging Battle Mouse"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control three or more artifacts",
@@ -7704,7 +7766,8 @@
         "Shortcut to Mushrooms",
         "Vrock"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if creatures you control have total power 8 or greater",
@@ -7771,7 +7834,8 @@
         "Marut",
         "Mastermind Plum"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if there are seven or more cards in your graveyard",
@@ -7826,7 +7890,8 @@
         "Nihilith",
         "Pardic Dragon"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if this creature attacked or blocked this combat",
@@ -7839,7 +7904,8 @@
         "Clockwork Swarm",
         "Kjeldoran Home Guard"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if this land is tapped",
@@ -7908,7 +7974,8 @@
         "Rasaad yn Bashir",
         "Safana, Calimport Cutthroat"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you've cast a noncreature spell this turn",
@@ -7934,7 +8001,8 @@
         "Faramir, Field Commander",
         "Sméagol, Helpful Guide"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if an opponent has three or more poison counters",
@@ -7998,7 +8066,8 @@
         "Necromancy",
         "Stalking Yeti"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if no creatures are on the battlefield",
@@ -8087,7 +8156,8 @@
         "Resplendent Griffin",
         "Twilight Prophet"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you haven't cast a spell from your hand this turn",
@@ -8111,7 +8181,8 @@
         "Grist, Voracious Larva // Grist, the Plague Swarm",
         "Prized Amalgam"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if it had no time counters on it",
@@ -8134,7 +8205,8 @@
         "Mirror of Life Trapping",
         "Wedding Ring"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {2}{U} kicker",
@@ -8145,7 +8217,8 @@
         "Nightscape Battlemage",
         "Sunscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if no mana was spent to cast it",
@@ -8156,7 +8229,8 @@
         "Lavinia, Azorius Renegade",
         "Vexing Bauble"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if that player has no cards in hand",
@@ -8226,7 +8300,7 @@
         "Erg Raiders"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if this creature is untapped",
@@ -8343,7 +8417,8 @@
         "Deceit",
         "Emptiness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {G}{G} was spent to cast it",
@@ -8353,7 +8428,8 @@
         "Vibrance",
         "Wistfulness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {R} was spent to cast it",
@@ -8374,7 +8450,8 @@
         "Catharsis",
         "Vibrance"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if {U}{U} was spent to cast it",
@@ -8384,7 +8461,8 @@
         "Deceit",
         "Wistfulness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {W}{W} was spent to cast it",
@@ -8394,7 +8472,8 @@
         "Catharsis",
         "Emptiness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if 4 or more damage was dealt to it this turn",
@@ -8616,7 +8695,8 @@
         "Ana Battlemage",
         "Thunderscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {G} kicker",
@@ -8626,7 +8706,8 @@
         "Thunderscape Battlemage",
         "Wastescape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {W} kicker",
@@ -8636,7 +8717,8 @@
         "Stormscape Battlemage",
         "Thornscape Battlemage"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was unearthed",
@@ -8666,7 +8748,8 @@
         "Preston, the Vanisher",
         "Rapid Augmenter"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if it's attacking",
@@ -8872,7 +8955,8 @@
         "Kuon, Ogre Ascendant // Kuon's Essence",
         "Underbridge Warlock"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if two or more of those creatures are attacking you and/or planeswalkers you control",
@@ -9101,7 +9185,8 @@
         "Chainer, Nightmare Adept",
         "Phage the Untouchable"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if you didn't play a card from exile this turn",
@@ -9154,7 +9239,8 @@
         "Windy City Aven",
         "Windy City Elemental"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you haven't completed Tomb of Annihilation",
@@ -9224,8 +9310,7 @@
         "Eshki Dragonclaw",
         "Fae Offering"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if you've cast two or more spells this turn",
@@ -9265,7 +9350,8 @@
       "exampleCards": [
         "Drowner of Truth // Drowned Jungle"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {C} wasn't spent to cast it",
@@ -9274,7 +9360,8 @@
       "exampleCards": [
         "Wumpus Aberration"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if {G} was spent to cast it",
@@ -9518,6 +9605,4309 @@
       ],
       "evaluation": "recognized",
       "sampleResult": false
+    }
+  ],
+  "topRecognizedDecidable": [
+    {
+      "clause": "if it was kicked",
+      "clauseLower": "if it was kicked",
+      "count": 66,
+      "exampleCards": [
+        "A-Sprouting Goblin",
+        "Archangel of Wrath",
+        "Balduvian Atrocity",
+        "Battlewing Mystic",
+        "Benalish Emissary",
+        "Benalish Sleeper",
+        "Bog Badger",
+        "Bubble Snare",
+        "Caligo Skin-Witch",
+        "Citanul Woodreaders"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you cast it",
+      "clauseLower": "if you cast it",
+      "count": 37,
+      "exampleCards": [
+        "A-Geological Appraiser",
+        "A-The One Ring",
+        "Annie Flash, the Veteran",
+        "Arcane Proxy",
+        "Bortuk Bonerattle",
+        "Bringer of the Last Gift",
+        "Cacophony Unleashed",
+        "Crackling Spellslinger",
+        "Cresting Mosasaurus",
+        "Eon Frolicker"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a creature died this turn",
+      "clauseLower": "if a creature died this turn",
+      "count": 35,
+      "exampleCards": [
+        "A-Death-Priest of Myrkul",
+        "A-Shessra, Death's Whisper",
+        "Arvad, Weatherlight Smuggler",
+        "Bulette",
+        "Cackling Prowler",
+        "Compy Swarm",
+        "Death-Priest of Myrkul",
+        "Deathreap Ritual",
+        "Emissary of the Sleepless",
+        "Funnel-Web Recluse"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a player cast two or more spells last turn",
+      "clauseLower": "if a player cast two or more spells last turn",
+      "count": 33,
+      "exampleCards": [
+        "Afflicted Deserter // Werewolf Ransacker",
+        "Breakneck Rider // Neck Breaker",
+        "Call of the Full Moon",
+        "Convicted Killer // Branded Howler",
+        "Daybreak Ranger // Nightfall Predator",
+        "Duskwatch Recruiter // Krallenhorde Howler",
+        "Gatstaf Arsonists // Gatstaf Ravagers",
+        "Gatstaf Shepherd // Gatstaf Howler",
+        "Geier Reach Bandit // Vildin-Pack Alpha",
+        "Grizzled Outcasts // Krallenhorde Wantons"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if no spells were cast last turn",
+      "clauseLower": "if no spells were cast last turn",
+      "count": 32,
+      "exampleCards": [
+        "Afflicted Deserter // Werewolf Ransacker",
+        "Breakneck Rider // Neck Breaker",
+        "Convicted Killer // Branded Howler",
+        "Daybreak Ranger // Nightfall Predator",
+        "Duskwatch Recruiter // Krallenhorde Howler",
+        "Gatstaf Arsonists // Gatstaf Ravagers",
+        "Gatstaf Shepherd // Gatstaf Howler",
+        "Geier Reach Bandit // Vildin-Pack Alpha",
+        "Grizzled Outcasts // Krallenhorde Wantons",
+        "Hanweir Watchkeep // Bane of Hanweir"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you attacked this turn",
+      "clauseLower": "if you attacked this turn",
+      "count": 32,
+      "exampleCards": [
+        "Alesha, Who Laughs at Fate",
+        "Brazen Cannonade",
+        "Deadeye Rig-Hauler",
+        "Deadeye Tormentor",
+        "Fire Nation Engineer",
+        "Fire Nation Raider",
+        "Gorehorn Raider",
+        "Gutless Plunderer",
+        "Lara Croft, Tomb Raider",
+        "Marauding Looter"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if this permanent is an enchantment",
+      "clauseLower": "if this permanent is an enchantment",
+      "count": 22,
+      "exampleCards": [
+        "Hidden Ancients",
+        "Hidden Gibbons",
+        "Hidden Guerrillas",
+        "Hidden Herd",
+        "Hidden Predators",
+        "Hidden Spider",
+        "Hidden Stag",
+        "Lurking Jackals",
+        "Lurking Skirge",
+        "Opal Acrolith"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are four or more card types among cards in your graveyard",
+      "clauseLower": "if there are four or more card types among cards in your graveyard",
+      "count": 19,
+      "exampleCards": [
+        "Angel of Deliverance",
+        "Autumnal Gloom // Ancient of the Equinox",
+        "Demolisher Spawn",
+        "Extricator of Sin // Extricator of Flesh",
+        "Fear of Burning Alive",
+        "Fear of Missing Out",
+        "Gibbering Fiend",
+        "Gouged Zealot",
+        "Inexorable Blob",
+        "Ishkanah, Grafwidow"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you gained life this turn",
+      "clauseLower": "if you gained life this turn",
+      "count": 18,
+      "exampleCards": [
+        "A-Ocelot Pride",
+        "Aerith, Last Ancient",
+        "Bre of Clan Stoutarm",
+        "Cerise, Slayer of Fear",
+        "Courier Bat",
+        "Crested Sunmare",
+        "Lathiel, the Bounteous Dawn",
+        "Lunar Convocation",
+        "Markov Purifier",
+        "Ocelot Pride"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you cast it from your hand",
+      "clauseLower": "if you cast it from your hand",
+      "count": 15,
+      "exampleCards": [
+        "Angel of the Dire Hour",
+        "Breaching Leviathan",
+        "Coal Stoker",
+        "Cyclone Summoner",
+        "Dread Cacodemon",
+        "Feasting Troll King",
+        "Furnace Dragon",
+        "Hypnox",
+        "Iname as One",
+        "Radiant Performer"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if this card is in your graveyard",
+      "clauseLower": "if this card is in your graveyard",
+      "count": 13,
+      "exampleCards": [
+        "Auntie's Snitch",
+        "Blood Operative",
+        "Bridge from Below",
+        "Ghastly Remains",
+        "Gigapede",
+        "Ichorid",
+        "Master of Death",
+        "Moss-Pit Skeleton",
+        "Pyre Zombie",
+        "Pyrewild Shaman"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this creature is tapped",
+      "clauseLower": "if this creature is tapped",
+      "count": 13,
+      "exampleCards": [
+        "Acrobatic Cheerleader",
+        "Amber-Plate Ainok",
+        "Barbflare Gremlin",
+        "Cautious Survivor",
+        "Cynical Loner",
+        "Defiant Survivor",
+        "Glimmer Seeker",
+        "House Cartographer",
+        "Reluctant Role Model",
+        "Rootwise Survivor"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent lost life this turn",
+      "clauseLower": "if an opponent lost life this turn",
+      "count": 12,
+      "exampleCards": [
+        "Arrogant Outlaw",
+        "Bat Whisperer",
+        "Bloodtithe Collector",
+        "Famished Foragers",
+        "Fireglass Mentor",
+        "Flamecache Gecko",
+        "Gomif, Fast Racer",
+        "Lion Vulture",
+        "Savage Gorger",
+        "Stromkirk Bloodthief"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control a creature with power 4 or greater",
+      "clauseLower": "if you control a creature with power 4 or greater",
+      "count": 12,
+      "exampleCards": [
+        "Beastbond Outcaster",
+        "Boundary Lands Ranger",
+        "Colossal Majesty",
+        "Flamewake Phoenix",
+        "Furious Rise",
+        "Garruk's Uprising",
+        "Heir of the Wilds",
+        "Hunter's Talent",
+        "Master's Guidance",
+        "Ornery Dilophosaur"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a permanent left the battlefield under your control this turn",
+      "clauseLower": "if a permanent left the battlefield under your control this turn",
+      "count": 11,
+      "exampleCards": [
+        "Aid from the Cowl",
+        "Airdrop Aeronauts",
+        "Call for Unity",
+        "Countless Gears Renegade",
+        "Deadeye Harpooner",
+        "Hidden Herbalists",
+        "Hidden Stockpile",
+        "Renegade Rallier",
+        "Silkweaver Elite",
+        "Solemn Recruit"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if tribute wasn't paid",
+      "clauseLower": "if tribute wasn't paid",
+      "count": 11,
+      "exampleCards": [
+        "Fanatic of Xenagos",
+        "Flame-Wreathed Phoenix",
+        "Nessian Demolok",
+        "Nessian Wilds Ravager",
+        "Oracle of Bones",
+        "Ornitharch",
+        "Pharagax Giant",
+        "Shrike Harpy",
+        "Siren of the Fanged Coast",
+        "Snake of the Golden Grove"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control three or more creatures with different powers",
+      "clauseLower": "if you control three or more creatures with different powers",
+      "count": 11,
+      "exampleCards": [
+        "Candlegrove Witch",
+        "Candlelit Cavalry",
+        "Contortionist Troupe",
+        "Dawnhart Wardens",
+        "Duelcraft Trainer",
+        "Harvesttide Sentry",
+        "Redemption Choir",
+        "Ritual Guardian",
+        "Sigarda, Champion of Light",
+        "Stalwart Pathlighter"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a nonland permanent left the battlefield this turn or a spell was warped this turn",
+      "clauseLower": "if a nonland permanent left the battlefield this turn or a spell was warped this turn",
+      "count": 10,
+      "exampleCards": [
+        "Alpharael, Stonechosen",
+        "Axavar, Fate Thief",
+        "Elegy Acolyte",
+        "Hylderblade",
+        "Insatiable Skittermaw",
+        "Interceptor Mechan",
+        "Kavaron Skywarden",
+        "Noyd, Keeper of the Void",
+        "Roving Actuator",
+        "Voidforged Titan"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if an opponent controls more lands than you",
+      "clauseLower": "if an opponent controls more lands than you",
+      "count": 10,
+      "exampleCards": [
+        "Claim Jumper",
+        "Discerning Financier",
+        "Knight of the White Orchid",
+        "Land Tax",
+        "Loyal Warhound",
+        "Sand Scout",
+        "Scouting Hawk",
+        "Space Marine Scout",
+        "Sunstar Expansionist",
+        "Ticket Tortoise"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you descended this turn",
+      "clauseLower": "if you descended this turn",
+      "count": 10,
+      "exampleCards": [
+        "Brass's Tunnel-Grinder // Tecutlan, the Searing Rift",
+        "Broodrage Mycoid",
+        "Canonized in Blood",
+        "Child of the Volcano",
+        "Corpses of the Lost",
+        "Deep Goblin Skulltaker",
+        "Enterprising Scallywag",
+        "Ruin-Lurker Bat",
+        "Stalactite Stalker",
+        "Zoyowa Lava-Tongue"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you gained 3 or more life this turn",
+      "clauseLower": "if you gained 3 or more life this turn",
+      "count": 10,
+      "exampleCards": [
+        "Frodo, Adventurous Hobbit",
+        "Griffin Aerie",
+        "Gwaihir, Greatest of the Eagles",
+        "Indulging Patrician",
+        "Lone Rider // It That Rides as One",
+        "Panicked Bystander // Cackling Culprit",
+        "Silversmote Ghoul",
+        "Sorin of House Markov // Sorin, Ravenous Neonate",
+        "The Book of Exalted Deeds",
+        "The Gaffer"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it was a creature",
+      "clauseLower": "if it was a creature",
+      "count": 9,
+      "exampleCards": [
+        "Enduring Courage",
+        "Enduring Curiosity",
+        "Enduring Friendship",
+        "Enduring Innocence",
+        "Enduring Tenacity",
+        "Enduring Vitality",
+        "Harold and Bob, First Numens",
+        "Old-Growth Troll",
+        "Weatherseed Totem"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it had counters on it",
+      "clauseLower": "if it had counters on it",
+      "count": 8,
+      "exampleCards": [
+        "Angelic Sleuth",
+        "Buzzard-Wasp Colony",
+        "Felisa, Fang of Silverquill",
+        "Host of the Hereafter",
+        "Iron Apprentice",
+        "Reluctant Role Model",
+        "Resourceful Defense",
+        "The Ozolith"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you attacked with creatures with total power 6 or greater this combat",
+      "clauseLower": "if you attacked with creatures with total power 6 or greater this combat",
+      "count": 8,
+      "exampleCards": [
+        "Battle Cry Goblin",
+        "Gnoll Hunter",
+        "Hobgoblin Captain",
+        "Intrepid Outlander",
+        "Minion of the Mighty",
+        "Targ Nar, Demon-Fang Gnoll",
+        "Tiger-Tribe Hunter",
+        "Werewolf Pack Leader"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have no cards in hand",
+      "clauseLower": "if you have no cards in hand",
+      "count": 8,
+      "exampleCards": [
+        "Academy at Tolaria West",
+        "Bloodhall Priest",
+        "Brink of Madness",
+        "Headless Specter",
+        "Hollowborn Barghest",
+        "Jagged Poppet",
+        "Lyzolda, the Blood Witch Avatar",
+        "Slaughterhouse Bouncer"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you're the monarch",
+      "clauseLower": "if you're the monarch",
+      "count": 8,
+      "exampleCards": [
+        "Champions of Minas Tirith",
+        "Faramir, Steward of Gondor",
+        "Garrulous Sycophant",
+        "Grave Venerations",
+        "Keeper of Keys",
+        "Skyline Despot",
+        "Starscream, Power Hungry // Starscream, Seeker Leader",
+        "Throne Warden"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was bargained",
+      "clauseLower": "if it was bargained",
+      "count": 7,
+      "exampleCards": [
+        "Agatha's Champion",
+        "Dan, Shrewd Trader",
+        "Diminisher Witch",
+        "High Fae Negotiator",
+        "Realm-Scorcher Hellkite",
+        "Tenacious Tomeseeker",
+        "Troublemaker Ouphe"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control two or more tapped creatures",
+      "clauseLower": "if you control two or more tapped creatures",
+      "count": 7,
+      "exampleCards": [
+        "Dawnstrike Vanguard",
+        "Flight-Deck Coordinator",
+        "Frontline War-Rager",
+        "Sami, Ship's Engineer",
+        "Sunstar Chaplain",
+        "Thendar, the Overminer",
+        "Vaultguard Trooper"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control your commander",
+      "clauseLower": "if you control your commander",
+      "count": 7,
+      "exampleCards": [
+        "Ironwill Forger",
+        "Loyal Apprentice",
+        "Loyal Drake",
+        "Loyal Guardian",
+        "Loyal Subordinate",
+        "Loyal Unicorn",
+        "Siege-Gang Lieutenant"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if at least four mana was spent to cast it",
+      "clauseLower": "if at least four mana was spent to cast it",
+      "count": 6,
+      "exampleCards": [
+        "Blazing Bomb",
+        "Prompto Argentum",
+        "Sahagin",
+        "The Emperor of Palamecia // The Lord Master of Hell",
+        "The Prima Vista",
+        "Ultros, Obnoxious Octopus"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if two or more nonland permanents entered the battlefield under your control this turn",
+      "clauseLower": "if two or more nonland permanents entered the battlefield under your control this turn",
+      "count": 6,
+      "exampleCards": [
+        "Ash, Party Crasher",
+        "Belligerent of the Ball",
+        "Bespoke Battlegarb",
+        "Lady of Laughter",
+        "Pests of Honor",
+        "Raging Battle Mouse"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control three or more artifacts",
+      "clauseLower": "if you control three or more artifacts",
+      "count": 6,
+      "exampleCards": [
+        "Blade-Tribe Berserkers",
+        "Bleak Coven Vampires",
+        "Inventors' Fair",
+        "Lumengrid Drake",
+        "Screeching Silcaw",
+        "Vedalken Humiliator"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control two or more Gates",
+      "clauseLower": "if you control two or more gates",
+      "count": 6,
+      "exampleCards": [
+        "Opal Lake Gatekeepers",
+        "Plaza of Harmony",
+        "Saruli Gatekeepers",
+        "Smelt-Ward Gatekeepers",
+        "Sunspire Gatekeepers",
+        "Ubul Sar Gatekeepers"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a permanent you controlled left the battlefield this turn",
+      "clauseLower": "if a permanent you controlled left the battlefield this turn",
+      "count": 5,
+      "exampleCards": [
+        "Lulu, Loyal Hollyphant",
+        "Minthara, Merciless Soul",
+        "Pegasus Guardian // Rescue the Foal",
+        "Shortcut to Mushrooms",
+        "Vrock"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if creatures you control have total power 8 or greater",
+      "clauseLower": "if creatures you control have total power 8 or greater",
+      "count": 5,
+      "exampleCards": [
+        "Gimli's Reckless Might",
+        "Owlbear Shepherd",
+        "Sabertooth Outrider",
+        "Stampeding Elk Herd",
+        "Surrak, the Hunt Caller"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it's the first combat phase of the turn",
+      "clauseLower": "if it's the first combat phase of the turn",
+      "count": 5,
+      "exampleCards": [
+        "Balthier and Fran",
+        "Finest Hour",
+        "Genji Glove",
+        "Hexplate Wallbreaker",
+        "Karlach, Fury of Avernus"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if mana from a Treasure was spent to cast it",
+      "clauseLower": "if mana from a treasure was spent to cast it",
+      "count": 5,
+      "exampleCards": [
+        "Alchemist's Talent",
+        "Hired Hexblade",
+        "Jaded Sell-Sword",
+        "Marut",
+        "Mastermind Plum"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if there are seven or more cards in your graveyard",
+      "clauseLower": "if there are seven or more cards in your graveyard",
+      "count": 5,
+      "exampleCards": [
+        "Crypt Feaster",
+        "Kiora, the Rising Tide",
+        "Persistent Marshstalker",
+        "Tersa Lightshatter",
+        "Tidecaller Mentor"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are two or more ki counters on this creature",
+      "clauseLower": "if there are two or more ki counters on this creature",
+      "count": 5,
+      "exampleCards": [
+        "Budoka Pupil // Ichiga, Who Topples Oaks",
+        "Callow Jushi // Jaraku the Interloper",
+        "Cunning Bandit // Azamuki, Treachery Incarnate",
+        "Faithful Squire // Kaiso, Memory of Loyalty",
+        "Hired Muscle // Scarmaker"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this artifact is untapped",
+      "clauseLower": "if this artifact is untapped",
+      "count": 5,
+      "exampleCards": [
+        "Blinkmoth Urn",
+        "Farsight Mask",
+        "Genesis Chamber",
+        "Howling Mine",
+        "Voodoo Doll"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if this card is suspended",
+      "clauseLower": "if this card is suspended",
+      "count": 5,
+      "exampleCards": [
+        "17-Year Cicadas",
+        "Curse of the Cabal",
+        "Deep-Sea Kraken",
+        "Nihilith",
+        "Pardic Dragon"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if this creature attacked or blocked this combat",
+      "clauseLower": "if this creature attacked or blocked this combat",
+      "count": 5,
+      "exampleCards": [
+        "Clockwork Avian",
+        "Clockwork Beast",
+        "Clockwork Steed",
+        "Clockwork Swarm",
+        "Kjeldoran Home Guard"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if this land is tapped",
+      "clauseLower": "if this land is tapped",
+      "count": 5,
+      "exampleCards": [
+        "Bottomless Vault",
+        "Dwarven Hold",
+        "Hollow Trees",
+        "Icatian Store",
+        "Sand Silos"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a Desert or there is a Desert card in your graveyard",
+      "clauseLower": "if you control a desert or there is a desert card in your graveyard",
+      "count": 5,
+      "exampleCards": [
+        "Desert's Hold",
+        "Gilded Cerodon",
+        "Sand Strangler",
+        "Unquenchable Thirst",
+        "Wretched Camel"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control seven or more lands",
+      "clauseLower": "if you control seven or more lands",
+      "count": 5,
+      "exampleCards": [
+        "A-Tatyova, Steward of Tides",
+        "Nissa, Vastwood Seer // Nissa, Sage Animist",
+        "Tatyova, Steward of Tides",
+        "Thaumatic Compass // Spires of Orazca",
+        "Twists and Turns // Mycoid Maze"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have a full party",
+      "clauseLower": "if you have a full party",
+      "count": 5,
+      "exampleCards": [
+        "Archpriest of Iona",
+        "Linvala, Shield of Sea Gate",
+        "Nalia de'Arnise",
+        "Nimble Trapfinder",
+        "Squad Commander"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have the initiative",
+      "clauseLower": "if you have the initiative",
+      "count": 5,
+      "exampleCards": [
+        "Feywild Caretaker",
+        "Imoen, Mystic Trickster",
+        "Passageway Seer",
+        "Rasaad yn Bashir",
+        "Safana, Calimport Cutthroat"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you've cast a noncreature spell this turn",
+      "clauseLower": "if you've cast a noncreature spell this turn",
+      "count": 5,
+      "exampleCards": [
+        "Human Torch",
+        "Hurkyl, Master Wizard",
+        "Invisible Woman",
+        "Mister Fantastic",
+        "The Thing"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a creature died under your control this turn",
+      "clauseLower": "if a creature died under your control this turn",
+      "count": 4,
+      "exampleCards": [
+        "Barrensteppe Siege",
+        "Denethor, Ruling Steward",
+        "Faramir, Field Commander",
+        "Sméagol, Helpful Guide"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent has three or more poison counters",
+      "clauseLower": "if an opponent has three or more poison counters",
+      "count": 4,
+      "exampleCards": [
+        "Contaminant Grafter",
+        "Goliath Hatchery",
+        "Incisor Glider",
+        "Vivisection Evangelist"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it had a +1/+1 counter on it",
+      "clauseLower": "if it had a +1/+1 counter on it",
+      "count": 4,
+      "exampleCards": [
+        "Basri's Lieutenant",
+        "Grakmaw, Skyclave Ravager",
+        "Promising Duskmage",
+        "Slurrk, All-Ingesting"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it's a creature",
+      "clauseLower": "if it's a creature",
+      "count": 4,
+      "exampleCards": [
+        "Phyrexian Totem",
+        "Salt Road Ambushers",
+        "Temur War Shaman",
+        "Trail of Mystery"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it's not a token",
+      "clauseLower": "if it's not a token",
+      "count": 4,
+      "exampleCards": [
+        "Imperial Mask",
+        "Life of the Party",
+        "Semblance Scanner",
+        "Vaultborn Tyrant"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it's on the battlefield",
+      "clauseLower": "if it's on the battlefield",
+      "count": 4,
+      "exampleCards": [
+        "Animate Dead",
+        "Dance of the Dead",
+        "Necromancy",
+        "Stalking Yeti"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if no creatures are on the battlefield",
+      "clauseLower": "if no creatures are on the battlefield",
+      "count": 4,
+      "exampleCards": [
+        "Call to the Grave",
+        "Pestilence",
+        "Pyrohemia",
+        "Withering Wisps"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are four or more permanent cards in your graveyard",
+      "clauseLower": "if there are four or more permanent cards in your graveyard",
+      "count": 4,
+      "exampleCards": [
+        "Coati Scavenger",
+        "Council of Echoes",
+        "Malamet Veteran",
+        "Stinging Cave Crawler"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there is no monarch",
+      "clauseLower": "if there is no monarch",
+      "count": 4,
+      "exampleCards": [
+        "Archivist of Gondor",
+        "Crown of Gondor",
+        "Paliano",
+        "Starscream, Power Hungry // Starscream, Seeker Leader"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control an artifact",
+      "clauseLower": "if you control an artifact",
+      "count": 4,
+      "exampleCards": [
+        "Scholar of Stars",
+        "Thopter Spy Network",
+        "Toolcraft Exemplar",
+        "Waylaying Pirates"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you gained 4 or more life this turn",
+      "clauseLower": "if you gained 4 or more life this turn",
+      "count": 4,
+      "exampleCards": [
+        "Angelic Accord",
+        "Pearl Collector",
+        "Syndicate Heavy",
+        "Valkyrie Harbinger"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have the city's blessing",
+      "clauseLower": "if you have the city's blessing",
+      "count": 4,
+      "exampleCards": [
+        "Deadeye Brawler",
+        "Mausoleum Harpy",
+        "Resplendent Griffin",
+        "Twilight Prophet"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you haven't cast a spell from your hand this turn",
+      "clauseLower": "if you haven't cast a spell from your hand this turn",
+      "count": 4,
+      "exampleCards": [
+        "Canyon Crab",
+        "Jem Lightfoote, Sky Explorer",
+        "Prairie Dog",
+        "Wrangler of the Damned"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it entered from your graveyard or you cast it from your graveyard",
+      "clauseLower": "if it entered from your graveyard or you cast it from your graveyard",
+      "count": 3,
+      "exampleCards": [
+        "Archfiend's Vessel",
+        "Grist, Voracious Larva // Grist, the Plague Swarm",
+        "Prized Amalgam"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it had no time counters on it",
+      "clauseLower": "if it had no time counters on it",
+      "count": 3,
+      "exampleCards": [
+        "Chronozoa",
+        "Deadly Grub",
+        "Lost Auramancers"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was cast",
+      "clauseLower": "if it was cast",
+      "count": 3,
+      "exampleCards": [
+        "Doomsday Excruciator",
+        "Mirror of Life Trapping",
+        "Wedding Ring"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {2}{U} kicker",
+      "clauseLower": "if it was kicked with its {2}{u} kicker",
+      "count": 3,
+      "exampleCards": [
+        "Ana Battlemage",
+        "Nightscape Battlemage",
+        "Sunscape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if no mana was spent to cast it",
+      "clauseLower": "if no mana was spent to cast it",
+      "count": 3,
+      "exampleCards": [
+        "Boromir, Warden of the Tower",
+        "Lavinia, Azorius Renegade",
+        "Vexing Bauble"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are eight or more permanent cards in your graveyard",
+      "clauseLower": "if there are eight or more permanent cards in your graveyard",
+      "count": 3,
+      "exampleCards": [
+        "Bygone Marvels",
+        "Starving Revenant",
+        "The Everflowing Well // The Myriad Pools"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are four or more creature cards in your graveyard",
+      "clauseLower": "if there are four or more creature cards in your graveyard",
+      "count": 3,
+      "exampleCards": [
+        "A-Sigil of Myrkul",
+        "Sigil of Myrkul",
+        "Viconia, Drow Apostate"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are three or more creature cards in your graveyard",
+      "clauseLower": "if there are three or more creature cards in your graveyard",
+      "count": 3,
+      "exampleCards": [
+        "Gaea's Courser",
+        "Gixian Skullflayer",
+        "Webweaver Changeling"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this creature didn't attack this turn",
+      "clauseLower": "if this creature didn't attack this turn",
+      "count": 3,
+      "exampleCards": [
+        "Air Nomad Student",
+        "Civilized Scholar // Homicidal Brute",
+        "Erg Raiders"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this creature is untapped",
+      "clauseLower": "if this creature is untapped",
+      "count": 3,
+      "exampleCards": [
+        "Nim Abomination",
+        "Reservoir Kraken",
+        "Reveille Squad"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control a creature with power 5 or greater",
+      "clauseLower": "if you control a creature with power 5 or greater",
+      "count": 3,
+      "exampleCards": [
+        "Drumhunter",
+        "Exuberant Firestoker",
+        "Sunseed Nurturer"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a tapped creature",
+      "clauseLower": "if you control a tapped creature",
+      "count": 3,
+      "exampleCards": [
+        "Buxton, Decorated Host",
+        "Pursued by Something",
+        "Supply Caravan"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control no untapped lands",
+      "clauseLower": "if you control no untapped lands",
+      "count": 3,
+      "exampleCards": [
+        "Keldon Berserker",
+        "Well of Discovery",
+        "Well of Life"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control six or more lands",
+      "clauseLower": "if you control six or more lands",
+      "count": 3,
+      "exampleCards": [
+        "Behold My Grandeur",
+        "Dragonmaster Outcast",
+        "My Tendrils Run Deep"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you gained or lost life this turn",
+      "clauseLower": "if you gained or lost life this turn",
+      "count": 3,
+      "exampleCards": [
+        "Star Charter",
+        "Starlit Soothsayer",
+        "Starseer Mentor"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you have 5 or less life",
+      "clauseLower": "if you have 5 or less life",
+      "count": 3,
+      "exampleCards": [
+        "Arguel's Blood Fast // Temple of Aclazotz",
+        "Convalescent Care",
+        "Second Chance"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have more cards in hand than each opponent",
+      "clauseLower": "if you have more cards in hand than each opponent",
+      "count": 3,
+      "exampleCards": [
+        "Akuta, Born of Ash",
+        "Death of a Thousand Stings",
+        "Exile into Darkness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {B}{B} was spent to cast it",
+      "clauseLower": "if {b}{b} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Deceit",
+        "Emptiness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {G}{G} was spent to cast it",
+      "clauseLower": "if {g}{g} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Vibrance",
+        "Wistfulness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {R} was spent to cast it",
+      "clauseLower": "if {r} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Gruul Scrapper",
+        "Steamcore Weird"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if {R}{R} was spent to cast it",
+      "clauseLower": "if {r}{r} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Catharsis",
+        "Vibrance"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if {U}{U} was spent to cast it",
+      "clauseLower": "if {u}{u} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Deceit",
+        "Wistfulness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {W}{W} was spent to cast it",
+      "clauseLower": "if {w}{w} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Catharsis",
+        "Emptiness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a planeswalker entered the battlefield under your control this turn",
+      "clauseLower": "if a planeswalker entered the battlefield under your control this turn",
+      "count": 2,
+      "exampleCards": [
+        "Oath of Chandra",
+        "Oath of Liliana"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a player has more life than each other player",
+      "clauseLower": "if a player has more life than each other player",
+      "count": 2,
+      "exampleCards": [
+        "Ghazbán Ogre",
+        "Wild Dogs"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a player lost 4 or more life this turn",
+      "clauseLower": "if a player lost 4 or more life this turn",
+      "count": 2,
+      "exampleCards": [
+        "Knight of the Ebon Legion",
+        "Y'shtola, Night's Blessed"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an artifact entered the battlefield under your control this turn",
+      "clauseLower": "if an artifact entered the battlefield under your control this turn",
+      "count": 2,
+      "exampleCards": [
+        "Akal Pakal, First Among Equals",
+        "Robo-"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent lost 3 or more life this turn",
+      "clauseLower": "if an opponent lost 3 or more life this turn",
+      "count": 2,
+      "exampleCards": [
+        "Bat-",
+        "Sygg, River Cutthroat"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if another creature entered the battlefield under your control this turn",
+      "clauseLower": "if another creature entered the battlefield under your control this turn",
+      "count": 2,
+      "exampleCards": [
+        "Wary Farmer",
+        "Waterspout Warden"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it had a -1/-1 counter on it",
+      "clauseLower": "if it had a -1/-1 counter on it",
+      "count": 2,
+      "exampleCards": [
+        "Blowfly Infestation",
+        "Retched Wretch"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it had one or more counters on it",
+      "clauseLower": "if it had one or more counters on it",
+      "count": 2,
+      "exampleCards": [
+        "Nikara, Lair Scavenger",
+        "Yuna, Grand Summoner"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it had two or more +1/+1 counters on it",
+      "clauseLower": "if it had two or more +1/+1 counters on it",
+      "count": 2,
+      "exampleCards": [
+        "A-Ochre Jelly",
+        "Ochre Jelly"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it isn't being declared as an attacker",
+      "clauseLower": "if it isn't being declared as an attacker",
+      "count": 2,
+      "exampleCards": [
+        "Rhoda, Geist Avenger",
+        "Verity Circle"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was a Human",
+      "clauseLower": "if it was a human",
+      "count": 2,
+      "exampleCards": [
+        "Avacyn's Collar",
+        "Slayer's Plate"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was enchanted or equipped",
+      "clauseLower": "if it was enchanted or equipped",
+      "count": 2,
+      "exampleCards": [
+        "Cass, Hand of Vengeance",
+        "Koll, the Forgemaster"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it was kicked with its {1}{B} kicker",
+      "clauseLower": "if it was kicked with its {1}{b} kicker",
+      "count": 2,
+      "exampleCards": [
+        "Ana Battlemage",
+        "Thunderscape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {G} kicker",
+      "clauseLower": "if it was kicked with its {g} kicker",
+      "count": 2,
+      "exampleCards": [
+        "Thunderscape Battlemage",
+        "Wastescape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {W} kicker",
+      "clauseLower": "if it was kicked with its {w} kicker",
+      "count": 2,
+      "exampleCards": [
+        "Stormscape Battlemage",
+        "Thornscape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it wasn't blocking",
+      "clauseLower": "if it wasn't blocking",
+      "count": 2,
+      "exampleCards": [
+        "A-Guildsworn Prowler",
+        "Guildsworn Prowler"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it wasn't cast",
+      "clauseLower": "if it wasn't cast",
+      "count": 2,
+      "exampleCards": [
+        "Preston, the Vanisher",
+        "Rapid Augmenter"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it's attacking",
+      "clauseLower": "if it's attacking",
+      "count": 2,
+      "exampleCards": [
+        "A-Thousand-Faced Shadow",
+        "Thousand-Faced Shadow"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if its toughness is 3 or less",
+      "clauseLower": "if its toughness is 3 or less",
+      "count": 2,
+      "exampleCards": [
+        "Merry Bards",
+        "Protective Parents"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if no creatures attacked this turn",
+      "clauseLower": "if no creatures attacked this turn",
+      "count": 2,
+      "exampleCards": [
+        "Charging Cinderhorn",
+        "Keldon Twilight"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there's a Lesson card in your graveyard",
+      "clauseLower": "if there's a lesson card in your graveyard",
+      "count": 2,
+      "exampleCards": [
+        "Dragonfly Swarm",
+        "Walltop Sentries"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this creature dealt damage to an opponent this turn",
+      "clauseLower": "if this creature dealt damage to an opponent this turn",
+      "count": 2,
+      "exampleCards": [
+        "Dunerider Outlaw",
+        "Whirling Dervish"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if this creature is in your graveyard",
+      "clauseLower": "if this creature is in your graveyard",
+      "count": 2,
+      "exampleCards": [
+        "Genesis",
+        "Infesting Radroach"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if three or more creatures died this turn",
+      "clauseLower": "if three or more creatures died this turn",
+      "count": 2,
+      "exampleCards": [
+        "Kuon, Ogre Ascendant // Kuon's Essence",
+        "Underbridge Warlock"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a black permanent",
+      "clauseLower": "if you control a black permanent",
+      "count": 2,
+      "exampleCards": [
+        "Bloodhall Ooze",
+        "Parasitic Strix"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a blue permanent",
+      "clauseLower": "if you control a blue permanent",
+      "count": 2,
+      "exampleCards": [
+        "Mirror-Sigil Sergeant",
+        "Sedraxis Alchemist"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a green permanent",
+      "clauseLower": "if you control a green permanent",
+      "count": 2,
+      "exampleCards": [
+        "Bloodhall Ooze",
+        "Rhox Meditant"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a Vraska planeswalker",
+      "clauseLower": "if you control a vraska planeswalker",
+      "count": 2,
+      "exampleCards": [
+        "Attendant of Vraska",
+        "Vraska's Conquistador"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control an artifact and an enchantment",
+      "clauseLower": "if you control an artifact and an enchantment",
+      "count": 2,
+      "exampleCards": [
+        "Kami of Terrible Secrets",
+        "Naomi, Pillar of Order"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control an artifact or enchantment",
+      "clauseLower": "if you control an artifact or enchantment",
+      "count": 2,
+      "exampleCards": [
+        "Moonlit Scavengers",
+        "Stone Haven Pilgrim"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control an Equipment",
+      "clauseLower": "if you control an equipment",
+      "count": 2,
+      "exampleCards": [
+        "Settlement Blacksmith",
+        "Weapons Vendor"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control an Island",
+      "clauseLower": "if you control an island",
+      "count": 2,
+      "exampleCards": [
+        "Council's Deliberation",
+        "Shoreline Salvager"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control another creature with power 4 or greater",
+      "clauseLower": "if you control another creature with power 4 or greater",
+      "count": 2,
+      "exampleCards": [
+        "Nessian Hornbeetle",
+        "Turret Ogre"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control four or more creatures",
+      "clauseLower": "if you control four or more creatures",
+      "count": 2,
+      "exampleCards": [
+        "Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun",
+        "Hanweir Militia Captain // Westvale Cult Leader"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control no creatures",
+      "clauseLower": "if you control no creatures",
+      "count": 2,
+      "exampleCards": [
+        "Promise of Tomorrow",
+        "Thran Quarry"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control no tapped lands",
+      "clauseLower": "if you control no tapped lands",
+      "count": 2,
+      "exampleCards": [
+        "Martyr's Soul",
+        "Nantuko Shaman"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control three or more creatures",
+      "clauseLower": "if you control three or more creatures",
+      "count": 2,
+      "exampleCards": [
+        "Dundoolin Weaver",
+        "Leonin Vanguard"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control two or more Forests",
+      "clauseLower": "if you control two or more forests",
+      "count": 2,
+      "exampleCards": [
+        "Hag Hedge-Mage",
+        "Selkie Hedge-Mage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control two or more Islands",
+      "clauseLower": "if you control two or more islands",
+      "count": 2,
+      "exampleCards": [
+        "Noggle Hedge-Mage",
+        "Selkie Hedge-Mage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control two or more Mountains",
+      "clauseLower": "if you control two or more mountains",
+      "count": 2,
+      "exampleCards": [
+        "Duergar Hedge-Mage",
+        "Noggle Hedge-Mage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control two or more Plains",
+      "clauseLower": "if you control two or more plains",
+      "count": 2,
+      "exampleCards": [
+        "Duergar Hedge-Mage",
+        "Gwyllion Hedge-Mage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control two or more Swamps",
+      "clauseLower": "if you control two or more swamps",
+      "count": 2,
+      "exampleCards": [
+        "Gwyllion Hedge-Mage",
+        "Hag Hedge-Mage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you didn't attack with a creature this turn",
+      "clauseLower": "if you didn't attack with a creature this turn",
+      "count": 2,
+      "exampleCards": [
+        "Curious Obsession",
+        "See Red"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you didn't cast it from your hand",
+      "clauseLower": "if you didn't cast it from your hand",
+      "count": 2,
+      "exampleCards": [
+        "Chainer, Nightmare Adept",
+        "Phage the Untouchable"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have fewer than seven cards in hand",
+      "clauseLower": "if you have fewer than seven cards in hand",
+      "count": 2,
+      "exampleCards": [
+        "Damia, Sage of Stone",
+        "Kozilek, the Great Distortion"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you have four or more creature cards in your graveyard",
+      "clauseLower": "if you have four or more creature cards in your graveyard",
+      "count": 2,
+      "exampleCards": [
+        "Oversold Cemetery",
+        "Pit Keeper"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have seven or more cards in hand",
+      "clauseLower": "if you have seven or more cards in hand",
+      "count": 2,
+      "exampleCards": [
+        "Ivory Crane Netsuke",
+        "Kiyomaro, First to Stand"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you have the Windy City's blessing",
+      "clauseLower": "if you have the windy city's blessing",
+      "count": 2,
+      "exampleCards": [
+        "Windy City Aven",
+        "Windy City Elemental"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you've cast two or more spells this turn",
+      "clauseLower": "if you've cast two or more spells this turn",
+      "count": 2,
+      "exampleCards": [
+        "Loan Shark",
+        "Reverberating Summons"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {B} was spent to cast it",
+      "clauseLower": "if {b} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Shrieking Grotesque"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {C} was spent to cast it",
+      "clauseLower": "if {c} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Drowner of Truth // Drowned Jungle"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {C} wasn't spent to cast it",
+      "clauseLower": "if {c} wasn't spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Wumpus Aberration"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if {G} was spent to cast it",
+      "clauseLower": "if {g} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Tin Street Hooligan"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {U} was spent to cast it",
+      "clauseLower": "if {u} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Ogre Savant"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {W} was spent to cast it",
+      "clauseLower": "if {w} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Revenant Patriarch"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a creature entered the battlefield under your control this turn",
+      "clauseLower": "if a creature entered the battlefield under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Gargoyle Flock"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a land entered the battlefield under your control this turn and you control a prime number of lands",
+      "clauseLower": "if a land entered the battlefield under your control this turn and you control a prime number of lands",
+      "count": 1,
+      "exampleCards": [
+        "Zimone, All-Questioning"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a player controls more creatures than each other player",
+      "clauseLower": "if a player controls more creatures than each other player",
+      "count": 1,
+      "exampleCards": [
+        "Wild Mammoth"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a player controls more Wizards than each other player",
+      "clauseLower": "if a player controls more wizards than each other player",
+      "count": 1,
+      "exampleCards": [
+        "Thoughtbound Primoc"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a player controls no creatures",
+      "clauseLower": "if a player controls no creatures",
+      "count": 1,
+      "exampleCards": [
+        "Sothera, the Supervoid"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a player has more cards in hand than each other player",
+      "clauseLower": "if a player has more cards in hand than each other player",
+      "count": 1,
+      "exampleCards": [
+        "Sokenzan Renegade"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a player is the monarch",
+      "clauseLower": "if a player is the monarch",
+      "count": 1,
+      "exampleCards": [
+        "Fioran Reformist"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if all lands on the battlefield are Islands",
+      "clauseLower": "if all lands on the battlefield are islands",
+      "count": 1,
+      "exampleCards": [
+        "Quicksilver Fountain"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent controls more creatures than you",
+      "clauseLower": "if an opponent controls more creatures than you",
+      "count": 1,
+      "exampleCards": [
+        "Linvala, the Preserver"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent controls three or more creatures",
+      "clauseLower": "if an opponent controls three or more creatures",
+      "count": 1,
+      "exampleCards": [
+        "Defense of the Heart"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent has more life than you",
+      "clauseLower": "if an opponent has more life than you",
+      "count": 1,
+      "exampleCards": [
+        "Linvala, the Preserver"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent has no cards in hand",
+      "clauseLower": "if an opponent has no cards in hand",
+      "count": 1,
+      "exampleCards": [
+        "Rekindled Flame"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if an opponent is the monarch",
+      "clauseLower": "if an opponent is the monarch",
+      "count": 1,
+      "exampleCards": [
+        "Queen Marchesa"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an opponent lost 2 or more life this turn",
+      "clauseLower": "if an opponent lost 2 or more life this turn",
+      "count": 1,
+      "exampleCards": [
+        "Bloodchief Ascension"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if Arden Angel is in your graveyard",
+      "clauseLower": "if arden angel is in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Arden Angel"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if at least eight mana was spent to cast it",
+      "clauseLower": "if at least eight mana was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Ultros, Obnoxious Octopus"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if at least seven mana was spent to cast it",
+      "clauseLower": "if at least seven mana was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Raggadragga, Goreguts Boss"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if eight or more cards are in your graveyard",
+      "clauseLower": "if eight or more cards are in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Sidequest: Card Collection // Magicked Card"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if four or more cards are in your graveyard",
+      "clauseLower": "if four or more cards are in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Jet Collector"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it had one or more +1/+1 counters on it",
+      "clauseLower": "if it had one or more +1/+1 counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Reyhan, Last of the Abzan"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it isn't a token",
+      "clauseLower": "if it isn't a token",
+      "count": 1,
+      "exampleCards": [
+        "Gruff Triplets"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {1}{G} kicker",
+      "clauseLower": "if it was kicked with its {1}{g} kicker",
+      "count": 1,
+      "exampleCards": [
+        "Sunscape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {1}{U} kicker",
+      "clauseLower": "if it was kicked with its {1}{u} kicker",
+      "count": 1,
+      "exampleCards": [
+        "Wastescape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {2}{B} kicker",
+      "clauseLower": "if it was kicked with its {2}{b} kicker",
+      "count": 1,
+      "exampleCards": [
+        "Stormscape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {2}{R} kicker",
+      "clauseLower": "if it was kicked with its {2}{r} kicker",
+      "count": 1,
+      "exampleCards": [
+        "Nightscape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it was kicked with its {R} kicker",
+      "clauseLower": "if it was kicked with its {r} kicker",
+      "count": 1,
+      "exampleCards": [
+        "Thornscape Battlemage"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if it's enchanted",
+      "clauseLower": "if it's enchanted",
+      "count": 1,
+      "exampleCards": [
+        "Krond the Dawn-Clad"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it's enchanted or equipped",
+      "clauseLower": "if it's enchanted or equipped",
+      "count": 1,
+      "exampleCards": [
+        "Warchanter Skald"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if it's equipped",
+      "clauseLower": "if it's equipped",
+      "count": 1,
+      "exampleCards": [
+        "Tetsuo, Imperial Champion"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if its power is 30 or greater",
+      "clauseLower": "if its power is 30 or greater",
+      "count": 1,
+      "exampleCards": [
+        "Gen, Confider of Ages"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if its power is 6 or greater",
+      "clauseLower": "if its power is 6 or greater",
+      "count": 1,
+      "exampleCards": [
+        "Angelic Sell-Sword"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if Managorger Phoenix is in your graveyard",
+      "clauseLower": "if managorger phoenix is in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Managorger Phoenix"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if Moss-Pit Skeleton is in your graveyard",
+      "clauseLower": "if moss-pit skeleton is in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "A-Moss-Pit Skeleton"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if one or more creatures died this turn",
+      "clauseLower": "if one or more creatures died this turn",
+      "count": 1,
+      "exampleCards": [
+        "Feast of the Victorious Dead"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are five or more cards in your graveyard",
+      "clauseLower": "if there are five or more cards in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Locked in the Cemetery"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are fourteen or more cards in your graveyard",
+      "clauseLower": "if there are fourteen or more cards in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Emet-Selch, Unsundered // Hades, Sorcerer of Eld"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are six or more permanent cards in your graveyard",
+      "clauseLower": "if there are six or more permanent cards in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Exdeath, Void Warlock // Neo Exdeath, Dimension's End"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are three or more instant and/or sorcery cards in your graveyard",
+      "clauseLower": "if there are three or more instant and/or sorcery cards in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Curious Homunculus // Voracious Reader"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there are twenty or more instant and/or sorcery cards among cards in your graveyard",
+      "clauseLower": "if there are twenty or more instant and/or sorcery cards among cards in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Frenzied Geistblaster"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if there is an Elf card in your graveyard and this creature has a -1/-1 counter on it",
+      "clauseLower": "if there is an elf card in your graveyard and this creature has a -1/-1 counter on it",
+      "count": 1,
+      "exampleCards": [
+        "Creakwood Safewright"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this artifact is tapped",
+      "clauseLower": "if this artifact is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Mana Vault"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this enchantment has four or more quest counters on it",
+      "clauseLower": "if this enchantment has four or more quest counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Airbender Ascension"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this enchantment has three or more quest counters on it",
+      "clauseLower": "if this enchantment has three or more quest counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Bloodchief Ascension"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this permanent is a creature",
+      "clauseLower": "if this permanent is a creature",
+      "count": 1,
+      "exampleCards": [
+        "Hidden Stag"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if twenty or more creature cards are in your graveyard",
+      "clauseLower": "if twenty or more creature cards are in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Mortal Combat"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you cast it during your main phase",
+      "clauseLower": "if you cast it during your main phase",
+      "count": 1,
+      "exampleCards": [
+        "Sentinel's Mark"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you cast them and there are three or more Dragon and/or Lesson cards in your graveyard",
+      "clauseLower": "if you cast them and there are three or more dragon and/or lesson cards in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Ran and Shaw"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a Basri planeswalker",
+      "clauseLower": "if you control a basri planeswalker",
+      "count": 1,
+      "exampleCards": [
+        "Adherent of Hope"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a black or red permanent",
+      "clauseLower": "if you control a black or red permanent",
+      "count": 1,
+      "exampleCards": [
+        "Dega Sanctuary"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a blue or black permanent",
+      "clauseLower": "if you control a blue or black permanent",
+      "count": 1,
+      "exampleCards": [
+        "Ana Sanctuary"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a blue or red permanent",
+      "clauseLower": "if you control a blue or red permanent",
+      "count": 1,
+      "exampleCards": [
+        "Wandering Champion"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a Chandra planeswalker",
+      "clauseLower": "if you control a chandra planeswalker",
+      "count": 1,
+      "exampleCards": [
+        "Karplusan Hound"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a commander",
+      "clauseLower": "if you control a commander",
+      "count": 1,
+      "exampleCards": [
+        "Biowaste Blob"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control a Contested Game Ball",
+      "clauseLower": "if you control a contested game ball",
+      "count": 1,
+      "exampleCards": [
+        "Brave Falconhawk"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a creature",
+      "clauseLower": "if you control a creature",
+      "count": 1,
+      "exampleCards": [
+        "Birthing Ritual"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control a creature with a +1/+1 counter on it",
+      "clauseLower": "if you control a creature with a +1/+1 counter on it",
+      "count": 1,
+      "exampleCards": [
+        "Foundry Hornet"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if you control a creature with a counter on it",
+      "clauseLower": "if you control a creature with a counter on it",
+      "count": 1,
+      "exampleCards": [
+        "Delta Bloodflies"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a creature with power 7 or greater",
+      "clauseLower": "if you control a creature with power 7 or greater",
+      "count": 1,
+      "exampleCards": [
+        "Bugenhagen, Wise Elder"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a creature with the greatest power among creatures on the battlefield",
+      "clauseLower": "if you control a creature with the greatest power among creatures on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Éomer of the Riddermark"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a Dinosaur",
+      "clauseLower": "if you control a dinosaur",
+      "count": 1,
+      "exampleCards": [
+        "Tilonalli's Knight"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a green or white permanent",
+      "clauseLower": "if you control a green or white permanent",
+      "count": 1,
+      "exampleCards": [
+        "Necra Sanctuary"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    }
+  ],
+  "topRecognizedNull": [
+    {
+      "clause": "if it isn't a mana ability",
+      "clauseLower": "if it isn't a mana ability",
+      "count": 5,
+      "exampleCards": [
+        "Battlemage's Bracers",
+        "Harsh Mentor",
+        "Illusionist's Bracers",
+        "Kurkesh, Onakke Ancient",
+        "Rings of Brighthearth"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's not their turn",
+      "clauseLower": "if it's not their turn",
+      "count": 5,
+      "exampleCards": [
+        "Adrenaline Jockey",
+        "Glademuse",
+        "March of the World Ooze",
+        "Scytheclaw Raptor",
+        "Zurzoth, Chaos Rider"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that player has two or fewer cards in hand",
+      "clauseLower": "if that player has two or fewer cards in hand",
+      "count": 4,
+      "exampleCards": [
+        "Hellfire Mongrel",
+        "Invasion of Eldraine // Prickle Faeries",
+        "Lavaborn Muse",
+        "Paupers' Cage"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that player has no cards in hand",
+      "clauseLower": "if that player has no cards in hand",
+      "count": 3,
+      "exampleCards": [
+        "Asylum Visitor",
+        "Ghirapur Orrery",
+        "Hollowborn Barghest"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that player has one or fewer cards in hand",
+      "clauseLower": "if that player has one or fewer cards in hand",
+      "count": 3,
+      "exampleCards": [
+        "Bandit's Talent",
+        "Davriel, Rogue Shadowmage",
+        "Shrieking Affliction"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if your team controls another Warrior",
+      "clauseLower": "if your team controls another warrior",
+      "count": 3,
+      "exampleCards": [
+        "Aurora Champion",
+        "Bull-Rush Bruiser",
+        "Sickle Dancer"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if 4 or more damage was dealt to it this turn",
+      "clauseLower": "if 4 or more damage was dealt to it this turn",
+      "count": 2,
+      "exampleCards": [
+        "Burning-Eye Zubera",
+        "Rushing-Tide Zubera"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a card is exiled with it",
+      "clauseLower": "if a card is exiled with it",
+      "count": 2,
+      "exampleCards": [
+        "Redemptor Dreadnought",
+        "Smirking Spelljacker"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if all your commanders have been revealed",
+      "clauseLower": "if all your commanders have been revealed",
+      "count": 2,
+      "exampleCards": [
+        "Aggressive Detective",
+        "Growing Detective"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted creature's power is 4 or greater",
+      "clauseLower": "if enchanted creature's power is 4 or greater",
+      "count": 2,
+      "exampleCards": [
+        "Arachnus Web",
+        "Domestication"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if evidence was collected",
+      "clauseLower": "if evidence was collected",
+      "count": 2,
+      "exampleCards": [
+        "Spotlight Falcon",
+        "Vitu-Ghazi Inspector"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has a single target",
+      "clauseLower": "if it has a single target",
+      "count": 2,
+      "exampleCards": [
+        "Captured by the Consulate",
+        "Grip of Chaos"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has madness",
+      "clauseLower": "if it has madness",
+      "count": 2,
+      "exampleCards": [
+        "Anje Falkenrath",
+        "Anje Falkenrath // Anje Falkenrath"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it shares a card type with the exiled card",
+      "clauseLower": "if it shares a card type with the exiled card",
+      "count": 2,
+      "exampleCards": [
+        "Cemetery Gatekeeper",
+        "Cemetery Protector"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was unearthed",
+      "clauseLower": "if it was unearthed",
+      "count": 2,
+      "exampleCards": [
+        "Malfegor Avatar"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's your main phase",
+      "clauseLower": "if it's your main phase",
+      "count": 2,
+      "exampleCards": [
+        "All-Out Assault",
+        "Moraug, Fury of Akoum"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its prowl cost was paid",
+      "clauseLower": "if its prowl cost was paid",
+      "count": 2,
+      "exampleCards": [
+        "Earwig Squad",
+        "Latchkey Faerie"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its surge cost was paid",
+      "clauseLower": "if its surge cost was paid",
+      "count": 2,
+      "exampleCards": [
+        "Reckless Bushwhacker",
+        "Tyrant of Valakut"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if one or more of them entered from a graveyard or was cast from a graveyard",
+      "clauseLower": "if one or more of them entered from a graveyard or was cast from a graveyard",
+      "count": 2,
+      "exampleCards": [
+        "Celes, Rune Knight",
+        "Kotis, Sibsig Champion"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if play had proceeded clockwise around the table",
+      "clauseLower": "if play had proceeded clockwise around the table",
+      "count": 2,
+      "exampleCards": [
+        "Temple of Atropos",
+        "Time Distortion"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that creature was dealt excess damage this turn",
+      "clauseLower": "if that creature was dealt excess damage this turn",
+      "count": 2,
+      "exampleCards": [
+        "Maarika, Brutal Gladiator",
+        "Overclocked Electromancer"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that player controls more lands than each other player",
+      "clauseLower": "if that player controls more lands than each other player",
+      "count": 2,
+      "exampleCards": [
+        "Greener Pastures",
+        "Rivalry"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that player controls more lands than you",
+      "clauseLower": "if that player controls more lands than you",
+      "count": 2,
+      "exampleCards": [
+        "Archaeomancer's Map",
+        "Keeper of the Accord"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that player had another land enter the battlefield under their control this turn",
+      "clauseLower": "if that player had another land enter the battlefield under their control this turn",
+      "count": 2,
+      "exampleCards": [
+        "Confounding Conundrum",
+        "Tunnel Ignus"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that spell was kicked",
+      "clauseLower": "if that spell was kicked",
+      "count": 2,
+      "exampleCards": [
+        "Bloodstone Goblin",
+        "Hallar, the Firefletcher"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if the gift was promised",
+      "clauseLower": "if the gift was promised",
+      "count": 2,
+      "exampleCards": [
+        "Scrapshooter",
+        "Starforged Sword"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if this card is exiled",
+      "clauseLower": "if this card is exiled",
+      "count": 2,
+      "exampleCards": [
+        "Darigaaz, Shivan Champion",
+        "Senu, Keen-Eyed Protector"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if this card is in your graveyard with a creature card directly above it",
+      "clauseLower": "if this card is in your graveyard with a creature card directly above it",
+      "count": 2,
+      "exampleCards": [
+        "Death Spark",
+        "Krovikan Horror"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if two or more of those creatures are attacking you and/or planeswalkers you control",
+      "clauseLower": "if two or more of those creatures are attacking you and/or planeswalkers you control",
+      "count": 2,
+      "exampleCards": [
+        "Mangara, the Diplomat",
+        "Tomik, Wielder of Law"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you didn't play a card from exile this turn",
+      "clauseLower": "if you didn't play a card from exile this turn",
+      "count": 2,
+      "exampleCards": [
+        "A-Visions of Phyrexia",
+        "Visions of Phyrexia"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you haven't completed Tomb of Annihilation",
+      "clauseLower": "if you haven't completed tomb of annihilation",
+      "count": 2,
+      "exampleCards": [
+        "A-Acererak the Archlich",
+        "Acererak the Archlich"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you lost life last turn",
+      "clauseLower": "if you lost life last turn",
+      "count": 2,
+      "exampleCards": [
+        "First Response",
+        "Paladin of Atonement"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you put a counter on a creature this turn",
+      "clauseLower": "if you put a counter on a creature this turn",
+      "count": 2,
+      "exampleCards": [
+        "Lasting Tarfire",
+        "Lord Jyscal Guado"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you sacrificed three or more Clues this turn",
+      "clauseLower": "if you sacrificed three or more clues this turn",
+      "count": 2,
+      "exampleCards": [
+        "Briarbridge Patrol",
+        "Havengul Laboratory // Havengul Mystery"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you're on the Mirran team",
+      "clauseLower": "if you're on the mirran team",
+      "count": 2,
+      "exampleCards": [
+        "Tricky Mage",
+        "Unclaimed Bird"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you're the defending player",
+      "clauseLower": "if you're the defending player",
+      "count": 2,
+      "exampleCards": [
+        "Kazuul, Tyrant of the Cliffs",
+        "Nature Shields Its Own"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you've cast both a creature spell and a noncreature spell this turn",
+      "clauseLower": "if you've cast both a creature spell and a noncreature spell this turn",
+      "count": 2,
+      "exampleCards": [
+        "Eshki Dragonclaw",
+        "Fae Offering"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you've completed a dungeon",
+      "clauseLower": "if you've completed a dungeon",
+      "count": 2,
+      "exampleCards": [
+        "Eccentric Apprentice",
+        "Ravenloft Adventurer"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {S} of any of that spell's colors was spent to cast it",
+      "clauseLower": "if {s} of any of that spell's colors was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Boreal Outrider"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a +1/+1 counter was put on a permanent under your control this turn",
+      "clauseLower": "if a +1/+1 counter was put on a permanent under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Fairgrounds Trumpeter"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a card left your graveyard this turn",
+      "clauseLower": "if a card left your graveyard this turn",
+      "count": 1,
+      "exampleCards": [
+        "Gau, Feral Youth"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a counter was put on Wakka this turn",
+      "clauseLower": "if a counter was put on wakka this turn",
+      "count": 1,
+      "exampleCards": [
+        "Wakka, Devoted Guardian"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a creature card left your graveyard this turn",
+      "clauseLower": "if a creature card left your graveyard this turn",
+      "count": 1,
+      "exampleCards": [
+        "Syrix, Carrier of the Flame"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a creature card was put into your graveyard from anywhere this turn",
+      "clauseLower": "if a creature card was put into your graveyard from anywhere this turn",
+      "count": 1,
+      "exampleCards": [
+        "Raphael, Fiendish Savior"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a creature dealt damage by this creature this turn died",
+      "clauseLower": "if a creature dealt damage by this creature this turn died",
+      "count": 1,
+      "exampleCards": [
+        "Krovikan Vampire"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a creature died under an opponent's control this turn",
+      "clauseLower": "if a creature died under an opponent's control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Sidequest: Hunt the Mark // Yiazmat, Ultimate Mark"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a creature entered the battlefield under an opponent's control this turn",
+      "clauseLower": "if a creature entered the battlefield under an opponent's control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Lictor"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a creature or planeswalker an opponent controlled was dealt excess damage this turn",
+      "clauseLower": "if a creature or planeswalker an opponent controlled was dealt excess damage this turn",
+      "count": 1,
+      "exampleCards": [
+        "Rith, Liberated Primeval"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a face-down creature entered the battlefield under your control this turn",
+      "clauseLower": "if a face-down creature entered the battlefield under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Tunnel Tipster"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a Giant",
+      "clauseLower": "if a giant",
+      "count": 1,
+      "exampleCards": [
+        "Aegar, the Freezing Flame"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a land you controlled was put into a graveyard from the battlefield this turn",
+      "clauseLower": "if a land you controlled was put into a graveyard from the battlefield this turn",
+      "count": 1,
+      "exampleCards": [
+        "The Lady of Otaria"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a permanent was put into your hand from the battlefield this turn",
+      "clauseLower": "if a permanent was put into your hand from the battlefield this turn",
+      "count": 1,
+      "exampleCards": [
+        "Barrin, Tolarian Archmage"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a Phyrexian died under your control this turn",
+      "clauseLower": "if a phyrexian died under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Brimaz, Blight of Oreskos"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a Pirate and a Vehicle attacked this combat",
+      "clauseLower": "if a pirate and a vehicle attacked this combat",
+      "count": 1,
+      "exampleCards": [
+        "Fearless Swashbuckler"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a player discarded a card this turn",
+      "clauseLower": "if a player discarded a card this turn",
+      "count": 1,
+      "exampleCards": [
+        "The Raven Man"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a player was dealt 6 or more combat damage this turn",
+      "clauseLower": "if a player was dealt 6 or more combat damage this turn",
+      "count": 1,
+      "exampleCards": [
+        "Sidequest: Play Blitzball // World Champion, Celestial Weapon"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a player was dealt combat damage by a Zombie this turn",
+      "clauseLower": "if a player was dealt combat damage by a zombie this turn",
+      "count": 1,
+      "exampleCards": [
+        "Lost Monarch of Ifnir"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a player would planeswalk as a result of rolling the planar die",
+      "clauseLower": "if a player would planeswalk as a result of rolling the planar die",
+      "count": 1,
+      "exampleCards": [
+        "Fixed Point in Time"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a source would deal damage",
+      "clauseLower": "if a source would deal damage",
+      "count": 1,
+      "exampleCards": [
+        "Approach My Molten Realm"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a source would deal damage to that player or a permanent that player controls",
+      "clauseLower": "if a source would deal damage to that player or a permanent that player controls",
+      "count": 1,
+      "exampleCards": [
+        "Lightning, Army of One"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if all nonland permanents you control are white",
+      "clauseLower": "if all nonland permanents you control are white",
+      "count": 1,
+      "exampleCards": [
+        "Zealots en-Dal"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an artifact or creature was put into a graveyard from the battlefield this turn",
+      "clauseLower": "if an artifact or creature was put into a graveyard from the battlefield this turn",
+      "count": 1,
+      "exampleCards": [
+        "Ichor Shade"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an Assassin crewed it this turn",
+      "clauseLower": "if an assassin crewed it this turn",
+      "count": 1,
+      "exampleCards": [
+        "Adrestia"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an Aura you controlled was attached to it",
+      "clauseLower": "if an aura you controlled was attached to it",
+      "count": 1,
+      "exampleCards": [
+        "Dawn Evangel"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an enchantment was put into your graveyard from the battlefield this turn",
+      "clauseLower": "if an enchantment was put into your graveyard from the battlefield this turn",
+      "count": 1,
+      "exampleCards": [
+        "Kami of Transience"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an opponent cast a blue and/or black spell this turn",
+      "clauseLower": "if an opponent cast a blue and/or black spell this turn",
+      "count": 1,
+      "exampleCards": [
+        "Sandstalker Moloch"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an opponent discarded a card this turn",
+      "clauseLower": "if an opponent discarded a card this turn",
+      "count": 1,
+      "exampleCards": [
+        "Tinybones, Trinket Thief"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an opponent lost life last turn",
+      "clauseLower": "if an opponent lost life last turn",
+      "count": 1,
+      "exampleCards": [
+        "Feast on the Fallen"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an opponent was dealt 3 or more damage this turn",
+      "clauseLower": "if an opponent was dealt 3 or more damage this turn",
+      "count": 1,
+      "exampleCards": [
+        "Lightning Phoenix"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an opponent was dealt damage this turn",
+      "clauseLower": "if an opponent was dealt damage this turn",
+      "count": 1,
+      "exampleCards": [
+        "Half-Orc, Half-"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if another creature is on the battlefield",
+      "clauseLower": "if another creature is on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Lifeline"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if another Elf entered the battlefield under your control this turn",
+      "clauseLower": "if another elf entered the battlefield under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Galadriel, Elven-Queen"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if another Human died under your control this turn",
+      "clauseLower": "if another human died under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "White Glove Gourmand"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if another Human entered the battlefield under your control this turn",
+      "clauseLower": "if another human entered the battlefield under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Éowyn, Shieldmaiden"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if another opponent controls one or more nonland permanents that spell could target",
+      "clauseLower": "if another opponent controls one or more nonland permanents that spell could target",
+      "count": 1,
+      "exampleCards": [
+        "Exterminator Magmarch"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if any of that damage was dealt by a Warrior",
+      "clauseLower": "if any of that damage was dealt by a warrior",
+      "count": 1,
+      "exampleCards": [
+        "Mindblade Render"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if any of those creatures have power or toughness equal to the chosen number",
+      "clauseLower": "if any of those creatures have power or toughness equal to the chosen number",
+      "count": 1,
+      "exampleCards": [
+        "Squall, Gunblade Duelist"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Arahbo is in the command zone or on the battlefield",
+      "clauseLower": "if arahbo is in the command zone or on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Arahbo, Roar of the World"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if at least one other Wall creature is blocking that creature and no non-Wall creatures are blocking that creature",
+      "clauseLower": "if at least one other wall creature is blocking that creature and no non-wall creatures are blocking that creature",
+      "count": 1,
+      "exampleCards": [
+        "Wall of Caltrops"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if at least three mana of the same color was spent to cast it",
+      "clauseLower": "if at least three mana of the same color was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Clockwork Servant"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Cosima is exiled",
+      "clauseLower": "if cosima is exiled",
+      "count": 1,
+      "exampleCards": [
+        "Cosima, God of the Voyage // The Omenkeel"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if creatures you control have total toughness 10 or greater",
+      "clauseLower": "if creatures you control have total toughness 10 or greater",
+      "count": 1,
+      "exampleCards": [
+        "Betor, Kin to All"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player controls an Enchanting Tale",
+      "clauseLower": "if defending player controls an enchanting tale",
+      "count": 1,
+      "exampleCards": [
+        "Must Be Knights"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player controls more lands than you",
+      "clauseLower": "if defending player controls more lands than you",
+      "count": 1,
+      "exampleCards": [
+        "Aerial Surveyor"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player controls no black nontoken permanents",
+      "clauseLower": "if defending player controls no black nontoken permanents",
+      "count": 1,
+      "exampleCards": [
+        "Spectral Bears"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player controls no black permanents",
+      "clauseLower": "if defending player controls no black permanents",
+      "count": 1,
+      "exampleCards": [
+        "Spectral Force"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player controls no Glimmer creatures",
+      "clauseLower": "if defending player controls no glimmer creatures",
+      "count": 1,
+      "exampleCards": [
+        "Fear of the Dark"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player controls no Walls",
+      "clauseLower": "if defending player controls no walls",
+      "count": 1,
+      "exampleCards": [
+        "Siege Dragon"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player has more cards in hand than you",
+      "clauseLower": "if defending player has more cards in hand than you",
+      "count": 1,
+      "exampleCards": [
+        "Robber of the Rich"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player has two or fewer cards in hand",
+      "clauseLower": "if defending player has two or fewer cards in hand",
+      "count": 1,
+      "exampleCards": [
+        "Reaper of Night // Harvest Fear"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if defending player is poisoned",
+      "clauseLower": "if defending player is poisoned",
+      "count": 1,
+      "exampleCards": [
+        "Septic Rats"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Denry Klin has counters on it",
+      "clauseLower": "if denry klin has counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Denry Klin, Editor in Chief"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if each player has 10 or less life",
+      "clauseLower": "if each player has 10 or less life",
+      "count": 1,
+      "exampleCards": [
+        "Cryptolith Fragment // Aurora of Emrakul"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if each player has an empty library",
+      "clauseLower": "if each player has an empty library",
+      "count": 1,
+      "exampleCards": [
+        "Platinum Persecutor"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Edgar is in the command zone or on the battlefield",
+      "clauseLower": "if edgar is in the command zone or on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Edgar Markov"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Effie is tapped",
+      "clauseLower": "if effie is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Effie, Fast Learner"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted creature has flying",
+      "clauseLower": "if enchanted creature has flying",
+      "count": 1,
+      "exampleCards": [
+        "Earthbind"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted creature has toxic",
+      "clauseLower": "if enchanted creature has toxic",
+      "count": 1,
+      "exampleCards": [
+        "Maze's Mantle"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted creature is a Wolf or Werewolf",
+      "clauseLower": "if enchanted creature is a wolf or werewolf",
+      "count": 1,
+      "exampleCards": [
+        "Howl of the Hunt"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted creature is red",
+      "clauseLower": "if enchanted creature is red",
+      "count": 1,
+      "exampleCards": [
+        "Ray of Frost"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted creature is untapped",
+      "clauseLower": "if enchanted creature is untapped",
+      "count": 1,
+      "exampleCards": [
+        "Narcolepsy"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted Equipment is attached to a creature",
+      "clauseLower": "if enchanted equipment is attached to a creature",
+      "count": 1,
+      "exampleCards": [
+        "Artificer's Hex"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted permanent is a creature with the greatest power among creatures on the battlefield",
+      "clauseLower": "if enchanted permanent is a creature with the greatest power among creatures on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Historian's Wisdom"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if enchanted permanent is tapped",
+      "clauseLower": "if enchanted permanent is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Volition Reins"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if equipped creature didn't deal combat damage to a creature this turn",
+      "clauseLower": "if equipped creature didn't deal combat damage to a creature this turn",
+      "count": 1,
+      "exampleCards": [
+        "Thirsting Axe"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Firemane Angel is in your graveyard or on the battlefield",
+      "clauseLower": "if firemane angel is in your graveyard or on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Firemane Angel"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Gitrog",
+      "clauseLower": "if gitrog",
+      "count": 1,
+      "exampleCards": [
+        "Gitrog, Horror of Zhava"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Glimmer Hoarder is tapped",
+      "clauseLower": "if glimmer hoarder is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Glimmer Hoarder"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if he was cast",
+      "clauseLower": "if he was cast",
+      "count": 1,
+      "exampleCards": [
+        "Anti-Venom, Horrifying Healer"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if he wasn't a Spirit",
+      "clauseLower": "if he wasn't a spirit",
+      "count": 1,
+      "exampleCards": [
+        "Fang, Roku's Companion"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Hex",
+      "clauseLower": "if hex",
+      "count": 1,
+      "exampleCards": [
+        "Hex, Kellan's Companion"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Hex is in exile with a fetch counter on it",
+      "clauseLower": "if hex is in exile with a fetch counter on it",
+      "count": 1,
+      "exampleCards": [
+        "Hex, Kellan's Companion"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Hixus entered this turn",
+      "clauseLower": "if hixus entered this turn",
+      "count": 1,
+      "exampleCards": [
+        "Hixus, Prison Warden"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Hydro-Man is a creature",
+      "clauseLower": "if hydro-man is a creature",
+      "count": 1,
+      "exampleCards": [
+        "Hydro-Man, Fluid Felon"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Ichor Aberration is in your graveyard or on the battlefield",
+      "clauseLower": "if ichor aberration is in your graveyard or on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Ichor Aberration"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Improvising Aerialist is tapped",
+      "clauseLower": "if improvising aerialist is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Improvising Aerialist"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Inalla is in the command zone or on the battlefield",
+      "clauseLower": "if inalla is in the command zone or on the battlefield",
+      "count": 1,
+      "exampleCards": [
+        "Inalla, Archmage Ritualist"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it dealt combat damage to a player this turn",
+      "clauseLower": "if it dealt combat damage to a player this turn",
+      "count": 1,
+      "exampleCards": [
+        "Wave of Rats"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it didn't die",
+      "clauseLower": "if it didn't die",
+      "count": 1,
+      "exampleCards": [
+        "Taeko, the Patient Avalanche"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it didn't have decayed",
+      "clauseLower": "if it didn't have decayed",
+      "count": 1,
+      "exampleCards": [
+        "Wilhelt, the Rotcleaver"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it doesn't have an indestructible counter on it",
+      "clauseLower": "if it doesn't have an indestructible counter on it",
+      "count": 1,
+      "exampleCards": [
+        "Risona, Asari Commander"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it doesn't have first strike",
+      "clauseLower": "if it doesn't have first strike",
+      "count": 1,
+      "exampleCards": [
+        "Momentum Rumbler"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it doesn't have the same name as another creature you control or a creature card in your graveyard",
+      "clauseLower": "if it doesn't have the same name as another creature you control or a creature card in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Guardian Project"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it doesn't share a keyword or ability word with a permanent you control or a card in your graveyard",
+      "clauseLower": "if it doesn't share a keyword or ability word with a permanent you control or a card in your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Second Stage of Magic Design"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it enlisted a creature this combat",
+      "clauseLower": "if it enlisted a creature this combat",
+      "count": 1,
+      "exampleCards": [
+        "Aradesh, the Founder"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it had a revival counter on it",
+      "clauseLower": "if it had a revival counter on it",
+      "count": 1,
+      "exampleCards": [
+        "Nine-Lives Familiar"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it had no -1/-1 counters on it",
+      "clauseLower": "if it had no -1/-1 counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Rhys, the Evermore"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it had no counters on it",
+      "clauseLower": "if it had no counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Unstoppable Slasher"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it had one or more -1/-1 counters on it",
+      "clauseLower": "if it had one or more -1/-1 counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Oft-Nabbed Goat"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it had power greater than Drizzt's power",
+      "clauseLower": "if it had power greater than drizzt's power",
+      "count": 1,
+      "exampleCards": [
+        "Drizzt Do'Urden"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has an egg counter on it",
+      "clauseLower": "if it has an egg counter on it",
+      "count": 1,
+      "exampleCards": [
+        "Xira, the Golden Sting"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has dealt 10 or more damage to that player this turn",
+      "clauseLower": "if it has dealt 10 or more damage to that player this turn",
+      "count": 1,
+      "exampleCards": [
+        "Hidetsugu Consumes All // Vessel of the All-Consuming"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has fewer than four +1/+1 counters on it",
+      "clauseLower": "if it has fewer than four +1/+1 counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Ayara's Oathsworn"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has first strike",
+      "clauseLower": "if it has first strike",
+      "count": 1,
+      "exampleCards": [
+        "Momentum Rumbler"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has four or more quest counters on it",
+      "clauseLower": "if it has four or more quest counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Earthbender Ascension"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has mutate",
+      "clauseLower": "if it has mutate",
+      "count": 1,
+      "exampleCards": [
+        "Pollywog Symbiote"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has one or more oil counters on it",
+      "clauseLower": "if it has one or more oil counters on it",
+      "count": 1,
+      "exampleCards": [
+        "Ichorplate Golem"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it has the same name as one of the cards exiled with this artifact",
+      "clauseLower": "if it has the same name as one of the cards exiled with this artifact",
+      "count": 1,
+      "exampleCards": [
+        "Spellweaver Helix"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it isn't that player's turn",
+      "clauseLower": "if it isn't that player's turn",
+      "count": 1,
+      "exampleCards": [
+        "Tataru Taru"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it shares a creature type with Plane-Merge Elf",
+      "clauseLower": "if it shares a creature type with plane-merge elf",
+      "count": 1,
+      "exampleCards": [
+        "Plane-Merge Elf"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it shares a mana value with one or more uncrossed digits in the chosen number",
+      "clauseLower": "if it shares a mana value with one or more uncrossed digits in the chosen number",
+      "count": 1,
+      "exampleCards": [
+        "Duelists' Convocation International"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it targets a creature you control with the chosen name",
+      "clauseLower": "if it targets a creature you control with the chosen name",
+      "count": 1,
+      "exampleCards": [
+        "Echoing Boon"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it targets one or more other permanents you control",
+      "clauseLower": "if it targets one or more other permanents you control",
+      "count": 1,
+      "exampleCards": [
+        "Orvar, the All-Form"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was attacking or blocking alone",
+      "clauseLower": "if it was attacking or blocking alone",
+      "count": 1,
+      "exampleCards": [
+        "Thijarian Witness"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was blocked this turn",
+      "clauseLower": "if it was blocked this turn",
+      "count": 1,
+      "exampleCards": [
+        "Fyndhorn Druid"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was cast from your graveyard",
+      "clauseLower": "if it was cast from your graveyard",
+      "count": 1,
+      "exampleCards": [
+        "Rocket-Powered Goblin Glider"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was crewed by exactly two creatures",
+      "clauseLower": "if it was crewed by exactly two creatures",
+      "count": 1,
+      "exampleCards": [
+        "Mighty Servant of Leuk-o"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was enchanted",
+      "clauseLower": "if it was enchanted",
+      "count": 1,
+      "exampleCards": [
+        "Gunner Conscript"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was equipped",
+      "clauseLower": "if it was equipped",
+      "count": 1,
+      "exampleCards": [
+        "Gunner Conscript"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was historic",
+      "clauseLower": "if it was historic",
+      "count": 1,
+      "exampleCards": [
+        "Curator's Ward"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was kicked twice",
+      "clauseLower": "if it was kicked twice",
+      "count": 1,
+      "exampleCards": [
+        "Archangel of Wrath"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was the second spell you cast this turn",
+      "clauseLower": "if it was the second spell you cast this turn",
+      "count": 1,
+      "exampleCards": [
+        "Codespell Cleric"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it wasn't a Demon",
+      "clauseLower": "if it wasn't a demon",
+      "count": 1,
+      "exampleCards": [
+        "Infernal Vessel"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it wasn't put onto the battlefield with this ability",
+      "clauseLower": "if it wasn't put onto the battlefield with this ability",
+      "count": 1,
+      "exampleCards": [
+        "Kodama of the East Tree"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it wasn't sacrificed",
+      "clauseLower": "if it wasn't sacrificed",
+      "count": 1,
+      "exampleCards": [
+        "Urza's Miter"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it wasn't the first land you played this turn",
+      "clauseLower": "if it wasn't the first land you played this turn",
+      "count": 1,
+      "exampleCards": [
+        "Fastbond"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's an opponent's turn",
+      "clauseLower": "if it's an opponent's turn",
+      "count": 1,
+      "exampleCards": [
+        "Discordant Spirit"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's at least one of the chosen colors",
+      "clauseLower": "if it's at least one of the chosen colors",
+      "count": 1,
+      "exampleCards": [
+        "Tablet of the Guilds"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's attacking the player with the most life or tied for most life",
+      "clauseLower": "if it's attacking the player with the most life or tied for most life",
+      "count": 1,
+      "exampleCards": [
+        "Scourge of the Throne"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's modified",
+      "clauseLower": "if it's modified",
+      "count": 1,
+      "exampleCards": [
+        "Ian the Reckless"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's not a Brushwagg",
+      "clauseLower": "if it's not a brushwagg",
+      "count": 1,
+      "exampleCards": [
+        "Unique Charmed Pants"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's not a Spirit",
+      "clauseLower": "if it's not a spirit",
+      "count": 1,
+      "exampleCards": [
+        "Otherworldly Escort"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's not suspected",
+      "clauseLower": "if it's not suspected",
+      "count": 1,
+      "exampleCards": [
+        "Rubblebelt Braggart"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's not that player's turn",
+      "clauseLower": "if it's not that player's turn",
+      "count": 1,
+      "exampleCards": [
+        "Price of Glory"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's not the first turn of the game",
+      "clauseLower": "if it's not the first turn of the game",
+      "count": 1,
+      "exampleCards": [
+        "Necropotence Avatar"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's not your turn",
+      "clauseLower": "if it's not your turn",
+      "count": 1,
+      "exampleCards": [
+        "Lighthouse Chronologist"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's on the battlefield and you control 9 or fewer creatures named \"Name Sticker\" Goblin",
+      "clauseLower": "if it's on the battlefield and you control 9 or fewer creatures named \"name sticker\" goblin",
+      "count": 1,
+      "exampleCards": [
+        "\"Name Sticker\" Goblin"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's renowned",
+      "clauseLower": "if it's renowned",
+      "count": 1,
+      "exampleCards": [
+        "Consul's Lieutenant"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's represented by food",
+      "clauseLower": "if it's represented by food",
+      "count": 1,
+      "exampleCards": [
+        "Thopter Pie Network"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's the first instant spell",
+      "clauseLower": "if it's the first instant spell",
+      "count": 1,
+      "exampleCards": [
+        "Alania, Divergent Storm"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's the first time +1/+1 counters have been put on that permanent this turn",
+      "clauseLower": "if it's the first time +1/+1 counters have been put on that permanent this turn",
+      "count": 1,
+      "exampleCards": [
+        "Botanical Brawler"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's the first time counters have been put on that creature this turn",
+      "clauseLower": "if it's the first time counters have been put on that creature this turn",
+      "count": 1,
+      "exampleCards": [
+        "Stalwart Successor"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's the first time this ability has resolved this game",
+      "clauseLower": "if it's the first time this ability has resolved this game",
+      "count": 1,
+      "exampleCards": [
+        "The Keeper of Kaldra"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's the second creature spell you cast this turn",
+      "clauseLower": "if it's the second creature spell you cast this turn",
+      "count": 1,
+      "exampleCards": [
+        "Vengevine"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it's your turn",
+      "clauseLower": "if it's your turn",
+      "count": 1,
+      "exampleCards": [
+        "Jeering Instigator"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its additional cost was paid",
+      "clauseLower": "if its additional cost was paid",
+      "count": 1,
+      "exampleCards": [
+        "Graven Archfiend"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its madness cost was paid",
+      "clauseLower": "if its madness cost was paid",
+      "count": 1,
+      "exampleCards": [
+        "Grave Scrabbler"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its mana value is equal to 1 plus the number of soul counters on this enchantment",
+      "clauseLower": "if its mana value is equal to 1 plus the number of soul counters on this enchantment",
+      "count": 1,
+      "exampleCards": [
+        "Obscura Ascendancy"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its mana value was 1 or greater",
+      "clauseLower": "if its mana value was 1 or greater",
+      "count": 1,
+      "exampleCards": [
+        "Magnanimous Magistrate"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its power is 2 or less",
+      "clauseLower": "if its power is 2 or less",
+      "count": 1,
+      "exampleCards": [
+        "Writ of Passage"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its power is greater than 0",
+      "clauseLower": "if its power is greater than 0",
+      "count": 1,
+      "exampleCards": [
+        "Dragonborn Immolator"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its power is greater than this creature's power or its toughness is greater than this creature's toughness",
+      "clauseLower": "if its power is greater than this creature's power or its toughness is greater than this creature's toughness",
+      "count": 1,
+      "exampleCards": [
+        "Sharp-Eyed Rookie"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its power was 3 or greater",
+      "clauseLower": "if its power was 3 or greater",
+      "count": 1,
+      "exampleCards": [
+        "Deathknell Berserker"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its power was different from its base power",
+      "clauseLower": "if its power was different from its base power",
+      "count": 1,
+      "exampleCards": [
+        "Jason Bright, Glowing Prophet"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its spectacle cost was paid",
+      "clauseLower": "if its spectacle cost was paid",
+      "count": 1,
+      "exampleCards": [
+        "Rafter Demon"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its toughness was less than 1",
+      "clauseLower": "if its toughness was less than 1",
+      "count": 1,
+      "exampleCards": [
+        "Massacre Girl, Known Killer"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Jace was kicked",
+      "clauseLower": "if jace was kicked",
+      "count": 1,
+      "exampleCards": [
+        "Jace, Mirror Mage"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Kaito entered this turn",
+      "clauseLower": "if kaito entered this turn",
+      "count": 1,
+      "exampleCards": [
+        "Kaito Shizuki"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Kalamax is tapped",
+      "clauseLower": "if kalamax is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Kalamax, the Stormsire"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Katara is tapped",
+      "clauseLower": "if katara is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Katara, Bending Prodigy"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Kona is tapped",
+      "clauseLower": "if kona is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Kona, Rescue Beastie"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Kytheon and at least two other creatures attacked this combat",
+      "clauseLower": "if kytheon and at least two other creatures attacked this combat",
+      "count": 1,
+      "exampleCards": [
+        "Kytheon, Hero of Akros // Gideon, Battle-Forged"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if Legolas is tapped",
+      "clauseLower": "if legolas is tapped",
+      "count": 1,
+      "exampleCards": [
+        "Legolas, Counter of Kills"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if life was paid to activate it",
+      "clauseLower": "if life was paid to activate it",
+      "count": 1,
+      "exampleCards": [
+        "Verrak, Warped Sengir"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if mana from a Treasure was spent to cast it or activate it",
+      "clauseLower": "if mana from a treasure was spent to cast it or activate it",
+      "count": 1,
+      "exampleCards": [
+        "Vazi, Keen Negotiator"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if more lands entered the battlefield under your control this turn than an opponent had enter during their last turn",
+      "clauseLower": "if more lands entered the battlefield under your control this turn than an opponent had enter during their last turn",
+      "count": 1,
+      "exampleCards": [
+        "Simic, Value Engine"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if necessary",
+      "clauseLower": "if necessary",
+      "count": 1,
+      "exampleCards": [
+        "Ricochet"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if no colored mana was spent to cast it",
+      "clauseLower": "if no colored mana was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Void Mirror"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if no creatures died this turn",
+      "clauseLower": "if no creatures died this turn",
+      "count": 1,
+      "exampleCards": [
+        "Titan Hunter"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if no mana was spent to cast that spell",
+      "clauseLower": "if no mana was spent to cast that spell",
+      "count": 1,
+      "exampleCards": [
+        "Roiling Vortex"
+      ],
+      "evaluation": "recognized"
     }
   ],
   "topFallback": [],

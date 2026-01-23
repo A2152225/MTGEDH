@@ -217,6 +217,82 @@ describe('Intervening-if ETB triggers', () => {
     expect(String(trigger?.description || '')).toMatch(/if you control another knight/i);
   });
 
+  it("filters opponent-creature ETB triggers when 'that player' refers to the entering creature's controller", () => {
+    const g = createInitialGameState('t_intervening_if_opponent_creature_etb_that_player');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    // p2 is the entering creature's controller; we'll vary their handCount.
+    (g.state as any).zones = (g.state as any).zones || {};
+    (g.state as any).zones[p2] = (g.state as any).zones[p2] || {
+      hand: [],
+      handCount: 3,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+    };
+
+    const watcher = {
+      id: 'watcher_2',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'watcher_2_card',
+        name: 'That Player Suture Test',
+        type_line: 'Enchantment',
+        oracle_text:
+          "Whenever a creature enters the battlefield under an opponent's control, if that player has two or fewer cards in hand, that player loses 1 life.",
+      },
+      tapped: false,
+    };
+
+    const entering = {
+      id: 'bear_3',
+      controller: p2,
+      owner: p2,
+      card: {
+        id: 'bear_3_card',
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+        oracle_text: '',
+      },
+      tapped: false,
+    };
+
+    (g.state.battlefield as any).push(watcher);
+    (g.state.battlefield as any).push(entering);
+
+    // p2 has 3 cards -> condition false -> should not queue trigger.
+    (g.state as any).zones[p2].handCount = 3;
+    triggerETBEffectsForPermanent(g as any, entering, p2);
+    expect(
+      ((g.state.stack || []) as any[]).some((s) => s?.type === 'triggered_ability' && s?.sourceName === 'That Player Suture Test')
+    ).toBe(false);
+
+    // Now satisfy: p2 has 2 -> trigger should be queued.
+    const entering2 = {
+      id: 'bear_4',
+      controller: p2,
+      owner: p2,
+      card: {
+        id: 'bear_4_card',
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+        oracle_text: '',
+      },
+      tapped: false,
+    };
+    (g.state.battlefield as any).push(entering2);
+    (g.state as any).zones[p2].handCount = 2;
+    triggerETBEffectsForPermanent(g as any, entering2, p2);
+    expect(
+      ((g.state.stack || []) as any[]).some((s) => s?.type === 'triggered_ability' && s?.sourceName === 'That Player Suture Test')
+    ).toBe(true);
+  });
+
   it("initializes day/night to day when a daybound permanent enters", () => {
     const g = createInitialGameState('t_day_night_init_on_etb');
 

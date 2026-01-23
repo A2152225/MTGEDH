@@ -95,10 +95,16 @@ function signatureFor(clauseLower: string): string {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const categorizeFallback = args.includes('--fallback');
+  const categorizeRecognizedNull = args.includes('--recognized-null');
   const maybePath = args.find((a) => a && !a.startsWith('-'));
   const auditPath = maybePath
     ? path.resolve(maybePath)
     : path.resolve(process.cwd(), 'scripts', 'out', 'intervening-if-audit.json');
+
+  if (categorizeFallback && categorizeRecognizedNull) {
+    console.error('Choose only one mode: --fallback or --recognized-null');
+    process.exit(1);
+  }
 
   if (!fs.existsSync(auditPath)) {
     console.error(`Audit report not found: ${auditPath}`);
@@ -110,9 +116,13 @@ async function main(): Promise<void> {
     ? Array.isArray(report.fallback)
       ? report.fallback
       : []
-    : Array.isArray(report.unknown)
-      ? report.unknown
-      : [];
+    : categorizeRecognizedNull
+      ? Array.isArray(report.recognized)
+        ? report.recognized.filter((r) => typeof (r as any).sampleResult !== 'boolean')
+        : []
+      : Array.isArray(report.unknown)
+        ? report.unknown
+        : [];
 
   const buckets = new Map<
     string,
@@ -150,14 +160,33 @@ async function main(): Promise<void> {
   const outDir = path.resolve(process.cwd(), 'scripts', 'out');
   fs.mkdirSync(outDir, { recursive: true });
 
-  const outJson = path.resolve(outDir, categorizeFallback ? 'intervening-if-fallback-categories.json' : 'intervening-if-categories.json');
+  const outJson = path.resolve(
+    outDir,
+    categorizeFallback
+      ? 'intervening-if-fallback-categories.json'
+      : categorizeRecognizedNull
+        ? 'intervening-if-recognized-null-categories.json'
+        : 'intervening-if-categories.json'
+  );
   fs.writeFileSync(outJson, JSON.stringify({ meta: report.meta, groupCount: groups.length, groups }, null, 2), 'utf8');
 
   const topLines: string[] = [];
-  topLines.push(categorizeFallback ? `# Intervening-if fallback clause categories` : `# Intervening-if unknown clause categories`);
+  topLines.push(
+    categorizeFallback
+      ? `# Intervening-if fallback clause categories`
+      : categorizeRecognizedNull
+        ? `# Intervening-if recognized-null clause categories`
+        : `# Intervening-if unknown clause categories`
+  );
   topLines.push('');
   topLines.push(`- Generated: ${new Date().toISOString()}`);
-  topLines.push(categorizeFallback ? `- Fallback clauses: ${rows.length}` : `- Unknown clauses: ${rows.length}`);
+  topLines.push(
+    categorizeFallback
+      ? `- Fallback clauses: ${rows.length}`
+      : categorizeRecognizedNull
+        ? `- Recognized-null clauses: ${rows.length}`
+        : `- Unknown clauses: ${rows.length}`
+  );
   topLines.push(`- Category groups: ${groups.length}`);
   topLines.push('');
 
@@ -172,10 +201,23 @@ async function main(): Promise<void> {
     topLines.push('');
   }
 
-  const outMd = path.resolve(outDir, categorizeFallback ? 'intervening-if-fallback-categories.md' : 'intervening-if-categories.md');
+  const outMd = path.resolve(
+    outDir,
+    categorizeFallback
+      ? 'intervening-if-fallback-categories.md'
+      : categorizeRecognizedNull
+        ? 'intervening-if-recognized-null-categories.md'
+        : 'intervening-if-categories.md'
+  );
   fs.writeFileSync(outMd, topLines.join('\n'), 'utf8');
 
-  console.log(categorizeFallback ? `Fallback clauses: ${rows.length}` : `Unknown clauses: ${rows.length}`);
+  console.log(
+    categorizeFallback
+      ? `Fallback clauses: ${rows.length}`
+      : categorizeRecognizedNull
+        ? `Recognized-null clauses: ${rows.length}`
+        : `Unknown clauses: ${rows.length}`
+  );
   console.log(`Category groups: ${groups.length}`);
   console.log(`Wrote: ${outJson}`);
   console.log(`Wrote: ${outMd}`);

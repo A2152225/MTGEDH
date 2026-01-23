@@ -76,4 +76,40 @@ describe('Intervening-if phase trigger filtering (trigger time)', () => {
     baseState.creaturesAttackedThisTurn[p1] = 3;
     expect(getEndStepTriggers(ctx, p1).length).toBeGreaterThan(0);
   });
+
+  it("filters end-step triggers when 'that player' refers to the active player", () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    const baseState: any = {
+      turnPlayer: p2,
+      players: [{ id: p1 }, { id: p2 }],
+      zones: {
+        [p2]: { hand: [], handCount: 3, libraryCount: 0, graveyard: [], graveyardCount: 0 },
+      },
+      battlefield: [
+        {
+          id: 'perm_3',
+          controller: p1,
+          owner: p1,
+          card: {
+            id: 'c_3',
+            name: 'Test That Player End Step Permanent',
+            type_line: 'Enchantment',
+            oracle_text:
+              'At the beginning of each end step, if that player has two or fewer cards in hand, draw a card.',
+          },
+        },
+      ],
+    };
+
+    const ctx = { state: baseState } as unknown as GameContext;
+
+    // Active player has 3 cards in hand: should not trigger at all.
+    expect(getEndStepTriggers(ctx, p2)).toHaveLength(0);
+
+    // Now satisfy the condition for the active player.
+    baseState.zones[p2].handCount = 2;
+    expect(getEndStepTriggers(ctx, p2).length).toBeGreaterThan(0);
+  });
 });

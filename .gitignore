@@ -17,3 +17,4 @@ coverage/
 Scryfall_Organized
 oracle-cards.json
 AtomicCards.json
+/server/scripts/out/

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
+import { getUpkeepTriggersForPlayer } from '../src/state/modules/upkeep-triggers';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('Intervening-if upkeep triggers', () => {
@@ -10,6 +11,45 @@ describe('Intervening-if upkeep triggers', () => {
     ResolutionQueueManager.removeQueue('t_intervening_if_ophiomancer');
     ResolutionQueueManager.removeQueue('t_intervening_if_upkeep_fizzle');
     ResolutionQueueManager.removeQueue('t_intervening_if_upkeep_true');
+    ResolutionQueueManager.removeQueue('t_upkeep_intervening_if_that_player_handcount');
+  });
+
+  it('suppresses an opponent-upkeep trigger when "that player has two or fewer cards in hand" is false', () => {
+    const g = createInitialGameState('t_upkeep_intervening_if_that_player_handcount');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    // Provide hand zones in state (what intervening-if reads).
+    (g.state as any).zones = {
+      [p1]: { hand: [] },
+      [p2]: { hand: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }] },
+    };
+
+    (g.state.battlefield as any).push({
+      id: 'handcount_watcher_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'handcount_watcher_card',
+        name: 'Handcount Watcher',
+        type_line: 'Enchantment',
+        oracle_text:
+          "At the beginning of each opponent's upkeep, if that player has two or fewer cards in hand, you draw a card.",
+      },
+      tapped: false,
+    });
+
+    // It's p2's upkeep (p2 is "that player"). p2 has 3 cards => condition false => no trigger.
+    const triggers = getUpkeepTriggersForPlayer(g as any, p2);
+    expect(triggers.some((t) => t?.cardName === 'Handcount Watcher')).toBe(false);
+
+    // Now p2 has 2 cards => condition true => trigger exists.
+    (g.state as any).zones[p2].hand = [{ id: 'c1' }, { id: 'c2' }];
+    const triggers2 = getUpkeepTriggersForPlayer(g as any, p2);
+    expect(triggers2.some((t) => t?.cardName === 'Handcount Watcher')).toBe(true);
   });
 
   it('does not put Emeria, the Sky Ruin trigger on the stack when Plains condition is false', () => {

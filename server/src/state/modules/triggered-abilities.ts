@@ -1087,8 +1087,12 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Also handles "creature you control enters" (new template with "you control" before "enters")
   // Also handles plural forms: "creatures enter" / "creatures you control enter" (e.g., Satoru)
   // Handles: "a creature", "another creature", "one or more creatures", "other creatures"
+  // IMPORTANT: Exclude opponent-controlled ETB templates (handled separately as opponent_creature_etb).
+  // Without this guard, patterns like "Whenever a creature enters under an opponent's control, ..." can be
+  // misclassified as generic creature_etb and then miss intervening-if context like "that player".
+  const hasOpponentCreatureRestriction = /an opponent controls|under an opponent's control|under their control/i.test(oracleText);
   const creatureETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
-  if (creatureETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
+  if (creatureETBMatch && !hasOpponentCreatureRestriction && !triggers.some(t => t.triggerType === 'creature_etb')) {
     const isNontokenOnly = oracleText.includes('nontoken creature');
     // Check if this trigger requires the creature to be controlled by the trigger's controller
     // Pattern: "you control" or "under your control" in the trigger text
@@ -1876,11 +1880,29 @@ export function getAttackTriggersForCreatures(
 ): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
   const battlefield = ctx.state?.battlefield || [];
+  const playerIds = Array.isArray((ctx as any).state?.players)
+    ? (ctx as any).state.players.map((p: any) => String(p?.id || '')).filter(Boolean)
+    : [];
+
+  const getDefendingPlayerIdForAttacker = (attacker: any): string => {
+    const attacking = typeof attacker?.attacking === 'string' ? String(attacker.attacking) : '';
+    if (attacking && playerIds.includes(attacking)) return attacking;
+    return String(defendingPlayer || '');
+  };
   
   // Check each attacking creature for attack triggers
   for (const attacker of attackingCreatures) {
     const attackerTriggers = detectAttackTriggers(attacker.card, attacker);
-    triggers.push(...attackerTriggers);
+    const defendingPlayerId = getDefendingPlayerIdForAttacker(attacker);
+    for (const trigger of attackerTriggers) {
+      // Preserve target player context for "that player" intervening-if templates.
+      const existingValue = (trigger as any).value;
+      const mergedValue =
+        existingValue && typeof existingValue === 'object'
+          ? { ...existingValue, defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id }
+          : { defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id };
+      triggers.push({ ...(trigger as any), value: mergedValue } as any);
+    }
   }
   
   // Check all permanents for "whenever a creature you control attacks" triggers
@@ -1891,8 +1913,14 @@ export function getAttackTriggersForCreatures(
     for (const trigger of permTriggers) {
       if (trigger.triggerType === 'creature_attacks') {
         // Trigger once for each attacking creature
-        for (const _ of attackingCreatures) {
-          triggers.push({ ...trigger });
+        for (const attacker of attackingCreatures) {
+          const defendingPlayerId = getDefendingPlayerIdForAttacker(attacker);
+          const existingValue = (trigger as any).value;
+          const mergedValue =
+            existingValue && typeof existingValue === 'object'
+              ? { ...existingValue, defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id }
+              : { defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id };
+          triggers.push({ ...(trigger as any), value: mergedValue } as any);
         }
       }
       if (trigger.triggerType === 'exalted' && attackingCreatures.length === 1) {
@@ -2070,7 +2098,7 @@ export function getBeginningOfCombatTriggers(
       if (hasOnYourTurn) {
         if (permanent.controller === activePlayerId) {
           const interveningText = trigger.effect || trigger.description || '';
-          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
           if (ok !== false) {
             triggers.push(trigger);
             triggerCount++;
@@ -2085,7 +2113,7 @@ export function getBeginningOfCombatTriggers(
       // "At the beginning of each combat" - triggers regardless of whose combat
       else if (hasEachCombat) {
         const interveningText = trigger.effect || trigger.description || '';
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
@@ -2097,7 +2125,7 @@ export function getBeginningOfCombatTriggers(
       // Default: if no explicit timing is specified, assume "on your turn"
       else if (permanent.controller === activePlayerId) {
         const interveningText = trigger.effect || trigger.description || '';
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText);
+        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;

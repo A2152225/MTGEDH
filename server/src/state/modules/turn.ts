@@ -1472,6 +1472,73 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     }
     
     debug(2, `${ts()} [dealCombatDamage] Combat damage complete. Damage to players: ${JSON.stringify(result.damageToPlayers)}, Life gained: ${JSON.stringify(result.lifeGainForPlayers)}, Creatures destroyed: ${result.creaturesDestroyed.length}`);
+
+    // Queue per-attacker combat damage triggers onto the stack.
+    // This covers triggers like: "Whenever ~ deals combat damage to a player, ..."
+    // IMPORTANT: do this before SBA, because SBA may move creatures off the battlefield.
+    try {
+      const state = (ctx as any).state;
+      state.stack = state.stack || [];
+
+      for (const [defendingPlayerId, attackerIds] of Object.entries(result.attackersThatDealtDamage || {})) {
+        const ids = (attackerIds instanceof Set)
+          ? Array.from(attackerIds)
+          : (Array.isArray(attackerIds) ? attackerIds : []);
+
+        for (const attackerId of ids as any[]) {
+          const attackerPerm = battlefield.find((p: any) => p?.id === attackerId);
+          if (!attackerPerm?.card) continue;
+
+          const triggers = detectCombatDamageTriggers(attackerPerm.card, attackerPerm);
+          const perAttackerTriggers = triggers.filter(t =>
+            (t.triggerType === 'deals_combat_damage' || t.triggerType === 'deals_damage') && !t.batched
+          );
+
+          for (const trigger of perAttackerTriggers) {
+            const text = String(trigger.description || trigger.effect || '').trim();
+            if (!text) continue;
+
+            // Intervening-if (CR 603.4): if recognized and false at trigger time, it doesn't trigger.
+            try {
+              const synthetic = trigger.triggerType === 'deals_damage'
+                ? `Whenever ~ deals damage to a player, ${text}`
+                : `Whenever ~ deals combat damage to a player, ${text}`;
+              const ok = isInterveningIfSatisfied(ctx as any, String(attackerPerm.controller), synthetic, attackerPerm, {
+                thatPlayerId: String(defendingPlayerId),
+                referencedPlayerId: String(defendingPlayerId),
+                theirPlayerId: String(defendingPlayerId),
+              });
+              if (ok === false) {
+                debug(2, `${ts()} [dealCombatDamage] Skipping trigger from ${attackerPerm.card?.name || attackerPerm.id} due to intervening-if being false: ${text}`);
+                continue;
+              }
+            } catch {
+              // Defensive: if evaluation fails, do not block.
+            }
+
+            state.stack.push({
+              id: uid('trigger'),
+              type: 'triggered_ability',
+              controller: attackerPerm.controller,
+              source: attackerPerm.id,
+              permanentId: attackerPerm.id,
+              sourceName: attackerPerm.card?.name || trigger.cardName,
+              description: text,
+              triggerType: trigger.triggerType,
+              mandatory: trigger.mandatory !== false,
+              effect: trigger.effect || text,
+              targets: [],
+              defendingPlayer: String(defendingPlayerId),
+              card: attackerPerm.card,
+            } as any);
+
+            debug(2, `${ts()} [dealCombatDamage] Pushed combat damage trigger onto stack: ${attackerPerm.card?.name || trigger.cardName} - ${text}`);
+          }
+        }
+      }
+    } catch (err) {
+      debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue per-attacker combat damage triggers:`, err);
+    }
     
     // Run state-based actions to destroy creatures that have lethal damage
     // This will move creatures with 0 or less toughness (after damage) to the graveyard
@@ -1515,7 +1582,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // These batched triggers are executed immediately here, so filter before executing.
             try {
               const text = String(trigger.description || trigger.effect || '');
-              const ok = isInterveningIfSatisfied(ctx as any, String(controllerId), text, perm);
+              const synthetic = `Whenever one or more creatures you control deal combat damage to a player, ${text}`;
+              const ok = isInterveningIfSatisfied(ctx as any, String(controllerId), synthetic, perm, {
+                thatPlayerId: String(defendingPlayerId),
+                referencedPlayerId: String(defendingPlayerId),
+                theirPlayerId: String(defendingPlayerId),
+              });
               if (ok === false) {
                 debug(2, `${ts()} [dealCombatDamage] Skipping batched trigger from ${trigger.cardName} due to intervening-if being false: ${text}`);
                 continue;
@@ -2991,12 +3063,43 @@ export function nextStep(ctx: GameContext) {
             // the ability does not trigger and must not be put on the stack.
             // If unrecognized, keep it (conservative fallback).
             try {
-              const text = String(trigger.description || trigger.effect || '').trim();
+              const raw = String(trigger.description || trigger.effect || '').trim();
+              let textForEval = raw;
+              const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
+              if (!hasTriggerPrefix) {
+                // Many step/phase detectors store only the post-comma fragment.
+                // Wrap with a trigger header so intervening-if extraction can run.
+                switch (triggerType) {
+                  case 'upkeep':
+                    textForEval = `At the beginning of upkeep, ${textForEval}`;
+                    break;
+                  case 'draw_step':
+                    textForEval = `At the beginning of draw step, ${textForEval}`;
+                    break;
+                  case 'precombat_main':
+                    textForEval = `At the beginning of your precombat main phase, ${textForEval}`;
+                    break;
+                  case 'begin_combat':
+                    textForEval = `At the beginning of combat, ${textForEval}`;
+                    break;
+                  case 'end_combat':
+                    textForEval = `At end of combat, ${textForEval}`;
+                    break;
+                  case 'end_step':
+                    textForEval = `At the beginning of end step, ${textForEval}`;
+                    break;
+                }
+              }
+
               const battlefield = (ctx as any).state?.battlefield || [];
               const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
-              const ok = isInterveningIfSatisfied(ctx as any, String(controller), text, sourcePerm);
+              const ok = isInterveningIfSatisfied(ctx as any, String(controller), textForEval, sourcePerm, {
+                thatPlayerId: String(turnPlayer),
+                referencedPlayerId: String(turnPlayer),
+                theirPlayerId: String(turnPlayer),
+              });
               if (ok === false) {
-                debug(2, `${ts()} [nextStep] Skipping ${triggerType} trigger due to unmet intervening-if: ${trigger.cardName} - ${text}`);
+                debug(2, `${ts()} [nextStep] Skipping ${triggerType} trigger due to unmet intervening-if: ${trigger.cardName} - ${raw}`);
                 continue;
               }
             } catch {
@@ -3059,6 +3162,7 @@ export function nextStep(ctx: GameContext) {
                     mandatory: item.mandatory,
                     effect: item.effect,
                     requiresChoice: item.requiresChoice,
+                    triggeringPlayer: turnPlayer,
                   });
                 }
                 
@@ -3096,6 +3200,7 @@ export function nextStep(ctx: GameContext) {
                 mandatory: trigger.mandatory !== false,
                 effect: trigger.effect,
                 requiresChoice: trigger.requiresChoice,  // Preserve modal choice flag
+                triggeringPlayer: turnPlayer,
               });
               debug(2, `${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}${trigger.requiresChoice ? ' (modal)' : ''}`);
             }

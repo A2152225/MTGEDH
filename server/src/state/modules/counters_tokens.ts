@@ -404,11 +404,24 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
           const sourcePerm = trigger?.source?.permanentId === perm.id
             ? perm
             : (state.battlefield || []).find((p: any) => p?.id === trigger?.source?.permanentId);
+          const raw = String(trigger.effect || '').trim();
+          let textForEval = raw;
+          if (textForEval && !/^(?:when|whenever|at)\b/i.test(textForEval)) {
+            textForEval = `Whenever a creature dies, ${textForEval}`;
+          }
+          const dyingControllerId = String(controller || '').trim();
           const ok = isInterveningIfSatisfied(
             ctx as any,
             String(trigger.source.controllerId),
-            String(trigger.effect || ''),
-            sourcePerm
+            textForEval,
+            sourcePerm,
+            dyingControllerId
+              ? {
+                  thatPlayerId: dyingControllerId,
+                  referencedPlayerId: dyingControllerId,
+                  theirPlayerId: dyingControllerId,
+                }
+              : undefined
           );
           if (ok === false) continue;
 
@@ -839,11 +852,24 @@ export function runSBA(ctx: GameContext) {
                 const sourcePerm = trigger?.source?.permanentId === destroyed.id
                   ? destroyed
                   : (state.battlefield || []).find((p: any) => p?.id === trigger?.source?.permanentId);
+                const raw = String(trigger.effect || '').trim();
+                let textForEval = raw;
+                if (textForEval && !/^(?:when|whenever|at)\b/i.test(textForEval)) {
+                  textForEval = `Whenever a creature dies, ${textForEval}`;
+                }
+                const dyingControllerId = String(controller || '').trim();
                 const ok = isInterveningIfSatisfied(
                   ctx as any,
                   String(trigger.source.controllerId),
-                  String(trigger.effect || ''),
-                  sourcePerm
+                  textForEval,
+                  sourcePerm,
+                  dyingControllerId
+                    ? {
+                        thatPlayerId: dyingControllerId,
+                        referencedPlayerId: dyingControllerId,
+                        theirPlayerId: dyingControllerId,
+                      }
+                    : undefined
                 );
                 if (ok === false) continue;
 

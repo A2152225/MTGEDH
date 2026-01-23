@@ -118,4 +118,40 @@ describe('Intervening-if filtering for additional trigger pipelines', () => {
 
     expect(getCardDrawTriggers(ctx, p1).length).toBeGreaterThan(0);
   });
+
+  it('filters card-draw triggers when intervening-if refers to "that player" hand size', () => {
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    const state: any = {
+      players: [{ id: p1 }, { id: p2 }],
+      battlefield: [
+        {
+          id: 'opp_draw_ench',
+          controller: p1,
+          owner: p1,
+          card: {
+            id: 'opp_draw_ench_card',
+            name: 'Test Opponent Draw Enchantment',
+            type_line: 'Enchantment',
+            oracle_text:
+              "Whenever an opponent draws a card, if that player has two or fewer cards in hand, you gain 1 life.",
+          },
+        },
+      ],
+      zones: {
+        [p1]: { hand: [] },
+        [p2]: { hand: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }] },
+      },
+    };
+
+    const ctx = { state } as unknown as GameContext;
+
+    // p2 draws, but has 3 cards in hand => condition false => no trigger.
+    expect(getCardDrawTriggers(ctx, p2)).toHaveLength(0);
+
+    // p2 now has 2 cards in hand => condition true => trigger.
+    state.zones[p2].hand = [{ id: 'c1' }, { id: 'c2' }];
+    expect(getCardDrawTriggers(ctx, p2).length).toBeGreaterThan(0);
+  });
 });

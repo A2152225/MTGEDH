@@ -283,7 +283,12 @@ function processTapTriggersForAttackers(
           const ok = isInterveningIfSatisfied(
             ctx as any,
             controller,
-            String(trigger.description || trigger.effect || ""),
+            (() => {
+              const raw = String(trigger.description || trigger.effect || "").trim();
+              if (!raw) return raw;
+              if (/^(?:when|whenever|at)\b/i.test(raw)) return raw;
+              return `Whenever ~ becomes tapped, ${raw}`;
+            })(),
             sourcePerm
           );
           if (ok === false) {
@@ -1512,11 +1517,42 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               try {
                 const controller = String(triggerControllerId);
                 const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+
+                const raw = String(trigger.description || (trigger as any).effect || '').trim();
+                let textForEval = raw;
+                const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
+                if (!hasTriggerPrefix) {
+                  // Attack triggers are commonly stored as post-comma fragments.
+                  // Wrap to enable intervening-if extraction.
+                  const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
+                  if (oracleLower.includes('attacks a player')) {
+                    textForEval = `Whenever ~ attacks a player, ${textForEval}`;
+                  } else {
+                    textForEval = `Whenever ~ attacks, ${textForEval}`;
+                  }
+                }
+
+                const valueObj = (trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : undefined;
+                const defendingPlayerId = String(
+                  valueObj?.defendingPlayerId ||
+                    valueObj?.defendingPlayer ||
+                    (sourcePerm && typeof (sourcePerm as any).attacking === 'string' ? (sourcePerm as any).attacking : '') ||
+                    firstDefender ||
+                    ''
+                );
+
                 const ok = isInterveningIfSatisfied(
                   ctx as any,
                   controller,
-                  String(trigger.description || (trigger as any).effect || ""),
-                  sourcePerm
+                  textForEval,
+                  sourcePerm,
+                  defendingPlayerId
+                    ? {
+                        thatPlayerId: defendingPlayerId,
+                        referencedPlayerId: defendingPlayerId,
+                        theirPlayerId: defendingPlayerId,
+                      }
+                    : undefined
                 );
                 if (ok === false) {
                   debug(2, `[combat] Skipping attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
@@ -1647,6 +1683,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   description: trigger.description,
                   triggerType: trigger.triggerType,
                   mandatory: trigger.mandatory,
+                  triggeringPlayer: playerId,
                 };
                 
                 // Add value or effectData based on type
@@ -1654,6 +1691,26 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   stackItem.value = trigger.value;
                 } else if (typeof trigger.value === 'object') {
                   stackItem.effectData = trigger.value;
+                }
+
+                // Preserve "that player" context (common on "attacks a player" templates).
+                // Prefer explicit metadata, then the attacking permanent's target, then the first defender.
+                const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+                const effectData = stackItem.effectData && typeof stackItem.effectData === 'object' ? stackItem.effectData : undefined;
+                const defendingPlayerId = String(
+                  (effectData as any)?.defendingPlayerId ||
+                    (effectData as any)?.defendingPlayer ||
+                    (sourcePerm && typeof (sourcePerm as any).attacking === 'string' ? (sourcePerm as any).attacking : '') ||
+                    firstDefender ||
+                    ''
+                );
+                if (defendingPlayerId) {
+                  stackItem.defendingPlayer = defendingPlayerId;
+                  stackItem.targetPlayer = defendingPlayerId;
+                  if (effectData) {
+                    (effectData as any).defendingPlayer = (effectData as any).defendingPlayer || defendingPlayerId;
+                    (effectData as any).defendingPlayerId = (effectData as any).defendingPlayerId || defendingPlayerId;
+                  }
                 }
                 
                 game.state.stack.push(stackItem);

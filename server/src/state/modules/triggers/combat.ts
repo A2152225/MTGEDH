@@ -961,7 +961,11 @@ export function getBeginningOfCombatTriggers(
       
       if (hasOnYourTurn) {
         if (permanent.controller === activePlayerId) {
-          const interveningText = trigger.effect || trigger.description || '';
+          const raw = String(trigger.effect || trigger.description || '').trim();
+          let interveningText = raw;
+          if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+            interveningText = `At the beginning of combat, ${interveningText}`;
+          }
           const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
           if (ok !== false) {
             triggers.push(trigger);
@@ -969,14 +973,22 @@ export function getBeginningOfCombatTriggers(
           }
         }
       } else if (hasEachCombat) {
-        const interveningText = trigger.effect || trigger.description || '';
+        const raw = String(trigger.effect || trigger.description || '').trim();
+        let interveningText = raw;
+        if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+          interveningText = `At the beginning of combat, ${interveningText}`;
+        }
         const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
         }
       } else if (permanent.controller === activePlayerId) {
-        const interveningText = trigger.effect || trigger.description || '';
+        const raw = String(trigger.effect || trigger.description || '').trim();
+        let interveningText = raw;
+        if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+          interveningText = `At the beginning of combat, ${interveningText}`;
+        }
         const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
         if (ok !== false) {
           triggers.push(trigger);
@@ -1034,7 +1046,11 @@ export function getEndOfCombatTriggers(
     
     const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent);
     for (const trigger of permTriggers) {
-      const interveningText = trigger.effect || trigger.description || '';
+      const raw = String(trigger.effect || trigger.description || '').trim();
+      let interveningText = raw;
+      if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+        interveningText = `At end of combat, ${interveningText}`;
+      }
       const ok = isInterveningIfSatisfied(ctx, (trigger as any).controllerId || permanent.controller, interveningText, permanent);
       if (ok === false) continue;
       triggers.push(trigger);
