@@ -2285,6 +2285,10 @@ export function nextTurn(ctx: GameContext) {
 
     // Reset morbid/revolt-style per-turn flags
     (ctx as any).state.creatureDiedThisTurn = false;
+    (ctx as any).state.creaturesDiedThisTurnByController = {};
+    (ctx as any).state.creaturesDiedThisTurnByControllerSubtype = {};
+    (ctx as any).state.creaturesEnteredBattlefieldThisTurnByController = {};
+    (ctx as any).state.creaturesEnteredBattlefieldThisTurnByControllerSubtype = {};
     (ctx as any).state.permanentLeftBattlefieldThisTurn = {};
 
     // Recalculate player effects based on battlefield (Exploration, Font of Mythos, etc.)

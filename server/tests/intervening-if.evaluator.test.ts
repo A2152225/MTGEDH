@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
 import { isInterveningIfSatisfied } from '../src/state/modules/triggers/intervening-if';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/stack';
 
 function addPlayer(g: any, id: PlayerID, name: string) {
   g.applyEvent({ type: 'join', playerId: id, name });
@@ -85,6 +86,241 @@ describe('Intervening-if evaluator (expanded templates)', () => {
 
     (g.state as any).permanentLeftBattlefieldThisTurn = { [p1]: false };
     expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports opponent-controlled creature death/ETB templates', () => {
+    const g = createInitialGameState('t_intervening_if_eval_opp_creature_events');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const descDied = "At the beginning of your upkeep, if a creature died under an opponent's control this turn, draw a card.";
+    (g.state as any).creaturesDiedThisTurnByController = { [p2]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDied)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByController = { [p2]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDied)).toBe(false);
+
+    const descEtb = "At the beginning of your upkeep, if a creature entered the battlefield under an opponent's control this turn, draw a card.";
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p2]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descEtb)).toBe(true);
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p2]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descEtb)).toBe(false);
+  });
+
+  it('supports creature death/ETB templates under your control (and global death counts)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_you_control_creature_events');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const descDiedUnder = 'At the beginning of your upkeep, if a creature died under your control this turn, draw a card.';
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 1, [p2]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDiedUnder)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 0, [p2]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDiedUnder)).toBe(false);
+
+    const descDiedGlobal2 = 'At the beginning of your upkeep, if two or more creatures died this turn, draw a card.';
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 1, [p2]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDiedGlobal2)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 1, [p2]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDiedGlobal2)).toBe(false);
+
+    const descDiedUnder2 = 'At the beginning of your upkeep, if two or more creatures died under your control this turn, draw a card.';
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 2 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDiedUnder2)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDiedUnder2)).toBe(false);
+
+    const descEtbUnder = 'At the beginning of your upkeep, if a creature entered the battlefield under your control this turn, draw a card.';
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descEtbUnder)).toBe(true);
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p1]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descEtbUnder)).toBe(false);
+
+    const descNoEtb = 'At the beginning of your upkeep, if no creatures entered the battlefield under your control this turn, draw a card.';
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p1]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descNoEtb)).toBe(true);
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descNoEtb)).toBe(false);
+  });
+
+  it('supports subtype death templates (phyrexian / another <subtype>)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_subtype_deaths');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const descPhyrexian = 'At the beginning of your upkeep, if a Phyrexian died under your control this turn, draw a card.';
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { phyrexian: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descPhyrexian)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { phyrexian: 0 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descPhyrexian)).toBe(false);
+
+    const descAnotherElf = 'At the beginning of your upkeep, if another Elf died under your control this turn, draw a card.';
+    // If the source is an Elf, "another" requires at least 2.
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { elf: 1 } };
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), descAnotherElf, { id: 'src', card: { type_line: 'Creature — Elf' } })
+    ).toBe(false);
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { elf: 2 } };
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), descAnotherElf, { id: 'src', card: { type_line: 'Creature — Elf' } })
+    ).toBe(true);
+
+    // If the source is not an Elf, "another" just requires at least 1 Elf death.
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { elf: 1 } };
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), descAnotherElf, { id: 'src2', card: { type_line: 'Creature — Human' } })
+    ).toBe(true);
+  });
+
+  it('tracks creature subtype deaths via movePermanentToGraveyard (integration)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_subtype_deaths_integration');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const descPhyrexian = 'At the beginning of your upkeep, if a Phyrexian died under your control this turn, draw a card.';
+    const descAnotherElf = 'At the beginning of your upkeep, if another Elf died under your control this turn, draw a card.';
+
+    g.state.battlefield.push({
+      id: 'dying_phyrexian',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      card: {
+        id: 'dying_phyrexian_card',
+        name: 'Dying Phyrexian',
+        type_line: 'Creature — Phyrexian Beast',
+        power: '2',
+        toughness: '2',
+      },
+    } as any);
+
+    (g as any).movePermanentToGraveyard('dying_phyrexian', true);
+
+    expect((g.state as any).creaturesDiedThisTurnByControllerSubtype?.[p1]?.phyrexian).toBe(1);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descPhyrexian)).toBe(true);
+
+    // "Another Elf" requires at least 2 if the source is itself an Elf.
+    g.state.battlefield.push({
+      id: 'dying_elf_1',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      card: {
+        id: 'dying_elf_1_card',
+        name: 'Dying Elf 1',
+        type_line: 'Creature — Elf',
+        power: '1',
+        toughness: '1',
+      },
+    } as any);
+
+    (g as any).movePermanentToGraveyard('dying_elf_1', true);
+    expect((g.state as any).creaturesDiedThisTurnByControllerSubtype?.[p1]?.elf).toBe(1);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descAnotherElf, { id: 'src', card: { type_line: 'Creature — Elf' } })).toBe(
+      false
+    );
+
+    g.state.battlefield.push({
+      id: 'dying_elf_2',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      card: {
+        id: 'dying_elf_2_card',
+        name: 'Dying Elf 2',
+        type_line: 'Creature — Elf',
+        power: '1',
+        toughness: '1',
+      },
+    } as any);
+
+    (g as any).movePermanentToGraveyard('dying_elf_2', true);
+    expect((g.state as any).creaturesDiedThisTurnByControllerSubtype?.[p1]?.elf).toBe(2);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descAnotherElf, { id: 'src', card: { type_line: 'Creature — Elf' } })).toBe(
+      true
+    );
+  });
+
+  it('supports generic subtype-death templates (your control / opponent control / global)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_generic_subtype_deaths');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const descElfUnderYou = 'At the beginning of your upkeep, if an Elf died under your control this turn, draw a card.';
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { elf: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderYou)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { elf: 0 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderYou)).toBe(false);
+
+    const descElfUnderOpp = "At the beginning of your upkeep, if an Elf died under an opponent's control this turn, draw a card.";
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p2]: { elf: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderOpp)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p2]: { elf: 0 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderOpp)).toBe(false);
+
+    const descElfGlobal = 'At the beginning of your upkeep, if an Elf died this turn, draw a card.';
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { elf: 0 }, [p2]: { elf: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfGlobal)).toBe(true);
+    (g.state as any).creaturesDiedThisTurnByControllerSubtype = { [p1]: { elf: 0 }, [p2]: { elf: 0 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfGlobal)).toBe(false);
+  });
+
+  it('tracks creature subtype ETBs via triggerETBEffectsForPermanent (integration)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_subtype_etb_integration');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const entering = {
+      id: 'entering_elf_1',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      card: {
+        id: 'entering_elf_1_card',
+        name: 'Entering Elf',
+        type_line: 'Creature — Elf Druid',
+        oracle_text: '',
+      },
+    };
+
+    (g.state.battlefield as any).push(entering);
+    triggerETBEffectsForPermanent(g as any, entering, p1);
+
+    expect((g.state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype?.[p1]?.elf).toBe(1);
+
+    const descElfUnderYou = 'At the beginning of your upkeep, if an Elf entered the battlefield under your control this turn, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderYou)).toBe(true);
+  });
+
+  it('supports generic subtype ETB templates (your control / opponent control / global)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_generic_subtype_etb');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const descElfUnderYou = 'At the beginning of your upkeep, if an Elf entered the battlefield under your control this turn, draw a card.';
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype = { [p1]: { elf: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderYou)).toBe(true);
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype = { [p1]: { elf: 0 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderYou)).toBe(false);
+
+    const descElfUnderOpp = "At the beginning of your upkeep, if an Elf entered the battlefield under an opponent's control this turn, draw a card.";
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype = { [p2]: { elf: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderOpp)).toBe(true);
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype = { [p2]: { elf: 0 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfUnderOpp)).toBe(false);
+
+    const descElfGlobal = 'At the beginning of your upkeep, if an Elf entered the battlefield this turn, draw a card.';
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype = { [p1]: { elf: 0 }, [p2]: { elf: 1 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfGlobal)).toBe(true);
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype = { [p1]: { elf: 0 }, [p2]: { elf: 0 } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descElfGlobal)).toBe(false);
   });
 
   it('supports "+1/+1 counter on this creature" templates', () => {

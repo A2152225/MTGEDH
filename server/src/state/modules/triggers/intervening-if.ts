@@ -125,6 +125,94 @@ function getLandsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string):
   return typeof v === 'number' ? v : 0;
 }
 
+function getCreaturesEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+  const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  const v = (map as any)[playerId];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getCreaturesDiedThisTurnByController(ctx: GameContext, playerId: string): number | null {
+  const map = (ctx as any).state?.creaturesDiedThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  const v = (map as any)[playerId];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getCreaturesDiedThisTurnTotal(ctx: GameContext): number | null {
+  const map = (ctx as any).state?.creaturesDiedThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  return (Object.values(map as any) as any[]).reduce((sum: number, v: any) => sum + (typeof v === 'number' ? v : 0), 0);
+}
+
+function getCreatureSubtypeDiedThisTurnCount(ctx: GameContext, controllerId: string, subtypeLower: string): number | null {
+  const map = (ctx as any).state?.creaturesDiedThisTurnByControllerSubtype;
+  if (!map || typeof map !== 'object') return null;
+  const byController = (map as any)[String(controllerId)];
+  if (!byController || typeof byController !== 'object') return 0;
+  const v = (byController as any)[String(subtypeLower)];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getCreatureSubtypeDiedThisTurnSum(ctx: GameContext, controllerIds: string[], subtypeLower: string): number | null {
+  const map = (ctx as any).state?.creaturesDiedThisTurnByControllerSubtype;
+  if (!map || typeof map !== 'object') return null;
+  let total = 0;
+  for (const id of controllerIds) {
+    const byController = (map as any)[String(id)];
+    if (!byController || typeof byController !== 'object') continue;
+    const v = (byController as any)[String(subtypeLower)];
+    if (typeof v === 'number') total += v;
+  }
+  return total;
+}
+
+function getCreatureSubtypeEnteredThisTurnCount(ctx: GameContext, controllerId: string, subtypeLower: string): number | null {
+  const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByControllerSubtype;
+  if (!map || typeof map !== 'object') return null;
+  const byController = (map as any)[String(controllerId)];
+  if (!byController || typeof byController !== 'object') return 0;
+  const v = (byController as any)[String(subtypeLower)];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getCreatureSubtypeEnteredThisTurnSum(ctx: GameContext, controllerIds: string[], subtypeLower: string): number | null {
+  const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByControllerSubtype;
+  if (!map || typeof map !== 'object') return null;
+  let total = 0;
+  for (const id of controllerIds) {
+    const byController = (map as any)[String(id)];
+    if (!byController || typeof byController !== 'object') continue;
+    const v = (byController as any)[String(subtypeLower)];
+    if (typeof v === 'number') total += v;
+  }
+  return total;
+}
+
+function isLikelyCreatureSubtypeToken(tokenLower: string): boolean {
+  const t = String(tokenLower || '').toLowerCase();
+  if (!t) return false;
+  // Avoid matching card types/supertypes that could appear in strange or future templates.
+  // If we matched these and returned 0, we'd risk false negatives.
+  const forbidden = new Set([
+    'creature',
+    'artifact',
+    'enchantment',
+    'land',
+    'planeswalker',
+    'instant',
+    'sorcery',
+    'battle',
+    'legendary',
+    'basic',
+    'snow',
+    'permanent',
+    'card',
+    'token',
+  ]);
+  return !forbidden.has(t);
+}
+
 function getPoisonCounters(ctx: GameContext, playerId: string): number {
   const state: any = (ctx as any).state || {};
   const direct = state?.poisonCounters?.[playerId];
@@ -416,9 +504,51 @@ function findBattlefieldPermanent(ctx: GameContext, id: string): any | null {
   return battlefield.find((p: any) => p && String(p.id || '') === String(id || '')) || null;
 }
 
-function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, typeLower: string, excludeId?: string): number {
+function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, typeLower: string, excludeId?: string): number | null {
+  // Deterministic tracking when available.
+  if (typeLower === 'land') {
+    // Land entries are tracked via a per-turn counter map.
+    const n = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
+
+    // For "another land" templates, exclude the source permanent if it is itself a land that entered this turn.
+    if (excludeId) {
+      const source = findBattlefieldPermanent(ctx, excludeId);
+      if (source && String(source.controller || '') === String(controllerId)) {
+        const tl = String(source.card?.type_line || '').toLowerCase();
+        if (tl.includes('land') && source.enteredThisTurn === true) {
+          return Math.max(0, n - 1);
+        }
+      }
+    }
+
+    return n;
+  }
+  if (typeLower === 'creature') {
+    // Creature entries are tracked via a per-turn counter map.
+    const n = getCreaturesEnteredBattlefieldThisTurn(ctx, controllerId);
+    if (n === null) return null;
+
+    // For "another creature" templates, exclude the source permanent if it is itself a creature that entered this turn.
+    if (excludeId) {
+      const source = findBattlefieldPermanent(ctx, excludeId);
+      if (source && String(source.controller || '') === String(controllerId)) {
+        const tl = String(source.card?.type_line || '').toLowerCase();
+        if (tl.includes('creature') && source.enteredThisTurn === true) {
+          return Math.max(0, n - 1);
+        }
+      }
+    }
+
+    return n;
+  }
+
+  // Best-effort battlefield scan. If we have no evidence of entered-this-turn tracking,
+  // return null to avoid false negatives that would suppress triggers.
   const battlefield = (ctx as any).state?.battlefield || [];
-  if (!Array.isArray(battlefield)) return 0;
+  if (!Array.isArray(battlefield)) return null;
+  const hasEnteredTracking = battlefield.some((p: any) => p?.enteredThisTurn === true);
+  if (!hasEnteredTracking) return null;
+
   return battlefield.filter((p: any) => {
     if (!p) return false;
     if (excludeId && String(p.id || '') === String(excludeId)) return false;
@@ -965,13 +1095,23 @@ function evaluateInterveningIfClauseInternal(
       const n = parseCountToken(m[1]);
       if (n === null) return null;
 
+      const plural = String(m[2] || '').toLowerCase();
+      const typeLower = plural.endsWith('s') ? plural.slice(0, -1) : plural;
+
+      // Lands/creatures have deterministic per-turn tracking.
+      if (typeLower === 'land' || typeLower === 'creature') {
+        const c = countControlledEnteredThisTurn(ctx, controllerId, typeLower);
+        if (c === null) return null;
+        return c >= n;
+      }
+
       const battlefield = (ctx as any).state?.battlefield || [];
       const hasEnteredTracking = Array.isArray(battlefield) && battlefield.some((p: any) => p?.enteredThisTurn === true);
       if (!hasEnteredTracking) return null;
 
-      const plural = String(m[2] || '').toLowerCase();
-      const typeLower = plural.endsWith('s') ? plural.slice(0, -1) : plural;
-      return countControlledEnteredThisTurn(ctx, controllerId, typeLower) >= n;
+      const c = countControlledEnteredThisTurn(ctx, controllerId, typeLower);
+      if (c === null) return null;
+      return c >= n;
     }
   }
 
@@ -1410,12 +1550,10 @@ function evaluateInterveningIfClauseInternal(
 
     if (typeof that !== 'string' || !that) return null;
 
-    const battlefield = (ctx as any).state?.battlefield || [];
-    const hasEnteredTracking = Array.isArray(battlefield) && battlefield.some((p: any) => p?.enteredThisTurn === true);
-    if (!hasEnteredTracking) return null;
-
     // The "another" land is satisfied if total lands entered this turn under that player's control is at least 2.
-    return countControlledEnteredThisTurn(ctx, that, 'land') >= 2;
+    const c = countControlledEnteredThisTurn(ctx, that, 'land');
+    if (c === null) return null;
+    return c >= 2;
   }
 
   // "if an opponent controls more creatures/lands than you" (fallback for templates that don't use "that player")
@@ -2149,6 +2287,9 @@ function evaluateInterveningIfClauseInternal(
 
   // "if a creature died under your control this turn" (best-effort: only global boolean is tracked)
   if (/^if\s+a\s+creature\s+died\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
+    const n = getCreaturesDiedThisTurnByController(ctx, controllerId);
+    if (typeof n === 'number') return n > 0;
+
     const v = isCreatureDiedThisTurn(ctx);
     if (v === false) return false;
     return null;
@@ -2160,6 +2301,10 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
+
+      const total = getCreaturesDiedThisTurnTotal(ctx);
+      if (typeof total === 'number') return total >= n;
+
       const v = isCreatureDiedThisTurn(ctx);
       if (v === false) return false;
       if (v === null) return null;
@@ -3898,13 +4043,17 @@ function evaluateInterveningIfClauseInternal(
       const kind = String(m[1] || '').toLowerCase();
       const typeLower = String(m[2] || '').toLowerCase();
       const exclude = kind === 'another' ? String((sourcePermanent as any)?.id || '') : '';
-      return countControlledEnteredThisTurn(ctx, controllerId, typeLower, exclude || undefined) > 0;
+      const c = countControlledEnteredThisTurn(ctx, controllerId, typeLower, exclude || undefined);
+      if (c === null) return null;
+      return c > 0;
     }
   }
 
   // "if no creatures entered the battlefield under your control this turn" (best-effort)
   if (/^if\s+no\s+creatures\s+entered\s+(?:the\s+)?battlefield\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
-    return countControlledEnteredThisTurn(ctx, controllerId, 'creature') === 0;
+    const c = countControlledEnteredThisTurn(ctx, controllerId, 'creature');
+    if (c === null) return null;
+    return c === 0;
   }
 
   // Pack tactics / total power: "if you attacked with creatures with total power N or greater"
@@ -4176,15 +4325,100 @@ function evaluateInterveningIfClauseInternal(
       const map = (ctx as any).state?.creaturesDiedUnderYourControlThisTurn;
       const v = map?.[controllerId];
       if (typeof v === 'number') return v >= n;
+
+      const v2 = getCreaturesDiedThisTurnByController(ctx, controllerId);
+      if (typeof v2 === 'number') return v2 >= n;
+
       return null;
     }
   }
-  if (/^if\s+a\s+creature\s+died\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i.test(clause)) return null;
-  if (/^if\s+a\s+phyrexian\s+died\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) return null;
+  if (/^if\s+a\s+creature\s+died\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i.test(clause)) {
+    const map = (ctx as any).state?.creaturesDiedThisTurnByController;
+    if (!map) return null;
+    const opps = getOpponentIds(ctx, controllerId);
+    if (!opps.length) return false;
+    return opps.some((oid) => ((map as any)[String(oid)] || 0) > 0);
+  }
+  if (/^if\s+a\s+phyrexian\s+died\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
+    const n = getCreatureSubtypeDiedThisTurnCount(ctx, controllerId, 'phyrexian');
+    return typeof n === 'number' ? n > 0 : null;
+  }
+
+  // Generic subtype death templates (recognized; depends on subtype death tracking)
+  {
+    const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+died\s+under\s+your\s+control\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const n = getCreatureSubtypeDiedThisTurnCount(ctx, controllerId, subtype);
+      return typeof n === 'number' ? n > 0 : null;
+    }
+  }
+  {
+    const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+died\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const opps = getOpponentIds(ctx, controllerId);
+      if (!opps.length) return false;
+      const total = getCreatureSubtypeDiedThisTurnSum(ctx, opps.map(String), subtype);
+      return total === null ? null : total > 0;
+    }
+  }
+  {
+    const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+died\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+      const total = getCreatureSubtypeDiedThisTurnSum(ctx, ids.map(String), subtype);
+      return total === null ? null : total > 0;
+    }
+  }
   if (/^if\s+a\s+creature\s+dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn\s+died$/i.test(clause)) return null;
 
   // ETB under opponent control (recognized; depends on tracking)
-  if (/^if\s+a\s+creature\s+entered\s+the\s+battlefield\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i.test(clause)) return null;
+  if (/^if\s+a\s+creature\s+entered\s+the\s+battlefield\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i.test(clause)) {
+    const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByController;
+    if (!map) return null;
+    const opps = getOpponentIds(ctx, controllerId);
+    if (!opps.length) return false;
+    return opps.some((oid) => ((map as any)[String(oid)] || 0) > 0);
+  }
+
+  // Generic subtype ETB templates (recognized; depends on subtype ETB tracking)
+  {
+    const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const n = getCreatureSubtypeEnteredThisTurnCount(ctx, controllerId, subtype);
+      return typeof n === 'number' ? n > 0 : null;
+    }
+  }
+  {
+    const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+entered\s+the\s+battlefield\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const opps = getOpponentIds(ctx, controllerId);
+      if (!opps.length) return false;
+      const total = getCreatureSubtypeEnteredThisTurnSum(ctx, opps.map(String), subtype);
+      return total === null ? null : total > 0;
+    }
+  }
+  {
+    const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+entered\s+the\s+battlefield\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const ids = getAllPlayerIds(ctx, controllerId);
+      if (!ids.length) return null;
+      const total = getCreatureSubtypeEnteredThisTurnSum(ctx, ids.map(String), subtype);
+      return total === null ? null : total > 0;
+    }
+  }
 
   // Zone movement into hand (recognized; depends on tracking)
   if (/^if\s+a\s+permanent\s+was\s+put\s+into\s+your\s+hand\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) return null;
@@ -4233,6 +4467,20 @@ function evaluateInterveningIfClauseInternal(
     const m = clause.match(/^if\s+another\s+([a-z0-9-]+)\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i);
     if (m) {
       const subtype = String(m[1] || '').toLowerCase();
+
+      // Prefer deterministic per-turn subtype tracking when available.
+      if (isLikelyCreatureSubtypeToken(subtype)) {
+        const total = getCreatureSubtypeEnteredThisTurnCount(ctx, controllerId, subtype);
+        if (total !== null) {
+          // If the source is of the same subtype (common in ETB templates like "when this creature enters"),
+          // require at least 2 to satisfy "another".
+          if (sourcePermanent && typeLineHasWord(String(sourcePermanent?.card?.type_line || ''), subtype)) {
+            return total >= 2;
+          }
+          return total >= 1;
+        }
+      }
+
       const excludeId = String((sourcePermanent as any)?.id || '');
       const battlefield = (ctx as any).state?.battlefield || [];
       const hasEnteredTracking = Array.isArray(battlefield) && battlefield.some((p: any) => p?.enteredThisTurn === true);
@@ -4247,7 +4495,21 @@ function evaluateInterveningIfClauseInternal(
       });
     }
   }
-  if (/^if\s+another\s+([a-z0-9-]+)\s+died\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) return null;
+  {
+    const m = clause.match(/^if\s+another\s+([a-z0-9-]+)\s+died\s+under\s+your\s+control\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      const total = getCreatureSubtypeDiedThisTurnCount(ctx, controllerId, subtype);
+      if (total === null) return null;
+
+      // If the source is of the same subtype (common in "when this creature dies" templates),
+      // require at least 2 to satisfy "another".
+      if (sourcePermanent && typeLineHasWord(String(sourcePermanent?.card?.type_line || ''), subtype)) {
+        return total >= 2;
+      }
+      return total >= 1;
+    }
+  }
 
   // Generic "a face-down creature entered ..." (best-effort)
   if (/^if\s+a\s+face-down\s+creature\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {

@@ -348,6 +348,33 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     (state as any).permanentLeftBattlefieldThisTurn[String(controller)] = true;
     if (isCreature) {
       (state as any).creatureDiedThisTurn = true;
+
+      (state as any).creaturesDiedThisTurnByController = (state as any).creaturesDiedThisTurnByController || {};
+      const key = String(controller);
+      (state as any).creaturesDiedThisTurnByController[key] = ((state as any).creaturesDiedThisTurnByController[key] || 0) + 1;
+
+      // Track creature subtype deaths this turn (for templates like "if a Phyrexian died under your control this turn").
+      try {
+        const typeLineRaw = String(card?.type_line || '');
+        const typeLineLower = typeLineRaw.toLowerCase();
+        const dashSplit = typeLineLower.split(/—|\s-\s/);
+        const subtypePart = dashSplit.length > 1 ? dashSplit.slice(1).join(' ') : '';
+        const subtypeTokens = subtypePart
+          .split(/\s+/)
+          .map((t) => t.replace(/[^a-z0-9-]/g, '').trim())
+          .filter(Boolean);
+
+        if (subtypeTokens.length) {
+          (state as any).creaturesDiedThisTurnByControllerSubtype = (state as any).creaturesDiedThisTurnByControllerSubtype || {};
+          const byController = (state as any).creaturesDiedThisTurnByControllerSubtype;
+          byController[key] = byController[key] || {};
+          for (const st of subtypeTokens) {
+            byController[key][st] = (byController[key][st] || 0) + 1;
+          }
+        }
+      } catch {
+        // best-effort tracking only
+      }
     }
   } catch {
     // best-effort tracking only
