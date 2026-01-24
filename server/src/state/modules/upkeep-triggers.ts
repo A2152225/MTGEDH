@@ -529,11 +529,39 @@ export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: str
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
-      const interveningText = trigger.effect || trigger.description || '';
-      const ok = isInterveningIfSatisfied(ctx, controller, interveningText, permanent, {
-        thatPlayerId: activePlayerId,
-        referencedPlayerId: activePlayerId,
-      });
+      const raw = String(trigger.effect || trigger.description || '').trim();
+      let interveningText = raw;
+      if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+        // Many upkeep detectors store only the post-comma fragment (effect text).
+        // Wrap with a synthetic trigger header so intervening-if extraction can run.
+        if (trigger.anyPlayerTrigger || trigger.triggerType === 'each_player_upkeep') {
+          interveningText = `At the beginning of each player's upkeep, ${interveningText}`;
+        } else if (trigger.triggerType === 'each_upkeep') {
+          interveningText = `At the beginning of each upkeep, ${interveningText}`;
+        } else if (trigger.triggerType === 'opponent_upkeep') {
+          interveningText = `At the beginning of each opponent's upkeep, ${interveningText}`;
+        } else if (trigger.triggerType === 'saga_lore_counter') {
+          interveningText = `At the beginning of your precombat main phase, ${interveningText}`;
+        } else {
+          interveningText = `At the beginning of your upkeep, ${interveningText}`;
+        }
+      }
+
+      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        controller,
+        interveningText,
+        permanent,
+        needsThatPlayerRef
+          ? {
+              thatPlayerId: activePlayerId,
+              referencedPlayerId: activePlayerId,
+              theirPlayerId: activePlayerId,
+            }
+          : undefined
+      );
       if (ok === false) continue;
 
       // Check if this trigger applies to the current upkeep

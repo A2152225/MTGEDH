@@ -280,16 +280,24 @@ function processTapTriggersForAttackers(
         try {
           const controller = String(triggerControllerId);
           const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+          const textForEval = (() => {
+            const raw = String(trigger.description || trigger.effect || "").trim();
+            if (!raw) return raw;
+            if (/^(?:when|whenever|at)\b/i.test(raw)) return raw;
+            return `Whenever ~ becomes tapped, ${raw}`;
+          })();
           const ok = isInterveningIfSatisfied(
             ctx as any,
             controller,
-            (() => {
-              const raw = String(trigger.description || trigger.effect || "").trim();
-              if (!raw) return raw;
-              if (/^(?:when|whenever|at)\b/i.test(raw)) return raw;
-              return `Whenever ~ becomes tapped, ${raw}`;
-            })(),
-            sourcePerm
+            textForEval,
+            sourcePerm,
+            /\bthat player\b/i.test(textForEval)
+              ? {
+                  thatPlayerId: String(triggerControllerId),
+                  referencedPlayerId: String(triggerControllerId),
+                  theirPlayerId: String(triggerControllerId),
+                }
+              : undefined
           );
           if (ok === false) {
             debug(2, `[combat] Skipping tap trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
@@ -1541,12 +1549,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                     ''
                 );
 
+                const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
+
                 const ok = isInterveningIfSatisfied(
                   ctx as any,
                   controller,
                   textForEval,
                   sourcePerm,
-                  defendingPlayerId
+                  needsThatPlayerRef && defendingPlayerId
                     ? {
                         thatPlayerId: defendingPlayerId,
                         referencedPlayerId: defendingPlayerId,
@@ -2108,11 +2118,37 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               try {
                 const controller = String(triggerControllerId);
                 const sourcePerm = battlefield.find((p: any) => p?.id === (trigger as any).permanentId);
+                const raw = String(trigger.description || trigger.effect || '').trim();
+                let textForEval = raw;
+                const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
+                if (!hasTriggerPrefix && textForEval) {
+                  const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
+                  if (oracleLower.includes('blocks a creature')) {
+                    textForEval = `Whenever ~ blocks a creature, ${textForEval}`;
+                  } else {
+                    textForEval = `Whenever ~ blocks, ${textForEval}`;
+                  }
+                }
+
+                const valueObj = (trigger as any).value && typeof (trigger as any).value === 'object' ? (trigger as any).value : undefined;
+                const blockedCreatureId = String(valueObj?.blockedCreatureId || '');
+                const blockedCreature = blockedCreatureId
+                  ? battlefield.find((p: any) => p?.id === blockedCreatureId)
+                  : undefined;
+                const blockedCreatureControllerId = String(blockedCreature?.controller || '');
+
                 const ok = isInterveningIfSatisfied(
                   ctx as any,
                   controller,
-                  String(trigger.description || trigger.effect || ""),
-                  sourcePerm
+                  textForEval,
+                  sourcePerm,
+                  /\bthat player\b/i.test(textForEval) && blockedCreatureControllerId
+                    ? {
+                        thatPlayerId: blockedCreatureControllerId,
+                        referencedPlayerId: blockedCreatureControllerId,
+                        theirPlayerId: blockedCreatureControllerId,
+                      }
+                    : undefined
                 );
                 if (ok === false) {
                   debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);

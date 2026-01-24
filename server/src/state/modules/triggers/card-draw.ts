@@ -95,12 +95,37 @@ export function getCardDrawTriggers(
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
-      const interveningText = trigger.effect || '';
-      const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permController, interveningText, permanent, {
-        thatPlayerId: drawingPlayerId,
-        referencedPlayerId: drawingPlayerId,
-        theirPlayerId: drawingPlayerId,
-      });
+      const raw = String(trigger.effect || '').trim();
+      let interveningText = raw;
+      if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+        switch (trigger.triggerType) {
+          case 'opponent_draws':
+            interveningText = `Whenever an opponent draws a card, ${interveningText}`;
+            break;
+          case 'player_draws':
+            interveningText = `Whenever a player draws a card, ${interveningText}`;
+            break;
+          case 'you_draw':
+            interveningText = `Whenever you draw a card, ${interveningText}`;
+            break;
+        }
+      }
+
+      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        trigger.controllerId || permController,
+        interveningText,
+        permanent,
+        needsThatPlayerRef
+          ? {
+              thatPlayerId: drawingPlayerId,
+              referencedPlayerId: drawingPlayerId,
+              theirPlayerId: drawingPlayerId,
+            }
+          : undefined
+      );
       if (ok === false) continue;
 
       // Check if this trigger applies

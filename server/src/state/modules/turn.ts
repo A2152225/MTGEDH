@@ -1503,11 +1503,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               const synthetic = trigger.triggerType === 'deals_damage'
                 ? `Whenever ~ deals damage to a player, ${text}`
                 : `Whenever ~ deals combat damage to a player, ${text}`;
-              const ok = isInterveningIfSatisfied(ctx as any, String(attackerPerm.controller), synthetic, attackerPerm, {
-                thatPlayerId: String(defendingPlayerId),
-                referencedPlayerId: String(defendingPlayerId),
-                theirPlayerId: String(defendingPlayerId),
-              });
+              const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+              const ok = isInterveningIfSatisfied(
+                ctx as any,
+                String(attackerPerm.controller),
+                synthetic,
+                attackerPerm,
+                needsThatPlayerRef
+                  ? {
+                      thatPlayerId: String(defendingPlayerId),
+                      referencedPlayerId: String(defendingPlayerId),
+                      theirPlayerId: String(defendingPlayerId),
+                    }
+                  : undefined
+              );
               if (ok === false) {
                 debug(2, `${ts()} [dealCombatDamage] Skipping trigger from ${attackerPerm.card?.name || attackerPerm.id} due to intervening-if being false: ${text}`);
                 continue;
@@ -1583,11 +1592,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             try {
               const text = String(trigger.description || trigger.effect || '');
               const synthetic = `Whenever one or more creatures you control deal combat damage to a player, ${text}`;
-              const ok = isInterveningIfSatisfied(ctx as any, String(controllerId), synthetic, perm, {
-                thatPlayerId: String(defendingPlayerId),
-                referencedPlayerId: String(defendingPlayerId),
-                theirPlayerId: String(defendingPlayerId),
-              });
+              const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+              const ok = isInterveningIfSatisfied(
+                ctx as any,
+                String(controllerId),
+                synthetic,
+                perm,
+                needsThatPlayerRef
+                  ? {
+                      thatPlayerId: String(defendingPlayerId),
+                      referencedPlayerId: String(defendingPlayerId),
+                      theirPlayerId: String(defendingPlayerId),
+                    }
+                  : undefined
+              );
               if (ok === false) {
                 debug(2, `${ts()} [dealCombatDamage] Skipping batched trigger from ${trigger.cardName} due to intervening-if being false: ${text}`);
                 continue;
@@ -3093,11 +3111,20 @@ export function nextStep(ctx: GameContext) {
 
               const battlefield = (ctx as any).state?.battlefield || [];
               const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
-              const ok = isInterveningIfSatisfied(ctx as any, String(controller), textForEval, sourcePerm, {
-                thatPlayerId: String(turnPlayer),
-                referencedPlayerId: String(turnPlayer),
-                theirPlayerId: String(turnPlayer),
-              });
+              const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
+              const ok = isInterveningIfSatisfied(
+                ctx as any,
+                String(controller),
+                textForEval,
+                sourcePerm,
+                needsThatPlayerRef
+                  ? {
+                      thatPlayerId: String(turnPlayer),
+                      referencedPlayerId: String(turnPlayer),
+                      theirPlayerId: String(turnPlayer),
+                    }
+                  : undefined
+              );
               if (ok === false) {
                 debug(2, `${ts()} [nextStep] Skipping ${triggerType} trigger due to unmet intervening-if: ${trigger.cardName} - ${raw}`);
                 continue;

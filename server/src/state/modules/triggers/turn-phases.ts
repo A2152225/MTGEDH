@@ -198,16 +198,20 @@ export function getEndStepTriggers(
         }
       }
 
+      const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+
       const ok = isInterveningIfSatisfied(
         ctx,
         trigger.controllerId || permanent.controller,
         synthetic,
         permanent,
-        {
-          thatPlayerId: activePlayerId,
-          referencedPlayerId: activePlayerId,
-          theirPlayerId: activePlayerId,
-        }
+        needsThatPlayerRef
+          ? {
+              thatPlayerId: activePlayerId,
+              referencedPlayerId: activePlayerId,
+              theirPlayerId: activePlayerId,
+            }
+          : undefined
       );
       if (ok === false) continue;
       
@@ -371,16 +375,20 @@ export function getDrawStepTriggers(
         }
       }
 
+      const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+
       const ok = isInterveningIfSatisfied(
         ctx,
         trigger.controllerId || permanent.controller,
         synthetic,
         permanent,
-        {
-          thatPlayerId: activePlayerId,
-          referencedPlayerId: activePlayerId,
-          theirPlayerId: activePlayerId,
-        }
+        needsThatPlayerRef
+          ? {
+              thatPlayerId: activePlayerId,
+              referencedPlayerId: activePlayerId,
+              theirPlayerId: activePlayerId,
+            }
+          : undefined
       );
       if (ok === false) continue;
       

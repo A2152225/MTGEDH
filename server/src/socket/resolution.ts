@@ -11192,7 +11192,19 @@ async function putCardOntoBattlefield(
       if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
         textForEval = `When ~ enters the battlefield, ${textForEval}`;
       }
-      const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(controller), textForEval, newPermanent);
+      const ok = isInterveningIfSatisfied(
+        ctxForInterveningIf,
+        String(controller),
+        textForEval,
+        newPermanent,
+        /\bthat player\b/i.test(textForEval)
+          ? {
+              thatPlayerId: String(controller),
+              referencedPlayerId: String(controller),
+              theirPlayerId: String(controller),
+            }
+          : undefined
+      );
       if (ok === false) continue;
 
       state.stack = state.stack || [];

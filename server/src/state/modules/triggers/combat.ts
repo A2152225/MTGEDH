@@ -966,7 +966,20 @@ export function getBeginningOfCombatTriggers(
           if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
             interveningText = `At the beginning of combat, ${interveningText}`;
           }
-          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
+          const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+          const ok = isInterveningIfSatisfied(
+            ctx,
+            trigger.controllerId || permanent.controller,
+            interveningText,
+            permanent,
+            needsThatPlayerRef
+              ? {
+                  thatPlayerId: activePlayerId,
+                  referencedPlayerId: activePlayerId,
+                  theirPlayerId: activePlayerId,
+                }
+              : undefined
+          );
           if (ok !== false) {
             triggers.push(trigger);
             triggerCount++;
@@ -978,7 +991,20 @@ export function getBeginningOfCombatTriggers(
         if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
           interveningText = `At the beginning of combat, ${interveningText}`;
         }
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
+        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+        const ok = isInterveningIfSatisfied(
+          ctx,
+          trigger.controllerId || permanent.controller,
+          interveningText,
+          permanent,
+          needsThatPlayerRef
+            ? {
+                thatPlayerId: activePlayerId,
+                referencedPlayerId: activePlayerId,
+                theirPlayerId: activePlayerId,
+              }
+            : undefined
+        );
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
@@ -989,7 +1015,20 @@ export function getBeginningOfCombatTriggers(
         if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
           interveningText = `At the beginning of combat, ${interveningText}`;
         }
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
+        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+        const ok = isInterveningIfSatisfied(
+          ctx,
+          trigger.controllerId || permanent.controller,
+          interveningText,
+          permanent,
+          needsThatPlayerRef
+            ? {
+                thatPlayerId: activePlayerId,
+                referencedPlayerId: activePlayerId,
+                theirPlayerId: activePlayerId,
+              }
+            : undefined
+        );
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
@@ -1051,7 +1090,20 @@ export function getEndOfCombatTriggers(
       if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
         interveningText = `At end of combat, ${interveningText}`;
       }
-      const ok = isInterveningIfSatisfied(ctx, (trigger as any).controllerId || permanent.controller, interveningText, permanent);
+      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        (trigger as any).controllerId || permanent.controller,
+        interveningText,
+        permanent,
+        needsThatPlayerRef
+          ? {
+              thatPlayerId: activePlayerId,
+              referencedPlayerId: activePlayerId,
+              theirPlayerId: activePlayerId,
+            }
+          : undefined
+      );
       if (ok === false) continue;
       triggers.push(trigger);
     }

@@ -1049,7 +1049,19 @@ export function triggerETBEffectsForToken(
               ? `Whenever a creature you control enters the battlefield, ${textForEval}`
               : `Whenever a creature enters the battlefield, ${textForEval}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), textForEval, perm);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(triggerController),
+            textForEval,
+            perm,
+            /\bthat player\b/i.test(textForEval) && String(controller || '')
+              ? {
+                  thatPlayerId: String(controller),
+                  referencedPlayerId: String(controller),
+                  theirPlayerId: String(controller),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
@@ -1098,7 +1110,19 @@ export function triggerETBEffectsForToken(
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `Whenever another permanent enters the battlefield under your control, ${textForEval}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), textForEval, perm);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(triggerController),
+            textForEval,
+            perm,
+            /\bthat player\b/i.test(textForEval) && String(controller || '')
+              ? {
+                  thatPlayerId: String(controller),
+                  referencedPlayerId: String(controller),
+                  theirPlayerId: String(controller),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
@@ -1135,7 +1159,19 @@ export function triggerETBEffectsForToken(
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `Whenever a permanent enters the battlefield, ${textForEval}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), textForEval, perm);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(triggerController),
+            textForEval,
+            perm,
+            /\bthat player\b/i.test(textForEval) && String(controller || '')
+              ? {
+                  thatPlayerId: String(controller),
+                  referencedPlayerId: String(controller),
+                  theirPlayerId: String(controller),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
@@ -1174,16 +1210,19 @@ export function triggerETBEffectsForToken(
             if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
               textForEval = `Whenever a creature enters the battlefield under an opponent's control, ${textForEval}`;
             }
+            const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
             const satisfied = isInterveningIfSatisfied(
               ctx as any,
               String(triggerController),
               textForEval,
               perm,
-              {
-                thatPlayerId: String(controller),
-                referencedPlayerId: String(controller),
-                theirPlayerId: String(controller),
-              }
+              needsThatPlayerRef && String(controller || '')
+                ? {
+                    thatPlayerId: String(controller),
+                    referencedPlayerId: String(controller),
+                    theirPlayerId: String(controller),
+                  }
+                : undefined
             );
             if (satisfied === false) {
               debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
@@ -1310,7 +1349,19 @@ export function triggerETBEffectsForPermanent(
               ? `Whenever a creature you control enters the battlefield, ${textForEval}`
               : `Whenever a creature enters the battlefield, ${textForEval}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), textForEval, perm);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(triggerController),
+            textForEval,
+            perm,
+            /\bthat player\b/i.test(textForEval) && String(controller || '')
+              ? {
+                  thatPlayerId: String(controller),
+                  referencedPlayerId: String(controller),
+                  theirPlayerId: String(controller),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
@@ -1355,7 +1406,19 @@ export function triggerETBEffectsForPermanent(
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `Whenever another permanent enters the battlefield under your control, ${textForEval}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), textForEval, perm);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(triggerController),
+            textForEval,
+            perm,
+            /\bthat player\b/i.test(textForEval) && String(controller || '')
+              ? {
+                  thatPlayerId: String(controller),
+                  referencedPlayerId: String(controller),
+                  theirPlayerId: String(controller),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
@@ -1392,7 +1455,19 @@ export function triggerETBEffectsForPermanent(
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `Whenever a permanent enters the battlefield, ${textForEval}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), textForEval, perm);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(triggerController),
+            textForEval,
+            perm,
+            /\bthat player\b/i.test(textForEval) && String(controller || '')
+              ? {
+                  thatPlayerId: String(controller),
+                  referencedPlayerId: String(controller),
+                  theirPlayerId: String(controller),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
@@ -1487,7 +1562,19 @@ export function triggerETBEffectsForPermanent(
         if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
           textForEval = `When ~ enters the battlefield, ${textForEval}`;
         }
-        const satisfied = isInterveningIfSatisfied(ctx as any, String(triggerController), textForEval, permanent);
+        const satisfied = isInterveningIfSatisfied(
+          ctx as any,
+          String(triggerController),
+          textForEval,
+          permanent,
+          /\bthat player\b/i.test(textForEval)
+            ? {
+                thatPlayerId: String(triggerController),
+                referencedPlayerId: String(triggerController),
+                theirPlayerId: String(triggerController),
+              }
+            : undefined
+        );
         if (satisfied === false) {
           debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
           continue;
@@ -5139,13 +5226,27 @@ export function resolveTopOfStack(ctx: GameContext) {
     // If we can recognize the condition and it is now false, the trigger resolves with no effect.
     try {
       const desc = String(description || '').trim();
-      let textForEval = desc;
+
+      // Prefer raw effect text when available; stack descriptions are sometimes decorated
+      // (e.g., "Landfall - ...") and won't start with When/Whenever/At.
+      const rawEffect = String((item as any).effect || '').trim();
+      const maybeStripped = desc.startsWith('Landfall - ')
+        ? desc.slice('Landfall - '.length).trim()
+        : desc;
+
+      let textForEval = rawEffect || maybeStripped;
       const hasTriggerPrefix = /^(?:when|whenever|at)\b/i.test(textForEval);
       if (!hasTriggerPrefix) {
         if (triggerType === 'deals_damage') {
           textForEval = `Whenever ~ deals damage to a player, ${textForEval}`;
         } else if (triggerType === 'deals_combat_damage') {
           textForEval = `Whenever ~ deals combat damage to a player, ${textForEval}`;
+        } else if (triggerType === 'tap') {
+          textForEval = `Whenever ~ becomes tapped, ${textForEval}`;
+        } else if (triggerType === 'attacks' || triggerType === 'attack') {
+          textForEval = `Whenever ~ attacks, ${textForEval}`;
+        } else if (triggerType === 'blocks') {
+          textForEval = `Whenever ~ blocks, ${textForEval}`;
         } else if (triggerType === 'upkeep') {
           textForEval = `At the beginning of upkeep, ${textForEval}`;
         } else if (triggerType === 'draw_step') {
@@ -5158,6 +5259,10 @@ export function resolveTopOfStack(ctx: GameContext) {
           textForEval = `At end of combat, ${textForEval}`;
         } else if (triggerType === 'end_step') {
           textForEval = `At the beginning of end step, ${textForEval}`;
+        } else if (triggerType === 'landfall') {
+          textForEval = `Whenever a land enters the battlefield under your control, ${textForEval}`;
+        } else if (typeof triggerType === 'string' && triggerType.includes('etb')) {
+          textForEval = `When ~ enters the battlefield, ${textForEval}`;
         }
       }
 
@@ -5168,6 +5273,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         ''
       );
 
+      const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
+
       const battlefield = (ctx as any).state?.battlefield || [];
       const sourcePerm = battlefield.find((p: any) => p?.id === (item as any).source);
       const satisfied = isInterveningIfSatisfied(
@@ -5175,7 +5282,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         String(triggerController),
         textForEval,
         sourcePerm,
-        thatPlayerId
+        thatPlayerId && needsThatPlayerRef
           ? {
               thatPlayerId,
               referencedPlayerId: thatPlayerId,
@@ -5184,7 +5291,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           : undefined
       );
       if (satisfied === false) {
-        debug(2, `[resolveTopOfStack] Intervening-if no longer satisfied; skipping resolution for ${sourceName}: ${desc}`);
+        debug(2, `[resolveTopOfStack] Intervening-if no longer satisfied; skipping resolution for ${sourceName}: ${textForEval}`);
         bumpSeq();
         return;
       }
@@ -6293,8 +6400,9 @@ export function resolveTopOfStack(ctx: GameContext) {
             const battlefield = (ctx as any).state?.battlefield || [];
             const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
             const enteringControllerId = String(controller || '').trim();
+            const needsThatPlayerRef = /\bthat player\b/i.test(desc);
             const refs =
-              trigger.triggerType === 'opponent_creature_etb' && enteringControllerId
+              trigger.triggerType === 'opponent_creature_etb' && enteringControllerId && needsThatPlayerRef
                 ? {
                     thatPlayerId: enteringControllerId,
                     referencedPlayerId: enteringControllerId,
@@ -8781,11 +8889,20 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
     // Intervening-if at trigger time (CR 603.4).
     try {
       const synthetic = `Whenever ~ deals damage to a player, ${text}`;
-      const ok = isInterveningIfSatisfied(ctx as any, String(sourcePerm.controller), synthetic, sourcePerm, {
-        thatPlayerId: String(damagedPlayerId),
-        referencedPlayerId: String(damagedPlayerId),
-        theirPlayerId: String(damagedPlayerId),
-      });
+      const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+      const ok = isInterveningIfSatisfied(
+        ctx as any,
+        String(sourcePerm.controller),
+        synthetic,
+        sourcePerm,
+        needsThatPlayerRef
+          ? {
+              thatPlayerId: String(damagedPlayerId),
+              referencedPlayerId: String(damagedPlayerId),
+              theirPlayerId: String(damagedPlayerId),
+            }
+          : undefined
+      );
       if (ok === false) continue;
     } catch {
       // Conservative fallback: keep the trigger.
@@ -9567,7 +9684,19 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           if (textForEval && !/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `When ~ enters the battlefield, ${textForEval}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(playerId), textForEval, newPermanent);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(playerId),
+            textForEval,
+            newPermanent,
+            /\bthat player\b/i.test(textForEval)
+              ? {
+                  thatPlayerId: String(playerId),
+                  referencedPlayerId: String(playerId),
+                  theirPlayerId: String(playerId),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[playLand] Skipping land ETB trigger due to unmet intervening-if: ${card.name || 'Land'} - ${desc}`);
             continue;
@@ -9623,7 +9752,19 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           if (text && !/^(?:when|whenever|at)\b/i.test(text)) {
             text = `Whenever a land enters the battlefield under your control, ${text}`;
           }
-          const satisfied = isInterveningIfSatisfied(ctx as any, String(playerId), text, sourcePerm);
+          const satisfied = isInterveningIfSatisfied(
+            ctx as any,
+            String(playerId),
+            text,
+            sourcePerm,
+            /\bthat player\b/i.test(text)
+              ? {
+                  thatPlayerId: String(playerId),
+                  referencedPlayerId: String(playerId),
+                  theirPlayerId: String(playerId),
+                }
+              : undefined
+          );
           if (satisfied === false) {
             debug(2, `[playLand] Skipping landfall trigger due to unmet intervening-if: ${trigger.cardName} - ${text}`);
             continue;

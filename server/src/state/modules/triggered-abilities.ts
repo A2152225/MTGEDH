@@ -2097,8 +2097,25 @@ export function getBeginningOfCombatTriggers(
       // "At the beginning of combat on your turn" - only for controller on their turn
       if (hasOnYourTurn) {
         if (permanent.controller === activePlayerId) {
-          const interveningText = trigger.effect || trigger.description || '';
-          const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
+          const raw = String(trigger.effect || trigger.description || '').trim();
+          let interveningText = raw;
+          if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+            interveningText = `At the beginning of combat, ${interveningText}`;
+          }
+          const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+          const ok = isInterveningIfSatisfied(
+            ctx,
+            trigger.controllerId || permanent.controller,
+            interveningText,
+            permanent,
+            needsThatPlayerRef
+              ? {
+                  thatPlayerId: activePlayerId,
+                  referencedPlayerId: activePlayerId,
+                  theirPlayerId: activePlayerId,
+                }
+              : undefined
+          );
           if (ok !== false) {
             triggers.push(trigger);
             triggerCount++;
@@ -2112,8 +2129,25 @@ export function getBeginningOfCombatTriggers(
       }
       // "At the beginning of each combat" - triggers regardless of whose combat
       else if (hasEachCombat) {
-        const interveningText = trigger.effect || trigger.description || '';
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
+        const raw = String(trigger.effect || trigger.description || '').trim();
+        let interveningText = raw;
+        if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+          interveningText = `At the beginning of combat, ${interveningText}`;
+        }
+        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+        const ok = isInterveningIfSatisfied(
+          ctx,
+          trigger.controllerId || permanent.controller,
+          interveningText,
+          permanent,
+          needsThatPlayerRef
+            ? {
+                thatPlayerId: activePlayerId,
+                referencedPlayerId: activePlayerId,
+                theirPlayerId: activePlayerId,
+              }
+            : undefined
+        );
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;
@@ -2124,8 +2158,25 @@ export function getBeginningOfCombatTriggers(
       }
       // Default: if no explicit timing is specified, assume "on your turn"
       else if (permanent.controller === activePlayerId) {
-        const interveningText = trigger.effect || trigger.description || '';
-        const ok = isInterveningIfSatisfied(ctx, trigger.controllerId || permanent.controller, interveningText, permanent);
+        const raw = String(trigger.effect || trigger.description || '').trim();
+        let interveningText = raw;
+        if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
+          interveningText = `At the beginning of combat, ${interveningText}`;
+        }
+        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+        const ok = isInterveningIfSatisfied(
+          ctx,
+          trigger.controllerId || permanent.controller,
+          interveningText,
+          permanent,
+          needsThatPlayerRef
+            ? {
+                thatPlayerId: activePlayerId,
+                referencedPlayerId: activePlayerId,
+                theirPlayerId: activePlayerId,
+              }
+            : undefined
+        );
         if (ok !== false) {
           triggers.push(trigger);
           triggerCount++;

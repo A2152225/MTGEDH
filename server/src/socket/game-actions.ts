@@ -5590,7 +5590,20 @@ export function registerGameActions(io: Server, socket: Socket) {
             triggerText = `Whenever you cast a spell, ${triggerText}`;
           }
           const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
-          const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(trigger.controllerId || playerId), triggerText, sourcePerm);
+          const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
+          const ok = isInterveningIfSatisfied(
+            ctxForInterveningIf,
+            String(trigger.controllerId || playerId),
+            triggerText,
+            sourcePerm,
+            needsThatPlayerRef
+              ? {
+                  thatPlayerId: String(playerId),
+                  referencedPlayerId: String(playerId),
+                  theirPlayerId: String(playerId),
+                }
+              : undefined
+          );
           if (ok === false) {
             debug(2, `[castSpellFromHand] Skipping spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
             continue;
@@ -5727,7 +5740,20 @@ export function registerGameActions(io: Server, socket: Socket) {
               triggerText = `Whenever you cast a spell, ${triggerText}`;
             }
             const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
-            const ok = isInterveningIfSatisfied(ctxForInterveningIf, String(playerId), triggerText, sourcePerm);
+            const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
+            const ok = isInterveningIfSatisfied(
+              ctxForInterveningIf,
+              String(playerId),
+              triggerText,
+              sourcePerm,
+              needsThatPlayerRef
+                ? {
+                    thatPlayerId: String(playerId),
+                    referencedPlayerId: String(playerId),
+                    theirPlayerId: String(playerId),
+                  }
+                : undefined
+            );
             if (ok === false) {
               debug(2, `[castSpellFromHand] Skipping targeted spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);
               continue;
@@ -5821,12 +5847,13 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
           const casterId = String((trigger as any).casterId || playerId || '').trim();
           const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
+          const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
           const ok = isInterveningIfSatisfied(
             ctxForInterveningIf,
             String(trigger.controllerId),
             triggerText,
             sourcePerm,
-            casterId
+            needsThatPlayerRef && casterId
               ? {
                   thatPlayerId: casterId,
                   referencedPlayerId: casterId,
@@ -7130,12 +7157,13 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
             const sourcePerm = battlefield.find((p: any) => p?.id === t?.permanentId);
             const thatPlayerId = String(turnPlayer || playerId || '').trim();
+            const needsThatPlayerRef = /\bthat player\b/i.test(text);
             const ok = isInterveningIfSatisfied(
               ctxForInterveningIf,
               controller,
               text,
               sourcePerm,
-              thatPlayerId
+              needsThatPlayerRef && thatPlayerId
                 ? {
                     thatPlayerId,
                     referencedPlayerId: thatPlayerId,

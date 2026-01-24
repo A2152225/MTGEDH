@@ -410,12 +410,13 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
             textForEval = `Whenever a creature dies, ${textForEval}`;
           }
           const dyingControllerId = String(controller || '').trim();
+          const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
           const ok = isInterveningIfSatisfied(
             ctx as any,
             String(trigger.source.controllerId),
             textForEval,
             sourcePerm,
-            dyingControllerId
+            dyingControllerId && needsThatPlayerRef
               ? {
                   thatPlayerId: dyingControllerId,
                   referencedPlayerId: dyingControllerId,
@@ -858,12 +859,13 @@ export function runSBA(ctx: GameContext) {
                   textForEval = `Whenever a creature dies, ${textForEval}`;
                 }
                 const dyingControllerId = String(controller || '').trim();
+                const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
                 const ok = isInterveningIfSatisfied(
                   ctx as any,
                   String(trigger.source.controllerId),
                   textForEval,
                   sourcePerm,
-                  dyingControllerId
+                  dyingControllerId && needsThatPlayerRef
                     ? {
                         thatPlayerId: dyingControllerId,
                         referencedPlayerId: dyingControllerId,
