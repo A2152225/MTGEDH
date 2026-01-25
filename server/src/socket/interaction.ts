@@ -31,6 +31,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
+import { triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -4478,6 +4479,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+
+      // Fire triggers that care about ability activation (e.g., Harsh Mentor, Rings of Brighthearth).
+      // Best-effort: non-mana abilities use the stack.
+      try {
+        triggerAbilityActivatedTriggers(game as any, {
+          activatedBy: pid as any,
+          sourcePermanentId: permanentId as any,
+          isManaAbility: false,
+          abilityText: upgrade.fullText,
+          stackItemId: stackItem.id,
+        });
+      } catch {}
       
       // Emit stack update
       io.to(gameId).emit("stackUpdate", {
@@ -5826,6 +5839,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.state.manaPool[pid] = game.state.manaPool[pid] || {
         white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
       };
+
+      // Fire triggers that care about ability activation.
+      // Many will be filtered out by intervening-if ("if it isn't a mana ability").
+      try {
+        triggerAbilityActivatedTriggers(game as any, {
+          activatedBy: pid as any,
+          sourcePermanentId: permanentId as any,
+          isManaAbility: true,
+          abilityText,
+        });
+      } catch {}
       
       const colorToPoolKey: Record<string, string> = {
         'W': 'white',

@@ -548,13 +548,14 @@ export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: str
       }
 
       const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+      const needsTheirTurnRef = /\btheir\s+turn\b/i.test(interveningText) || /\bthat player's\s+turn\b/i.test(interveningText);
 
       const ok = isInterveningIfSatisfied(
         ctx,
         controller,
         interveningText,
         permanent,
-        needsThatPlayerRef
+        (needsThatPlayerRef || needsTheirTurnRef)
           ? {
               thatPlayerId: activePlayerId,
               referencedPlayerId: activePlayerId,

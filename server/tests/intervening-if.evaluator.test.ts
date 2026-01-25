@@ -2147,6 +2147,52 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), 'If it was foretold, draw a card.')).toBe(null);
   });
 
+  it('supports kicked metadata: "If that spell was kicked"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_that_spell_kicked');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If that spell was kicked, draw two cards.', { card: { wasKicked: true } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If that spell was kicked, draw two cards.', { card: { wasKicked: false } })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If that spell was kicked, draw two cards.')).toBe(null);
+  });
+
+  it('supports zone metadata: "If this card is exiled" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_this_card_exiled');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If this card is exiled, draw a card.', { zone: 'exile' })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If this card is exiled, draw a card.', { zone: 'graveyard' })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If this card is exiled, draw a card.')).toBe(null);
+  });
+
+  it('supports activation metadata: "If it isn\'t a mana ability" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_not_mana_ability');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "Whenever you activate an ability, if it isn't a mana ability, draw a card.";
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { activatedAbilityIsManaAbility: false })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { activatedAbilityIsManaAbility: true })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
+  it('supports turn snapshot tracking: "If you lost life last turn"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_life_lost_last_turn');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    (g.state as any).lifeLostThisTurn = { [p1]: 3, [p2]: 0 };
+    g.nextTurn();
+
+    const desc = 'At the beginning of your upkeep, if you lost life last turn, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p2), desc)).toBe(false);
+  });
+
   it('supports mana colors spent to cast: "If {R} was spent..." and "If N colors..."', () => {
     const g = createInitialGameState('t_intervening_if_eval_mana_spent');
     const p1 = 'p1' as PlayerID;

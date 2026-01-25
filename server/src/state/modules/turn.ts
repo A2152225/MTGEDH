@@ -1275,6 +1275,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (damageToBlocker > 0) {
             // Mark damage on blocker
             blocker.markedDamage = (blocker.markedDamage || 0) + damageToBlocker;
+            // Track damage dealt to this permanent this turn (for intervening-if clauses).
+            blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlocker;
+            blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlocker;
+            blocker.tookDamageThisTurn = true;
             remainingDamage -= damageToBlocker;
             
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
@@ -1418,6 +1422,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (blockerPower > 0) {
             // Deal damage to attacker
             attacker.markedDamage = (attacker.markedDamage || 0) + blockerPower;
+            // Track damage dealt to this permanent this turn (for intervening-if clauses).
+            attacker.damageThisTurn = (attacker.damageThisTurn || 0) + blockerPower;
+            attacker.combatDamageThisTurn = (attacker.combatDamageThisTurn || 0) + blockerPower;
+            attacker.tookDamageThisTurn = true;
             
             debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerPower} damage to attacker ${card.name || attacker.id}`);
             
@@ -2266,12 +2274,29 @@ export function nextTurn(ctx: GameContext) {
     // Reset cards drawn this turn for all players (for miracle tracking)
     (ctx as any).state.cardsDrawnThisTurn = {};
 
+    // Snapshot "life lost last turn" before clearing per-turn trackers.
+    // Used by intervening-if clauses like "if you lost life last turn".
+    try {
+      const last: any = {};
+      const cur = (ctx as any).state.lifeLostThisTurn;
+      if (cur && typeof cur === 'object') {
+        for (const [pid, v] of Object.entries(cur)) {
+          if (typeof v === 'number' && !Number.isNaN(v)) last[String(pid)] = v;
+        }
+      }
+      (ctx as any).state.lifeLostLastTurnByPlayerCounts = last;
+    } catch {}
+
     // Reset life gain/loss tracking for this turn.
     (ctx as any).state.lifeGainedThisTurn = {};
     (ctx as any).state.lifeLostThisTurn = {};
 
     // Reset land-ETB tracking for this turn.
     (ctx as any).state.landsEnteredBattlefieldThisTurn = {};
+
+    // Reset artifact/planeswalker ETB tracking for this turn.
+    (ctx as any).state.artifactsEnteredBattlefieldThisTurnByController = {};
+    (ctx as any).state.planeswalkersEnteredBattlefieldThisTurnByController = {};
 
     // Reset die roll tracking for this turn.
     (ctx as any).state.dieRollsThisTurn = {};
@@ -2289,7 +2314,21 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.creaturesDiedThisTurnByControllerSubtype = {};
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnByController = {};
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnByControllerSubtype = {};
+    (ctx as any).state.creaturesEnteredBattlefieldThisTurnIdsByController = {};
     (ctx as any).state.permanentLeftBattlefieldThisTurn = {};
+
+    // Reset per-permanent damage tracking for "this turn" intervening-if clauses.
+    try {
+      const battlefield = (ctx as any).state?.battlefield;
+      if (Array.isArray(battlefield)) {
+        for (const perm of battlefield) {
+          if (!perm) continue;
+          if (perm.damageThisTurn !== undefined) delete perm.damageThisTurn;
+          if (perm.combatDamageThisTurn !== undefined) delete perm.combatDamageThisTurn;
+          if (perm.tookDamageThisTurn !== undefined) delete perm.tookDamageThisTurn;
+        }
+      }
+    } catch {}
 
     // Recalculate player effects based on battlefield (Exploration, Font of Mythos, etc.)
     try {

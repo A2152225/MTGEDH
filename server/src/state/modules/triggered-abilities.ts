@@ -1091,22 +1091,31 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Without this guard, patterns like "Whenever a creature enters under an opponent's control, ..." can be
   // misclassified as generic creature_etb and then miss intervening-if context like "that player".
   const hasOpponentCreatureRestriction = /an opponent controls|under an opponent's control|under their control/i.test(oracleText);
-  const creatureETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  // Capture the required type phrase between the determiner (a/another/other/one or more) and "enters".
+  // Examples captured: "creature", "nontoken creature", "token creature", "artifact creature", "Bear", "Assembly-Worker".
+  const creatureETBMatch = oracleText.match(
+    /whenever (?:a|an(?:other)?|one or more(?: other)?|other) ([^,]+?) (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i
+  );
   if (creatureETBMatch && !hasOpponentCreatureRestriction && !triggers.some(t => t.triggerType === 'creature_etb')) {
-    const isNontokenOnly = oracleText.includes('nontoken creature');
+    const requiredTypePhrase = creatureETBMatch[1].trim();
+    const isNontokenOnly = /\b(?:nontoken|non-token)\b/i.test(requiredTypePhrase);
+    const isTokenOnly = !isNontokenOnly && /\btoken\b/i.test(requiredTypePhrase);
     // Check if this trigger requires the creature to be controlled by the trigger's controller
     // Pattern: "you control" or "under your control" in the trigger text
     const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText);
-    triggers.push({
+    const t: TriggeredAbility = {
       permanentId,
       cardName,
       triggerType: 'creature_etb',
-      description: creatureETBMatch[1].trim(),
-      effect: creatureETBMatch[1].trim(),
+      description: creatureETBMatch[2].trim(),
+      effect: creatureETBMatch[2].trim(),
       mandatory: true,
       nontokenOnly: isNontokenOnly,
       controlledOnly: hasControlRestriction,  // Flag for creatures that must be yours (e.g., Aura Shards)
-    });
+    };
+    (t as any).requiredTypePhrase = requiredTypePhrase;
+    (t as any).tokenOnly = isTokenOnly;
+    triggers.push(t);
   }
   
   // "Whenever an Equipment enters the battlefield under your control" (Puresteel Paladin, Barret, etc.)

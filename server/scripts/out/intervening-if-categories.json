@@ -1,12 +1,14 @@
 {
   "meta": {
     "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
-    "generatedAt": "2026-01-22T22:33:15.851Z",
+    "generatedAt": "2026-01-24T21:06:56.244Z",
     "cardNameCount": 33331,
     "printingsCount": 34191,
     "totalInterveningIfClausesFound": 705,
-    "recognizedCount": 276,
-    "fallbackCount": 429,
+    "recognizedCount": 705,
+    "recognizedDecidableCount": 298,
+    "recognizedNullCount": 407,
+    "fallbackCount": 0,
     "unknownCount": 0
   },
   "groupCount": 0,

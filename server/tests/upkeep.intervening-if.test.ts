@@ -3,6 +3,7 @@ import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
 import { getUpkeepTriggersForPlayer } from '../src/state/modules/upkeep-triggers';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { resolveTopOfStack } from '../src/state/modules/stack';
 
 describe('Intervening-if upkeep triggers', () => {
   beforeEach(() => {
@@ -12,6 +13,9 @@ describe('Intervening-if upkeep triggers', () => {
     ResolutionQueueManager.removeQueue('t_intervening_if_upkeep_fizzle');
     ResolutionQueueManager.removeQueue('t_intervening_if_upkeep_true');
     ResolutionQueueManager.removeQueue('t_upkeep_intervening_if_that_player_handcount');
+    ResolutionQueueManager.removeQueue('t_upkeep_intervening_if_that_player_handcount_zero');
+    ResolutionQueueManager.removeQueue('t_upkeep_intervening_if_that_player_handcount_one_or_fewer');
+    ResolutionQueueManager.removeQueue('t_upkeep_shrieking_affliction_lifeloss');
   });
 
   it('suppresses an opponent-upkeep trigger when "that player has two or fewer cards in hand" is false', () => {
@@ -50,6 +54,126 @@ describe('Intervening-if upkeep triggers', () => {
     (g.state as any).zones[p2].hand = [{ id: 'c1' }, { id: 'c2' }];
     const triggers2 = getUpkeepTriggersForPlayer(g as any, p2);
     expect(triggers2.some((t) => t?.cardName === 'Handcount Watcher')).toBe(true);
+  });
+
+  it('evaluates "if that player has no cards in hand" for opponent-upkeep triggers', () => {
+    const g = createInitialGameState('t_upkeep_intervening_if_that_player_handcount_zero');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    (g.state as any).zones = {
+      [p1]: { hand: [] },
+      [p2]: { hand: [{ id: 'c1' }] },
+    };
+
+    (g.state.battlefield as any).push({
+      id: 'handcount_zero_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'handcount_zero_card',
+        name: 'Handcount Zero Watcher',
+        type_line: 'Enchantment',
+        oracle_text:
+          "At the beginning of each opponent's upkeep, if that player has no cards in hand, that player loses 1 life.",
+      },
+      tapped: false,
+    });
+
+    // It's p2's upkeep. p2 has 1 card => condition false.
+    const triggers = getUpkeepTriggersForPlayer(g as any, p2);
+    expect(triggers.some((t) => t?.cardName === 'Handcount Zero Watcher')).toBe(false);
+
+    // Now p2 has 0 cards => condition true.
+    (g.state as any).zones[p2].hand = [];
+    const triggers2 = getUpkeepTriggersForPlayer(g as any, p2);
+    expect(triggers2.some((t) => t?.cardName === 'Handcount Zero Watcher')).toBe(true);
+  });
+
+  it('evaluates "if that player has one or fewer cards in hand" for opponent-upkeep triggers', () => {
+    const g = createInitialGameState('t_upkeep_intervening_if_that_player_handcount_one_or_fewer');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    (g.state as any).zones = {
+      [p1]: { hand: [] },
+      [p2]: { hand: [{ id: 'c1' }, { id: 'c2' }] },
+    };
+
+    (g.state.battlefield as any).push({
+      id: 'handcount_one_or_fewer_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'handcount_one_or_fewer_card',
+        name: 'Handcount One-or-Fewer Watcher',
+        type_line: 'Enchantment',
+        oracle_text:
+          "At the beginning of each opponent's upkeep, if that player has one or fewer cards in hand, that player loses 1 life.",
+      },
+      tapped: false,
+    });
+
+    // It's p2's upkeep. p2 has 2 cards => condition false.
+    const triggers = getUpkeepTriggersForPlayer(g as any, p2);
+    expect(triggers.some((t) => t?.cardName === 'Handcount One-or-Fewer Watcher')).toBe(false);
+
+    // Now p2 has 1 card => condition true.
+    (g.state as any).zones[p2].hand = [{ id: 'c1' }];
+    const triggers2 = getUpkeepTriggersForPlayer(g as any, p2);
+    expect(triggers2.some((t) => t?.cardName === 'Handcount One-or-Fewer Watcher')).toBe(true);
+  });
+
+  it('applies "that player loses 3 life" for a Shrieking Affliction-style opponent-upkeep trigger', () => {
+    const g = createInitialGameState('t_upkeep_shrieking_affliction_lifeloss');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    // Ensure zones/hand exist.
+    (g.state as any).zones = {
+      [p1]: { hand: [] },
+      [p2]: { hand: [{ id: 'c1' }] },
+    };
+
+    // Put Shrieking Affliction on battlefield for p1.
+    (g.state.battlefield as any).push({
+      id: 'sa_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'sa_card',
+        name: 'Shrieking Affliction',
+        type_line: 'Enchantment',
+        oracle_text:
+          "At the beginning of each opponent's upkeep, if that player has one or fewer cards in hand, that player loses 3 life.",
+      },
+      tapped: false,
+    });
+
+    // Start the game so turn/step logic runs.
+    g.applyEvent({ type: 'nextTurn' });
+    expect(g.state.turnPlayer).toBe(p2);
+
+    // Advance into upkeep (this pushes upkeep triggers).
+    g.applyEvent({ type: 'nextStep' });
+
+    const stack = (g.state.stack || []) as any[];
+    const saTrigger = stack.find((s) => s?.type === 'triggered_ability' && s?.sourceName === 'Shrieking Affliction');
+    expect(saTrigger).toBeTruthy();
+
+    const p2LifeBefore = (g.state as any).players.find((p: any) => p.id === p2)?.life ?? 40;
+    resolveTopOfStack(g as any);
+    const p2LifeAfter = (g.state as any).players.find((p: any) => p.id === p2)?.life ?? 40;
+    expect(p2LifeAfter).toBe(p2LifeBefore - 3);
   });
 
   it('does not put Emeria, the Sky Ruin trigger on the stack when Plains condition is false', () => {

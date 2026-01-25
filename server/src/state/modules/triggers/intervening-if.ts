@@ -1,4 +1,5 @@
 import type { GameContext } from "../context.js";
+import { detectLinkedExileEffect } from "./linked-exile.js";
 
 function normalizeText(text: string): string {
   return String(text || "")
@@ -122,6 +123,20 @@ function getLifeLostThisTurn(ctx: GameContext, playerId: string): number {
 function getLandsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.landsEnteredBattlefieldThisTurn;
   const v = map?.[playerId];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getArtifactsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+  const map = (ctx as any).state?.artifactsEnteredBattlefieldThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  const v = (map as any)[playerId];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getPlaneswalkersEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+  const map = (ctx as any).state?.planeswalkersEnteredBattlefieldThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  const v = (map as any)[playerId];
   return typeof v === 'number' ? v : 0;
 }
 
@@ -530,6 +545,17 @@ function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, 
 
     // For "another creature" templates, exclude the source permanent if it is itself a creature that entered this turn.
     if (excludeId) {
+      // Prefer deterministic id-tracking if available.
+      const idsByController = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnIdsByController;
+      const key = String(controllerId);
+      const idsForController = idsByController && typeof idsByController === 'object' ? idsByController[key] : null;
+      if (idsForController && typeof idsForController === 'object') {
+        if ((idsForController as any)[String(excludeId)] === true) {
+          return Math.max(0, n - 1);
+        }
+        return n;
+      }
+
       const source = findBattlefieldPermanent(ctx, excludeId);
       if (source && String(source.controller || '') === String(controllerId)) {
         const tl = String(source.card?.type_line || '').toLowerCase();
@@ -540,6 +566,24 @@ function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, 
     }
 
     return n;
+  }
+
+  if (typeLower === 'artifact') {
+    const n = getArtifactsEnteredBattlefieldThisTurn(ctx, controllerId);
+    if (n === null) return null;
+    if (!excludeId) return n;
+    if (n === 0) return 0;
+    if (n >= 2) return 1;
+    return null;
+  }
+
+  if (typeLower === 'planeswalker') {
+    const n = getPlaneswalkersEnteredBattlefieldThisTurn(ctx, controllerId);
+    if (n === null) return null;
+    if (!excludeId) return n;
+    if (n === 0) return 0;
+    if (n >= 2) return 1;
+    return null;
   }
 
   // Best-effort battlefield scan. If we have no evidence of entered-this-turn tracking,
@@ -815,6 +859,11 @@ export type InterveningIfRefs = {
   thatPlayerId?: string;
   referencedPlayerId?: string;
   theirPlayerId?: string;
+
+  // Optional context for clauses that refer to an activated ability/spell/stack item.
+  // Example: "Whenever you activate an ability, if it isn't a mana ability, ..."
+  activatedAbilityIsManaAbility?: boolean;
+  stackItem?: { type?: string; isManaAbility?: boolean };
 };
 
 function attachInterveningIfRefs(sourcePermanent: any, refs?: InterveningIfRefs): any {
@@ -1261,6 +1310,37 @@ function evaluateInterveningIfClauseInternal(
       if (c && typeof c === "object") return Object.keys(c).length > 0;
       if (typeof c === "string") return c.length > 0;
     }
+
+    // Evidence path 1: exile-zone tags written by `movePermanentToExile` (or similar helpers).
+    // These tags are intentionally stored on the exiled card objects.
+    const srcId = String((sourcePermanent as any)?.id ?? (sourcePermanent as any)?.permanentId ?? "");
+    if (srcId) {
+      const zones = (ctx as any).state?.zones;
+      if (zones && typeof zones === 'object') {
+        for (const z of Object.values(zones as any)) {
+          const exile = (z as any)?.exile;
+          if (!Array.isArray(exile)) continue;
+          if (exile.some((c: any) => String(c?.exiledWithSourceId ?? '') === srcId)) return true;
+        }
+      }
+    }
+
+    // Evidence path 2: linked-exile system bookkeeping (Oblivion Ring, Banisher Priest, etc.)
+    // When present, this implies a card is currently exiled with the permanent.
+    const linked = (ctx as any).state?.linkedExiles;
+    if (Array.isArray(linked) && srcId) {
+      if (linked.some((le: any) => String(le?.exilingPermanentId ?? '') === srcId)) return true;
+    }
+
+    // Negative evidence (safe only for linked-exile permanents): if we can positively identify this
+    // permanent as a linked-exile source AND we track that system, then "none found" => false.
+    try {
+      const det = detectLinkedExileEffect((sourcePermanent as any)?.card);
+      if (det?.hasLinkedExile) return false;
+    } catch {
+      // best-effort only
+    }
+
     return null;
   }
 
@@ -1329,6 +1409,15 @@ function evaluateInterveningIfClauseInternal(
     /^if\s+it\s+isn'?t\s+a\s+mana\s+ability$/i.test(clause) ||
     /^if\s+it\s+is\s+not\s+a\s+mana\s+ability$/i.test(clause)
   ) {
+    const refFlag = (refs as any)?.activatedAbilityIsManaAbility;
+    if (typeof refFlag === 'boolean') return !refFlag;
+
+    const stackItem = (refs as any)?.stackItem;
+    if (stackItem) {
+      if (typeof stackItem.isManaAbility === 'boolean') return !stackItem.isManaAbility;
+      if (typeof stackItem.type === 'string' && stackItem.type.toLowerCase() === 'mana_ability') return false;
+    }
+
     return null;
   }
 
@@ -4234,7 +4323,11 @@ function evaluateInterveningIfClauseInternal(
   // Spell/ability structure checks that require stack-item context (not currently threaded into this evaluator).
   if (/^if\s+it\s+has\s+a\s+single\s+target$/i.test(clause)) return null;
   if (/^if\s+it\s+has\s+madness$/i.test(clause)) return null;
-  if (/^if\s+that\s+spell\s+was\s+kicked$/i.test(clause)) return null;
+  if (/^if\s+that\s+spell\s+was\s+kicked$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const wasKicked = (sourcePermanent as any)?.wasKicked === true || (sourcePermanent as any)?.card?.wasKicked === true;
+    return wasKicked;
+  }
 
   // Alternate cost paid templates (recognized; requires cast metadata)
   if (/^if\s+its\s+prowl\s+cost\s+was\s+paid$/i.test(clause)) return null;
@@ -4269,7 +4362,12 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+all\s+your\s+commanders\s+have\s+been\s+revealed$/i.test(clause)) return null;
   if (/^if\s+play\s+had\s+proceeded\s+clockwise\s+around\s+the\s+table$/i.test(clause)) return null;
   if (/^if\s+the\s+gift\s+was\s+promised$/i.test(clause)) return null;
-  if (/^if\s+this\s+card\s+is\s+exiled$/i.test(clause)) return null;
+  if (/^if\s+this\s+card\s+is\s+exiled$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const z = String((sourcePermanent as any)?.zone ?? (sourcePermanent as any)?.card?.zone ?? '').toLowerCase();
+    if (z) return z === 'exile';
+    return null;
+  }
   if (/^if\s+this\s+card\s+is\s+in\s+your\s+graveyard\s+with\s+a\s+creature\s+card\s+directly\s+above\s+it$/i.test(clause)) return null;
 
   // ===== Additional scalable fallback burn-down patterns =====

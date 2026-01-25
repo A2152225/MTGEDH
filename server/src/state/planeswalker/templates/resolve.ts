@@ -428,7 +428,9 @@ function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: n
   const perm = battlefield.find((p: any) => p?.id === permanentId);
   if (!perm) return;
 
-  (perm as any).damageMarked = ((perm as any).damageMarked || 0) + Math.max(0, amount | 0);
+  const dmg = Math.max(0, amount | 0);
+  (perm as any).damageMarked = ((perm as any).damageMarked || 0) + dmg;
+  (perm as any).damageThisTurn = ((perm as any).damageThisTurn || 0) + dmg;
   (perm as any).tookDamageThisTurn = true;
 }
 

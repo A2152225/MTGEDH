@@ -1,13 +1,13 @@
 {
   "meta": {
     "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
-    "generatedAt": "2026-01-23T02:08:27.551Z",
+    "generatedAt": "2026-01-24T23:38:58.705Z",
     "cardNameCount": 33331,
     "printingsCount": 34191,
     "totalInterveningIfClausesFound": 705,
     "recognizedCount": 705,
-    "recognizedDecidableCount": 302,
-    "recognizedNullCount": 403,
+    "recognizedDecidableCount": 300,
+    "recognizedNullCount": 405,
     "fallbackCount": 0,
     "unknownCount": 0
   },
@@ -1353,8 +1353,7 @@
         "Oath of Chandra",
         "Oath of Liliana"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if a player has more life than each other player",
@@ -1396,8 +1395,7 @@
         "Akal Pakal, First Among Equals",
         "Robo-"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if an opponent lost 3 or more life this turn",
@@ -1418,8 +1416,7 @@
         "Wary Farmer",
         "Waterspout Warden"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if enchanted creature's power is 4 or greater",
@@ -1732,7 +1729,8 @@
         "Bloodstone Goblin",
         "Hallar, the Firefletcher"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if the gift was promised",
@@ -1763,7 +1761,8 @@
         "Darigaaz, Shivan Champion",
         "Senu, Keen-Eyed Protector"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if this card is in your graveyard with a creature card directly above it",
@@ -2331,8 +2330,7 @@
       "exampleCards": [
         "Gargoyle Flock"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if a creature or planeswalker an opponent controlled was dealt excess damage this turn",
@@ -8503,8 +8501,7 @@
         "Oath of Chandra",
         "Oath of Liliana"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if a player has more life than each other player",
@@ -8546,8 +8543,7 @@
         "Akal Pakal, First Among Equals",
         "Robo-"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if an opponent lost 3 or more life this turn",
@@ -8568,8 +8564,7 @@
         "Wary Farmer",
         "Waterspout Warden"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if enchanted creature's power is 4 or greater",
@@ -8882,7 +8877,8 @@
         "Bloodstone Goblin",
         "Hallar, the Firefletcher"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if the gift was promised",
@@ -8913,7 +8909,8 @@
         "Darigaaz, Shivan Champion",
         "Senu, Keen-Eyed Protector"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if this card is in your graveyard with a creature card directly above it",
@@ -9481,8 +9478,7 @@
       "exampleCards": [
         "Gargoyle Flock"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if a creature or planeswalker an opponent controlled was dealt excess damage this turn",
@@ -10851,17 +10847,6 @@
       "sampleResult": false
     },
     {
-      "clause": "if a planeswalker entered the battlefield under your control this turn",
-      "clauseLower": "if a planeswalker entered the battlefield under your control this turn",
-      "count": 2,
-      "exampleCards": [
-        "Oath of Chandra",
-        "Oath of Liliana"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
       "clause": "if a player has more life than each other player",
       "clauseLower": "if a player has more life than each other player",
       "count": 2,
@@ -10884,34 +10869,12 @@
       "sampleResult": false
     },
     {
-      "clause": "if an artifact entered the battlefield under your control this turn",
-      "clauseLower": "if an artifact entered the battlefield under your control this turn",
-      "count": 2,
-      "exampleCards": [
-        "Akal Pakal, First Among Equals",
-        "Robo-"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
       "clause": "if an opponent lost 3 or more life this turn",
       "clauseLower": "if an opponent lost 3 or more life this turn",
       "count": 2,
       "exampleCards": [
         "Bat-",
         "Sygg, River Cutthroat"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if another creature entered the battlefield under your control this turn",
-      "clauseLower": "if another creature entered the battlefield under your control this turn",
-      "count": 2,
-      "exampleCards": [
-        "Wary Farmer",
-        "Waterspout Warden"
       ],
       "evaluation": "recognized",
       "sampleResult": false
@@ -11071,12 +11034,34 @@
       "sampleResult": false
     },
     {
+      "clause": "if that spell was kicked",
+      "clauseLower": "if that spell was kicked",
+      "count": 2,
+      "exampleCards": [
+        "Bloodstone Goblin",
+        "Hallar, the Firefletcher"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if there's a Lesson card in your graveyard",
       "clauseLower": "if there's a lesson card in your graveyard",
       "count": 2,
       "exampleCards": [
         "Dragonfly Swarm",
         "Walltop Sentries"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if this card is exiled",
+      "clauseLower": "if this card is exiled",
+      "count": 2,
+      "exampleCards": [
+        "Darigaaz, Shivan Champion",
+        "Senu, Keen-Eyed Protector"
       ],
       "evaluation": "recognized",
       "sampleResult": false
@@ -11445,16 +11430,6 @@
       "count": 1,
       "exampleCards": [
         "Revenant Patriarch"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if a creature entered the battlefield under your control this turn",
-      "clauseLower": "if a creature entered the battlefield under your control this turn",
-      "count": 1,
-      "exampleCards": [
-        "Gargoyle Flock"
       ],
       "evaluation": "recognized",
       "sampleResult": false
@@ -12058,6 +12033,26 @@
       ],
       "evaluation": "recognized",
       "sampleResult": false
+    },
+    {
+      "clause": "if you control a legendary Assassin",
+      "clauseLower": "if you control a legendary assassin",
+      "count": 1,
+      "exampleCards": [
+        "Brotherhood Spy"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if you control a Plains",
+      "clauseLower": "if you control a plains",
+      "count": 1,
+      "exampleCards": [
+        "Ajani's Last Stand"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
     }
   ],
   "topRecognizedNull": [
@@ -12153,12 +12148,42 @@
       "evaluation": "recognized"
     },
     {
+      "clause": "if a planeswalker entered the battlefield under your control this turn",
+      "clauseLower": "if a planeswalker entered the battlefield under your control this turn",
+      "count": 2,
+      "exampleCards": [
+        "Oath of Chandra",
+        "Oath of Liliana"
+      ],
+      "evaluation": "recognized"
+    },
+    {
       "clause": "if all your commanders have been revealed",
       "clauseLower": "if all your commanders have been revealed",
       "count": 2,
       "exampleCards": [
         "Aggressive Detective",
         "Growing Detective"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if an artifact entered the battlefield under your control this turn",
+      "clauseLower": "if an artifact entered the battlefield under your control this turn",
+      "count": 2,
+      "exampleCards": [
+        "Akal Pakal, First Among Equals",
+        "Robo-"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if another creature entered the battlefield under your control this turn",
+      "clauseLower": "if another creature entered the battlefield under your control this turn",
+      "count": 2,
+      "exampleCards": [
+        "Wary Farmer",
+        "Waterspout Warden"
       ],
       "evaluation": "recognized"
     },
@@ -12312,32 +12337,12 @@
       "evaluation": "recognized"
     },
     {
-      "clause": "if that spell was kicked",
-      "clauseLower": "if that spell was kicked",
-      "count": 2,
-      "exampleCards": [
-        "Bloodstone Goblin",
-        "Hallar, the Firefletcher"
-      ],
-      "evaluation": "recognized"
-    },
-    {
       "clause": "if the gift was promised",
       "clauseLower": "if the gift was promised",
       "count": 2,
       "exampleCards": [
         "Scrapshooter",
         "Starforged Sword"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if this card is exiled",
-      "clauseLower": "if this card is exiled",
-      "count": 2,
-      "exampleCards": [
-        "Darigaaz, Shivan Champion",
-        "Senu, Keen-Eyed Protector"
       ],
       "evaluation": "recognized"
     },
@@ -12529,6 +12534,15 @@
       "count": 1,
       "exampleCards": [
         "Lictor"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if a creature entered the battlefield under your control this turn",
+      "clauseLower": "if a creature entered the battlefield under your control this turn",
+      "count": 1,
+      "exampleCards": [
+        "Gargoyle Flock"
       ],
       "evaluation": "recognized"
     },
@@ -13888,24 +13902,6 @@
       "count": 1,
       "exampleCards": [
         "Void Mirror"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if no creatures died this turn",
-      "clauseLower": "if no creatures died this turn",
-      "count": 1,
-      "exampleCards": [
-        "Titan Hunter"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if no mana was spent to cast that spell",
-      "clauseLower": "if no mana was spent to cast that spell",
-      "count": 1,
-      "exampleCards": [
-        "Roiling Vortex"
       ],
       "evaluation": "recognized"
     }
