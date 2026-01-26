@@ -12,40 +12,40 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [x] (4) [needs-event-refs] if that player has two or fewer cards in hand — e.g. Hellfire Mongrel, Invasion of Eldraine // Prickle Faeries, Lavaborn Muse, Paupers' Cage
 - [x] (3) [needs-event-refs] if that player has no cards in hand — e.g. Asylum Visitor, Ghirapur Orrery, Hollowborn Barghest
 - [x] (3) [needs-event-refs] if that player has one or fewer cards in hand — e.g. Bandit's Talent, Davriel, Rogue Shadowmage, Shrieking Affliction
-- [ ] (3) [team] if your team controls another Warrior — e.g. Aurora Champion, Bull-Rush Bruiser, Sickle Dancer
+- [x] (3) [team] if your team controls another Warrior — e.g. Aurora Champion, Bull-Rush Bruiser, Sickle Dancer
 - [x] (2) [misc] if 4 or more damage was dealt to it this turn — e.g. Burning-Eye Zubera, Rushing-Tide Zubera
 - [x] (2) [misc] if a card is exiled with it — e.g. Redemptor Dreadnought, Smirking Spelljacker
 - [x] (2) [turn-tracking] if a planeswalker entered the battlefield under your control this turn — e.g. Oath of Chandra, Oath of Liliana
 - [ ] (2) [misc] if all your commanders have been revealed — e.g. Aggressive Detective, Growing Detective
 - [x] (2) [turn-tracking] if an artifact entered the battlefield under your control this turn — e.g. Akal Pakal, First Among Equals, Robo-
 - [x] (2) [turn-tracking] if another creature entered the battlefield under your control this turn — e.g. Wary Farmer, Waterspout Warden
-- [ ] (2) [misc] if enchanted creature's power is 4 or greater — e.g. Arachnus Web, Domestication
+- [x] (2) [misc] if enchanted creature's power is 4 or greater — e.g. Arachnus Web, Domestication
 - [ ] (2) [evidence/collect] if evidence was collected — e.g. Spotlight Falcon, Vitu-Ghazi Inspector
-- [ ] (2) [targeting/stack-metadata] if it has a single target — e.g. Captured by the Consulate, Grip of Chaos
+- [x] (2) [targeting/stack-metadata] if it has a single target — e.g. Captured by the Consulate, Grip of Chaos
 - [ ] (2) [misc] if it has madness — e.g. Anje Falkenrath, Anje Falkenrath // Anje Falkenrath
 - [ ] (2) [misc] if it shares a card type with the exiled card — e.g. Cemetery Gatekeeper, Cemetery Protector
 - [ ] (2) [misc] if it was unearthed — e.g. Malfegor Avatar
-- [ ] (2) [misc] if it's your main phase — e.g. All-Out Assault, Moraug, Fury of Akoum
+- [x] (2) [misc] if it's your main phase — e.g. All-Out Assault, Moraug, Fury of Akoum
 - [ ] (2) [misc] if its prowl cost was paid — e.g. Earwig Squad, Latchkey Faerie
 - [ ] (2) [misc] if its surge cost was paid — e.g. Reckless Bushwhacker, Tyrant of Valakut
 - [ ] (2) [misc] if one or more of them entered from a graveyard or was cast from a graveyard — e.g. Celes, Rune Knight, Kotis, Sibsig Champion
 - [ ] (2) [turn-order-direction] if play had proceeded clockwise around the table — e.g. Temple of Atropos, Time Distortion
 - [ ] (2) [needs-event-refs] if that creature was dealt excess damage this turn — e.g. Maarika, Brutal Gladiator, Overclocked Electromancer
-- [ ] (2) [needs-event-refs] if that player controls more lands than each other player — e.g. Greener Pastures, Rivalry
-- [ ] (2) [needs-event-refs] if that player controls more lands than you — e.g. Archaeomancer's Map, Keeper of the Accord
-- [ ] (2) [needs-event-refs] if that player had another land enter the battlefield under their control this turn — e.g. Confounding Conundrum, Tunnel Ignus
+- [x] (2) [needs-event-refs] if that player controls more lands than each other player — e.g. Greener Pastures, Rivalry
+- [x] (2) [needs-event-refs] if that player controls more lands than you — e.g. Archaeomancer's Map, Keeper of the Accord
+- [x] (2) [needs-event-refs] if that player had another land enter the battlefield under their control this turn — e.g. Confounding Conundrum, Tunnel Ignus
 - [ ] (2) [gift] if the gift was promised — e.g. Scrapshooter, Starforged Sword
 - [ ] (2) [misc] if this card is in your graveyard with a creature card directly above it — e.g. Death Spark, Krovikan Horror
-- [ ] (2) [misc] if two or more of those creatures are attacking you and/or planeswalkers you control — e.g. Mangara, the Diplomat, Tomik, Wielder of Law
-- [ ] (2) [misc] if you didn't play a card from exile this turn — e.g. A-Visions of Phyrexia, Visions of Phyrexia
-- [ ] (2) [dungeon/initiative] if you haven't completed Tomb of Annihilation — e.g. A-Acererak the Archlich, Acererak the Archlich
-- [ ] (2) [misc] if you lost life last turn — e.g. First Response, Paladin of Atonement
-- [ ] (2) [misc] if you put a counter on a creature this turn — e.g. Lasting Tarfire, Lord Jyscal Guado
-- [ ] (2) [misc] if you sacrificed three or more Clues this turn — e.g. Briarbridge Patrol, Havengul Laboratory // Havengul Mystery
-- [ ] (2) [team] if you're on the Mirran team — e.g. Tricky Mage, Unclaimed Bird
-- [ ] (2) [misc] if you're the defending player — e.g. Kazuul, Tyrant of the Cliffs, Nature Shields Its Own
-- [ ] (2) [misc] if you've cast both a creature spell and a noncreature spell this turn — e.g. Eshki Dragonclaw, Fae Offering
-- [ ] (2) [dungeon/initiative] if you've completed a dungeon — e.g. Eccentric Apprentice, Ravenloft Adventurer
+- [x] (2) [misc] if two or more of those creatures are attacking you and/or planeswalkers you control — e.g. Mangara, the Diplomat, Tomik, Wielder of Law
+- [x] (2) [misc] if you didn't play a card from exile this turn — e.g. A-Visions of Phyrexia, Visions of Phyrexia
+- [x] (2) [dungeon/initiative] if you haven't completed Tomb of Annihilation — e.g. A-Acererak the Archlich, Acererak the Archlich
+- [x] (2) [misc] if you lost life last turn — e.g. First Response, Paladin of Atonement
+- [x] (2) [misc] if you put a counter on a creature this turn — e.g. Lasting Tarfire, Lord Jyscal Guado
+- [x] (2) [misc] if you sacrificed three or more Clues this turn — e.g. Briarbridge Patrol, Havengul Laboratory // Havengul Mystery
+- [x] (2) [team] if you're on the Mirran team — e.g. Tricky Mage, Unclaimed Bird
+- [x] (2) [misc] if you're the defending player — e.g. Kazuul, Tyrant of the Cliffs, Nature Shields Its Own
+- [x] (2) [misc] if you've cast both a creature spell and a noncreature spell this turn — e.g. Eshki Dragonclaw, Fae Offering
+- [x] (2) [dungeon/initiative] if you've completed a dungeon — e.g. Eccentric Apprentice, Ravenloft Adventurer
 - [ ] (1) [misc] if {S} of any of that spell's colors was spent to cast it — e.g. Boreal Outrider
 - [ ] (1) [misc] if a +1/+1 counter was put on a permanent under your control this turn — e.g. Fairgrounds Trumpeter
 - [ ] (1) [misc] if a card left your graveyard this turn — e.g. Gau, Feral Youth
@@ -53,15 +53,15 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if a creature card left your graveyard this turn — e.g. Syrix, Carrier of the Flame
 - [ ] (1) [misc] if a creature card was put into your graveyard from anywhere this turn — e.g. Raphael, Fiendish Savior
 - [ ] (1) [turn-tracking] if a creature dealt damage by this creature this turn died — e.g. Krovikan Vampire
-- [ ] (1) [turn-tracking] if a creature died under an opponent's control this turn — e.g. Sidequest: Hunt the Mark // Yiazmat, Ultimate Mark
-- [ ] (1) [turn-tracking] if a creature entered the battlefield under an opponent's control this turn — e.g. Lictor
-- [ ] (1) [turn-tracking] if a creature entered the battlefield under your control this turn — e.g. Gargoyle Flock
+- [x] (1) [turn-tracking] if a creature died under an opponent's control this turn — e.g. Sidequest: Hunt the Mark // Yiazmat, Ultimate Mark
+- [x] (1) [turn-tracking] if a creature entered the battlefield under an opponent's control this turn — e.g. Lictor
+- [x] (1) [turn-tracking] if a creature entered the battlefield under your control this turn — e.g. Gargoyle Flock
 - [ ] (1) [misc] if a creature or planeswalker an opponent controlled was dealt excess damage this turn — e.g. Rith, Liberated Primeval
-- [ ] (1) [turn-tracking] if a face-down creature entered the battlefield under your control this turn — e.g. Tunnel Tipster
+- [x] (1) [turn-tracking] if a face-down creature entered the battlefield under your control this turn — e.g. Tunnel Tipster
 - [ ] (1) [misc] if a Giant — e.g. Aegar, the Freezing Flame
 - [ ] (1) [misc] if a land you controlled was put into a graveyard from the battlefield this turn — e.g. The Lady of Otaria
 - [ ] (1) [misc] if a permanent was put into your hand from the battlefield this turn — e.g. Barrin, Tolarian Archmage
-- [ ] (1) [turn-tracking] if a Phyrexian died under your control this turn — e.g. Brimaz, Blight of Oreskos
+- [x] (1) [turn-tracking] if a Phyrexian died under your control this turn — e.g. Brimaz, Blight of Oreskos
 - [ ] (1) [misc] if a Pirate and a Vehicle attacked this combat — e.g. Fearless Swashbuckler
 - [ ] (1) [misc] if a player discarded a card this turn — e.g. The Raven Man
 - [ ] (1) [misc] if a player was dealt 6 or more combat damage this turn — e.g. Sidequest: Play Blitzball // World Champion, Celestial Weapon
@@ -76,7 +76,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if an enchantment was put into your graveyard from the battlefield this turn — e.g. Kami of Transience
 - [ ] (1) [misc] if an opponent cast a blue and/or black spell this turn — e.g. Sandstalker Moloch
 - [ ] (1) [misc] if an opponent discarded a card this turn — e.g. Tinybones, Trinket Thief
-- [ ] (1) [misc] if an opponent lost life last turn — e.g. Feast on the Fallen
+- [x] (1) [misc] if an opponent lost life last turn — e.g. Feast on the Fallen
 - [ ] (1) [misc] if an opponent was dealt 3 or more damage this turn — e.g. Lightning Phoenix
 - [ ] (1) [misc] if an opponent was dealt damage this turn — e.g. Half-Orc, Half-
 - [ ] (1) [misc] if another creature is on the battlefield — e.g. Lifeline
@@ -91,28 +91,28 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if at least three mana of the same color was spent to cast it — e.g. Clockwork Servant
 - [ ] (1) [misc] if Cosima is exiled — e.g. Cosima, God of the Voyage // The Omenkeel
 - [ ] (1) [misc] if creatures you control have total toughness 10 or greater — e.g. Betor, Kin to All
-- [ ] (1) [misc] if defending player controls an Enchanting Tale — e.g. Must Be Knights
-- [ ] (1) [misc] if defending player controls more lands than you — e.g. Aerial Surveyor
-- [ ] (1) [misc] if defending player controls no black nontoken permanents — e.g. Spectral Bears
-- [ ] (1) [misc] if defending player controls no black permanents — e.g. Spectral Force
-- [ ] (1) [misc] if defending player controls no Glimmer creatures — e.g. Fear of the Dark
-- [ ] (1) [misc] if defending player controls no Walls — e.g. Siege Dragon
-- [ ] (1) [misc] if defending player has more cards in hand than you — e.g. Robber of the Rich
-- [ ] (1) [misc] if defending player has two or fewer cards in hand — e.g. Reaper of Night // Harvest Fear
-- [ ] (1) [misc] if defending player is poisoned — e.g. Septic Rats
+- [x] (1) [misc] if defending player controls an Enchanting Tale — e.g. Must Be Knights
+- [x] (1) [misc] if defending player controls more lands than you — e.g. Aerial Surveyor
+- [x] (1) [misc] if defending player controls no black nontoken permanents — e.g. Spectral Bears
+- [x] (1) [misc] if defending player controls no black permanents — e.g. Spectral Force
+- [x] (1) [misc] if defending player controls no Glimmer creatures — e.g. Fear of the Dark
+- [x] (1) [misc] if defending player controls no Walls — e.g. Siege Dragon
+- [x] (1) [misc] if defending player has more cards in hand than you — e.g. Robber of the Rich
+- [x] (1) [misc] if defending player has two or fewer cards in hand — e.g. Reaper of Night // Harvest Fear
+- [x] (1) [misc] if defending player is poisoned — e.g. Septic Rats
 - [ ] (1) [misc] if Denry Klin has counters on it — e.g. Denry Klin, Editor in Chief
 - [ ] (1) [misc] if each player has 10 or less life — e.g. Cryptolith Fragment // Aurora of Emrakul
 - [ ] (1) [misc] if each player has an empty library — e.g. Platinum Persecutor
 - [ ] (1) [misc] if Edgar is in the command zone or on the battlefield — e.g. Edgar Markov
 - [ ] (1) [misc] if Effie is tapped — e.g. Effie, Fast Learner
-- [ ] (1) [misc] if enchanted creature has flying — e.g. Earthbind
-- [ ] (1) [misc] if enchanted creature has toxic — e.g. Maze's Mantle
-- [ ] (1) [misc] if enchanted creature is a Wolf or Werewolf — e.g. Howl of the Hunt
-- [ ] (1) [misc] if enchanted creature is red — e.g. Ray of Frost
-- [ ] (1) [misc] if enchanted creature is untapped — e.g. Narcolepsy
-- [ ] (1) [misc] if enchanted Equipment is attached to a creature — e.g. Artificer's Hex
+- [x] (1) [misc] if enchanted creature has flying — e.g. Earthbind
+- [x] (1) [misc] if enchanted creature has toxic — e.g. Maze's Mantle
+- [x] (1) [misc] if enchanted creature is a Wolf or Werewolf — e.g. Howl of the Hunt
+- [x] (1) [misc] if enchanted creature is red — e.g. Ray of Frost
+- [x] (1) [misc] if enchanted creature is untapped — e.g. Narcolepsy
+- [x] (1) [misc] if enchanted Equipment is attached to a creature — e.g. Artificer's Hex
 - [ ] (1) [misc] if enchanted permanent is a creature with the greatest power among creatures on the battlefield — e.g. Historian's Wisdom
-- [ ] (1) [misc] if enchanted permanent is tapped — e.g. Volition Reins
+- [x] (1) [misc] if enchanted permanent is tapped — e.g. Volition Reins
 - [ ] (1) [misc] if equipped creature didn't deal combat damage to a creature this turn — e.g. Thirsting Axe
 - [ ] (1) [misc] if Firemane Angel is in your graveyard or on the battlefield — e.g. Firemane Angel
 - [ ] (1) [misc] if Gitrog — e.g. Gitrog, Horror of Zhava
@@ -156,8 +156,8 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if it was blocked this turn — e.g. Fyndhorn Druid
 - [ ] (1) [misc] if it was cast from your graveyard — e.g. Rocket-Powered Goblin Glider
 - [ ] (1) [misc] if it was crewed by exactly two creatures — e.g. Mighty Servant of Leuk-o
-- [ ] (1) [misc] if it was enchanted — e.g. Gunner Conscript
-- [ ] (1) [misc] if it was equipped — e.g. Gunner Conscript
+- [x] (1) [misc] if it was enchanted — e.g. Gunner Conscript
+- [x] (1) [misc] if it was equipped — e.g. Gunner Conscript
 - [ ] (1) [misc] if it was historic — e.g. Curator's Ward
 - [ ] (1) [misc] if it was kicked twice — e.g. Archangel of Wrath
 - [ ] (1) [misc] if it was the second spell you cast this turn — e.g. Codespell Cleric
@@ -165,7 +165,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if it wasn't put onto the battlefield with this ability — e.g. Kodama of the East Tree
 - [ ] (1) [misc] if it wasn't sacrificed — e.g. Urza's Miter
 - [ ] (1) [misc] if it wasn't the first land you played this turn — e.g. Fastbond
-- [ ] (1) [misc] if it's an opponent's turn — e.g. Discordant Spirit
+- [x] (1) [misc] if it's an opponent's turn — e.g. Discordant Spirit
 - [ ] (1) [misc] if it's at least one of the chosen colors — e.g. Tablet of the Guilds
 - [ ] (1) [misc] if it's attacking the player with the most life or tied for most life — e.g. Scourge of the Throne
 - [ ] (1) [misc] if it's modified — e.g. Ian the Reckless
@@ -174,7 +174,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if it's not suspected — e.g. Rubblebelt Braggart
 - [ ] (1) [needs-event-refs] if it's not that player's turn — e.g. Price of Glory
 - [ ] (1) [misc] if it's not the first turn of the game — e.g. Necropotence Avatar
-- [ ] (1) [misc] if it's not your turn — e.g. Lighthouse Chronologist
+- [x] (1) [misc] if it's not your turn — e.g. Lighthouse Chronologist
 - [ ] (1) [misc] if it's on the battlefield and you control 9 or fewer creatures named "Name Sticker" Goblin — e.g. "Name Sticker" Goblin
 - [ ] (1) [misc] if it's renowned — e.g. Consul's Lieutenant
 - [ ] (1) [misc] if it's represented by food — e.g. Thopter Pie Network
@@ -183,7 +183,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [needs-event-refs] if it's the first time counters have been put on that creature this turn — e.g. Stalwart Successor
 - [ ] (1) [misc] if it's the first time this ability has resolved this game — e.g. The Keeper of Kaldra
 - [ ] (1) [misc] if it's the second creature spell you cast this turn — e.g. Vengevine
-- [ ] (1) [misc] if it's your turn — e.g. Jeering Instigator
+- [x] (1) [misc] if it's your turn — e.g. Jeering Instigator
 - [ ] (1) [misc] if its additional cost was paid — e.g. Graven Archfiend
 - [ ] (1) [misc] if its madness cost was paid — e.g. Grave Scrabbler
 - [ ] (1) [misc] if its mana value is equal to 1 plus the number of soul counters on this enchantment — e.g. Obscura Ascendancy
@@ -411,4 +411,4 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if your opponents control no creatures — e.g. Kezzerdrix
 - [ ] (1) [misc] if your opponents control no permanents with bounty counters on them — e.g. Chevill, Bane of Monsters
 - [ ] (1) [misc] if your starting library had at least 13 cards over the minimum — e.g. Witty Demon
-- [ ] (1) [team] if your team gained life this turn — e.g. Regna, the Redeemer
+- [x] (1) [team] if your team gained life this turn — e.g. Regna, the Redeemer

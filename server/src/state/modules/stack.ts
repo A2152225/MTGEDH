@@ -1122,10 +1122,13 @@ export function triggerETBEffectsForToken(
         // Determine trigger controller
         const triggerController = perm.controller || controller;
 
+        const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+        const needsThatPlayerRef = /\bthat player\b/i.test(desc);
+        const triggeringPlayerForStack = needsThatPlayerRef ? String(controller) : undefined;
+
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         // These ETB triggers come from OTHER permanents (not the entering token), so we must filter here.
         try {
-          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
           let textForEval = desc;
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             const controlledOnly = !!(trigger as any).controlledOnly;
@@ -1138,11 +1141,11 @@ export function triggerETBEffectsForToken(
             String(triggerController),
             textForEval,
             perm,
-            /\bthat player\b/i.test(textForEval) && String(controller || '')
+            triggeringPlayerForStack
               ? {
-                  thatPlayerId: String(controller),
-                  referencedPlayerId: String(controller),
-                  theirPlayerId: String(controller),
+                  thatPlayerId: triggeringPlayerForStack,
+                  referencedPlayerId: triggeringPlayerForStack,
+                  theirPlayerId: triggeringPlayerForStack,
                 }
               : undefined
           );
@@ -1167,6 +1170,7 @@ export function triggerETBEffectsForToken(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
@@ -1180,6 +1184,10 @@ export function triggerETBEffectsForToken(
         }
         
         const triggerController = perm.controller || controller;
+
+                const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+                const needsThatPlayerRef = /\bthat player\b/i.test(desc);
+                const triggeringPlayerForStack = needsThatPlayerRef ? String(controller) : undefined;
         
         // For another_permanent_etb, check if the entering permanent is controlled by the trigger's controller
         // This is the "under your control" restriction
@@ -1189,7 +1197,6 @@ export function triggerETBEffectsForToken(
 
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         try {
-          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
           let textForEval = desc;
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `Whenever another permanent enters the battlefield under your control, ${textForEval}`;
@@ -1199,11 +1206,11 @@ export function triggerETBEffectsForToken(
             String(triggerController),
             textForEval,
             perm,
-            /\bthat player\b/i.test(textForEval) && String(controller || '')
+            triggeringPlayerForStack
               ? {
-                  thatPlayerId: String(controller),
-                  referencedPlayerId: String(controller),
-                  theirPlayerId: String(controller),
+                  thatPlayerId: triggeringPlayerForStack,
+                  referencedPlayerId: triggeringPlayerForStack,
+                  theirPlayerId: triggeringPlayerForStack,
                 }
               : undefined
           );
@@ -1227,6 +1234,7 @@ export function triggerETBEffectsForToken(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any);
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
@@ -1391,6 +1399,20 @@ export function triggerETBEffectsForPermanent(
     const key = String(controller);
     (state as any).creaturesEnteredBattlefieldThisTurnByController[key] = ((state as any).creaturesEnteredBattlefieldThisTurnByController[key] || 0) + 1;
 
+    // Track face-down creature ETBs this turn (for intervening-if templates like "if a face-down creature entered ... under your control this turn").
+    try {
+      const isFaceDown =
+        (permanent as any)?.faceDown === true || (permanent as any)?.isFaceDown === true || (permanent as any)?.faceDownCreature === true;
+      if (isFaceDown) {
+        (state as any).faceDownCreaturesEnteredBattlefieldThisTurnByController =
+          (state as any).faceDownCreaturesEnteredBattlefieldThisTurnByController || {};
+        (state as any).faceDownCreaturesEnteredBattlefieldThisTurnByController[key] =
+          ((state as any).faceDownCreaturesEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+      }
+    } catch {
+      // best-effort tracking only
+    }
+
     // Track creature ETB ids this turn (used for "another creature" intervening-if templates).
     (state as any).creaturesEnteredBattlefieldThisTurnIdsByController =
       (state as any).creaturesEnteredBattlefieldThisTurnIdsByController || {};
@@ -1480,10 +1502,13 @@ export function triggerETBEffectsForPermanent(
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
 
+        const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+        const needsThatPlayerRef = /\bthat player\b/i.test(desc);
+        const triggeringPlayerForStack = needsThatPlayerRef ? String(controller) : undefined;
+
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         // These ETB triggers come from OTHER permanents (not the entering permanent), so we must filter here.
         try {
-          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
           let textForEval = desc;
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             const controlledOnly = !!(trigger as any).controlledOnly;
@@ -1496,11 +1521,11 @@ export function triggerETBEffectsForPermanent(
             String(triggerController),
             textForEval,
             perm,
-            /\bthat player\b/i.test(textForEval) && String(controller || '')
+            triggeringPlayerForStack
               ? {
-                  thatPlayerId: String(controller),
-                  referencedPlayerId: String(controller),
-                  theirPlayerId: String(controller),
+                  thatPlayerId: triggeringPlayerForStack,
+                  referencedPlayerId: triggeringPlayerForStack,
+                  theirPlayerId: triggeringPlayerForStack,
                 }
               : undefined
           );
@@ -1521,6 +1546,7 @@ export function triggerETBEffectsForPermanent(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
@@ -1534,6 +1560,10 @@ export function triggerETBEffectsForPermanent(
         }
         
         const triggerController = perm.controller || controller;
+
+        const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+        const needsThatPlayerRef = /\bthat player\b/i.test(desc);
+        const triggeringPlayerForStack = needsThatPlayerRef ? String(controller) : undefined;
         
         // For another_permanent_etb, check if the entering permanent is controlled by the trigger's controller
         // This is the "under your control" restriction
@@ -1543,7 +1573,6 @@ export function triggerETBEffectsForPermanent(
 
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         try {
-          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
           let textForEval = desc;
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `Whenever another permanent enters the battlefield under your control, ${textForEval}`;
@@ -1553,11 +1582,11 @@ export function triggerETBEffectsForPermanent(
             String(triggerController),
             textForEval,
             perm,
-            /\bthat player\b/i.test(textForEval) && String(controller || '')
+            triggeringPlayerForStack
               ? {
-                  thatPlayerId: String(controller),
-                  referencedPlayerId: String(controller),
-                  theirPlayerId: String(controller),
+                  thatPlayerId: triggeringPlayerForStack,
+                  referencedPlayerId: triggeringPlayerForStack,
+                  theirPlayerId: triggeringPlayerForStack,
                 }
               : undefined
           );
@@ -1581,6 +1610,7 @@ export function triggerETBEffectsForPermanent(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
@@ -1590,9 +1620,12 @@ export function triggerETBEffectsForPermanent(
       if (trigger.triggerType === 'permanent_etb') {
         const triggerController = perm.controller || controller;
 
+        const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+        const needsThatPlayerRef = /\bthat player\b/i.test(desc);
+        const triggeringPlayerForStack = needsThatPlayerRef ? String(controller) : undefined;
+
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         try {
-          const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
           let textForEval = desc;
           if (!/^(?:when|whenever|at)\b/i.test(textForEval)) {
             textForEval = `Whenever a permanent enters the battlefield, ${textForEval}`;
@@ -1602,11 +1635,11 @@ export function triggerETBEffectsForPermanent(
             String(triggerController),
             textForEval,
             perm,
-            /\bthat player\b/i.test(textForEval) && String(controller || '')
+            triggeringPlayerForStack
               ? {
-                  thatPlayerId: String(controller),
-                  referencedPlayerId: String(controller),
-                  theirPlayerId: String(controller),
+                  thatPlayerId: triggeringPlayerForStack,
+                  referencedPlayerId: triggeringPlayerForStack,
+                  theirPlayerId: triggeringPlayerForStack,
                 }
               : undefined
           );
@@ -1629,6 +1662,7 @@ export function triggerETBEffectsForPermanent(
           description: trigger.description,
           triggerType: trigger.triggerType,
           mandatory: trigger.mandatory,
+          ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any);
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
@@ -5485,11 +5519,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       const needsThatPlayerRef = /\bthat player\b/i.test(textForEval);
       const needsTheirTurnRef = /\btheir\s+turn\b/i.test(textForEval) || /\bthat player's\s+turn\b/i.test(textForEval);
       const needsManaAbilityRef = /\bmana ability\b/i.test(textForEval);
+      const needsSingleTargetRef = /\bsingle\s+target\b/i.test(textForEval) || /\btargets?\s+only\s+a\s+single\b/i.test(textForEval);
       const activatedAbilityIsManaAbility = (item as any).activatedAbilityIsManaAbility;
+      const triggeringStackItemId = (item as any).triggeringStackItemId;
 
       const battlefield = (ctx as any).state?.battlefield || [];
       const sourcePerm = battlefield.find((p: any) => p?.id === (item as any).source);
-      const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef)
+      const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef || needsSingleTargetRef)
         ? {
             ...(thatPlayerId && (needsThatPlayerRef || needsTheirTurnRef)
               ? {
@@ -5500,6 +5536,9 @@ export function resolveTopOfStack(ctx: GameContext) {
               : {}),
             ...(typeof activatedAbilityIsManaAbility === 'boolean'
               ? { activatedAbilityIsManaAbility: activatedAbilityIsManaAbility }
+              : {}),
+            ...(needsSingleTargetRef && triggeringStackItemId
+              ? { triggeringStackItemId: String(triggeringStackItemId) }
               : {}),
           }
         : undefined;
@@ -7019,9 +7058,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
     const tokenCreationResult = parseTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
-      for (let i = 0; i < tokenCreationResult.count; i++) {
-        createTokenFromSpec(ctx, controller, tokenCreationResult);
-      }
+      createTokenFromSpec(ctx, controller, tokenCreationResult);
       debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
     
@@ -9431,15 +9468,10 @@ function getPonderConfig(cardName: string, oracleTextLower: string): {
  * Create a token creature (helper for Beast Within and similar)
  */
 function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, power: number, toughness: number, color?: string): void {
-  const { state, bumpSeq } = ctx;
-  
-  state.battlefield = state.battlefield || [];
-  const tokenId = uid("token");
-  
   // Determine creature type from name (e.g., "Beast Token" -> "Beast")
   const creatureType = name.replace(/\s*Token\s*/i, '').trim() || 'Beast';
   const typeLine = `Token Creature — ${creatureType}`;
-  
+
   // Map color names to MTG color letters
   const colorMap: Record<string, string> = {
     'white': 'W', 'w': 'W',
@@ -9452,32 +9484,20 @@ function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, 
   const lowerColor = (color || 'green').toLowerCase();
   const colorLetter = colorMap[lowerColor] || colorMap[lowerColor.charAt(0)] || 'G';
   const colorLetters = [colorLetter];
-  
-  // Get token image URLs from the token service
-  const imageUrls = getTokenImageUrls(creatureType, power, toughness, colorLetters);
-  
-  state.battlefield.push({
-    id: tokenId,
+
+  createToken(
+    ctx as any,
     controller,
-    owner: controller,
-    tapped: false,
-    counters: {},
-    basePower: power,
-    baseToughness: toughness,
-    summoningSickness: true,
-    isToken: true,
-    card: {
-      id: tokenId,
-      name,
-      type_line: typeLine,
-      power: String(power),
-      toughness: String(toughness),
-      zone: "battlefield",
+    name,
+    1,
+    power,
+    toughness,
+    {
       colors: colorLetters,
-      image_uris: imageUrls,
-    },
-  } as any);
-  
+      typeLine,
+    }
+  );
+
   debug(2, `[resolveSpell] Created ${power}/${toughness} ${color || 'green'} ${name} token for ${controller}`);
 }
 
@@ -9570,11 +9590,8 @@ function parseTokenCreation(cardName: string, oracleTextLower: string, controlle
   // Summon the School: "Create two 1/1 blue Merfolk Wizard creature tokens."
   // (The tap four Merfolk ability is a separate activated ability to return it from graveyard)
   if (nameLower.includes('summon the school')) {
-    // Base count is 2 tokens, multiplied by token doublers
-    const count = 2 * getTokenDoublerMultiplier(controller, state);
-    
     return {
-      count,
+      count: 2,
       power: 1,
       toughness: 1,
       name: 'Merfolk Wizard',
@@ -9612,9 +9629,6 @@ function parseTokenCreation(cardName: string, oracleTextLower: string, controlle
         // Use the provided xValue from the spell cast, default to 1 if not provided
         count = xValue !== undefined && xValue >= 0 ? xValue : 1;
       }
-      
-      // Apply token doublers
-      count *= getTokenDoublerMultiplier(controller, state);
       
       const power = parseInt(match[2], 10);
       const toughness = parseInt(match[3], 10);
@@ -9655,35 +9669,18 @@ function parseTokenCreation(cardName: string, oracleTextLower: string, controlle
  * Create a token from a TokenSpec
  */
 function createTokenFromSpec(ctx: GameContext, controller: PlayerID, spec: TokenSpec): void {
-  const { state, bumpSeq } = ctx;
-  
-  state.battlefield = state.battlefield || [];
-  const tokenId = uid("token");
-  
-  // Get token image URLs from the token service
-  const imageUrls = getTokenImageUrls(spec.name, spec.power, spec.toughness, spec.colors);
-  
-  state.battlefield.push({
-    id: tokenId,
+  createToken(
+    ctx as any,
     controller,
-    owner: controller,
-    tapped: false,
-    counters: {},
-    basePower: spec.power,
-    baseToughness: spec.toughness,
-    summoningSickness: true,
-    isToken: true,
-    card: {
-      id: tokenId,
-      name: spec.name,
-      type_line: spec.typeLine,
-      power: String(spec.power),
-      toughness: String(spec.toughness),
-      zone: "battlefield",
+    spec.name,
+    spec.count,
+    spec.power,
+    spec.toughness,
+    {
       colors: spec.colors,
-      image_uris: imageUrls,
-    },
-  } as any);
+      typeLine: spec.typeLine,
+    }
+  );
 }
 
 /**
@@ -9691,37 +9688,27 @@ function createTokenFromSpec(ctx: GameContext, controller: PlayerID, spec: Token
  * Treasure tokens have: "{T}, Sacrifice this artifact: Add one mana of any color."
  */
 function createTreasureToken(ctx: GameContext, controller: PlayerID): void {
-  const { state } = ctx;
-  
-  state.battlefield = state.battlefield || [];
-  const tokenId = uid("treasure");
-  
-  // Get token image URLs from the token service
-  const imageUrls = getTokenImageUrls("Treasure");
-  
-  state.battlefield.push({
-    id: tokenId,
+  createToken(
+    ctx as any,
     controller,
-    owner: controller,
-    tapped: false,
-    counters: {},
-    isToken: true,
-    card: {
-      id: tokenId,
-      name: "Treasure",
-      type_line: "Token Artifact — Treasure",
-      oracle_text: "{T}, Sacrifice this artifact: Add one mana of any color.",
-      zone: "battlefield",
+    'Treasure',
+    1,
+    undefined,
+    undefined,
+    {
       colors: [],
-      image_uris: imageUrls,
-    },
-  } as any);
+      typeLine: 'Token Artifact — Treasure',
+      abilities: ['{T}, Sacrifice this artifact: Add one mana of any color.'],
+      isArtifact: true,
+    }
+  );
 }
 
 /* Place a land onto the battlefield for a player (simplified) */
 export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   const { state, bumpSeq } = ctx;
   const zones = state.zones = state.zones || {};
+  let playedFromExile = false;
   
   // Handle both card object and cardId string
   let card: any;
@@ -9750,15 +9737,25 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       return;
     }
     const handCards = z.hand as any[];
-    const idx = handCards.findIndex((c: any) => c.id === cardOrId);
-    if (idx === -1) {
-      // During replay, card might not be in hand anymore - this is okay
-      debug(1, `playLand: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
-      return;
+    const idx = handCards.findIndex((c: any) => c && c.id === cardOrId);
+    if (idx !== -1) {
+      // Remove card from hand
+      card = handCards.splice(idx, 1)[0];
+      z.handCount = handCards.length;
+    } else {
+      // Fallback: allow playing lands from exile when an effect permits it.
+      const exileCards = Array.isArray((z as any).exile) ? ((z as any).exile as any[]) : null;
+      const exIdx = exileCards ? exileCards.findIndex((c: any) => c && c.id === cardOrId) : -1;
+      if (exileCards && exIdx !== -1) {
+        card = exileCards.splice(exIdx, 1)[0];
+        (z as any).exileCount = exileCards.length;
+        playedFromExile = true;
+      } else {
+        // During replay, card might not be in its expected zone anymore - this is okay
+        debug(1, `playLand: card ${cardOrId} not found in hand or exile for player ${playerId} (may be replay)`);
+        return;
+      }
     }
-    // Remove card from hand
-    card = handCards.splice(idx, 1)[0];
-    z.handCount = handCards.length;
   } else {
     // Card object passed directly (legacy or event replay)
     card = cardOrId;
@@ -9774,6 +9771,17 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       if (idx !== -1) {
         handCards.splice(idx, 1);
         z.handCount = handCards.length;
+      }
+    }
+
+    // Also try to remove from exile if it exists there (e.g., replay or exile-cast flows).
+    if (z && Array.isArray((z as any).exile)) {
+      const exileCards = (z as any).exile as any[];
+      const exIdx = exileCards.findIndex((c: any) => c && c.id === card.id);
+      if (exIdx !== -1) {
+        exileCards.splice(exIdx, 1);
+        (z as any).exileCount = exileCards.length;
+        playedFromExile = true;
       }
     }
   }
@@ -10036,6 +10044,17 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   } catch (err) {
     debugWarn(1, '[playLand] Failed to recalculate player effects:', err);
   }
+
+  // Turn-tracking for intervening-if templates: "if you (didn't) play a card from exile this turn".
+  if (playedFromExile) {
+    try {
+      const stateAny = state as any;
+      stateAny.playedCardFromExileThisTurn = stateAny.playedCardFromExileThisTurn || {};
+      stateAny.playedCardFromExileThisTurn[String(playerId)] = true;
+    } catch {
+      // best-effort only
+    }
+  }
   
   bumpSeq();
 }
@@ -10057,6 +10076,7 @@ export function castSpell(
 ) {
   const { state, bumpSeq } = ctx;
   const zones = state.zones = state.zones || {};
+  let castFromExile = false;
   
   // Handle both card object and cardId string
   let card: any;
@@ -10096,15 +10116,25 @@ export function castSpell(
       return;
     }
     const handCards = z.hand as any[];
-    const idx = handCards.findIndex((c: any) => c.id === cardOrId);
-    if (idx === -1) {
-      // During replay, card might not be in hand anymore - this is okay
-      debug(1, `castSpell: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
-      return;
+    const idx = handCards.findIndex((c: any) => c && c.id === cardOrId);
+    if (idx !== -1) {
+      // Remove card from hand
+      card = handCards.splice(idx, 1)[0];
+      z.handCount = handCards.length;
+    } else {
+      // Fallback: allow casting spells from exile when an effect permits it.
+      const exileCards = Array.isArray((z as any).exile) ? ((z as any).exile as any[]) : null;
+      const exIdx = exileCards ? exileCards.findIndex((c: any) => c && c.id === cardOrId) : -1;
+      if (exileCards && exIdx !== -1) {
+        card = exileCards.splice(exIdx, 1)[0];
+        (z as any).exileCount = exileCards.length;
+        castFromExile = true;
+      } else {
+        // During replay, card might not be in its expected zone anymore - this is okay
+        debug(1, `castSpell: card ${cardOrId} not found in hand or exile for player ${playerId} (may be replay)`);
+        return;
+      }
     }
-    // Remove card from hand
-    card = handCards.splice(idx, 1)[0];
-    z.handCount = handCards.length;
   } else {
     // Card object passed directly (legacy or event replay)
     card = cardOrId;
@@ -10120,6 +10150,17 @@ export function castSpell(
       if (idx !== -1) {
         handCards.splice(idx, 1);
         z.handCount = handCards.length;
+      }
+    }
+
+    // Also try to remove from exile if it exists there (e.g., replay or exile-cast flows).
+    if (z && Array.isArray((z as any).exile)) {
+      const exileCards = (z as any).exile as any[];
+      const exIdx = exileCards.findIndex((c: any) => c && c.id === card.id);
+      if (exIdx !== -1) {
+        exileCards.splice(exIdx, 1);
+        (z as any).exileCount = exileCards.length;
+        castFromExile = true;
       }
     }
   }
@@ -10194,6 +10235,18 @@ export function castSpell(
     xValue,
     manaValue: spellManaValue,
   };
+
+  // Turn-tracking for intervening-if templates: "if you (didn't) play a card from exile this turn".
+  // Casting a spell counts as playing a card.
+  if (castFromExile) {
+    try {
+      const stateAny = state as any;
+      stateAny.playedCardFromExileThisTurn = stateAny.playedCardFromExileThisTurn || {};
+      stateAny.playedCardFromExileThisTurn[String(playerId)] = true;
+    } catch {
+      // best-effort only
+    }
+  }
   
   // Register cascade triggers for this spell (supports multiple cascade instances)
   const oracleTextLower = (card?.oracle_text || "").toLowerCase();

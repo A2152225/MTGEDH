@@ -224,7 +224,8 @@ export function createToken(
     typeLine?: string;
     abilities?: string[];
     isArtifact?: boolean;
-  }
+  },
+  skipMirrormindReplacement = false
 ) : string[] {
   const { state, bumpSeq } = ctx;
 
@@ -273,6 +274,91 @@ export function createToken(
   } catch (err) {
     debugWarn(1, "[createToken] Error calculating token doubling, using base count:", err);
   }
+
+  // Mirrormind Crown (replacement effect):
+  // "As long as this Equipment is attached to a creature, the first time you would create one or more tokens each turn,
+  // you may instead create that many tokens that are copies of equipped creature."
+  //
+  // We model this as a Resolution Queue OPTION_CHOICE prompt.
+  // - We only offer it when the controller of the token creation controls an attached Mirrormind Crown.
+  // - We track usage per equipment permanent id for the current turn.
+  // - On replays/unknown gameId, we skip prompting.
+  try {
+    const gameId = String((ctx as any).gameId || '');
+    const isReplaying = Boolean((ctx as any).isReplaying);
+    const battlefield = state.battlefield || [];
+
+    if (!skipMirrormindReplacement && !isReplaying && gameId && gameId !== 'unknown' && tokensToCreate > 0) {
+      (state as any).mirrormindCrownUsedThisTurn = (state as any).mirrormindCrownUsedThisTurn || {};
+      const used: Record<string, boolean> = (state as any).mirrormindCrownUsedThisTurn;
+
+      const crowns = battlefield.filter((p: any) => {
+        const nm = String(p?.card?.name || '').toLowerCase();
+        const tl = String(p?.card?.type_line || '').toLowerCase();
+        return p && p.controller === controller && nm === 'mirrormind crown' && tl.includes('equipment');
+      });
+
+      const crown = crowns.find((eq: any) => {
+        const eqId = String(eq?.id || '');
+        if (!eqId || used[eqId]) return false;
+        const attachedTo = String((eq as any)?.attachedTo || '').trim();
+        if (!attachedTo) return false;
+        const creature = battlefield.find((bp: any) => String(bp?.id || '') === attachedTo);
+        if (!creature) return false;
+        const creatureTL = String(creature?.card?.type_line || '').toLowerCase();
+        return creatureTL.includes('creature');
+      });
+
+      if (crown) {
+        const eqId = String(crown.id);
+        const attachedTo = String((crown as any).attachedTo);
+        const equippedCreature = battlefield.find((bp: any) => String(bp?.id || '') === attachedTo);
+
+        if (equippedCreature?.card) {
+          // Mark used immediately: if the player declines, it still counts as the first time.
+          used[eqId] = true;
+
+          const equippedCardSnapshot = JSON.parse(JSON.stringify(equippedCreature.card));
+
+          const optionReplace = {
+            id: 'replace',
+            label: `Replace with ${tokensToCreate} token(s) copying ${String(equippedCreature.card?.name || 'equipped creature')}`,
+          };
+          const optionNormal = {
+            id: 'normal',
+            label: `Create the normal ${tokensToCreate} token(s) (${name})`,
+          };
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: controller,
+            description: `Mirrormind Crown: The first time you would create token(s) this turn, you may instead create that many copies of the equipped creature.`,
+            mandatory: true,
+            sourceId: eqId,
+            sourceName: 'Mirrormind Crown',
+            mirrormindCrownTokenReplacementChoice: true,
+            mirrormindCrownEquipmentId: eqId,
+            mirrormindCrownEquippedCreatureId: String(equippedCreature.id),
+            mirrormindCrownEquippedCreatureCard: equippedCardSnapshot,
+            mirrormindCrownOriginalTokenCreate: {
+              controller,
+              name,
+              count: tokensToCreate,
+              basePower,
+              baseToughness,
+              options,
+            },
+            options: [optionReplace, optionNormal],
+          } as any);
+
+          // Defer token creation until the step response.
+          return [];
+        }
+      }
+    }
+  } catch (err) {
+    debugWarn(1, '[createToken] Mirrormind Crown replacement check failed (continuing normally):', err);
+  }
   
   // Build type line based on options
   let typeLine = options?.typeLine || 'Token Creature';
@@ -291,7 +377,7 @@ export function createToken(
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     const permanentId = uid("tok");
     createdPermanentIds.push(permanentId);
-    state.battlefield.push({
+    const tokenPerm: any = {
       id: permanentId,
       controller,
       owner: controller,
@@ -311,12 +397,101 @@ export function createToken(
         oracle_text: options?.abilities?.join('. ') || '',
         keywords: options?.abilities || [],
       } as any  // Cast to any to allow keywords field
-    } as any);
+    };
+    state.battlefield.push(tokenPerm);
+
+    // Fire ETB triggers (including the token's own ETBs if applicable).
+    try {
+      const stackMod = require('./stack.js');
+      const triggerETB = stackMod?.triggerETBEffectsForPermanent;
+      if (typeof triggerETB === 'function') {
+        triggerETB(ctx as any, tokenPerm, controller);
+      }
+    } catch {
+      // Defensive: do not block token creation.
+    }
   }
   bumpSeq();
   runSBA(ctx);
 
   return createdPermanentIds;
+}
+
+function normalizeManaCostXToZero(manaCostRaw: any): string {
+  const manaCost = String(manaCostRaw || '');
+  if (!manaCost) return manaCost;
+  return manaCost
+    .replace(/\{X\}/g, '{0}')
+    .replace(/\{x\}/g, '{0}')
+    .replace(/\bX\b/g, '0')
+    .replace(/\bx\b/g, '0');
+}
+
+export function createCopyTokensOfCard(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceCard: any,
+  count: number,
+  skipMirrormindReplacement = false
+): string[] {
+  const { state, bumpSeq } = ctx;
+  const n = Math.max(0, Number(count || 0));
+  if (!sourceCard || n <= 0) return [];
+
+  // Do NOT re-trigger Mirrormind while creating the copies.
+  if (skipMirrormindReplacement) {
+    // no-op: flag consumed by caller; this helper never prompts.
+  }
+
+  const created: string[] = [];
+  state.battlefield = state.battlefield || [];
+
+  const typeLine = String(sourceCard?.type_line || '');
+  const isCreature = typeLine.toLowerCase().includes('creature');
+  const basePower = isCreature ? parsePT(sourceCard?.power) : undefined;
+  const baseToughness = isCreature ? parsePT(sourceCard?.toughness) : undefined;
+
+  const manaCost = normalizeManaCostXToZero(sourceCard?.mana_cost);
+
+  for (let i = 0; i < n; i++) {
+    const permanentId = uid('copytok');
+    created.push(permanentId);
+
+    const tokenPerm: any = {
+      id: permanentId,
+      controller,
+      owner: controller,
+      tapped: false,
+      counters: {},
+      basePower,
+      baseToughness,
+      summoningSickness: isCreature,
+      isToken: true,
+      card: {
+        ...JSON.parse(JSON.stringify(sourceCard)),
+        id: uid('card'),
+        zone: 'battlefield',
+        mana_cost: manaCost,
+      },
+    };
+
+    state.battlefield.push(tokenPerm);
+
+    // Fire ETB triggers for the copy token.
+    try {
+      const stackMod = require('./stack.js');
+      const triggerETB = stackMod?.triggerETBEffectsForPermanent;
+      if (typeof triggerETB === 'function') {
+        triggerETB(ctx as any, tokenPerm, controller);
+      }
+    } catch {
+      // Defensive.
+    }
+  }
+
+  bumpSeq();
+  runSBA(ctx);
+  return created;
 }
 
 /**

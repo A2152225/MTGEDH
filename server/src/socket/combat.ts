@@ -1556,11 +1556,17 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   controller,
                   textForEval,
                   sourcePerm,
-                  needsThatPlayerRef && defendingPlayerId
+                  defendingPlayerId
                     ? {
-                        thatPlayerId: defendingPlayerId,
-                        referencedPlayerId: defendingPlayerId,
-                        theirPlayerId: defendingPlayerId,
+                        defendingPlayerId,
+                        thoseCreatureIds: attackerIds,
+                        ...(needsThatPlayerRef
+                          ? {
+                              thatPlayerId: defendingPlayerId,
+                              referencedPlayerId: defendingPlayerId,
+                              theirPlayerId: defendingPlayerId,
+                            }
+                          : {}),
                       }
                     : undefined
                 );
@@ -2137,18 +2143,24 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   : undefined;
                 const blockedCreatureControllerId = String(blockedCreature?.controller || '');
 
+                // In DECLARE_BLOCKERS, `playerId` is the current defending player.
+                const defendingPlayerId = String(playerId || '');
+
                 const ok = isInterveningIfSatisfied(
                   ctx as any,
                   controller,
                   textForEval,
                   sourcePerm,
-                  /\bthat player\b/i.test(textForEval) && blockedCreatureControllerId
-                    ? {
-                        thatPlayerId: blockedCreatureControllerId,
-                        referencedPlayerId: blockedCreatureControllerId,
-                        theirPlayerId: blockedCreatureControllerId,
-                      }
-                    : undefined
+                  {
+                    ...(defendingPlayerId ? { defendingPlayerId } : {}),
+                    ...(/\bthat player\b/i.test(textForEval) && blockedCreatureControllerId
+                      ? {
+                          thatPlayerId: blockedCreatureControllerId,
+                          referencedPlayerId: blockedCreatureControllerId,
+                          theirPlayerId: blockedCreatureControllerId,
+                        }
+                      : {}),
+                  }
                 );
                 if (ok === false) {
                   debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);

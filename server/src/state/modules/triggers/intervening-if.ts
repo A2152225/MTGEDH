@@ -1,5 +1,6 @@
 import type { GameContext } from "../context.js";
 import { detectLinkedExileEffect } from "./linked-exile.js";
+import { calculateAllPTBonuses } from "../../utils.js";
 
 function normalizeText(text: string): string {
   return String(text || "")
@@ -618,22 +619,48 @@ function anyCreatureAttackedThisTurn(ctx: GameContext): boolean {
   });
 }
 
-function getPermanentPower(perm: any): number {
-  const candidates = [perm?.effectivePower, perm?.power, perm?.basePower, perm?.card?.power];
+function getPermanentPower(perm: any, ctx?: GameContext): number {
+  const candidates = [perm?.effectivePower, perm?.power];
   for (const c of candidates) {
     const n = parseMaybeNumber(c);
     if (n !== null) return n;
   }
-  return 0;
+
+  const base = parseMaybeNumber(perm?.basePower) ?? parseMaybeNumber(perm?.card?.power) ?? 0;
+  if (!ctx) return base;
+
+  try {
+    const bonus = calculateAllPTBonuses(perm, (ctx as any).state);
+    if (bonus && typeof bonus.power === 'number') {
+      return base + bonus.power;
+    }
+  } catch {
+    // best-effort; fall back to base
+  }
+
+  return base;
 }
 
-function getPermanentToughness(perm: any): number {
-  const candidates = [perm?.effectiveToughness, perm?.toughness, perm?.baseToughness, perm?.card?.toughness];
+function getPermanentToughness(perm: any, ctx?: GameContext): number {
+  const candidates = [perm?.effectiveToughness, perm?.toughness];
   for (const c of candidates) {
     const n = parseMaybeNumber(c);
     if (n !== null) return n;
   }
-  return 0;
+
+  const base = parseMaybeNumber(perm?.baseToughness) ?? parseMaybeNumber(perm?.card?.toughness) ?? 0;
+  if (!ctx) return base;
+
+  try {
+    const bonus = calculateAllPTBonuses(perm, (ctx as any).state);
+    if (bonus && typeof bonus.toughness === 'number') {
+      return base + bonus.toughness;
+    }
+  } catch {
+    // best-effort; fall back to base
+  }
+
+  return base;
 }
 
 function getControlledCreatures(ctx: GameContext, controllerId: string): any[] {
@@ -717,6 +744,73 @@ function isPermanentEnchanted(ctx: GameContext, perm: any): boolean {
   });
 }
 
+function permanentHasKeyword(perm: any, keywordLower: string): boolean | null {
+  if (!perm) return null;
+  const keyword = String(keywordLower || '').toLowerCase();
+  if (!keyword) return null;
+
+  const oracleTextLower = String(perm?.card?.oracle_text || '').toLowerCase();
+  const granted = Array.isArray((perm as any).grantedAbilities) ? (perm as any).grantedAbilities : [];
+  const grantedLower = granted.map((a: any) => String(a || '').toLowerCase());
+
+  // Keyword counters exist in some implementations (e.g., flying counters).
+  const counters = (perm as any).counters;
+  const hasKeywordCounter =
+    counters && typeof counters === 'object' ? Object.keys(counters).some((k) => String(k || '').toLowerCase() === keyword) : false;
+
+  // If we have no ability info at all, be conservative.
+  const hasAnyInfo = Boolean(oracleTextLower) || grantedLower.length > 0 || Boolean(counters);
+  if (!hasAnyInfo) return null;
+
+  if (hasKeywordCounter) return true;
+  if (oracleTextLower.includes(keyword)) return true;
+  if (grantedLower.some((a: string) => a.includes(keyword))) return true;
+
+  return false;
+}
+
+function isPermanentRed(perm: any): boolean | null {
+  if (!perm) return null;
+  const colors = (perm as any)?.card?.colors ?? (perm as any)?.card?.color_identity;
+  if (Array.isArray(colors)) {
+    const set = new Set(colors.map((c: any) => String(c || '').toUpperCase()));
+    return set.has('R');
+  }
+
+  const color = (perm as any)?.card?.color;
+  if (typeof color === 'string' && color) return color.toUpperCase() === 'R' || color.toLowerCase() === 'red';
+
+  return null;
+}
+
+function isPermanentBlack(perm: any): boolean | null {
+  if (!perm) return null;
+  const colors = (perm as any)?.card?.colors ?? (perm as any)?.card?.color_identity;
+  if (Array.isArray(colors)) {
+    const set = new Set(colors.map((c: any) => String(c || '').toUpperCase()));
+    return set.has('B');
+  }
+
+  const color = (perm as any)?.card?.color;
+  if (typeof color === 'string' && color) return color.toUpperCase() === 'B' || color.toLowerCase() === 'black';
+
+  return null;
+}
+
+function isEnchantingTalePermanent(perm: any): boolean | null {
+  if (!perm) return null;
+  // "Enchanting Tales have the expansion code WOT" (Scryfall reminder text).
+  const c: any = (perm as any).card || {};
+  const set = c.set ?? c.set_code ?? c.expansion ?? c.expansion_code ?? c.expansionCode;
+  if (typeof set === 'string' && set) return String(set).toLowerCase() === 'wot';
+
+  // Some card payloads may store printing metadata differently; if present and non-WOT, treat as false.
+  const printingSet = c.printingSet ?? c.printing_set;
+  if (typeof printingSet === 'string' && printingSet) return String(printingSet).toLowerCase() === 'wot';
+
+  return null;
+}
+
 function isPermanentAttacking(perm: any): boolean {
   return !!perm?.attacking || perm?.isAttacking === true;
 }
@@ -759,6 +853,37 @@ function getOpponentIds(ctx: GameContext, controllerId: string): string[] {
   return players
     .map((p: any) => String(p?.id || ""))
     .filter((id: string) => id && id !== controllerId);
+}
+
+function getPlayerTeamId(ctx: GameContext, playerId: string): string | null {
+  const stateAny: any = (ctx as any).state || {};
+  const direct = stateAny?.team?.[playerId] ?? stateAny?.teams?.[playerId] ?? stateAny?.playerTeam?.[playerId];
+  if (typeof direct === 'string' && direct) return direct;
+
+  const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+  const p = players.find((pp: any) => String(pp?.id || '') === String(playerId));
+  const fromPlayer = p?.team ?? p?.teamId ?? p?.playerTeam;
+  return typeof fromPlayer === 'string' && fromPlayer ? fromPlayer : null;
+}
+
+function getTeamMemberIds(ctx: GameContext, controllerId: string): string[] {
+  const teamId = getPlayerTeamId(ctx, controllerId);
+  if (!teamId) return [String(controllerId)];
+
+  const stateAny: any = (ctx as any).state || {};
+  const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+  const ids = players
+    .map((p: any) => String(p?.id || ''))
+    .filter((id: string) => Boolean(id));
+
+  const members = ids.filter((pid) => {
+    const t = getPlayerTeamId(ctx, pid);
+    return typeof t === 'string' && String(t) === String(teamId);
+  });
+
+  // Safety: ensure controller is included.
+  if (!members.includes(String(controllerId))) members.push(String(controllerId));
+  return Array.from(new Set(members));
 }
 
 function getAllPlayerIds(ctx: GameContext, controllerId: string): string[] {
@@ -860,11 +985,54 @@ export type InterveningIfRefs = {
   referencedPlayerId?: string;
   theirPlayerId?: string;
 
+  // Combat context (e.g., for "if you're the defending player" / "if defending player ...")
+  defendingPlayerId?: string;
+
+  // Event-group context for templates like "...of those creatures...".
+  // For declare-attackers-trigger evaluation, this should be the list of attacker permanent ids involved in the event.
+  thoseCreatureIds?: string[];
+
   // Optional context for clauses that refer to an activated ability/spell/stack item.
   // Example: "Whenever you activate an ability, if it isn't a mana ability, ..."
   activatedAbilityIsManaAbility?: boolean;
-  stackItem?: { type?: string; isManaAbility?: boolean };
+  triggeringStackItemId?: string;
+  stackItem?: { type?: string; isManaAbility?: boolean; targets?: any[]; target?: any; targetId?: any };
 };
+
+function getTargetCountFromStackItemLike(stackItem: any): number | null {
+  if (!stackItem) return null;
+  const targets = (stackItem as any).targets;
+  if (Array.isArray(targets)) return targets.length;
+  if ((stackItem as any).target != null) return 1;
+  if ((stackItem as any).targetId != null) return 1;
+  return null;
+}
+
+function getInterveningIfTargetCount(ctx: GameContext, refs?: InterveningIfRefs, sourcePermanent?: any): number | null {
+  const fromRefs = getTargetCountFromStackItemLike(refs?.stackItem);
+  if (typeof fromRefs === 'number') return fromRefs;
+
+  const stackId =
+    refs?.triggeringStackItemId ??
+    (sourcePermanent as any)?.triggeringStackItemId ??
+    (sourcePermanent as any)?.triggeringSpellStackItemId;
+
+  if (!stackId) return null;
+  const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+  const triggering = stack.find((it: any) => it && String(it.id) === String(stackId));
+  return getTargetCountFromStackItemLike(triggering);
+}
+
+function getDefendingPlayerIdForInterveningIf(sourcePermanent: any, refs?: InterveningIfRefs): string | null {
+  const fromRefs = refs?.defendingPlayerId ?? (sourcePermanent as any)?.defendingPlayerId;
+  if (typeof fromRefs === 'string' && fromRefs) return String(fromRefs);
+
+  // Many combat structures store the defending player as attacker.attacking.
+  const fromAttacking = (sourcePermanent as any)?.attacking;
+  if (typeof fromAttacking === 'string' && fromAttacking && !String(fromAttacking).startsWith('perm_')) return String(fromAttacking);
+
+  return null;
+}
 
 function attachInterveningIfRefs(sourcePermanent: any, refs?: InterveningIfRefs): any {
   if (!refs) return sourcePermanent;
@@ -872,8 +1040,9 @@ function attachInterveningIfRefs(sourcePermanent: any, refs?: InterveningIfRefs)
   const thatPlayerId = refs.thatPlayerId;
   const referencedPlayerId = refs.referencedPlayerId;
   const theirPlayerId = refs.theirPlayerId;
+  const defendingPlayerId = refs.defendingPlayerId;
 
-  if (!thatPlayerId && !referencedPlayerId && !theirPlayerId) return sourcePermanent;
+  if (!thatPlayerId && !referencedPlayerId && !theirPlayerId && !defendingPlayerId) return sourcePermanent;
 
   const existing = sourcePermanent || {};
   const next: any = { ...existing };
@@ -881,6 +1050,7 @@ function attachInterveningIfRefs(sourcePermanent: any, refs?: InterveningIfRefs)
   if (next.thatPlayerId == null && thatPlayerId) next.thatPlayerId = thatPlayerId;
   if (next.referencedPlayerId == null && referencedPlayerId) next.referencedPlayerId = referencedPlayerId;
   if (next.theirPlayerId == null && theirPlayerId) next.theirPlayerId = theirPlayerId;
+  if (next.defendingPlayerId == null && defendingPlayerId) next.defendingPlayerId = defendingPlayerId;
 
   return next;
 }
@@ -1068,6 +1238,23 @@ function evaluateInterveningIfClauseInternal(
     return getLifeGainedThisTurn(ctx, controllerId) > 0;
   }
 
+  // "...if your team gained life this turn..." (team formats; best-effort when per-turn tracking exists)
+  if (/^if\s+your\s+team\s+gained\s+life\s+this\s+turn$/i.test(clause)) {
+    const map = (ctx as any).state?.lifeGainedThisTurn;
+    if (!map || typeof map !== 'object') return null;
+
+    const teamIds = getTeamMemberIds(ctx, controllerId);
+    const any = teamIds.some((pid) => {
+      const v = (map as any)[String(pid)];
+      return typeof v === 'number' ? v > 0 : false;
+    });
+    if (any) return true;
+
+    // If the map exists but some entries are missing/non-numeric, we can't safely say false.
+    const allNumeric = teamIds.every((pid) => typeof (map as any)[String(pid)] === 'number');
+    return allNumeric ? false : null;
+  }
+
   // "...if you lost life this turn..."
   if (/^if\s+you(?:'ve|\s+have)?\s+lost\s+life\s+this\s+turn$/i.test(clause)) {
     return getLifeLostThisTurn(ctx, controllerId) > 0;
@@ -1165,8 +1352,54 @@ function evaluateInterveningIfClauseInternal(
   }
 
   // "if two or more of those creatures are attacking you and/or planeswalkers you control" (needs attack declaration context)
-  if (/^if\s+([a-z0-9]+)\s+or\s+more\s+of\s+those\s+creatures\s+are\s+attacking\s+you\s+and\/or\s+planeswalkers\s+you\s+control$/i.test(clause)) {
-    return null;
+  {
+    const m = clause.match(
+      /^if\s+([a-z0-9]+)\s+or\s+more\s+of\s+those\s+creatures\s+are\s+attacking\s+you\s+and\/or\s+planeswalkers\s+you\s+control$/i
+    );
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+
+      const thoseCreatureIds = refs?.thoseCreatureIds;
+      if (!Array.isArray(thoseCreatureIds) || thoseCreatureIds.length === 0) return null;
+
+      const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+      const planeswalkerIds = new Set(
+        battlefield
+          .filter(
+            (p: any) =>
+              p &&
+              String(p.controller) === String(controllerId) &&
+              String(p.card?.type_line || '').toLowerCase().includes('planeswalker')
+          )
+          .map((p: any) => String(p.id))
+      );
+
+      let knownMatches = 0;
+      let unknown = 0;
+
+      for (const cid of thoseCreatureIds) {
+        const attacker = battlefield.find((p: any) => p && String(p.id) === String(cid));
+        if (!attacker) {
+          unknown++;
+          continue;
+        }
+
+        const attacking = (attacker as any).attacking ?? (attacker as any).attackTarget ?? (attacker as any).defending;
+        if (attacking == null) {
+          unknown++;
+          continue;
+        }
+
+        const targetId = String(attacking);
+        const isMatch = targetId === String(controllerId) || planeswalkerIds.has(targetId);
+        if (isMatch) knownMatches++;
+      }
+
+      if (knownMatches >= n) return true;
+      if (knownMatches + unknown < n) return false;
+      return null;
+    }
   }
 
   // "...if it/this source dealt damage to an opponent this turn..."
@@ -1594,8 +1827,14 @@ function evaluateInterveningIfClauseInternal(
     );
     if (m) {
       const subject = m[1].toLowerCase();
-      const thatPlayerId = getTurnPlayerId(ctx);
-      if (!thatPlayerId) return null;
+      const thatPlayerId =
+        refs?.thatPlayerId ??
+        (sourcePermanent as any)?.thatPlayerId ??
+        (sourcePermanent as any)?.referencedPlayerId ??
+        (sourcePermanent as any)?.targetPlayerId ??
+        getTurnPlayerId(ctx);
+
+      if (typeof thatPlayerId !== 'string' || !thatPlayerId) return null;
 
       const yourCount =
         subject === "creatures"
@@ -1614,6 +1853,7 @@ function evaluateInterveningIfClauseInternal(
   // "if that player controls more lands than each other player" (Rivalry/Greener Pastures)
   if (/^if\s+that\s+player\s+controls\s+more\s+lands\s+than\s+each\s+other\s+player$/i.test(clause)) {
     const that =
+      refs?.thatPlayerId ??
       (sourcePermanent as any)?.thatPlayerId ??
       (sourcePermanent as any)?.referencedPlayerId ??
       (sourcePermanent as any)?.targetPlayerId ??
@@ -2363,9 +2603,27 @@ function evaluateInterveningIfClauseInternal(
     return !attacked;
   }
 
-  // "if your team controls another Warrior" (team formats not modeled; recognize but unknown)
+  // "if your team controls another Warrior" (team-aware; falls back to a singleton team when no team data exists)
   if (/^if\s+your\s+team\s+controls\s+another\s+warrior$/i.test(clause)) {
-    return null;
+    const teamIds = getTeamMemberIds(ctx, controllerId);
+    const battlefield = (ctx as any).state?.battlefield || [];
+    const sourceId = String((sourcePermanent as any)?.id || '');
+
+    let count = 0;
+    for (const pid of teamIds) {
+      const creatures = getControlledCreatures(ctx, String(pid));
+      for (const c of creatures) {
+        if (!c) continue;
+        if (sourceId && String(c.id) === sourceId) continue;
+        const tl = String(c?.card?.type_line || '');
+        if (typeLineHasWord(tl, 'warrior')) count++;
+      }
+    }
+
+    // If we have battlefield tracking, we can safely return false when count is 0.
+    // If battlefield isn't an array (corrupt state), be conservative.
+    if (!Array.isArray(battlefield)) return null;
+    return count >= 1;
   }
 
   // "if a creature died this turn" (Morbid)
@@ -3891,6 +4149,33 @@ function evaluateInterveningIfClauseInternal(
     return null;
   }
 
+  // "if an opponent lost life last turn" (best-effort)
+  if (/^if\s+an\s+opponent\s+lost\s+life\s+last\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const counts =
+      stateAny?.lifeLostLastTurnByPlayerCounts ?? stateAny?.lifeLostLastTurnByPlayer ?? stateAny?.lifeLostLastTurn;
+    if (!counts || typeof counts !== 'object') return null;
+
+    const opps = getOpponentIds(ctx, controllerId);
+    if (!opps.length) return false;
+
+    for (const oid of opps) {
+      const raw = (counts as any)[String(oid)];
+      if (typeof raw === 'boolean') {
+        if (raw) return true;
+        continue;
+      }
+      if (typeof raw === 'number') {
+        if (raw > 0) return true;
+        continue;
+      }
+      // Unknown for this opponent => overall unknown.
+      return null;
+    }
+
+    return false;
+  }
+
   // Delirium: "if there are four or more card types among cards in your graveyard"
   if (/^if\s+there\s+are\s+four\s+or\s+more\s+card\s+types\s+among\s+cards\s+in\s+your\s+graveyard$/i.test(clause)) {
     return countCardTypesInGraveyard(ctx, controllerId) >= 4;
@@ -3908,7 +4193,104 @@ function evaluateInterveningIfClauseInternal(
 
   // "if you're the defending player" (needs combat declaration context)
   if (/^if\s+you'?re\s+the\s+defending\s+player$/i.test(clause) || /^if\s+you\s+are\s+the\s+defending\s+player$/i.test(clause)) {
-    return null;
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    return String(controllerId) === String(defendingPlayerId);
+  }
+
+  // "if defending player controls more lands than you" (best-effort)
+  if (/^if\s+defending\s+player\s+controls\s+more\s+lands\s+than\s+you$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    const defLands = countByPermanentType(ctx, String(defendingPlayerId), 'land');
+    const youLands = countByPermanentType(ctx, String(controllerId), 'land');
+    return defLands > youLands;
+  }
+
+  // "if defending player controls no Walls" (best-effort)
+  if (/^if\s+defending\s+player\s+controls\s+no\s+walls$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    return countControlledCreatureSubtype(ctx, String(defendingPlayerId), 'wall') === 0;
+  }
+
+  // "if defending player has more cards in hand than you" (best-effort)
+  if (/^if\s+defending\s+player\s+has\s+more\s+cards\s+in\s+hand\s+than\s+you$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    return getHandCount(ctx, String(defendingPlayerId)) > getHandCount(ctx, String(controllerId));
+  }
+
+  // "if defending player has N or fewer cards in hand" (best-effort)
+  {
+    const m = clause.match(/^if\s+defending\s+player\s+has\s+([a-z0-9]+)\s+or\s+fewer\s+cards\s+in\s+hand$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+      if (!defendingPlayerId) return null;
+      return getHandCount(ctx, String(defendingPlayerId)) <= n;
+    }
+  }
+
+  // "if defending player is poisoned" (best-effort)
+  if (/^if\s+defending\s+player\s+is\s+poisoned$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    return getPoisonCounters(ctx, String(defendingPlayerId)) > 0;
+  }
+
+  // "if defending player controls no Glimmer creatures" (best-effort)
+  if (/^if\s+defending\s+player\s+controls\s+no\s+glimmer\s+creatures$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    return countControlledCreatureSubtype(ctx, String(defendingPlayerId), 'glimmer') === 0;
+  }
+
+  // "if defending player controls no black permanents" (best-effort, conservative)
+  if (/^if\s+defending\s+player\s+controls\s+no\s+black\s+permanents$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield || [];
+    let sawUnknown = false;
+    for (const p of Array.isArray(battlefield) ? battlefield : []) {
+      if (!p || String(p.controller || '') !== String(defendingPlayerId)) continue;
+      const isBlack = isPermanentBlack(p);
+      if (isBlack === true) return false;
+      if (isBlack === null) sawUnknown = true;
+    }
+    return sawUnknown ? null : true;
+  }
+
+  // "if defending player controls no black nontoken permanents" (best-effort, conservative)
+  if (/^if\s+defending\s+player\s+controls\s+no\s+black\s+nontoken\s+permanents$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield || [];
+    let sawUnknown = false;
+    for (const p of Array.isArray(battlefield) ? battlefield : []) {
+      if (!p || String(p.controller || '') !== String(defendingPlayerId)) continue;
+      if ((p as any).isToken === true) continue;
+      const isBlack = isPermanentBlack(p);
+      if (isBlack === true) return false;
+      if (isBlack === null) sawUnknown = true;
+    }
+    return sawUnknown ? null : true;
+  }
+
+  // "if defending player controls an Enchanting Tale" (best-effort, conservative)
+  if (/^if\s+defending\s+player\s+controls\s+an\s+enchanting\s+tale$/i.test(clause)) {
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield || [];
+    let sawUnknown = false;
+    for (const p of Array.isArray(battlefield) ? battlefield : []) {
+      if (!p || String(p.controller || '') !== String(defendingPlayerId)) continue;
+      const isET = isEnchantingTalePermanent(p);
+      if (isET === true) return true;
+      if (isET === null) sawUnknown = true;
+    }
+    return sawUnknown ? null : false;
   }
 
   // "if you're on the Mirran team" (Alchemy team assignment; best-effort)
@@ -4052,7 +4434,7 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
-      return getControlledCreatures(ctx, controllerId).some((c: any) => getPermanentPower(c) >= n);
+      return getControlledCreatures(ctx, controllerId).some((c: any) => getPermanentPower(c, ctx) >= n);
     }
   }
 
@@ -4063,7 +4445,7 @@ function evaluateInterveningIfClauseInternal(
       const n = parseCountToken(m[1]);
       if (n === null) return null;
       if (!sourcePermanent) return null;
-      return getPermanentPower(sourcePermanent) >= n;
+      return getPermanentPower(sourcePermanent, ctx) >= n;
     }
   }
 
@@ -4078,8 +4460,85 @@ function evaluateInterveningIfClauseInternal(
       if (!attachedTo) return null;
       const enchanted = findBattlefieldPermanent(ctx, attachedTo);
       if (!enchanted) return null;
-      return getPermanentPower(enchanted) >= n;
+      return getPermanentPower(enchanted, ctx) >= n;
     }
+  }
+
+  // "if enchanted creature has <keyword>" (best-effort: aura attachedTo)
+  {
+    const m = clause.match(/^if\s+enchanted\s+creature\s+has\s+(flying|toxic)$/i);
+    if (m) {
+      if (!sourcePermanent) return null;
+      const attachedTo = String((sourcePermanent as any)?.attachedTo || '');
+      if (!attachedTo) return null;
+      const enchanted = findBattlefieldPermanent(ctx, attachedTo);
+      if (!enchanted) return null;
+      return permanentHasKeyword(enchanted, String(m[1] || '').toLowerCase());
+    }
+  }
+
+  // "if enchanted creature is untapped" (best-effort: aura attachedTo)
+  if (/^if\s+enchanted\s+creature\s+is\s+untapped$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const attachedTo = String((sourcePermanent as any)?.attachedTo || '');
+    if (!attachedTo) return null;
+    const enchanted = findBattlefieldPermanent(ctx, attachedTo);
+    if (!enchanted) return null;
+    if (typeof (enchanted as any).tapped !== 'boolean') return null;
+    return !(enchanted as any).tapped;
+  }
+
+  // "if enchanted creature is red" (best-effort: aura attachedTo)
+  if (/^if\s+enchanted\s+creature\s+is\s+red$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const attachedTo = String((sourcePermanent as any)?.attachedTo || '');
+    if (!attachedTo) return null;
+    const enchanted = findBattlefieldPermanent(ctx, attachedTo);
+    if (!enchanted) return null;
+    return isPermanentRed(enchanted);
+  }
+
+  // "if enchanted creature is a Wolf or Werewolf" (best-effort: aura attachedTo)
+  if (/^if\s+enchanted\s+creature\s+is\s+a\s+wolf\s+or\s+werewolf$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const attachedTo = String((sourcePermanent as any)?.attachedTo || '');
+    if (!attachedTo) return null;
+    const enchanted = findBattlefieldPermanent(ctx, attachedTo);
+    if (!enchanted) return null;
+    const tl = String(enchanted?.card?.type_line || '');
+    if (!tl) return null;
+    return typeLineHasWord(tl, 'wolf') || typeLineHasWord(tl, 'werewolf');
+  }
+
+  // "if enchanted permanent is tapped" (best-effort: aura attachedTo)
+  if (/^if\s+enchanted\s+permanent\s+is\s+tapped$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const attachedTo = String((sourcePermanent as any)?.attachedTo || '');
+    if (!attachedTo) return null;
+    const enchanted = findBattlefieldPermanent(ctx, attachedTo);
+    if (!enchanted) return null;
+    if (typeof (enchanted as any).tapped !== 'boolean') return null;
+    return (enchanted as any).tapped;
+  }
+
+  // "if enchanted Equipment is attached to a creature" (best-effort: aura attachedTo)
+  if (/^if\s+enchanted\s+equipment\s+is\s+attached\s+to\s+a\s+creature$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const attachedTo = String((sourcePermanent as any)?.attachedTo || '');
+    if (!attachedTo) return null;
+    const enchantedEquipment = findBattlefieldPermanent(ctx, attachedTo);
+    if (!enchantedEquipment) return null;
+
+    const tl = String(enchantedEquipment?.card?.type_line || '').toLowerCase();
+    if (!tl.includes('equipment')) return false;
+
+    const eqAttachedTo = String((enchantedEquipment as any)?.attachedTo || '');
+    if (!eqAttachedTo) return false;
+    const creature = findBattlefieldPermanent(ctx, eqAttachedTo);
+    if (!creature) return null;
+    const creatureTl = String(creature?.card?.type_line || '').toLowerCase();
+    if (!creatureTl) return null;
+    return creatureTl.includes('creature');
   }
 
   // "if its toughness is N or less" (best-effort: source permanent)
@@ -4089,7 +4548,7 @@ function evaluateInterveningIfClauseInternal(
       const n = parseCountToken(m[1]);
       if (n === null) return null;
       if (!sourcePermanent) return null;
-      return getPermanentToughness(sourcePermanent) <= n;
+      return getPermanentToughness(sourcePermanent, ctx) <= n;
     }
   }
 
@@ -4109,6 +4568,18 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+it\s+was\s+enchanted\s+or\s+equipped$/i.test(clause)) {
     if (!sourcePermanent) return null;
     return isPermanentEnchanted(ctx, sourcePermanent) || isPermanentEquipped(ctx, sourcePermanent);
+  }
+
+  // "if it was enchanted" (best-effort)
+  if (/^if\s+it\s+was\s+enchanted$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    return isPermanentEnchanted(ctx, sourcePermanent);
+  }
+
+  // "if it was equipped" (best-effort)
+  if (/^if\s+it\s+was\s+equipped$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    return isPermanentEquipped(ctx, sourcePermanent);
   }
 
   // "if it was a <subtype>" (best-effort: source permanent type_line)
@@ -4321,7 +4792,11 @@ function evaluateInterveningIfClauseInternal(
   }
 
   // Spell/ability structure checks that require stack-item context (not currently threaded into this evaluator).
-  if (/^if\s+it\s+has\s+a\s+single\s+target$/i.test(clause)) return null;
+  if (/^if\s+it\s+has\s+a\s+single\s+target$/i.test(clause)) {
+    const c = getInterveningIfTargetCount(ctx, refs, sourcePermanent);
+    if (c === null) return null;
+    return c === 1;
+  }
   if (/^if\s+it\s+has\s+madness$/i.test(clause)) return null;
   if (/^if\s+that\s+spell\s+was\s+kicked$/i.test(clause)) {
     if (!sourcePermanent) return null;
@@ -4611,18 +5086,39 @@ function evaluateInterveningIfClauseInternal(
 
   // Generic "a face-down creature entered ..." (best-effort)
   if (/^if\s+a\s+face-down\s+creature\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
+    const map = (ctx as any).state?.faceDownCreaturesEnteredBattlefieldThisTurnByController;
+    const key = String(controllerId);
+    if (map && typeof map === 'object') {
+      if (Object.prototype.hasOwnProperty.call(map, key)) {
+        const n = (map as any)[key];
+        if (typeof n === 'number') return n > 0;
+      } else {
+        // If the map exists (it is reset each turn), missing key implies zero.
+        return false;
+      }
+    }
+
+    // Best-effort positive evidence from battlefield. We only return true if we can see a face-down creature
+    // that entered this turn under your current control.
     const battlefield = (ctx as any).state?.battlefield || [];
-    const hasEnteredTracking = Array.isArray(battlefield) && battlefield.some((p: any) => p?.enteredThisTurn === true);
-    if (!hasEnteredTracking) return null;
-    if (!Array.isArray(battlefield)) return null;
-    return battlefield.some((p: any) => {
-      if (!p) return false;
-      if (String(p.controller || '') !== String(controllerId)) return false;
-      if (p.enteredThisTurn !== true) return false;
-      const tl = String(p.card?.type_line || '').toLowerCase();
-      if (!tl.includes('creature')) return false;
-      return p.faceDown === true || p.isFaceDown === true || p.faceDownCreature === true;
-    });
+    if (Array.isArray(battlefield)) {
+      const anyFaceDown = battlefield.some((p: any) => {
+        if (!p) return false;
+        if (String(p.controller || '') !== key) return false;
+        if (p.enteredThisTurn !== true) return false;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        if (!tl.includes('creature')) return false;
+        return p.faceDown === true || p.isFaceDown === true || p.faceDownCreature === true;
+      });
+      if (anyFaceDown) return true;
+
+      // Avoid false negatives: without deterministic tracking, the creature could have entered under your control
+      // and then changed controller.
+      const hasEnteredTracking = battlefield.some((p: any) => p?.enteredThisTurn === true);
+      if (hasEnteredTracking) return null;
+    }
+
+    return null;
   }
 
   // Player/opponent comparative checks

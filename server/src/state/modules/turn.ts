@@ -1517,13 +1517,16 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 String(attackerPerm.controller),
                 synthetic,
                 attackerPerm,
-                needsThatPlayerRef
-                  ? {
-                      thatPlayerId: String(defendingPlayerId),
-                      referencedPlayerId: String(defendingPlayerId),
-                      theirPlayerId: String(defendingPlayerId),
-                    }
-                  : undefined
+                {
+                  defendingPlayerId: String(defendingPlayerId),
+                  ...(needsThatPlayerRef
+                    ? {
+                        thatPlayerId: String(defendingPlayerId),
+                        referencedPlayerId: String(defendingPlayerId),
+                        theirPlayerId: String(defendingPlayerId),
+                      }
+                    : {}),
+                }
               );
               if (ok === false) {
                 debug(2, `${ts()} [dealCombatDamage] Skipping trigger from ${attackerPerm.card?.name || attackerPerm.id} due to intervening-if being false: ${text}`);
@@ -1606,13 +1609,16 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 String(controllerId),
                 synthetic,
                 perm,
-                needsThatPlayerRef
-                  ? {
-                      thatPlayerId: String(defendingPlayerId),
-                      referencedPlayerId: String(defendingPlayerId),
-                      theirPlayerId: String(defendingPlayerId),
-                    }
-                  : undefined
+                {
+                  defendingPlayerId: String(defendingPlayerId),
+                  ...(needsThatPlayerRef
+                    ? {
+                        thatPlayerId: String(defendingPlayerId),
+                        referencedPlayerId: String(defendingPlayerId),
+                        theirPlayerId: String(defendingPlayerId),
+                      }
+                    : {}),
+                }
               );
               if (ok === false) {
                 debug(2, `${ts()} [dealCombatDamage] Skipping batched trigger from ${trigger.cardName} due to intervening-if being false: ${text}`);
@@ -2232,6 +2238,56 @@ export function nextTurn(ctx: GameContext) {
       debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
     }
 
+    // Clear played-from-exile tracking (for intervening-if templates like
+    // "if you (didn't) play a card from exile this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.playedCardFromExileThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (pid) stateAny.playedCardFromExileThisTurn[String(pid)] = false;
+      }
+      debug(2, `${ts()} [nextTurn] Cleared playedCardFromExileThisTurn for new turn`);
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn clue sacrifice tracking (for intervening-if templates like
+    // "if you sacrificed N or more Clues this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.sacrificedCluesThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (pid) stateAny.sacrificedCluesThisTurn[String(pid)] = 0;
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn counter placement tracking (for intervening-if templates like
+    // "if you put a counter on a creature this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.putCounterOnCreatureThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (pid) stateAny.putCounterOnCreatureThisTurn[String(pid)] = false;
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Mirrormind Crown replacement usage is tracked per equipment id for the current turn.
+    try {
+      (ctx as any).state.mirrormindCrownUsedThisTurn = {};
+    } catch {
+      // best-effort only
+    }
+
     // Reset per-turn day/night change tracking before applying the beginning-of-turn transition.
     try {
       (ctx as any).state.dayNightChangedThisTurn = false;
@@ -2315,6 +2371,7 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnByController = {};
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnByControllerSubtype = {};
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnIdsByController = {};
+    (ctx as any).state.faceDownCreaturesEnteredBattlefieldThisTurnByController = {};
     (ctx as any).state.permanentLeftBattlefieldThisTurn = {};
 
     // Reset per-permanent damage tracking for "this turn" intervening-if clauses.

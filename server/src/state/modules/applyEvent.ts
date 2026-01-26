@@ -691,6 +691,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 }
                 case 'AddCountersPermanent':
                   updateCounters(ctx as any, (eff as any).id, { [(eff as any).counterType]: (eff as any).amount });
+                  // Turn-tracking for intervening-if: "if you put a counter on a creature this turn".
+                  // Best-effort: only marks true when the spell's caster is known and the target is a creature.
+                  try {
+                    const targetPerm = ctx.state.battlefield.find((p: any) => p?.id === (eff as any).id);
+                    const tl = String(targetPerm?.card?.type_line || '').toLowerCase();
+                    if (caster && tl.includes('creature')) {
+                      const stateAny = ctx.state as any;
+                      stateAny.putCounterOnCreatureThisTurn = stateAny.putCounterOnCreatureThisTurn || {};
+                      stateAny.putCounterOnCreatureThisTurn[String(caster)] = true;
+                    }
+                  } catch {
+                    // best-effort only
+                  }
                   break;
                 case 'DamagePermanent': {
                   // Apply damage to permanent (may kill it via SBA)
@@ -1192,6 +1205,24 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const permId = (e as any).permanentId;
         if (!permId) break;
         try {
+          // Turn-tracking for intervening-if: "if you sacrificed N or more Clues this turn".
+          // Best-effort: counts any sacrificed Clue permanent, keyed by the permanent's controller.
+          try {
+            const battlefield = ctx.state.battlefield || [];
+            const perm = battlefield.find((p: any) => p?.id === permId);
+            const controllerId = perm?.controller != null ? String(perm.controller) : null;
+            const tl = String(perm?.card?.type_line || '').toLowerCase();
+            const nm = String(perm?.card?.name || '').toLowerCase();
+            const isClue = tl.includes('clue') && (tl.includes('artifact') || tl.includes('token'));
+            if (controllerId && isClue && (nm === 'clue' || tl.includes('— clue') || tl.includes('- clue') || tl.includes('clue'))) {
+              const stateAny = ctx.state as any;
+              stateAny.sacrificedCluesThisTurn = stateAny.sacrificedCluesThisTurn || {};
+              stateAny.sacrificedCluesThisTurn[controllerId] = (stateAny.sacrificedCluesThisTurn[controllerId] || 0) + 1;
+            }
+          } catch {
+            // best-effort only
+          }
+
           movePermanentToGraveyard(ctx as any, permId, true);
         } catch (err) {
           debugWarn(1, "applyEvent(sacrificePermanent): failed", err);
@@ -1206,6 +1237,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         if (!Array.isArray(permanentIds) || permanentIds.length === 0) break;
         try {
           for (const permId of permanentIds) {
+            // Same Clue-sacrifice tracking as sacrificePermanent.
+            try {
+              const battlefield = ctx.state.battlefield || [];
+              const perm = battlefield.find((p: any) => p?.id === permId);
+              const controllerId = perm?.controller != null ? String(perm.controller) : null;
+              const tl = String(perm?.card?.type_line || '').toLowerCase();
+              const nm = String(perm?.card?.name || '').toLowerCase();
+              const isClue = tl.includes('clue') && (tl.includes('artifact') || tl.includes('token'));
+              if (controllerId && isClue && (nm === 'clue' || tl.includes('— clue') || tl.includes('- clue') || tl.includes('clue'))) {
+                const stateAny = ctx.state as any;
+                stateAny.sacrificedCluesThisTurn = stateAny.sacrificedCluesThisTurn || {};
+                stateAny.sacrificedCluesThisTurn[controllerId] = (stateAny.sacrificedCluesThisTurn[controllerId] || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+
             movePermanentToGraveyard(ctx as any, permId, true);
           }
         } catch (err) {

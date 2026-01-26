@@ -12792,6 +12792,65 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  // ===== MIRRORMIND CROWN (Token replacement) =====
+  // Queued from token creation when a Mirrormind Crown is attached and unused this turn.
+  // Choice: create the normal tokens, or replace with that many tokens that are copies of the equipped creature.
+  if (stepData?.mirrormindCrownTokenReplacementChoice === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'normal' : null) || 'normal';
+    const original = stepData?.mirrormindCrownOriginalTokenCreate;
+    const equippedCard = stepData?.mirrormindCrownEquippedCreatureCard;
+
+    const controllerId = String(original?.controller || playerId || '').trim();
+    const tokenName = String(original?.name || 'Token');
+    const tokenCount = Math.max(0, Number(original?.count ?? 0));
+    const basePower = original?.basePower;
+    const baseToughness = original?.baseToughness;
+    const options = original?.options;
+
+    if (!controllerId || tokenCount <= 0) {
+      debugWarn(1, '[Resolution] mirrormindCrownTokenReplacementChoice: missing controllerId/count');
+      return;
+    }
+
+    const ctx: any = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      gameId,
+    };
+
+    try {
+      if (!response.cancelled && choiceId === 'replace' && equippedCard) {
+        const { createCopyTokensOfCard } = await import('../state/modules/counters_tokens.js');
+        createCopyTokensOfCard(ctx as any, controllerId as any, equippedCard, tokenCount, true);
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, controllerId)} uses Mirrormind Crown to create ${tokenCount} token(s) that are copies of ${String(equippedCard?.name || 'the equipped creature')}.`,
+          ts: Date.now(),
+        });
+      } else {
+        const { createToken } = await import('../state/modules/counters_tokens.js');
+        createToken(ctx as any, controllerId as any, tokenName, tokenCount, basePower, baseToughness, options, true);
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, controllerId)} creates ${tokenCount} ${tokenName} token(s).`,
+          ts: Date.now(),
+        });
+      }
+    } catch (err) {
+      debugWarn(1, '[Resolution] mirrormindCrownTokenReplacementChoice failed:', err);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   // ===== COMBAT: OPTIONAL ATTACK TRIGGER MANA PAYMENT (Casal, etc.) =====
   // This is queued from server/socket/combat.ts when an attack trigger has "you may pay {..}. If you do, ...".
   if (stepData?.attackTriggerManaPaymentChoice === true) {

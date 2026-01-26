@@ -34,6 +34,35 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, { tapped: false })).toBe(false);
   });
 
+  it('supports "cast both a creature spell and a noncreature spell this turn" templates', () => {
+    const g = createInitialGameState('t_intervening_if_eval_cast_both_creature_noncreature');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "At the beginning of your upkeep, if you've cast both a creature spell and a noncreature spell this turn, draw a card.";
+
+    (g.state as any).spellsCastThisTurn = [];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { name: 'Elf', type_line: 'Creature — Elf' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { name: 'Elf', type_line: 'Creature — Elf' } },
+      { casterId: p1, card: { name: 'Bolt', type_line: 'Instant' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    // Conservative: unknown type_line prevents a definitive false.
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { name: 'Elf', type_line: 'Creature — Elf' } },
+      { casterId: p1, card: { name: 'Mystery' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
   it('supports explicit "untapped" wording (e.g., "if this artifact is untapped")', () => {
     const g = createInitialGameState('t_intervening_if_eval_this_untapped');
     const p1 = 'p1' as PlayerID;
@@ -42,6 +71,28 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     const desc = 'When this artifact enters the battlefield, if this artifact is untapped, draw a card.';
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, { tapped: false })).toBe(true);
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, { tapped: true })).toBe(false);
+  });
+
+  it('supports "played a card from exile this turn" templates (did / did not)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_played_from_exile');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const descDidNot = "At the beginning of your upkeep, if you didn't play a card from exile this turn, draw a card.";
+    const descDid = 'At the beginning of your upkeep, if you played a card from exile this turn, draw a card.';
+
+    (g.state as any).playedCardFromExileThisTurn = { [p1]: false };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDidNot)).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDid)).toBe(false);
+
+    (g.state as any).playedCardFromExileThisTurn = { [p1]: true };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDidNot)).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDid)).toBe(true);
+
+    // Conservative: missing tracking => null
+    delete (g.state as any).playedCardFromExileThisTurn;
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDidNot)).toBe(null);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descDid)).toBe(null);
   });
 
   it('supports "this permanent is an enchantment" templates', () => {
@@ -86,6 +137,30 @@ describe('Intervening-if evaluator (expanded templates)', () => {
 
     (g.state as any).permanentLeftBattlefieldThisTurn = { [p1]: false };
     expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports life-loss-last-turn templates (you / an opponent)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_life_lost_last_turn');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const descYou = 'At the beginning of your upkeep, if you lost life last turn, draw a card.';
+    const descOpp = 'At the beginning of your upkeep, if an opponent lost life last turn, draw a card.';
+
+    (g.state as any).lifeLostLastTurnByPlayerCounts = { [p1]: 2, [p2]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descYou)).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descOpp)).toBe(false);
+
+    (g.state as any).lifeLostLastTurnByPlayerCounts = { [p1]: 0, [p2]: 3 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), descYou)).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descOpp)).toBe(true);
+
+    // Conservative: missing tracking => null
+    delete (g.state as any).lifeLostLastTurnByPlayerCounts;
+    expect(isInterveningIfSatisfied(g as any, String(p1), descYou)).toBe(null);
+    expect(isInterveningIfSatisfied(g as any, String(p1), descOpp)).toBe(null);
   });
 
   it('supports opponent-controlled creature death/ETB templates', () => {
@@ -144,6 +219,46 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), descNoEtb)).toBe(true);
     (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p1]: 1 };
     expect(isInterveningIfSatisfied(g as any, String(p1), descNoEtb)).toBe(false);
+  });
+
+  it('supports face-down creature ETB under your control this turn (tracked + conservative fallback)', () => {
+    const g = createInitialGameState('t_intervening_if_eval_face_down_etb');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of your upkeep, if a face-down creature entered the battlefield under your control this turn, draw a card.';
+
+    // Deterministic tracking (preferred).
+    (g.state as any).faceDownCreaturesEnteredBattlefieldThisTurnByController = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+    (g.state as any).faceDownCreaturesEnteredBattlefieldThisTurnByController = { [p1]: 0 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    // Best-effort positive evidence from battlefield when the map is missing.
+    delete (g.state as any).faceDownCreaturesEnteredBattlefieldThisTurnByController;
+    (g.state as any).battlefield = [
+      {
+        id: 'fd1',
+        controller: p1,
+        owner: p1,
+        enteredThisTurn: true,
+        faceDown: true,
+        card: { name: 'Mystery', type_line: 'Creature' },
+      },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    // Conservative: if we have enteredThisTurn tracking but no face-down evidence and no map, return null.
+    (g.state as any).battlefield = [
+      {
+        id: 'c1',
+        controller: p1,
+        owner: p1,
+        enteredThisTurn: true,
+        card: { name: 'Bear', type_line: 'Creature — Bear' },
+      },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
   });
 
   it('supports subtype death templates (phyrexian / another <subtype>)', () => {
