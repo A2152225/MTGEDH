@@ -86,4 +86,26 @@ describe('Intervening-if: damage dealt to it this turn', () => {
     const victimNextTurn = (g.state as any).battlefield.find((p: any) => p?.id === 'victim_1');
     expect(victimNextTurn?.damageThisTurn).toBeUndefined();
   });
+
+  it('makes "if this creature was dealt damage this turn" decidable via damageThisTurn', () => {
+    const g = createInitialGameState('t_intervening_if_damage_this_turn');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const victim = {
+      id: 'victim_2',
+      controller: p1,
+      owner: p1,
+      card: { id: 'victim_card2', name: 'Victim', type_line: 'Creature — Test', power: '1', toughness: '1' },
+    };
+
+    const clause = 'if this creature was dealt damage this turn';
+
+    expect(evaluateInterveningIfClauseDetailed(g as any, String(p1), clause, victim as any).matched).toBe(true);
+    expect(evaluateInterveningIfClauseDetailed(g as any, String(p1), clause, victim as any).value).toBe(false);
+
+    (victim as any).damageThisTurn = 1;
+    expect(evaluateInterveningIfClauseDetailed(g as any, String(p1), clause, victim as any).matched).toBe(true);
+    expect(evaluateInterveningIfClauseDetailed(g as any, String(p1), clause, victim as any).value).toBe(true);
+  });
 });
