@@ -3342,6 +3342,34 @@ function evaluateInterveningIfClauseInternal(
     }
   }
 
+  // "if no colored mana was spent to cast it" (conservative)
+  {
+    const m = clause.match(/^if\s+no\s+colored\s+mana\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
+    if (m) {
+      if (!sourcePermanent) return null;
+
+      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
+      if (breakdown && typeof breakdown === 'object') {
+        const colorKeys = ['white', 'blue', 'black', 'red', 'green'];
+        let allKnown = true;
+        for (const k of colorKeys) {
+          const n = parseMaybeNumber((breakdown as any)[k]);
+          if (n === null) {
+            allKnown = false;
+            continue;
+          }
+          if (n > 0) return false;
+        }
+        if (allKnown) return true;
+      }
+
+      const spent = getManaColorsSpentFromSource(sourcePermanent);
+      if (spent) return spent.length === 0;
+
+      return null;
+    }
+  }
+
   // "if at least N mana was spent to cast it"
   {
     const m = clause.match(/^if\s+at\s+least\s+([a-z0-9]+)\s+mana\s+was\s+spent\s+to\s+cast\s+it$/i);
@@ -4751,6 +4779,45 @@ function evaluateInterveningIfClauseInternal(
     return getSpellsCastThisTurn(ctx).length === 0;
   }
 
+  // "if it was the second spell you cast this turn" (conservative; requires spell tracking)
+  if (
+    /^if\s+it\s+was\s+the\s+second\s+spell\s+you\s+cast\s+this\s+turn$/i.test(clause) ||
+    /^if\s+it'?s\s+the\s+second\s+spell\s+you\s+cast\s+this\s+turn$/i.test(clause) ||
+    /^if\s+it\s+is\s+the\s+second\s+spell\s+you\s+cast\s+this\s+turn$/i.test(clause) ||
+    /^if\s+it'?s\s+the\s+second\s+spell\s+you'?ve\s+cast\s+this\s+turn$/i.test(clause) ||
+    /^if\s+it\s+is\s+the\s+second\s+spell\s+you'?ve\s+cast\s+this\s+turn$/i.test(clause)
+  ) {
+    const raw = (ctx as any).state?.spellsCastThisTurn;
+    if (!Array.isArray(raw)) return null;
+    return getSpellsCastThisTurnByPlayerCount(ctx, controllerId) === 2;
+  }
+
+  // "if it's the second creature spell you cast this turn" (conservative; requires spell tracking)
+  if (
+    /^if\s+it'?s\s+the\s+second\s+creature\s+spell\s+you\s+cast\s+this\s+turn$/i.test(clause) ||
+    /^if\s+it\s+is\s+the\s+second\s+creature\s+spell\s+you\s+cast\s+this\s+turn$/i.test(clause)
+  ) {
+    const raw = (ctx as any).state?.spellsCastThisTurn;
+    if (!Array.isArray(raw)) return null;
+
+    const spells = getSpellsCastThisTurn(ctx).filter((s: any) => String(s?.casterId || "") === controllerId);
+    let creatureCount = 0;
+    let unknown = false;
+
+    for (const s of spells) {
+      const tl = String(s?.card?.type_line ?? s?.type_line ?? "").toLowerCase();
+      if (!tl) {
+        unknown = true;
+        continue;
+      }
+      if (tl.includes('creature')) creatureCount += 1;
+    }
+
+    if (!unknown) return creatureCount === 2;
+    if (creatureCount > 2) return false;
+    return null;
+  }
+
   // "if it's the first spell you've cast this turn" / "if it's the first spell you cast this turn"
   if (
     /^if\s+it'?s\s+the\s+first\s+spell\s+you'?ve\s+cast\s+this\s+turn$/i.test(clause) ||
@@ -6091,8 +6158,88 @@ function evaluateInterveningIfClauseInternal(
     return null;
   }
 
-  // Specific named variant: "if Sarulf has N or more +1/+1 counters on it" (recognize; can't reliably locate Sarulf)
-  if (/^if\s+sarulf\s+has\s+([a-z0-9]+)\s+or\s+more\s+\+1\/\+1\s+counters\s+on\s+it$/i.test(clause)) return null;
+  // Named variant: "if Sarulf has (one|N) or more +1/+1 counters on it" (conservative)
+  {
+    const m = clause.match(/^if\s+sarulf\s+has\s+([a-z0-9]+)\s+or\s+more\s+\+1\/\+1\s+counters\s+on\s+it$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+
+      const sourceNameLower = toLower(sourcePermanent?.card?.name || sourcePermanent?.name || '');
+      const candidates = nameMatchesClauseName(sourceNameLower, 'sarulf')
+        ? [sourcePermanent]
+        : findBattlefieldPermanentsByName(ctx, 'sarulf');
+      if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+      let anyUnknown = false;
+      let anyKnown = false;
+      for (const p of candidates) {
+        const c = getCounterCountCaseInsensitiveFromPerm(p, '+1/+1');
+        if (c === null) {
+          anyUnknown = true;
+          continue;
+        }
+        anyKnown = true;
+        if (c >= n) return true;
+      }
+
+      if (anyKnown && !anyUnknown) return false;
+      return null;
+    }
+  }
+  {
+    const m = clause.match(/^if\s+sarulf\s+has\s+one\s+or\s+more\s+\+1\/\+1\s+counters\s+on\s+it$/i);
+    if (m) {
+      const sourceNameLower = toLower(sourcePermanent?.card?.name || sourcePermanent?.name || '');
+      const candidates = nameMatchesClauseName(sourceNameLower, 'sarulf')
+        ? [sourcePermanent]
+        : findBattlefieldPermanentsByName(ctx, 'sarulf');
+      if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+      let anyUnknown = false;
+      let anyKnown = false;
+      for (const p of candidates) {
+        const c = getCounterCountCaseInsensitiveFromPerm(p, '+1/+1');
+        if (c === null) {
+          anyUnknown = true;
+          continue;
+        }
+        anyKnown = true;
+        if (c > 0) return true;
+      }
+
+      if (anyKnown && !anyUnknown) return false;
+      return null;
+    }
+  }
+
+  // Named variant: "if Katara is tapped" / "if Kona is tapped" (conservative)
+  {
+    const m = clause.match(/^if\s+(katara|kona)\s+is\s+tapped$/i);
+    if (m) {
+      const nameLower = String(m[1] || '').toLowerCase();
+      const sourceNameLower = toLower(sourcePermanent?.card?.name || sourcePermanent?.name || '');
+      const candidates = nameMatchesClauseName(sourceNameLower, nameLower)
+        ? [sourcePermanent]
+        : findBattlefieldPermanentsByName(ctx, nameLower);
+      if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+      let anyUnknown = false;
+      let anyKnown = false;
+      for (const p of candidates) {
+        const t = (p as any)?.tapped;
+        if (typeof t !== 'boolean') {
+          anyUnknown = true;
+          continue;
+        }
+        anyKnown = true;
+        if (t === true) return true;
+      }
+
+      if (anyKnown && !anyUnknown) return false;
+      return null;
+    }
+  }
 
   // "if you control a creature with a +1/+1 counter on it" (+ "another")
   if (/^if\s+you\s+control\s+a\s+creature\s+with\s+a\s+\+1\/\+1\s+counter\s+on\s+it$/i.test(clause)) {

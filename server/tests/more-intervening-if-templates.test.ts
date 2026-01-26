@@ -174,4 +174,114 @@ describe('Intervening-if evaluator (more templates)', () => {
     // Conservative: no keyword info at all => null
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { oracle_text: '' } })).toBe(null);
   });
+
+  it('supports "if no colored mana was spent to cast it" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_no_colored_mana');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'When you cast this spell, if no colored mana was spent to cast it, draw a card.';
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, {
+        manaSpentBreakdown: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      })
+    ).toBe(true);
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, {
+        manaSpentBreakdown: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+      })
+    ).toBe(false);
+
+    // Conservative: partial breakdown => unknown
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { manaSpentBreakdown: { colorless: 2 } })).toBe(null);
+
+    // Fallback: use tracked manaColorsSpent when breakdown is missing/incomplete
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { manaColorsSpent: ['red'] })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { manaColorsSpent: [] })).toBe(true);
+  });
+
+  it('supports "if it was the second spell you cast this turn" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_second_spell');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'When you cast this spell, if it was the second spell you cast this turn, draw a card.';
+
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Instant' } }, { casterId: p1, card: { type_line: 'Creature' } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Spell' } })).toBe(true);
+
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Instant' } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Spell' } })).toBe(false);
+
+    delete (g.state as any).spellsCastThisTurn;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Spell' } })).toBe(null);
+  });
+
+  it("supports \"if it's the second creature spell you cast this turn\" (conservative)", () => {
+    const g = createInitialGameState('t_intervening_if_second_creature_spell');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "When you cast this spell, if it's the second creature spell you cast this turn, draw a card.";
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { type_line: 'Creature' } },
+      { casterId: p1, card: { type_line: 'Instant' } },
+      { casterId: p1, card: { type_line: 'Creature' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Creature' } })).toBe(true);
+
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Creature' } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Creature' } })).toBe(false);
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { type_line: 'Creature' } },
+      { casterId: p1, card: { } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Creature' } })).toBe(null);
+  });
+
+  it('supports "if Sarulf has one or more +1/+1 counters on it" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_sarulf_counters');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of your upkeep, if Sarulf has one or more +1/+1 counters on it, draw a card.';
+
+    (g.state as any).battlefield = [
+      { id: 's1', controller: p1, card: { name: 'Sarulf, Realm Eater', type_line: 'Legendary Creature' }, counters: { '+1/+1': 1 } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).battlefield = [
+      { id: 's1', controller: p1, card: { name: 'Sarulf, Realm Eater', type_line: 'Legendary Creature' }, counters: { '+1/+1': 0 } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    // Conservative: can't locate Sarulf
+    (g.state as any).battlefield = [];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
+  it('supports "if Katara is tapped" and "if Kona is tapped" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_named_is_tapped');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const dKatara = 'At the beginning of your upkeep, if Katara is tapped, draw a card.';
+    const dKona = 'At the beginning of your upkeep, if Kona is tapped, draw a card.';
+
+    (g.state as any).battlefield = [
+      { id: 'k1', controller: p1, card: { name: 'Katara, Bending Prodigy', type_line: 'Legendary Creature' }, tapped: true },
+      { id: 'k2', controller: p1, card: { name: 'Kona, Rescue Beastie', type_line: 'Legendary Creature' }, tapped: false },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), dKatara)).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dKona)).toBe(false);
+
+    // Conservative: tapped state missing
+    (g.state as any).battlefield = [{ id: 'k1', controller: p1, card: { name: 'Katara, Bending Prodigy' } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), dKatara)).toBe(null);
+  });
 });

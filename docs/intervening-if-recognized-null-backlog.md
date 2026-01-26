@@ -160,7 +160,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [x] (1) [misc] if it was equipped — e.g. Gunner Conscript
 - [x] (1) [misc] if it was historic — e.g. Curator's Ward
 - [ ] (1) [misc] if it was kicked twice — e.g. Archangel of Wrath
-- [ ] (1) [misc] if it was the second spell you cast this turn — e.g. Codespell Cleric
+- [x] (1) [misc] if it was the second spell you cast this turn — e.g. Codespell Cleric
 - [ ] (1) [misc] if it wasn't a Demon — e.g. Infernal Vessel
 - [ ] (1) [misc] if it wasn't put onto the battlefield with this ability — e.g. Kodama of the East Tree
 - [ ] (1) [misc] if it wasn't sacrificed — e.g. Urza's Miter
@@ -182,7 +182,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if it's the first time +1/+1 counters have been put on that permanent this turn — e.g. Botanical Brawler
 - [ ] (1) [needs-event-refs] if it's the first time counters have been put on that creature this turn — e.g. Stalwart Successor
 - [ ] (1) [misc] if it's the first time this ability has resolved this game — e.g. The Keeper of Kaldra
-- [ ] (1) [misc] if it's the second creature spell you cast this turn — e.g. Vengevine
+- [x] (1) [misc] if it's the second creature spell you cast this turn — e.g. Vengevine
 - [x] (1) [misc] if it's your turn — e.g. Jeering Instigator
 - [ ] (1) [misc] if its additional cost was paid — e.g. Graven Archfiend
 - [ ] (1) [misc] if its madness cost was paid — e.g. Grave Scrabbler
@@ -198,15 +198,15 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if Jace was kicked — e.g. Jace, Mirror Mage
 - [x] (1) [misc] if Kaito entered this turn — e.g. Kaito Shizuki
 - [x] (1) [misc] if Kalamax is tapped — e.g. Kalamax, the Stormsire
-- [ ] (1) [misc] if Katara is tapped — e.g. Katara, Bending Prodigy
-- [ ] (1) [misc] if Kona is tapped — e.g. Kona, Rescue Beastie
+- [x] (1) [misc] if Katara is tapped — e.g. Katara, Bending Prodigy
+- [x] (1) [misc] if Kona is tapped — e.g. Kona, Rescue Beastie
 - [ ] (1) [misc] if Kytheon and at least two other creatures attacked this combat — e.g. Kytheon, Hero of Akros // Gideon, Battle-Forged
 - [x] (1) [misc] if Legolas is tapped — e.g. Legolas, Counter of Kills
 - [ ] (1) [misc] if life was paid to activate it — e.g. Verrak, Warped Sengir
 - [ ] (1) [misc] if mana from a Treasure was spent to cast it or activate it — e.g. Vazi, Keen Negotiator
 - [ ] (1) [turn-tracking] if more lands entered the battlefield under your control this turn than an opponent had enter during their last turn — e.g. Simic, Value Engine
 - [ ] (1) [misc] if necessary — e.g. Ricochet
-- [ ] (1) [misc] if no colored mana was spent to cast it — e.g. Void Mirror
+- [x] (1) [misc] if no colored mana was spent to cast it — e.g. Void Mirror
 - [x] (1) [turn-tracking] if no creatures died this turn — e.g. Titan Hunter
 - [ ] (1) [misc] if no mana was spent to cast that spell — e.g. Roiling Vortex
 - [ ] (1) [misc] if no opponent cast a spell since your last turn ended — e.g. I Bask in Your Silent Awe
@@ -221,7 +221,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if Rasputin started the turn untapped — e.g. Rasputin Dreamweaver
 - [ ] (1) [misc] if Ring Out is in your library — e.g. Ring Out
 - [x] (1) [misc] if Rip is tapped — e.g. Rip, Spawn Hunter
-- [ ] (1) [misc] if Sarulf has one or more +1/+1 counters on it — e.g. Sarulf, Realm Eater
+- [x] (1) [misc] if Sarulf has one or more +1/+1 counters on it — e.g. Sarulf, Realm Eater
 - [ ] (1) [misc] if she was a nonland creature — e.g. Princess Yue
 - [x] (1) [misc] if Sidar Jabari is in the command zone or on the battlefield — e.g. Sidar Jabari of Zhalfir
 - [x] (1) [misc] if Tahngarth is tapped — e.g. Tahngarth, First Mate
