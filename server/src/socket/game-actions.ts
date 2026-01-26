@@ -5575,6 +5575,15 @@ export function registerGameActions(io: Server, socket: Socket) {
             name: cardInHand?.name,
             casterId: playerId,
             ts: Date.now(),
+            // Store minimal card metadata so intervening-if templates can evaluate
+            // spell characteristics (e.g., creature vs noncreature, spell colors).
+            card: {
+              id: cardInHand?.id,
+              name: cardInHand?.name,
+              type_line: cardInHand?.type_line,
+              colors: (cardInHand as any)?.colors,
+              color_identity: (cardInHand as any)?.color_identity,
+            },
           });
         } catch (err) {
           debugWarn(2, '[castSpellFromHand] Failed to track spellsCastThisTurn:', err);

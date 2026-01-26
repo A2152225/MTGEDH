@@ -15,6 +15,7 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 
 // ============================================================================
 // DYNAMIC PATTERN DETECTION REGEXES
@@ -670,6 +671,7 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
     if (zones) {
       zones.graveyard = zones.graveyard || [];
       zones.graveyard.push({ ...permanent.card, zone: "graveyard" });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), permanent.card, { fromBattlefield: true });
       zones.graveyardCount = zones.graveyard.length;
     }
     

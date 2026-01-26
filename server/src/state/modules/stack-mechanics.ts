@@ -32,6 +32,7 @@
 import type { GameContext } from "../context.js";
 import { debug } from "../../utils/debug.js";
 import { checkGraveyardTrigger } from "./triggered-abilities.js";
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 
 export interface StackItem {
   id: string;
@@ -337,6 +338,7 @@ export function counterStackItem(
     if (zones) {
       zones.graveyard = zones.graveyard || [];
       zones.graveyard.push({ ...item.card, zone: 'graveyard' });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(item.controller), item.card, { fromBattlefield: false });
       zones.graveyardCount = zones.graveyard.length;
       
       // Check for graveyard triggers (Eldrazi shuffle)

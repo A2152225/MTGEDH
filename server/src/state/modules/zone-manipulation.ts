@@ -102,6 +102,23 @@ export function shuffleZoneIntoLibrary(
   // Update library
   ctx.libraries.set(playerId, newLibrary);
   zones.libraryCount = newLibrary.length;
+
+  // Turn-tracking for intervening-if: a card left your graveyard this turn.
+  if (sourceZone === 'graveyard') {
+    try {
+      const stateAny = (ctx as any).state as any;
+      stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
+      stateAny.cardLeftGraveyardThisTurn[String(playerId)] = true;
+
+      const movedCreature = cardsToShuffle.some((c: any) => String(c?.type_line || c?.card?.type_line || '').toLowerCase().includes('creature'));
+      if (movedCreature) {
+        stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
+        stateAny.creatureCardLeftGraveyardThisTurn[String(playerId)] = true;
+      }
+    } catch {
+      // best-effort only
+    }
+  }
   
   debug(1, `[shuffleZoneIntoLibrary] Shuffled ${cardsToShuffle.length} cards from ${sourceZone} into ${playerId}'s library (new library size: ${newLibrary.length})`);
   

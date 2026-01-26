@@ -377,6 +377,21 @@ function destroyPermanents(state: any, permanents: any[]): void {
         graveyard.push({ ...(perm as any).card, zone: 'graveyard' });
         (zones as any).graveyard = graveyard;
         (zones as any).graveyardCount = graveyard.length;
+
+        // Per-turn tracking for intervening-if graveyard-put templates.
+        try {
+          state.cardsPutIntoYourGraveyardThisTurn = state.cardsPutIntoYourGraveyardThisTurn || {};
+          state.cardsPutIntoYourGraveyardThisTurn[String(controller)] =
+            (state.cardsPutIntoYourGraveyardThisTurn[String(controller)] || 0) + 1;
+
+          const typeLine = String((perm as any).card?.type_line || '').toLowerCase();
+          if (typeLine.includes('creature')) {
+            state.creatureCardPutIntoYourGraveyardThisTurn = state.creatureCardPutIntoYourGraveyardThisTurn || {};
+            state.creatureCardPutIntoYourGraveyardThisTurn[String(controller)] = true;
+          }
+        } catch {
+          // best-effort only
+        }
       }
     }
   }

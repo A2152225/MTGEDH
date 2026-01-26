@@ -5,6 +5,7 @@
 
 import type { GameContext } from "../context.js";
 import type { PlayerID, GameEvent } from "../types.js";
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import {
   reset,
   skip,
@@ -373,7 +374,10 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   (z as any).graveyard = (z as any).graveyard || [];
   for (const id of toGraveyard) {
     const c = byId.get(id);
-    if (c) (z as any).graveyard.push({ ...c, zone: "graveyard", faceDown: false });
+    if (c) {
+      (z as any).graveyard.push({ ...c, zone: "graveyard", faceDown: false });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), c, { fromBattlefield: false });
+    }
   }
   (z as any).graveyardCount = ((z as any).graveyard || []).length;
   for (let i = keepTopOrder.length - 1; i >= 0; i--) {

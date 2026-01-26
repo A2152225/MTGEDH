@@ -23,7 +23,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (2) [evidence/collect] if evidence was collected — e.g. Spotlight Falcon, Vitu-Ghazi Inspector
 - [x] (2) [targeting/stack-metadata] if it has a single target — e.g. Captured by the Consulate, Grip of Chaos
 - [ ] (2) [misc] if it has madness — e.g. Anje Falkenrath, Anje Falkenrath // Anje Falkenrath
-- [ ] (2) [misc] if it shares a card type with the exiled card — e.g. Cemetery Gatekeeper, Cemetery Protector
+- [x] (2) [misc] if it shares a card type with the exiled card — e.g. Cemetery Gatekeeper, Cemetery Protector
 - [ ] (2) [misc] if it was unearthed — e.g. Malfegor Avatar
 - [x] (2) [misc] if it's your main phase — e.g. All-Out Assault, Moraug, Fury of Akoum
 - [ ] (2) [misc] if its prowl cost was paid — e.g. Earwig Squad, Latchkey Faerie
@@ -47,11 +47,11 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [x] (2) [misc] if you've cast both a creature spell and a noncreature spell this turn — e.g. Eshki Dragonclaw, Fae Offering
 - [x] (2) [dungeon/initiative] if you've completed a dungeon — e.g. Eccentric Apprentice, Ravenloft Adventurer
 - [ ] (1) [misc] if {S} of any of that spell's colors was spent to cast it — e.g. Boreal Outrider
-- [ ] (1) [misc] if a +1/+1 counter was put on a permanent under your control this turn — e.g. Fairgrounds Trumpeter
-- [ ] (1) [misc] if a card left your graveyard this turn — e.g. Gau, Feral Youth
+- [x] (1) [misc] if a +1/+1 counter was put on a permanent under your control this turn — e.g. Fairgrounds Trumpeter
+- [x] (1) [misc] if a card left your graveyard this turn — e.g. Gau, Feral Youth
 - [ ] (1) [misc] if a counter was put on Wakka this turn — e.g. Wakka, Devoted Guardian
-- [ ] (1) [misc] if a creature card left your graveyard this turn — e.g. Syrix, Carrier of the Flame
-- [ ] (1) [misc] if a creature card was put into your graveyard from anywhere this turn — e.g. Raphael, Fiendish Savior
+- [x] (1) [misc] if a creature card left your graveyard this turn — e.g. Syrix, Carrier of the Flame
+- [x] (1) [misc] if a creature card was put into your graveyard from anywhere this turn — e.g. Raphael, Fiendish Savior
 - [ ] (1) [turn-tracking] if a creature dealt damage by this creature this turn died — e.g. Krovikan Vampire
 - [x] (1) [turn-tracking] if a creature died under an opponent's control this turn — e.g. Sidequest: Hunt the Mark // Yiazmat, Ultimate Mark
 - [x] (1) [turn-tracking] if a creature entered the battlefield under an opponent's control this turn — e.g. Lictor
@@ -60,10 +60,10 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [x] (1) [turn-tracking] if a face-down creature entered the battlefield under your control this turn — e.g. Tunnel Tipster
 - [ ] (1) [misc] if a Giant — e.g. Aegar, the Freezing Flame
 - [ ] (1) [misc] if a land you controlled was put into a graveyard from the battlefield this turn — e.g. The Lady of Otaria
-- [ ] (1) [misc] if a permanent was put into your hand from the battlefield this turn — e.g. Barrin, Tolarian Archmage
+- [x] (1) [misc] if a permanent was put into your hand from the battlefield this turn — e.g. Barrin, Tolarian Archmage
 - [x] (1) [turn-tracking] if a Phyrexian died under your control this turn — e.g. Brimaz, Blight of Oreskos
 - [ ] (1) [misc] if a Pirate and a Vehicle attacked this combat — e.g. Fearless Swashbuckler
-- [ ] (1) [misc] if a player discarded a card this turn — e.g. The Raven Man
+- [x] (1) [misc] if a player discarded a card this turn — e.g. The Raven Man
 - [ ] (1) [misc] if a player was dealt 6 or more combat damage this turn — e.g. Sidequest: Play Blitzball // World Champion, Celestial Weapon
 - [ ] (1) [misc] if a player was dealt combat damage by a Zombie this turn — e.g. Lost Monarch of Ifnir
 - [ ] (1) [misc] if a player would planeswalk as a result of rolling the planar die — e.g. Fixed Point in Time
@@ -74,15 +74,15 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if an Assassin crewed it this turn — e.g. Adrestia
 - [ ] (1) [misc] if an Aura you controlled was attached to it — e.g. Dawn Evangel
 - [ ] (1) [misc] if an enchantment was put into your graveyard from the battlefield this turn — e.g. Kami of Transience
-- [ ] (1) [misc] if an opponent cast a blue and/or black spell this turn — e.g. Sandstalker Moloch
-- [ ] (1) [misc] if an opponent discarded a card this turn — e.g. Tinybones, Trinket Thief
+- [x] (1) [misc] if an opponent cast a blue and/or black spell this turn — e.g. Sandstalker Moloch
+- [x] (1) [misc] if an opponent discarded a card this turn — e.g. Tinybones, Trinket Thief
 - [x] (1) [misc] if an opponent lost life last turn — e.g. Feast on the Fallen
 - [ ] (1) [misc] if an opponent was dealt 3 or more damage this turn — e.g. Lightning Phoenix
 - [ ] (1) [misc] if an opponent was dealt damage this turn — e.g. Half-Orc, Half-
 - [ ] (1) [misc] if another creature is on the battlefield — e.g. Lifeline
-- [ ] (1) [turn-tracking] if another Elf entered the battlefield under your control this turn — e.g. Galadriel, Elven-Queen
-- [ ] (1) [turn-tracking] if another Human died under your control this turn — e.g. White Glove Gourmand
-- [ ] (1) [turn-tracking] if another Human entered the battlefield under your control this turn — e.g. Éowyn, Shieldmaiden
+- [x] (1) [turn-tracking] if another Elf entered the battlefield under your control this turn — e.g. Galadriel, Elven-Queen
+- [x] (1) [turn-tracking] if another Human died under your control this turn — e.g. White Glove Gourmand
+- [x] (1) [turn-tracking] if another Human entered the battlefield under your control this turn — e.g. Éowyn, Shieldmaiden
 - [ ] (1) [targeting/stack-metadata] if another opponent controls one or more nonland permanents that spell could target — e.g. Exterminator Magmarch
 - [ ] (1) [misc] if any of that damage was dealt by a Warrior — e.g. Mindblade Render
 - [ ] (1) [misc] if any of those creatures have power or toughness equal to the chosen number — e.g. Squall, Gunblade Duelist
@@ -363,11 +363,11 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if you didn't have an active tournament — e.g. The Octopus Official
 - [ ] (1) [misc] if you didn't lose life this turn — e.g. Luminarch Ascension
 - [ ] (1) [misc] if you didn't play a land this turn — e.g. Mercadian Atlas
-- [ ] (1) [misc] if you discarded a card this turn — e.g. Ragged Recluse // Odious Witch
+- [x] (1) [misc] if you discarded a card this turn — e.g. Ragged Recluse // Odious Witch
 - [ ] (1) [misc] if you don't have a timer running — e.g. Noyd, Keeper of the Void
 - [ ] (1) [misc] if you drew a card last turn — e.g. Mine Is the Only Truth
-- [ ] (1) [misc] if you drew two or more cards this turn — e.g. Archmage Ascension
-- [ ] (1) [misc] if you gained and lost life this turn — e.g. Lunar Convocation
+- [x] (1) [misc] if you drew two or more cards this turn — e.g. Archmage Ascension
+- [x] (1) [misc] if you gained and lost life this turn — e.g. Lunar Convocation
 - [ ] (1) [misc] if you guessed correctly for a card named Spire Phantasm — e.g. Spire Phantasm
 - [ ] (1) [misc] if you had a land enter the battlefield under your control this turn — e.g. Wandering Troubadour
 - [ ] (1) [misc] if you had another creature enter the battlefield under your control last turn — e.g. Ephara, God of the Polis

@@ -529,6 +529,21 @@ export function executeRatchetTrigger(
   
   // Move artifact from graveyard to battlefield tapped
   graveyard.splice(targetIdx, 1);
+
+  // Turn-tracking for intervening-if: a card left your graveyard this turn.
+  try {
+    const stateAny = ctx.state as any;
+    stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
+    stateAny.cardLeftGraveyardThisTurn[String(trigger.controllerId)] = true;
+
+    const tl = String(cardData?.type_line || '').toLowerCase();
+    if (tl.includes('creature')) {
+      stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
+      stateAny.creatureCardLeftGraveyardThisTurn[String(trigger.controllerId)] = true;
+    }
+  } catch {
+    // best-effort only
+  }
   
   const newPermanent = {
     id: `perm_${cardData.id}_${Date.now()}`,

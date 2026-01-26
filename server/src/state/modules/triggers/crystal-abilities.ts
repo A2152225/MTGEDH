@@ -23,6 +23,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { recordCardPutIntoGraveyardThisTurn } from "../turn-tracking.js";
 
 /**
  * Crystal ability definition
@@ -276,6 +277,10 @@ export function executeWaterCrystalAbility(
     const cardsToMill = Math.min(handCount, library.length);
     const milledCards = library.splice(0, cardsToMill);
     graveyard.push(...milledCards);
+
+    for (const card of milledCards) {
+      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), card, { fromBattlefield: false });
+    }
     
     results.push({ playerId, milledCount: cardsToMill });
   }

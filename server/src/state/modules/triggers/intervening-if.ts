@@ -703,6 +703,18 @@ function getSpellsCastThisTurn(ctx: GameContext): any[] {
   return Array.isArray(spells) ? spells : [];
 }
 
+function getSpellColorsThisTurnEntry(spell: any): string[] | null {
+  const raw =
+    (spell as any)?.card?.colors ??
+    (spell as any)?.colors ??
+    (spell as any)?.card?.color_identity ??
+    (spell as any)?.color_identity;
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .map((c: any) => String(c || '').trim().toUpperCase())
+    .filter((c: string) => c.length > 0);
+}
+
 function getSpellsCastThisTurnByPlayerCount(ctx: GameContext, playerId: string): number {
   return getSpellsCastThisTurn(ctx).filter((s: any) => String(s?.casterId || "") === playerId).length;
 }
@@ -1265,6 +1277,11 @@ function evaluateInterveningIfClauseInternal(
     return getLifeGainedThisTurn(ctx, controllerId) > 0 || getLifeLostThisTurn(ctx, controllerId) > 0;
   }
 
+  // "...if you gained and lost life this turn..." (Lunar Convocation)
+  if (/^if\s+you\s+gained\s+and\s+lost\s+life\s+this\s+turn$/i.test(clause)) {
+    return getLifeGainedThisTurn(ctx, controllerId) > 0 && getLifeLostThisTurn(ctx, controllerId) > 0;
+  }
+
   // "...if an opponent lost life this turn..." (Theater of Horrors/Florian-style)
   if (/^if\s+an\s+opponent\s+(?:has\s+)?lost\s+life\s+this\s+turn$/i.test(clause)) {
     const opps = getOpponentIds(ctx, controllerId);
@@ -1287,6 +1304,16 @@ function evaluateInterveningIfClauseInternal(
   // "...if you've drawn two or more cards this turn..." (Improbable Alliance, Faerie Vandal)
   {
     const m = clause.match(/^if\s+you(?:'ve|\s+have)?\s+drawn\s+([a-z0-9]+)\s+or\s+more\s+cards\s+this\s+turn$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      return getCardsDrawnThisTurn(ctx, controllerId) >= n;
+    }
+  }
+
+  // "...if you drew two or more cards this turn..." (Archmage Ascension oracle wording variant)
+  {
+    const m = clause.match(/^if\s+you\s+drew\s+([a-z0-9]+)\s+or\s+more\s+cards\s+this\s+turn$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
@@ -4072,9 +4099,57 @@ function evaluateInterveningIfClauseInternal(
     return null;
   }
 
+  // "if a card left your graveyard this turn" (Gau, Feral Youth; Essence Anchor)
+  if (
+    /^if\s+a\s+card\s+left\s+your\s+graveyard\s+this\s+turn$/i.test(clause) ||
+    /^if\s+a\s+card\s+left\s+your\s+graveyard\s+this\s+turn\.$/i.test(clause)
+  ) {
+    const stateAny = (ctx as any).state as any;
+    const raw =
+      stateAny?.cardLeftGraveyardThisTurn?.[controllerId] ??
+      stateAny?.cardsLeftGraveyardThisTurn?.[controllerId] ??
+      stateAny?.leftGraveyardThisTurn?.[controllerId];
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if a creature card left your graveyard this turn" (Syrix, Carrier of the Flame)
+  if (
+    /^if\s+a\s+creature\s+card\s+left\s+your\s+graveyard\s+this\s+turn$/i.test(clause) ||
+    /^if\s+a\s+creature\s+card\s+left\s+your\s+graveyard\s+this\s+turn\.$/i.test(clause)
+  ) {
+    const stateAny = (ctx as any).state as any;
+    const raw =
+      stateAny?.creatureCardLeftGraveyardThisTurn?.[controllerId] ??
+      stateAny?.creatureCardsLeftGraveyardThisTurn?.[controllerId];
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
   // "if you've cast a noncreature spell this turn"
   if (/^if\s+you'?ve\s+cast\s+a\s+noncreature\s+spell\s+this\s+turn$/i.test(clause) || /^if\s+you\s+have\s+cast\s+a\s+noncreature\s+spell\s+this\s+turn$/i.test(clause)) {
     return getNoncreatureSpellsCastThisTurnCount(ctx, controllerId) >= 1;
+  }
+
+  // "if an opponent cast a blue and/or black spell this turn" (Sandstalker Moloch)
+  if (
+    /^if\s+an\s+opponent\s+cast\s+a\s+(?:blue\s+and\/or\s+black|black\s+and\/or\s+blue)\s+spell\s+this\s+turn$/i.test(
+      clause
+    )
+  ) {
+    const opponentSpells = getSpellsCastThisTurn(ctx).filter((s: any) => String(s?.casterId || '') !== controllerId);
+    if (opponentSpells.length === 0) return false;
+
+    let unknown = false;
+    for (const s of opponentSpells) {
+      const colors = getSpellColorsThisTurnEntry(s);
+      if (colors === null) {
+        unknown = true;
+        continue;
+      }
+      const set = new Set(colors);
+      if (set.has('U') || set.has('B')) return true;
+    }
+
+    return unknown ? null : false;
   }
 
   // "if no spells were cast this turn"
@@ -4308,6 +4383,20 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.putCounterOnCreatureThisTurn?.[controllerId] ??
       stateAny?.placedCounterOnCreatureThisTurn?.[controllerId] ??
       stateAny?.countersPlacedOnCreaturesThisTurn?.[controllerId];
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if a +1/+1 counter was put on a permanent under your control this turn" (Fairgrounds Trumpeter)
+  if (
+    /^if\s+a\s+\+1\/\+1\s+counter\s+was\s+put\s+on\s+a\s+permanent\s+under\s+your\s+control\s+this\s+turn$/i.test(
+      clause
+    )
+  ) {
+    const stateAny = (ctx as any).state as any;
+    const v =
+      stateAny?.putPlusOneCounterOnPermanentThisTurn?.[controllerId] ??
+      stateAny?.placedPlusOneCounterOnPermanentThisTurn?.[controllerId] ??
+      stateAny?.plusOneCounterPlacedOnPermanentThisTurn?.[controllerId];
     return typeof v === 'boolean' ? v : null;
   }
 
@@ -4825,7 +4914,58 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it shares a card type with the exiled card" (recognized; requires linking the exiled card)
   if (/^if\s+it\s+shares\s+a\s+card\s+type\s+with\s+the\s+exiled\s+card$/i.test(clause)) {
-    return null;
+    if (!sourcePermanent) return null;
+
+    const srcId = String((sourcePermanent as any)?.id ?? (sourcePermanent as any)?.permanentId ?? '');
+    if (!srcId) return null;
+
+    // Find the exiled card linked to the source permanent.
+    // Best-effort: look for exile-zone tags written by common "exile ..." templates.
+    let exiledCard: any = null;
+    const zones = (ctx as any).state?.zones;
+    if (zones && typeof zones === 'object') {
+      for (const z of Object.values(zones as any)) {
+        const exile = (z as any)?.exile;
+        if (!Array.isArray(exile)) continue;
+        const found = exile.find((c: any) => String(c?.exiledWithSourceId ?? '') === srcId);
+        if (found) {
+          exiledCard = found;
+          break;
+        }
+      }
+    }
+    if (!exiledCard) return null;
+
+    // Find the triggering spell/land/etc represented by "it".
+    // Prefer explicit stackItem ref; otherwise use triggering stack id lookup.
+    const refStackItemCard = (refs as any)?.stackItem?.card;
+    const stackId = refs?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringSpellStackItemId;
+    const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+    const triggeringStackItem = !refStackItemCard && stackId ? stack.find((it: any) => it && String(it.id) === String(stackId)) : null;
+    const triggeringCard = refStackItemCard ?? triggeringStackItem?.card;
+
+    const exiledTypeLine = String(exiledCard?.type_line || exiledCard?.card?.type_line || '').toLowerCase();
+    const triggeringTypeLine = String(triggeringCard?.type_line || '').toLowerCase();
+    if (!exiledTypeLine || !triggeringTypeLine) return null;
+
+    const toCardTypeSet = (typeLineLower: string): Set<string> => {
+      const base = String(typeLineLower.split('—')[0] || '').trim();
+      const types = ['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'instant', 'sorcery', 'tribal', 'battle'];
+      const out = new Set<string>();
+      for (const t of types) {
+        if (base.includes(t)) out.add(t);
+      }
+      return out;
+    };
+
+    const exiledTypes = toCardTypeSet(exiledTypeLine);
+    const triggeringTypes = toCardTypeSet(triggeringTypeLine);
+    if (exiledTypes.size === 0 || triggeringTypes.size === 0) return null;
+
+    for (const t of exiledTypes) {
+      if (triggeringTypes.has(t)) return true;
+    }
+    return false;
   }
 
   // Newer mechanics / multiplayer-specific templates (recognized; engine may not model these yet)
@@ -4919,6 +5059,27 @@ function evaluateInterveningIfClauseInternal(
 
   // Generic subtype death templates (recognized; depends on subtype death tracking)
   {
+    const m = clause.match(/^if\s+another\s+([a-z0-9-]+)\s+died\s+under\s+your\s+control\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const nRaw = getCreatureSubtypeDiedThisTurnCount(ctx, controllerId, subtype);
+      if (typeof nRaw !== 'number') return nRaw;
+
+      // Best-effort exclusion for "another": if the source is itself a matching creature,
+      // require at least 2 total deaths to satisfy "another".
+      let n = nRaw;
+      if (sourcePermanent?.card?.type_line) {
+        const tl = String(sourcePermanent?.card?.type_line || '').toLowerCase();
+        if (tl.includes('creature') && new RegExp(`\\b${subtype.replace(/[-/\\^$*+?.()|[\\]{}]/g, '\\$&')}\\b`, 'i').test(tl)) {
+          n = Math.max(0, n - 1);
+        }
+      }
+
+      return n > 0;
+    }
+  }
+  {
     const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+died\s+under\s+your\s+control\s+this\s+turn$/i);
     if (m) {
       const subtype = String(m[1] || '').toLowerCase();
@@ -4962,6 +5123,27 @@ function evaluateInterveningIfClauseInternal(
 
   // Generic subtype ETB templates (recognized; depends on subtype ETB tracking)
   {
+    const m = clause.match(/^if\s+another\s+([a-z0-9-]+)\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i);
+    if (m) {
+      const subtype = String(m[1] || '').toLowerCase();
+      if (!isLikelyCreatureSubtypeToken(subtype)) return null;
+      const nRaw = getCreatureSubtypeEnteredThisTurnCount(ctx, controllerId, subtype);
+      if (typeof nRaw !== 'number') return nRaw;
+
+      // Best-effort exclusion for "another": if the source permanent is itself that subtype and entered this turn,
+      // decrement the aggregate counter to avoid counting itself.
+      let n = nRaw;
+      if (sourcePermanent && String(sourcePermanent?.controller || '') === String(controllerId) && sourcePermanent?.enteredThisTurn === true) {
+        const tl = String(sourcePermanent?.card?.type_line || '').toLowerCase();
+        if (tl.includes('creature') && new RegExp(`\\b${subtype.replace(/[-/\\^$*+?.()|[\\]{}]/g, '\\$&')}\\b`, 'i').test(tl)) {
+          n = Math.max(0, n - 1);
+        }
+      }
+
+      return n > 0;
+    }
+  }
+  {
     const m = clause.match(/^if\s+an?\s+([a-z0-9-]+)\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i);
     if (m) {
       const subtype = String(m[1] || '').toLowerCase();
@@ -4994,7 +5176,11 @@ function evaluateInterveningIfClauseInternal(
   }
 
   // Zone movement into hand (recognized; depends on tracking)
-  if (/^if\s+a\s+permanent\s+was\s+put\s+into\s+your\s+hand\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) return null;
+  if (/^if\s+a\s+permanent\s+was\s+put\s+into\s+your\s+hand\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
+    const map = (ctx as any).state?.permanentPutIntoHandFromBattlefieldThisTurn;
+    const v = map?.[controllerId];
+    return typeof v === 'boolean' ? v : null;
+  }
 
   // Tribal shorthand like "if a giant" (context-dependent; recognize but unknown)
   if (/^if\s+a\s+giant$/i.test(clause)) return null;
@@ -5182,6 +5368,31 @@ function evaluateInterveningIfClauseInternal(
     return isPrimeNumber(countByPermanentType(ctx, controllerId, 'land'));
   }
 
+  // Turn-tracking: discard happened this turn
+  if (/^if\s+a\s+player\s+discarded\s+a\s+card\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const anyFlag = stateAny?.anyPlayerDiscardedCardThisTurn;
+    if (typeof anyFlag === 'boolean') return anyFlag;
+    const map = stateAny?.discardedCardThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    return Object.values(map).some((v: any) => v === true);
+  }
+  if (/^if\s+you\s+discarded\s+a\s+card\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const map = stateAny?.discardedCardThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    const v = map[String(controllerId)];
+    return v === true;
+  }
+  if (/^if\s+an\s+opponent\s+discarded\s+a\s+card\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const map = stateAny?.discardedCardThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    const opps = getOpponentIds(ctx, controllerId);
+    if (!opps.length) return false;
+    return opps.some((oid) => map[String(oid)] === true);
+  }
+
   // Misc context-dependent templates we explicitly recognize (null)
   if (
     /^if\s+a\s+source\s+would\s+deal\s+damage$/i.test(clause) ||
@@ -5196,9 +5407,7 @@ function evaluateInterveningIfClauseInternal(
     /^if\s+a\s+player\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+combat\s+damage\s+this\s+turn$/i.test(clause) ||
     /^if\s+a\s+player\s+was\s+dealt\s+combat\s+damage\s+by\s+a\s+zombie\s+this\s+turn$/i.test(clause) ||
     /^if\s+an\s+opponent\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+damage\s+this\s+turn$/i.test(clause) ||
-    /^if\s+an\s+opponent\s+was\s+dealt\s+damage\s+this\s+turn$/i.test(clause) ||
-    /^if\s+an\s+opponent\s+discarded\s+a\s+card\s+this\s+turn$/i.test(clause) ||
-    /^if\s+a\s+player\s+discarded\s+a\s+card\s+this\s+turn$/i.test(clause)
+    /^if\s+an\s+opponent\s+was\s+dealt\s+damage\s+this\s+turn$/i.test(clause)
   ) {
     return null;
   }

@@ -14,6 +14,8 @@
 import type { GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+
 import {
   importDeckResolved,
   shuffleLibrary,
@@ -815,7 +817,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   if (lib && Array.isArray(lib)) {
                     for (let i = 0; i < count && lib.length > 0; i++) {
                       const milled = lib.shift();
-                      if (milled) z.graveyard.push({ ...milled, zone: 'graveyard' });
+                      if (milled) {
+                        z.graveyard.push({ ...milled, zone: 'graveyard' });
+                        recordCardPutIntoGraveyardThisTurn(ctx as any, String(playerId), milled, { fromBattlefield: false });
+                      }
                     }
                     (ctx as any).libraries?.set?.(playerId, lib);
                     z.libraryCount = lib.length;
@@ -852,6 +857,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
                     if ((countered as any).card) {
                       gy.push({ ...(countered as any).card, zone: 'graveyard' });
+                      recordCardPutIntoGraveyardThisTurn(ctx as any, String(controller), (countered as any).card, { fromBattlefield: false });
                       (zones[controller] as any).graveyardCount = gy.length;
                     }
                   }
@@ -1123,11 +1129,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const graveyard = z.graveyard as any[];
           
           // Move each selected card from hand to graveyard
+          let discardedCount = 0;
           for (const cardId of cardIds) {
             const idx = hand.findIndex((c: any) => c.id === cardId);
             if (idx !== -1) {
               const [card] = hand.splice(idx, 1);
               graveyard.push({ ...card, zone: "graveyard" });
+              recordCardPutIntoGraveyardThisTurn(ctx as any, String(pid), card, { fromBattlefield: false });
+              discardedCount++;
               
               // Check for graveyard triggers (Eldrazi shuffle)
               if (checkGraveyardTrigger(ctx, card, pid)) {
@@ -1139,6 +1148,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // Update counts
           z.handCount = hand.length;
           z.graveyardCount = graveyard.length;
+
+          // Turn-tracking for intervening-if: "if a player discarded a card this turn" / "if an opponent discarded a card this turn".
+          if (discardedCount > 0) {
+            const stateAny = ctx.state as any;
+            stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+            stateAny.discardedCardThisTurn[String(pid)] = true;
+            stateAny.anyPlayerDiscardedCardThisTurn = true;
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(cleanupDiscard): failed", err);
@@ -1163,6 +1181,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const milled = lib.splice(0, Math.min(count, lib.length));
           for (const card of milled) {
             graveyard.push({ ...card, zone: "graveyard" });
+            recordCardPutIntoGraveyardThisTurn(ctx as any, String(pid), card, { fromBattlefield: false });
             
             // Check for graveyard triggers (Eldrazi shuffle)
             if (checkGraveyardTrigger(ctx, card, pid)) {
@@ -1436,6 +1455,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 z.graveyardCount = graveyard.length;
                 z.exile = z.exile || [];
                 (z.exile as any[]).push({ ...card, zone: "exile" });
+
+                // Turn-tracking for intervening-if: a card left your graveyard this turn.
+                try {
+                  const stateAny = ctx.state as any;
+                  stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
+                  stateAny.cardLeftGraveyardThisTurn[String(pid)] = true;
+
+                  const tl = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+                  if (tl.includes('creature')) {
+                    stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
+                    stateAny.creatureCardLeftGraveyardThisTurn[String(pid)] = true;
+                  }
+                } catch {
+                  // best-effort only
+                }
               }
             }
           }
@@ -1500,6 +1534,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               z.handCount = hand.length;
               (z.graveyard as any[]).push({ ...discardedLand, zone: 'graveyard' });
               z.graveyardCount = (z.graveyard as any[]).length;
+
+              // Turn-tracking for intervening-if: a player discarded a card this turn.
+              const stateAny = ctx.state as any;
+              stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+              stateAny.discardedCardThisTurn[String(pid)] = true;
+              stateAny.anyPlayerDiscardedCardThisTurn = true;
             }
             
             // Put Mox Diamond on battlefield
@@ -1824,6 +1864,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     zones.graveyard = zones.graveyard || [];
                     milledCard.zone = 'graveyard';
                     zones.graveyard.push(milledCard);
+                    recordCardPutIntoGraveyardThisTurn(ctx as any, String(targetId), milledCard, { fromBattlefield: false });
                   }
                 }
                 zones.libraryCount = zones.library.length;
@@ -1962,6 +2003,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           
           if (costType === 'discard') {
             // Move cards from hand to graveyard
+            let discardedCount = 0;
             for (const cardId of selectedCards) {
               const hand = Array.isArray(z.hand) ? z.hand : [];
               const cardIndex = hand.findIndex((c: any) => c?.id === cardId);
@@ -1970,11 +2012,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 z.graveyard = z.graveyard || [];
                 if (card && typeof card === 'object') {
                   (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+                  discardedCount++;
                 }
               }
             }
             z.handCount = Array.isArray(z.hand) ? z.hand.length : 0;
             z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;
+
+            // Turn-tracking for intervening-if: a player discarded a card this turn.
+            if (discardedCount > 0) {
+              const stateAny = ctx.state as any;
+              stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+              stateAny.discardedCardThisTurn[String(pid)] = true;
+              stateAny.anyPlayerDiscardedCardThisTurn = true;
+            }
           } else if (costType === 'sacrifice') {
             // Move permanents from battlefield to graveyard
             const battlefield = ctx.state.battlefield || [];
@@ -2011,12 +2062,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           
           z.graveyard = z.graveyard || [];
           const graveyard = z.graveyard as any[];
+
+          let movedAny = false;
+          let movedCreature = false;
           
           for (const cardId of selectedCardIds) {
             const cardIndex = graveyard.findIndex((c: any) => c?.id === cardId);
             if (cardIndex === -1) continue;
             
             const [card] = graveyard.splice(cardIndex, 1);
+            movedAny = true;
+            const tl = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+            if (tl.includes('creature')) movedCreature = true;
             
             switch (destination) {
               case 'hand':
@@ -2056,6 +2113,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
           
           z.graveyardCount = graveyard.length;
+
+          // Turn-tracking for intervening-if: a card left your graveyard this turn.
+          if (movedAny) {
+            try {
+              const stateAny = ctx.state as any;
+              stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
+              stateAny.cardLeftGraveyardThisTurn[String(pid)] = true;
+              if (movedCreature) {
+                stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
+                stateAny.creatureCardLeftGraveyardThisTurn[String(pid)] = true;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(confirmGraveyardTargets): failed", err);

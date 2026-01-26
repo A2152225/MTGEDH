@@ -42,6 +42,7 @@ import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.j
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
 import { createToken, runSBA, applyCounterModifications, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
@@ -2060,6 +2061,7 @@ function executeTriggerEffect(
             const ownerZones = zones[removed.owner || controller] || {};
             ownerZones.graveyard = ownerZones.graveyard || [];
             ownerZones.graveyard.push({ ...removed.card, zone: 'graveyard' });
+            recordCardPutIntoGraveyardThisTurn(ctx, String(removed.owner || controller), removed.card, { fromBattlefield: true });
             ownerZones.graveyardCount = ownerZones.graveyard.length;
           }
         }
@@ -3804,6 +3806,7 @@ function executeTriggerEffect(
             oppZones.graveyard = oppZones.graveyard || [];
             milledCard.zone = 'graveyard';
             oppZones.graveyard.push(milledCard);
+            recordCardPutIntoGraveyardThisTurn(ctx, String(opp.id), milledCard, { fromBattlefield: false });
             debug(2, `[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
           }
         }
@@ -4323,6 +4326,7 @@ function executeTriggerEffect(
               ownerZones.graveyard = ownerZones.graveyard || [];
               targetPerm.card.zone = 'graveyard';
               ownerZones.graveyard.push(targetPerm.card);
+              recordCardPutIntoGraveyardThisTurn(ctx, String(targetPerm.owner), targetPerm.card, { fromBattlefield: true });
               ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
               
               // Check for graveyard triggers (Eldrazi shuffle)
@@ -5520,12 +5524,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       const needsTheirTurnRef = /\btheir\s+turn\b/i.test(textForEval) || /\bthat player's\s+turn\b/i.test(textForEval);
       const needsManaAbilityRef = /\bmana ability\b/i.test(textForEval);
       const needsSingleTargetRef = /\bsingle\s+target\b/i.test(textForEval) || /\btargets?\s+only\s+a\s+single\b/i.test(textForEval);
+      const needsCardTypeShareRef = /\bshares\s+a\s+card\s+type\s+with\s+the\s+exiled\s+card\b/i.test(textForEval);
       const activatedAbilityIsManaAbility = (item as any).activatedAbilityIsManaAbility;
       const triggeringStackItemId = (item as any).triggeringStackItemId;
 
       const battlefield = (ctx as any).state?.battlefield || [];
       const sourcePerm = battlefield.find((p: any) => p?.id === (item as any).source);
-      const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef || needsSingleTargetRef)
+      const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef || needsSingleTargetRef || needsCardTypeShareRef)
         ? {
             ...(thatPlayerId && (needsThatPlayerRef || needsTheirTurnRef)
               ? {
@@ -5537,7 +5542,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             ...(typeof activatedAbilityIsManaAbility === 'boolean'
               ? { activatedAbilityIsManaAbility: activatedAbilityIsManaAbility }
               : {}),
-            ...(needsSingleTargetRef && triggeringStackItemId
+            ...((needsSingleTargetRef || needsCardTypeShareRef) && triggeringStackItemId
               ? { triggeringStackItemId: String(triggeringStackItemId) }
               : {}),
           }
@@ -8333,6 +8338,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         for (const c of revealed) {
           z.graveyard.push({ ...c, zone: 'graveyard' });
+          recordCardPutIntoGraveyardThisTurn(ctx, String(controller), c, { fromBattlefield: false });
         }
         z.graveyardCount = z.graveyard.length;
         
@@ -9055,7 +9061,10 @@ function executeSpellEffect(
       if (lib && Array.isArray(lib)) {
         for (let i = 0; i < count && lib.length > 0; i++) {
           const milled = lib.shift();
-          if (milled) z.graveyard.push({ ...milled, zone: 'graveyard' });
+          if (milled) {
+            z.graveyard.push({ ...milled, zone: 'graveyard' });
+            recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), milled, { fromBattlefield: false });
+          }
         }
         if (ctxLibraries && typeof ctxLibraries.set === 'function') {
           ctxLibraries.set(playerId, lib);

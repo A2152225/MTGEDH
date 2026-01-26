@@ -11,6 +11,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js";
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -192,9 +193,34 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
   const { state, bumpSeq } = ctx;
   const p = state.battlefield.find(b => b.id === permanentId);
   if (!p) return;
+
+  const isPlusOneCounterKey = (key: string): boolean => {
+    const k = String(key || '').trim().toLowerCase();
+    if (!k) return false;
+    return k === '+1/+1' || k === 'p1p1' || k === 'plus_one' || k === 'plusone' || k === 'plus1plus1' || k === '+1+1';
+  };
   
   // Apply counter modification effects (Vorinclex, Doubling Season, Hardened Scales, etc.)
   const modifiedDeltas = applyCounterModifications(state, permanentId, deltas);
+
+  // Turn-tracking for intervening-if templates like:
+  // "if a +1/+1 counter was put on a permanent under your control this turn" (Fairgrounds Trumpeter).
+  // Note: counts counters placed on ANY permanent you control, regardless of who controlled the effect.
+  try {
+    const controllerId = String((p as any).controller || '').trim();
+    if (controllerId) {
+      const placedPlusOne = Object.entries(modifiedDeltas).some(
+        ([counterType, amount]) => isPlusOneCounterKey(counterType) && Number(amount) > 0
+      );
+      if (placedPlusOne) {
+        const stateAny = state as any;
+        stateAny.putPlusOneCounterOnPermanentThisTurn = stateAny.putPlusOneCounterOnPermanentThisTurn || {};
+        stateAny.putPlusOneCounterOnPermanentThisTurn[controllerId] = true;
+      }
+    }
+  } catch {
+    // best-effort only
+  }
   
   const current: Record<string, number> = { ...(p.counters ?? {}) };
   for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
@@ -773,6 +799,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
     if (card) {
       (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true });
       (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
     }
   }
@@ -1111,6 +1138,7 @@ export function runSBA(ctx: GameContext) {
           const card = (destroyed as any).card;
           if (card) {
             (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+            recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true });
             (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
           }
         }
@@ -1186,6 +1214,7 @@ export function runSBA(ctx: GameContext) {
             const card = (removed as any).card;
             if (card) {
               (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+              recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true });
               (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
             }
           }

@@ -38,6 +38,7 @@ import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -1142,6 +1143,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               for (const milledCard of milledCards) {
                 milledCard.zone = 'graveyard';
                 oppZones.graveyard.push(milledCard);
+                recordCardPutIntoGraveyardThisTurn(ctx as any, String(opponentId), milledCard, { fromBattlefield: false });
               }
               oppZones.libraryCount = lib.length;
               oppZones.graveyardCount = (oppZones.graveyard || []).length;
@@ -2253,6 +2255,21 @@ export function nextTurn(ctx: GameContext) {
       // best-effort only
     }
 
+    // Clear per-turn discard tracking (for intervening-if templates like
+    // "if a player discarded a card this turn" / "if an opponent discarded a card this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.discardedCardThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (pid) stateAny.discardedCardThisTurn[String(pid)] = false;
+      }
+      stateAny.anyPlayerDiscardedCardThisTurn = false;
+    } catch {
+      // best-effort only
+    }
+
     // Clear per-turn clue sacrifice tracking (for intervening-if templates like
     // "if you sacrificed N or more Clues this turn").
     try {
@@ -2276,6 +2293,66 @@ export function nextTurn(ctx: GameContext) {
       for (const p of players) {
         const pid = (p as any)?.id;
         if (pid) stateAny.putCounterOnCreatureThisTurn[String(pid)] = false;
+      }
+
+      // Also track a stricter +1/+1 counter placement condition used by oracle text like:
+      // "if a +1/+1 counter was put on a permanent under your control this turn" (Fairgrounds Trumpeter).
+      stateAny.putPlusOneCounterOnPermanentThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (pid) stateAny.putPlusOneCounterOnPermanentThisTurn[String(pid)] = false;
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn graveyard-leave tracking (for intervening-if templates like
+    // "if a card left your graveyard this turn" / "if a creature card left your graveyard this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.cardLeftGraveyardThisTurn = {};
+      stateAny.creatureCardLeftGraveyardThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (!pid) continue;
+        stateAny.cardLeftGraveyardThisTurn[String(pid)] = false;
+        stateAny.creatureCardLeftGraveyardThisTurn[String(pid)] = false;
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn graveyard-put tracking (for intervening-if templates like
+    // "if a creature card was put into your graveyard from anywhere this turn" and
+    // count-based variants).
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.cardsPutIntoYourGraveyardThisTurn = {};
+      stateAny.cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn = {};
+      stateAny.creatureCardPutIntoYourGraveyardThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (!pid) continue;
+        stateAny.cardsPutIntoYourGraveyardThisTurn[String(pid)] = 0;
+        stateAny.cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn[String(pid)] = 0;
+        stateAny.creatureCardPutIntoYourGraveyardThisTurn[String(pid)] = false;
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn battlefield->hand tracking (for intervening-if templates like
+    // "if a permanent was put into your hand from the battlefield this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.permanentPutIntoHandFromBattlefieldThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (!pid) continue;
+        stateAny.permanentPutIntoHandFromBattlefieldThisTurn[String(pid)] = false;
       }
     } catch {
       // best-effort only

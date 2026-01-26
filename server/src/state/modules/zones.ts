@@ -11,6 +11,7 @@ import { checkEmptyLibraryDraw, hasDrawWinReplacement, hasCantLoseEffect } from 
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
+import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattlefieldThisTurn } from "./turn-tracking.js";
 
 /* ===== core zone operations ===== */
 
@@ -341,6 +342,7 @@ export function selectFromLibrary(ctx: GameContext, playerId: PlayerID, cardIds:
     } else if (moveTo === 'graveyard') {
       (z as any).graveyard = (z as any).graveyard || [];
       (z as any).graveyard.push({ ...c, zone: 'graveyard', faceDown: false });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), c, { fromBattlefield: false });
       moved.push(c);
     } else if (moveTo === 'exile') {
       (z as any).exile = (z as any).exile || [];
@@ -448,7 +450,10 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   (z as any).graveyard = (z as any).graveyard || [];
   for (const id of toGraveyard) {
     const c = byId.get(id);
-    if (c) (z as any).graveyard.push({ ...c, zone: "graveyard", faceDown: false });
+    if (c) {
+      (z as any).graveyard.push({ ...c, zone: "graveyard", faceDown: false });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), c, { fromBattlefield: false });
+    }
   }
   (z as any).graveyardCount = ((z as any).graveyard || []).length;
   for (let i = keepTopOrder.length - 1; i >= 0; i--) {
@@ -518,6 +523,7 @@ export function applyExplore(
       // Put revealed card in graveyard
       (z as any).graveyard = (z as any).graveyard || [];
       (z as any).graveyard.push({ ...topCard, zone: "graveyard", faceDown: false });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), topCard, { fromBattlefield: false });
       (z as any).graveyardCount = ((z as any).graveyard || []).length;
     }
     // If not toGraveyard, card is already removed from library top and we just
@@ -832,6 +838,8 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   z.hand = z.hand || [];
   z.hand.push({ ...card, zone: 'hand' });
   z.handCount = z.hand.length;
+
+  recordPermanentPutIntoHandFromBattlefieldThisTurn(ctx, String(owner));
   
   debug(2, `[movePermanentToHand] ${card?.name || permanentId} returned to ${owner}'s hand`);
   bumpSeq();
