@@ -219,6 +219,618 @@ describe('Intervening-if evaluator (more templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Spell' } })).toBe(null);
   });
 
+  it('supports "if evidence was collected" (best-effort via evidenceCollectedThisTurn)', () => {
+    const g = createInitialGameState('t_intervening_if_evidence_collected');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of your upkeep, if evidence was collected, draw a card.';
+
+    (g.state as any).evidenceCollectedThisTurn = { [p1]: true };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).evidenceCollectedThisTurn = { [p1]: false };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    delete (g.state as any).evidenceCollectedThisTurn;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
+  it('supports "if it was unearthed" (best-effort via wasUnearthed)', () => {
+    const g = createInitialGameState('t_intervening_if_unearthed');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'When this creature enters the battlefield, if it was unearthed, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { wasUnearthed: true })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { wasUnearthed: false })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {})).toBe(null);
+  });
+
+  it('supports "if it dealt combat damage to a player this turn" (best-effort via creaturesThatDealtDamageToPlayer)', () => {
+    const g = createInitialGameState('t_intervening_if_dealt_combat_damage_to_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const source = { id: 'src_1', controller: p1, card: { type_line: 'Creature' } };
+    const desc = 'When this creature attacks, if it dealt combat damage to a player this turn, draw a card.';
+
+    // Missing tracker => conservative unknown.
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(null);
+
+    (g.state as any).creaturesThatDealtDamageToPlayer = { [p2]: { src_1: true } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(true);
+
+    (g.state as any).creaturesThatDealtDamageToPlayer = { [p2]: {} };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(false);
+  });
+
+  it('supports "if it/this creature was attacking or blocking alone" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_attacking_or_blocking_alone');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'Whenever this creature attacks, if it was attacking or blocking alone, draw a card.';
+
+    const source: any = { id: 'src_1', controller: p1, card: { type_line: 'Creature' }, attacking: 'p2' };
+    (g.state as any).battlefield = [source];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(true);
+
+    // Another attacker => false
+    (g.state as any).battlefield = [
+      source,
+      { id: 'c2', controller: p1, card: { type_line: 'Creature' }, attacking: 'p2' },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(false);
+  });
+
+  it('supports "if a Pirate and a Vehicle attacked this combat" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_pirate_and_vehicle_attacked');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of combat, if a Pirate and a Vehicle attacked this combat, draw a card.';
+
+    // No attackers => false
+    (g.state as any).battlefield = [];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    // Pirate only => false
+    (g.state as any).battlefield = [
+      { id: 'pir_1', controller: p1, card: { type_line: 'Creature — Pirate' }, attacking: 'p2' },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    // Pirate + Vehicle (as creature) => true
+    (g.state as any).battlefield = [
+      { id: 'pir_1', controller: p1, card: { type_line: 'Creature — Pirate' }, attacking: 'p2' },
+      { id: 'veh_1', controller: p1, card: { type_line: 'Artifact Creature — Vehicle' }, attacking: 'p2' },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+  });
+
+  it('supports "if Kytheon and at least two other creatures attacked this combat" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_kytheon_attacked_with_two_others');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of combat, if Kytheon and at least two other creatures attacked this combat, draw a card.';
+
+    (g.state as any).battlefield = [
+      { id: 'k', controller: p1, card: { name: 'Kytheon, Hero of Akros', type_line: 'Creature — Human Soldier' }, attacking: 'p2' },
+      { id: 'c1', controller: p1, card: { name: 'A', type_line: 'Creature' }, attacking: 'p2' },
+      { id: 'c2', controller: p1, card: { name: 'B', type_line: 'Creature' }, attacking: 'p2' },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    // Only two attackers => false
+    (g.state as any).battlefield = [
+      { id: 'k', controller: p1, card: { name: 'Kytheon, Hero of Akros', type_line: 'Creature' }, attacking: 'p2' },
+      { id: 'c1', controller: p1, card: { name: 'A', type_line: 'Creature' }, attacking: 'p2' },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports "if any of those creatures have power or toughness equal to the chosen number" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_those_creatures_pt_equals_chosen');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const source: any = { id: 'src_1', controller: p1, card: { type_line: 'Enchantment' }, chosenNumber: 2 };
+    const desc = 'Whenever this enchantment attacks, if any of those creatures have power or toughness equal to the chosen number, draw a card.';
+
+    (g.state as any).battlefield = [
+      { id: 'a1', controller: p1, card: { type_line: 'Creature' }, power: '2', toughness: '3' },
+      { id: 'a2', controller: p1, card: { type_line: 'Creature' }, power: '4', toughness: '4' },
+    ];
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, source, {
+        thoseCreatureIds: ['a1', 'a2'],
+      } as any)
+    ).toBe(true);
+
+    // No matches => false
+    source.chosenNumber = 1;
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, source, {
+        thoseCreatureIds: ['a1', 'a2'],
+      } as any)
+    ).toBe(false);
+  });
+
+  it('supports "if <Name> attacked this turn" (best-effort, assumes name refers to source)', () => {
+    const g = createInitialGameState('t_intervening_if_named_attacked');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of your upkeep, if Taigam attacked this turn, draw a card.';
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, {
+        card: { name: 'Taigam, Ojutai Master', type_line: 'Creature — Human Monk' },
+        attackedThisTurn: true,
+      })
+    ).toBe(true);
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, {
+        card: { name: 'Taigam, Ojutai Master', type_line: 'Creature — Human Monk' },
+        attackedThisTurn: false,
+      })
+    ).toBe(false);
+
+    // Missing attack info => null
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, {
+        card: { name: 'Taigam, Ojutai Master', type_line: 'Creature — Human Monk' },
+      })
+    ).toBe(null);
+  });
+
+  it('supports "if it\'s renowned" (alias)', () => {
+    const g = createInitialGameState('t_intervening_if_its_renowned');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "At the beginning of combat on your turn, if it's renowned, draw a card.";
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { renowned: true })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { renowned: false })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {})).toBe(false);
+  });
+
+  it('supports "if it\'s modified" (alias)', () => {
+    const g = createInitialGameState('t_intervening_if_its_modified');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "At the beginning of your upkeep, if it's modified, draw a card.";
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { counters: { any: 1 } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { counters: { any: 0 } })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {})).toBe(false);
+  });
+
+  it('supports "if it\'s not suspected" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_not_suspected');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "At the beginning of your upkeep, if it's not suspected, draw a card.";
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { suspected: false })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { suspected: true })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {})).toBe(null);
+  });
+
+  it('supports "if it\'s the first instant spell" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_first_instant');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "When you cast an instant spell, if it's the first instant spell, draw a card.";
+
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Instant' } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { type_line: 'Instant' } })).toBe(true);
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { type_line: 'Instant' } },
+      { casterId: p1, card: { type_line: 'Instant' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { type_line: 'Instant' } })).toBe(false);
+
+    // Conservative: unknown types prevent a definitive true
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Instant' } }, { casterId: p1, card: {} }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { type_line: 'Instant' } })).toBe(null);
+  });
+
+  it('supports "if you\'ve cast a spell with mana value N or greater this turn" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_mv_threshold');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "At the beginning of your end step, if you've cast a spell with mana value four or greater this turn, draw a card.";
+
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Sorcery', manaValue: 4 } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { type_line: 'Instant', manaValue: 3 } },
+      { casterId: p1, card: { type_line: 'Creature', manaValue: 2 } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Sorcery' } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
+  it('supports "if you\'ve cast N or more instant and sorcery spells this turn" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_is_count');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "At the beginning of your end step, if you've cast three or more instant and sorcery spells this turn, draw a card.";
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { type_line: 'Instant' } },
+      { casterId: p1, card: { type_line: 'Sorcery' } },
+      { casterId: p1, card: { type_line: 'Instant' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).spellsCastThisTurn = [
+      { casterId: p1, card: { type_line: 'Instant' } },
+      { casterId: p1, card: { type_line: 'Creature' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    (g.state as any).spellsCastThisTurn = [{ casterId: p1, card: { type_line: 'Instant' } }, { casterId: p1, card: {} }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
+  it('supports "if there are cards exiled with it/this enchantment" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_cards_exiled_with');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc1 = 'At the beginning of your upkeep, if there are cards exiled with it, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc1, { exiledCardIds: ['c1'] })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc1, { exiledCardIds: [] })).toBe(false);
+
+    const desc2 = 'At the beginning of your upkeep, if there are cards exiled with this enchantment, draw a card.';
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc2, { cardsExiledWith: ['c1', 'c2'] })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc2, { cardsExiledWith: [] })).toBe(false);
+  });
+
+  it('supports "if there are N or more cards exiled with this artifact" (best-effort, via zones)', () => {
+    const g = createInitialGameState('t_intervening_if_exiled_with_artifact_count');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const source: any = { id: 'a1', controller: p1, card: { name: "River Song's Diary", type_line: 'Artifact' } };
+    const desc = 'At the beginning of your upkeep, if there are four or more cards exiled with this artifact, draw a card.';
+
+    (g.state as any).zones = {
+      [p1]: {
+        exile: [
+          { id: 'e1', name: 'A', exiledWithSourceId: 'a1' },
+          { id: 'e2', name: 'B', exiledWithSourceId: 'a1' },
+          { id: 'e3', name: 'C', exiledWithSourceId: 'a1' },
+        ],
+      },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(null);
+
+    (g.state as any).zones[p1].exile.push({ id: 'e4', name: 'D', exiledWithSourceId: 'a1' });
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(true);
+  });
+
+  it('supports "if there are three or more cards exiled with The Mysterious Sphere" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_mysterious_sphere_exile_count');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const source: any = { id: 'ms1', controller: p1, card: { name: 'The Mysterious Sphere', type_line: 'Artifact' } };
+    const desc = 'At the beginning of your upkeep, if there are three or more cards exiled with The Mysterious Sphere, draw a card.';
+
+    (g.state as any).zones = {
+      [p1]: {
+        exile: [
+          { id: 'e1', name: 'A', exiledWithSourceId: 'ms1' },
+          { id: 'e2', name: 'B', exiledWithSourceId: 'ms1' },
+          { id: 'e3', name: 'C', exiledWithSourceId: 'ms1' },
+        ],
+      },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(true);
+
+    // If the source isn't actually The Mysterious Sphere, we don't guess.
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { ...source, card: { name: 'Not The Sphere', type_line: 'Artifact' } })).toBe(null);
+  });
+
+  it('supports "if it has the same name as one of the cards exiled with this artifact" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_same_name_as_exiled_with_artifact');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const source: any = { id: 'helix', controller: p1, card: { name: 'Spellweaver Helix', type_line: 'Artifact' } };
+    const desc = 'When you cast a spell, if it has the same name as one of the cards exiled with this artifact, draw a card.';
+
+    (g.state as any).zones = {
+      [p1]: {
+        exile: [{ id: 'x1', name: 'Lightning Bolt', exiledWithSourceId: 'helix' }],
+      },
+    };
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, source, {
+        stackItem: { card: { name: 'Lightning Bolt' } },
+      } as any)
+    ).toBe(true);
+
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, source, {
+        stackItem: { card: { name: 'Shock' } },
+      } as any)
+    ).toBe(false);
+
+    // Missing spell name => conservative unknown
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source, {} as any)).toBe(null);
+  });
+
+  it('supports "if enchanted permanent is a creature with the greatest power among creatures on the battlefield" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_enchanted_greatest_power');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const aura: any = { id: 'aura1', controller: p1, card: { type_line: 'Enchantment — Aura' }, attachedTo: 'c1' };
+    const desc =
+      'At the beginning of your upkeep, if enchanted permanent is a creature with the greatest power among creatures on the battlefield, draw a card.';
+
+    (g.state as any).battlefield = [
+      aura,
+      { id: 'c1', controller: p1, card: { type_line: 'Creature' }, power: '5', toughness: '5' },
+      { id: 'c2', controller: p1, card: { type_line: 'Creature' }, power: '4', toughness: '4' },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, aura)).toBe(true);
+
+    // A creature with strictly greater power exists => false
+    (g.state as any).battlefield = [
+      aura,
+      { id: 'c1', controller: p1, card: { type_line: 'Creature' }, power: '5', toughness: '5' },
+      { id: 'c2', controller: p1, card: { type_line: 'Creature' }, power: '6', toughness: '6' },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, aura)).toBe(false);
+
+    // Unknown creature power elsewhere => conservative null
+    (g.state as any).battlefield = [
+      aura,
+      { id: 'c1', controller: p1, card: { type_line: 'Creature' }, power: '5', toughness: '5' },
+      { id: 'cX', controller: p1, card: { type_line: 'Creature' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, aura)).toBe(null);
+  });
+
+  it('supports "if N or more artifacts/creatures entered the battlefield under your control this turn" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_n_or_more_entered_this_turn');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const dArtifacts3 = 'At the beginning of your end step, if three or more artifacts entered the battlefield under your control this turn, draw a card.';
+    const dArtifacts2Short = 'At the beginning of your end step, if two or more artifacts entered under your control this turn, draw a card.';
+    const dCreatures2 = 'At the beginning of your end step, if two or more creatures entered the battlefield under your control this turn, draw a card.';
+
+    // Artifacts are tracked via a per-turn counter map when present.
+    (g.state as any).artifactsEnteredBattlefieldThisTurnByController = { [p1]: 2 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), dArtifacts3)).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dArtifacts2Short)).toBe(true);
+
+    (g.state as any).artifactsEnteredBattlefieldThisTurnByController = { [p1]: 3 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), dArtifacts3)).toBe(true);
+
+    // Creatures are also tracked via a per-turn counter map when present.
+    (g.state as any).creaturesEnteredBattlefieldThisTurnByController = { [p1]: 2 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), dCreatures2)).toBe(true);
+  });
+
+  it('supports power/toughness threshold templates (best-effort, conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_pt_thresholds');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const dPowLe2 = 'When this creature attacks, if its power is 2 or less, draw a card.';
+    const dPowGt0 = 'When this creature attacks, if its power is greater than 0, draw a card.';
+    const dPowWas3 = 'When this creature attacks, if its power was three or greater, draw a card.';
+    const dTouWasLt1 = 'When this creature attacks, if its toughness was less than 1, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowLe2, { id: 'c1', card: { type_line: 'Creature' }, power: '2' })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowLe2, { id: 'c1', card: { type_line: 'Creature' }, power: '3' })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowLe2, { id: 'c1', card: { type_line: 'Creature' } })).toBe(null);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowGt0, { id: 'c1', card: { type_line: 'Creature' }, power: '1' })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowGt0, { id: 'c1', card: { type_line: 'Creature' }, power: '0' })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowGt0, { id: 'c1', card: { type_line: 'Creature' } })).toBe(null);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowWas3, { id: 'c1', card: { type_line: 'Creature' }, power: '3' })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowWas3, { id: 'c1', card: { type_line: 'Creature' }, power: '2' })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dPowWas3, { id: 'c1', card: { type_line: 'Creature' } })).toBe(null);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dTouWasLt1, { id: 'c1', card: { type_line: 'Creature' }, toughness: '0' })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dTouWasLt1, { id: 'c1', card: { type_line: 'Creature' }, toughness: '1' })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dTouWasLt1, { id: 'c1', card: { type_line: 'Creature' } })).toBe(null);
+  });
+
+  it("supports Guardian Project-style name uniqueness (conservative)", () => {
+    const g = createInitialGameState('t_intervening_if_name_uniqueness');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc =
+      'Whenever a creature enters the battlefield under your control, if it does not have the same name as another creature you control or a creature card in your graveyard, draw a card.';
+
+    const itCreature: any = { id: 'c1', controller: p1, card: { name: 'Alpha', type_line: 'Creature' } };
+
+    (g.state as any).battlefield = [
+      itCreature,
+      { id: 'c2', controller: p1, card: { name: 'Beta', type_line: 'Creature' } },
+    ];
+    (g.state as any).zones = { [p1]: { graveyard: [] } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, itCreature)).toBe(true);
+
+    // Same name on battlefield => false
+    (g.state as any).battlefield = [
+      itCreature,
+      { id: 'c3', controller: p1, card: { name: 'Alpha', type_line: 'Creature' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, itCreature)).toBe(false);
+
+    // Same name in graveyard => false
+    (g.state as any).battlefield = [itCreature];
+    (g.state as any).zones = { [p1]: { graveyard: [{ id: 'g1', name: 'Alpha', type_line: 'Creature' }] } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, itCreature)).toBe(false);
+
+    // Missing zones => conservative unknown
+    delete (g.state as any).zones;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, itCreature)).toBe(null);
+  });
+
+  it('supports "if it/he wasn\'t a/an <subtype>" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_wasnt_subtype');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const dNotDemon = 'At the beginning of your upkeep, if it wasn\'t a Demon, draw a card.';
+    const dNotSpirit = 'At the beginning of your upkeep, if he wasn\'t a Spirit, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotDemon, { id: 'c1', card: { type_line: 'Creature — Human' } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotDemon, { id: 'c1', card: { type_line: 'Creature — Demon' } })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotDemon, { id: 'c1', card: {} })).toBe(null);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotSpirit, { id: 'c1', card: { type_line: 'Creature — Human' } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotSpirit, { id: 'c1', card: { type_line: 'Creature — Spirit' } })).toBe(false);
+  });
+
+  it('supports "if it\'s not a/an <subtype>" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_its_not_subtype');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const dNotBrushwagg = 'At the beginning of your upkeep, if it\'s not a Brushwagg, draw a card.';
+    const dNotSpirit = 'At the beginning of your upkeep, if it\'s not a Spirit, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotBrushwagg, { id: 'c1', card: { type_line: 'Creature — Human' } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotBrushwagg, { id: 'c1', card: { type_line: 'Creature — Brushwagg' } })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotBrushwagg, { id: 'c1', card: {} })).toBe(null);
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotSpirit, { id: 'c1', card: { type_line: 'Creature — Human' } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), dNotSpirit, { id: 'c1', card: { type_line: 'Creature — Spirit' } })).toBe(false);
+  });
+
+  it('supports "if its mana value was N or greater" (best-effort via triggering stackItem card)', () => {
+    const g = createInitialGameState('t_intervening_if_mv_was');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'Whenever you cast a spell, if its mana value was 1 or greater, draw a card.';
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { stackItem: { card: { cmc: 0, type_line: 'Instant' } } })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { stackItem: { card: { cmc: 1, type_line: 'Instant' } } })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, undefined, { stackItem: { card: { type_line: 'Instant' } } })).toBe(null);
+  });
+
+  it('supports "if it shares a creature type with Plane-Merge Elf" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_shares_type_with_named');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'Whenever a creature enters the battlefield under your control, if it shares a creature type with Plane-Merge Elf, draw a card.';
+    const itCreature: any = { id: 'c1', controller: p1, card: { name: 'It', type_line: 'Creature — Elf Druid' } };
+
+    (g.state as any).battlefield = [{ id: 'pm1', controller: p1, card: { name: 'Plane-Merge Elf', type_line: 'Creature — Elf Wizard' } }];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, itCreature)).toBe(true);
+
+    const human: any = { id: 'c2', controller: p1, card: { name: 'It', type_line: 'Creature — Human' } };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, human)).toBe(false);
+
+    // Missing Plane-Merge Elf => conservative unknown
+    (g.state as any).battlefield = [itCreature];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, itCreature)).toBe(null);
+  });
+
+  it('supports "if N or more creatures died under your control this turn" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_n_or_more_died_under_your_control');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of your end step, if two or more creatures died under your control this turn, draw a card.';
+
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    (g.state as any).creaturesDiedThisTurnByController = { [p1]: 2 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    // If we only know "a creature died" globally, can't conclude for n>=2
+    delete (g.state as any).creaturesDiedThisTurnByController;
+    (g.state as any).creatureDiedThisTurn = true;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+
+    (g.state as any).creatureDiedThisTurn = false;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports "if it\'s not that player\'s turn" (refs-based)', () => {
+    const g = createInitialGameState('t_intervening_if_not_that_players_turn');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    (g.state as any).activePlayer = p1;
+    const desc = "At the beginning of each player's upkeep, if it's not that player's turn, draw a card.";
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {}, { thatPlayerId: p2 })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {}, { thatPlayerId: p1 })).toBe(false);
+  });
+
+  it('supports "if it wasn\'t the first land you played this turn"', () => {
+    const g = createInitialGameState('t_intervening_if_not_first_land');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "When you play a land, if it wasn't the first land you played this turn, draw a card.";
+
+    (g.state as any).landsPlayedThisTurn = { [p1]: 1 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    (g.state as any).landsPlayedThisTurn = { [p1]: 2 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    delete (g.state as any).landsPlayedThisTurn;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
+  it('supports "if it\'s not the first turn of the game"', () => {
+    const g = createInitialGameState('t_intervening_if_not_first_turn');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = "At the beginning of your upkeep, if it's not the first turn of the game, draw a card.";
+
+    (g.state as any).turnNumber = 1;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    (g.state as any).turnNumber = 2;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    delete (g.state as any).turnNumber;
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
   it("supports \"if it's the second creature spell you cast this turn\" (conservative)", () => {
     const g = createInitialGameState('t_intervening_if_second_creature_spell');
     const p1 = 'p1' as PlayerID;
