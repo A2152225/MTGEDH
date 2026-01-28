@@ -429,6 +429,22 @@ function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: n
   if (!perm) return;
 
   const dmg = Math.max(0, amount | 0);
+  // Track excess damage (best-effort): damage beyond remaining toughness in this event.
+  try {
+    const stateAny = (ctx as any).state as any;
+    const tl = String(perm?.card?.type_line || '').toLowerCase();
+    const isCreature = tl.includes('creature');
+    if (isCreature) {
+      const toughness = parseInt(String((perm as any).baseToughness ?? perm?.card?.toughness ?? '0'), 10) || 0;
+      const prev = (perm as any).damageMarked || 0;
+      const remaining = Math.max(0, toughness - prev);
+      if (remaining > 0 && dmg > remaining) {
+        stateAny.excessDamageThisTurnByCreatureId = stateAny.excessDamageThisTurnByCreatureId || {};
+        stateAny.excessDamageThisTurnByCreatureId[String(permanentId)] = true;
+        (perm as any).wasDealtExcessDamageThisTurn = true;
+      }
+    }
+  } catch {}
   (perm as any).damageMarked = ((perm as any).damageMarked || 0) + dmg;
   (perm as any).damageThisTurn = ((perm as any).damageThisTurn || 0) + dmg;
   (perm as any).tookDamageThisTurn = true;

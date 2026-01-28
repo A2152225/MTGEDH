@@ -1430,6 +1430,19 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           }
           
           if (blockerPower > 0) {
+            // Track excess damage to attacker (best-effort): damage beyond remaining toughness in this event.
+            try {
+              const stateAny = (ctx as any).state as any;
+              const attackerToughnessForExcess = parseInt(String(attacker.baseToughness ?? card.toughness ?? '0'), 10) || 0;
+              const prevMarked = attacker.markedDamage || 0;
+              const remaining = Math.max(0, attackerToughnessForExcess - prevMarked);
+              if (remaining > 0 && blockerPower > remaining) {
+                stateAny.excessDamageThisTurnByCreatureId = stateAny.excessDamageThisTurnByCreatureId || {};
+                stateAny.excessDamageThisTurnByCreatureId[String(attacker.id)] = true;
+                (attacker as any).wasDealtExcessDamageThisTurn = true;
+              }
+            } catch {}
+
             // Deal damage to attacker
             attacker.markedDamage = (attacker.markedDamage || 0) + blockerPower;
             // Track damage dealt to this permanent this turn (for intervening-if clauses).

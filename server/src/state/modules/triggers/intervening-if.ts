@@ -1407,7 +1407,7 @@ function evaluateInterveningIfClauseInternal(
     return rolls.length > 0;
   }
   {
-    const m = clause.match(/^if\s+you\s+rolled\s+a\s+([a-z0-9]+)(?:\s+this\s+turn)?$/i);
+    const m = clause.match(/^if\s+you\s+roll(?:ed)?\s+a\s+([a-z0-9]+)(?:\s+this\s+turn)?$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
@@ -1417,7 +1417,7 @@ function evaluateInterveningIfClauseInternal(
     }
   }
   {
-    const m = clause.match(/^if\s+you\s+rolled\s+([a-z0-9]+)\s+or\s+higher\s+this\s+turn$/i);
+    const m = clause.match(/^if\s+you\s+roll(?:ed)?\s+([a-z0-9]+)\s+or\s+higher\s+this\s+turn$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
@@ -1427,7 +1427,7 @@ function evaluateInterveningIfClauseInternal(
     }
   }
   {
-    const m = clause.match(/^if\s+you\s+rolled\s+([a-z0-9]+)\s+or\s+less\s+this\s+turn$/i);
+    const m = clause.match(/^if\s+you\s+roll(?:ed)?\s+([a-z0-9]+)\s+or\s+less\s+this\s+turn$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
@@ -2034,7 +2034,7 @@ function evaluateInterveningIfClauseInternal(
       // If the clause explicitly names a different permanent, ensure we only handle when it refers to this source.
       if (/the\s+mysterious\s+sphere/i.test(clause)) {
         const nm = String((sourcePermanent as any)?.card?.name || (sourcePermanent as any)?.name || '');
-        if (!/^The Mysterious Sphere\b/i.test(nm)) return null;
+        if (!/^The Mysterious Sphere\b/i.test(nm)) return false;
       }
 
       // Evidence path 0: direct bookkeeping on the permanent.
@@ -2088,13 +2088,23 @@ function evaluateInterveningIfClauseInternal(
     const srcId = String((sourcePermanent as any)?.id ?? (sourcePermanent as any)?.permanentId ?? '');
     if (!srcId) return null;
 
-    const itName = String(
+    let itName = String(
       (refs as any)?.stackItem?.card?.name ??
         (refs as any)?.card?.name ??
         (refs as any)?.triggeringCard?.name ??
         (refs as any)?.triggeringSpellCard?.name ??
         ''
     ).trim();
+    if (!itName) {
+      const triggeringStackItemId =
+        (refs as any)?.triggeringStackItemId ??
+        (sourcePermanent as any)?.triggeringStackItemId;
+      const stack = (ctx as any).state?.stack;
+      if (typeof triggeringStackItemId === 'string' && triggeringStackItemId && Array.isArray(stack)) {
+        const item = stack.find((s: any) => String(s?.id || '') === triggeringStackItemId);
+        itName = String(item?.card?.name ?? '').trim();
+      }
+    }
     if (!itName) return null;
     const itLower = itName.toLowerCase();
 
@@ -2178,6 +2188,114 @@ function evaluateInterveningIfClauseInternal(
     const active = getActivePlayerId(ctx);
     if (!active) return null;
     return active !== controllerId;
+  }
+
+  // Graveyard-order templates (best-effort). Assumes graveyard arrays append new cards (top is end).
+  // Note: If source zone is known and not graveyard, we can safely conclude false.
+  {
+    const sourceZone = String((sourcePermanent as any)?.zone ?? (sourcePermanent as any)?.card?.zone ?? '').toLowerCase();
+    const sourceNameLower = String((sourcePermanent as any)?.card?.name ?? (sourcePermanent as any)?.name ?? '').toLowerCase().trim();
+    const sourceCardId = String((sourcePermanent as any)?.card?.id ?? (sourcePermanent as any)?.cardId ?? (sourcePermanent as any)?.id ?? '').trim();
+
+    const findSourceInGraveyard = (): { graveyard: any[]; index: number } | null => {
+      const zones = getZones(ctx);
+      const z = zones?.[controllerId];
+      const graveyard: any[] = Array.isArray(z?.graveyard) ? z.graveyard : [];
+      if (!graveyard.length) return null;
+
+      // Prefer matching by id when available.
+      if (sourceCardId) {
+        const idxById = graveyard.findIndex((c: any) => String(c?.id ?? c?.card?.id ?? c?.cardId ?? '').trim() === sourceCardId);
+        if (idxById >= 0) return { graveyard, index: idxById };
+      }
+
+      // Fallback: match by name only if unique.
+      if (sourceNameLower) {
+        const matches = graveyard
+          .map((c: any, i: number) => ({ i, n: String(c?.name ?? c?.card?.name ?? '').toLowerCase().trim() }))
+          .filter((x) => x.n && x.n === sourceNameLower);
+        if (matches.length === 1) return { graveyard, index: matches[0].i };
+      }
+
+      return null;
+    };
+
+    const isCreatureCardMaybe = (c: any): boolean | null => {
+      const tl = c?.type_line ?? c?.card?.type_line;
+      if (typeof tl !== 'string' || !tl.trim()) return null;
+      return tl.toLowerCase().includes('creature');
+    };
+
+    // "if this card is in your graveyard and it's your turn"
+    if (/^if\s+this\s+card\s+is\s+in\s+your\s+graveyard\s+and\s+it'?s\s+your\s+turn$/i.test(clause)) {
+      if (sourceZone && sourceZone !== 'graveyard') return false;
+      const active = getActivePlayerId(ctx);
+      if (!active) return null;
+      if (sourceZone === 'graveyard') return active === controllerId;
+      // If zone unknown, we can't guarantee the card is in graveyard.
+      return null;
+    }
+
+    // "if this card is in your graveyard with a creature card directly above it"
+    if (/^if\s+this\s+card\s+is\s+in\s+your\s+graveyard\s+with\s+a\s+creature\s+card\s+directly\s+above\s+it$/i.test(clause)) {
+      if (sourceZone && sourceZone !== 'graveyard') return false;
+      const found = findSourceInGraveyard();
+      if (!found) return null;
+      const above = found.graveyard[found.index + 1];
+      if (!above) return false;
+      const isCreature = isCreatureCardMaybe(above);
+      return isCreature;
+    }
+
+    // "if this card is in your graveyard with N or more creature cards above it"
+    {
+      const m = clause.match(
+        /^if\s+this\s+card\s+is\s+in\s+your\s+graveyard\s+with\s+([a-z0-9]+)\s+or\s+more\s+creature\s+cards?\s+above\s+it$/i
+      );
+      if (m) {
+        if (sourceZone && sourceZone !== 'graveyard') return false;
+        const n = parseCountToken(m[1]);
+        if (n === null) return null;
+        const found = findSourceInGraveyard();
+        if (!found) return null;
+
+        let creatureCount = 0;
+        let sawUnknown = false;
+        for (let i = found.index + 1; i < found.graveyard.length; i++) {
+          const isCreature = isCreatureCardMaybe(found.graveyard[i]);
+          if (isCreature === true) creatureCount++;
+          else if (isCreature === null) sawUnknown = true;
+        }
+
+        if (creatureCount >= n) return true;
+        // If unknowns exist we can't conclude false safely.
+        return sawUnknown ? null : false;
+      }
+    }
+
+    // "if this card is the only creature card in your graveyard"
+    if (/^if\s+this\s+card\s+is\s+the\s+only\s+creature\s+card\s+in\s+your\s+graveyard$/i.test(clause)) {
+      if (sourceZone && sourceZone !== 'graveyard') return false;
+      const found = findSourceInGraveyard();
+      if (!found) return null;
+
+      const isSourceCreature = isCreatureCardMaybe(found.graveyard[found.index]);
+      if (isSourceCreature === false) return false;
+      if (isSourceCreature === null) return null;
+
+      let creatureCount = 0;
+      let sawUnknown = false;
+      for (const c of found.graveyard) {
+        const isCreature = isCreatureCardMaybe(c);
+        if (isCreature === true) creatureCount++;
+        else if (isCreature === null) sawUnknown = true;
+      }
+
+      if (creatureCount === 1) return true;
+      // If we already saw 2+ creatures, it's definitely false regardless of unknowns.
+      if (creatureCount >= 2) return false;
+      return sawUnknown ? null : false;
+    }
   }
 
   // "if it's not the first turn of the game" (turn-tracking)
@@ -3257,19 +3375,69 @@ function evaluateInterveningIfClauseInternal(
       const nameToken = String(m[1] || '').trim();
       if (!nameToken) return null;
       if (/^(?:you|this\s+creature|it)$/i.test(nameToken)) return UNMATCHED_INTERVENING_IF;
-      if (!sourcePermanent) return null;
 
-      const cardName = String((sourcePermanent as any)?.card?.name || '').trim();
-      if (!cardName) return null;
-      if (!cardName.toLowerCase().startsWith(nameToken.toLowerCase())) return null;
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
 
-      const hasInfo =
-        'attackedThisTurn' in (sourcePermanent as any) ||
-        'attacking' in (sourcePermanent as any) ||
-        'isAttacking' in (sourcePermanent as any);
+      const tokenLower = normalizeText(nameToken).toLowerCase();
+      const matches = battlefield.filter((p: any) => {
+        const nm = String(p?.card?.name ?? p?.name ?? '').trim();
+        if (!nm) return false;
+        return normalizeText(nm).toLowerCase().startsWith(tokenLower);
+      });
+
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+
+      const p = matches[0];
+      const hasInfo = 'attackedThisTurn' in p || 'attacking' in p || 'isAttacking' in p;
       if (!hasInfo) return null;
-      return (sourcePermanent as any).attackedThisTurn === true || !!(sourcePermanent as any).attacking || (sourcePermanent as any).isAttacking === true;
+      return p.attackedThisTurn === true || !!p.attacking || p.isAttacking === true;
     }
+  }
+
+  // "if <Name> was kicked" (best-effort; avoid matching "if it was kicked" which has its own handler)
+  {
+    const m = clause.match(/^if\s+(?!it\b)(?!this\s+spell\b)(?!this\s+card\b)(.+?)\s+was\s+kicked$/i);
+    if (m) {
+      const token = String(m[1] || '').trim();
+      if (!token) return null;
+      const raw =
+        (refs as any)?.wasKicked ??
+        (refs as any)?.card?.wasKicked ??
+        (sourcePermanent as any)?.wasKicked ??
+        (sourcePermanent as any)?.card?.wasKicked;
+      return typeof raw === 'boolean' ? raw : null;
+    }
+  }
+
+  // "if it's at least one of the chosen colors" (best-effort)
+  if (/^if\s+it'?s\s+at\s+least\s+one\s+of\s+the\s+chosen\s+colors$/i.test(clause)) {
+    const chosenRaw =
+      (refs as any)?.chosenColors ??
+      (refs as any)?.card?.chosenColors ??
+      (refs as any)?.chosenColor ??
+      (refs as any)?.card?.chosenColor ??
+      (sourcePermanent as any)?.chosenColors ??
+      (sourcePermanent as any)?.card?.chosenColors ??
+      (sourcePermanent as any)?.chosenColor ??
+      (sourcePermanent as any)?.card?.chosenColor;
+
+    const chosen: string[] = Array.isArray(chosenRaw)
+      ? chosenRaw.map((c: any) => String(c || '').toLowerCase()).filter(Boolean)
+      : [String(chosenRaw || '').toLowerCase()].filter(Boolean);
+    if (!chosen.length) return null;
+
+    const itColorsRaw =
+      (refs as any)?.colors ??
+      (refs as any)?.card?.colors ??
+      (sourcePermanent as any)?.colors ??
+      (sourcePermanent as any)?.card?.colors;
+    if (!Array.isArray(itColorsRaw)) return null;
+    const itColors = itColorsRaw.map((c: any) => String(c || '').toLowerCase()).filter(Boolean);
+    if (!itColors.length) return null;
+
+    return itColors.some((c: string) => chosen.includes(c));
   }
 
   // "if this creature attacked or blocked this turn" (best-effort)
@@ -5673,6 +5841,71 @@ function evaluateInterveningIfClauseInternal(
     return null;
   }
 
+  // "if you cycled two or more cards this turn" (best-effort)
+  if (/^if\s+you\s+cycled\s+two\s+or\s+more\s+cards\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const raw =
+      stateAny?.cardsCycledThisTurn?.[controllerId] ??
+      stateAny?.cycledCardsThisTurn?.[controllerId] ??
+      stateAny?.cycleCountThisTurn?.[controllerId];
+    return typeof raw === 'number' ? raw >= 2 : null;
+  }
+
+  // "if you've committed a crime this turn" (best-effort)
+  if (/^if\s+you\s+(?:have\s+)?committed\s+a\s+crime\s+this\s+turn$/i.test(clause) || /^if\s+you'?ve\s+committed\s+a\s+crime\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const raw =
+      stateAny?.committedCrimeThisTurn?.[controllerId] ??
+      stateAny?.crimeCommittedThisTurn?.[controllerId] ??
+      stateAny?.hasCommittedCrimeThisTurn?.[controllerId];
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if you've cast a spell with mana value N or greater this turn" (best-effort)
+  {
+    const m = clause.match(/^if\s+you'?ve\s+cast\s+a\s+spell\s+with\s+mana\s+value\s+([a-z0-9]+)\s+or\s+greater\s+this\s+turn$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const stateAny = (ctx as any).state as any;
+      const spells = Array.isArray(stateAny?.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : null;
+      if (!spells) return null;
+      return spells.some((s: any) => {
+        if (String(s?.casterId ?? s?.controller ?? '') !== String(controllerId)) return false;
+        const mv = parseMaybeNumber(s?.card?.manaValue ?? s?.card?.cmc ?? s?.manaValue ?? s?.cmc);
+        return mv !== null && mv >= n;
+      });
+    }
+  }
+
+  // "if you've played a land or cast a spell this turn from anywhere other than your hand" (best-effort)
+  if (
+    /^if\s+you'?ve\s+played\s+a\s+land\s+or\s+cast\s+a\s+spell\s+this\s+turn\s+from\s+anywhere\s+other\s+than\s+your\s+hand$/i.test(
+      clause
+    )
+  ) {
+    const stateAny = (ctx as any).state as any;
+    const candidates = [
+      stateAny?.playedCardFromExileThisTurn?.[controllerId],
+      stateAny?.playedFromExileThisTurn?.[controllerId],
+      stateAny?.castFromExileThisTurn?.[controllerId],
+      stateAny?.castFromGraveyardThisTurn?.[controllerId],
+      stateAny?.playedLandFromGraveyardThisTurn?.[controllerId],
+      stateAny?.playedLandFromExileThisTurn?.[controllerId],
+    ];
+
+    const anyKnown = candidates.some((v: any) => typeof v === 'boolean' || typeof v === 'number');
+    if (!anyKnown) return null;
+    const anyTrue = candidates.some((v: any) => (typeof v === 'boolean' ? v : typeof v === 'number' ? v > 0 : false));
+    return anyTrue;
+  }
+
+  // "if you cast them" (best-effort; requires explicit refs)
+  if (/^if\s+you\s+cast\s+them$/i.test(clause)) {
+    const raw = (refs as any)?.youCastThem ?? (refs as any)?.castThem ?? (refs as any)?.wasCastThem;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
   // "if you sacrificed a permanent this turn" / "if you sacrificed one or more permanents this turn"
   if (
     /^if\s+you\s+sacrificed\s+a\s+permanent\s+this\s+turn\.?$/i.test(clause) ||
@@ -5708,6 +5941,188 @@ function evaluateInterveningIfClauseInternal(
     if (typeof raw === 'number') return raw > 0;
     if (typeof raw === 'boolean') return raw;
     return null;
+  }
+
+  // "if you were the monarch as the turn began" (best-effort)
+  if (/^if\s+you\s+were\s+the\s+monarch\s+as\s+the\s+turn\s+began$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const raw =
+      stateAny?.monarchAtTurnBeginByPlayer?.[controllerId] ??
+      stateAny?.wasMonarchAtTurnBegin?.[controllerId] ??
+      stateAny?.monarchAtTurnBegan?.[controllerId];
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if you have an {E}" (energy; best-effort)
+  if (/^if\s+you\s+have\s+an\s+\{e\}$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const v = stateAny?.energyCounters?.[controllerId] ?? stateAny?.energy?.[controllerId] ?? stateAny?.energyCount?.[controllerId];
+    return typeof v === 'number' ? v > 0 : null;
+  }
+
+  // Un-/silver-bordered meta templates (best-effort; explicit refs/state only)
+  if (/^if\s+you\s+didn'?t\s+have\s+an\s+active\s+tournament$/i.test(clause)) {
+    const raw = (refs as any)?.hasActiveTournament ?? (refs as any)?.activeTournament;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+  if (/^if\s+you\s+don'?t\s+have\s+a\s+timer\s+running$/i.test(clause)) {
+    const raw = (refs as any)?.hasTimerRunning ?? (refs as any)?.timerRunning;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+  if (/^if\s+you\s+have\s+a\s+boon$/i.test(clause)) {
+    const raw = (refs as any)?.hasBoon ?? (refs as any)?.boon;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+  if (/^if\s+you\'?re\s+eating$/i.test(clause) || /^if\s+you\s+are\s+eating$/i.test(clause)) {
+    const raw = (refs as any)?.isEating ?? (refs as any)?.youAreEating;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+  if (/^if\s+there\s+haven'?t\s+been\s+any\s+subgames\s+this\s+match$/i.test(clause)) {
+    const raw = (refs as any)?.hasHadSubgamesThisMatch ?? (refs as any)?.hadSubgamesThisMatch;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+
+  // "if you have four token counters" (best-effort)
+  if (/^if\s+you\s+have\s+four\s+token\s+counters$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const v = stateAny?.tokenCounters?.[controllerId] ?? stateAny?.tokenCounterCount?.[controllerId];
+    return typeof v === 'number' ? v >= 4 : null;
+  }
+
+  // "if you haven't added mana with this ability this turn" (best-effort)
+  if (/^if\s+you\s+haven'?t\s+added\s+mana\s+with\s+this\s+ability\s+this\s+turn$/i.test(clause)) {
+    const raw = (refs as any)?.addedManaWithThisAbilityThisTurn ?? (refs as any)?.hasAddedManaWithThisAbilityThisTurn;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+
+  // "if you haven't been dealt combat damage since your last turn" (best-effort)
+  if (/^if\s+you\s+haven'?t\s+been\s+dealt\s+combat\s+damage\s+since\s+your\s+last\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const raw =
+      stateAny?.combatDamageDealtToPlayerSinceLastTurn?.[controllerId] ??
+      stateAny?.tookCombatDamageSinceLastTurn?.[controllerId];
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+
+  // "if you planeswalked to Unyaro this turn" (best-effort)
+  if (/^if\s+you\s+planeswalked\s+to\s+unyaro\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const list = stateAny?.planeswalkedToThisTurn?.[controllerId] ?? stateAny?.planeswalkedToPlanesThisTurn?.[controllerId];
+    if (!Array.isArray(list)) return null;
+    return list.some((p: any) => String(p || '').toLowerCase() === 'unyaro');
+  }
+
+  // "if two or more players have lost the game" (best-effort)
+  if (/^if\s+two\s+or\s+more\s+players\s+have\s+lost\s+the\s+game$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const v = stateAny?.playersLostCount ?? stateAny?.playersWhoLostCount;
+    return typeof v === 'number' ? v >= 2 : null;
+  }
+
+  // "if your opponents control no permanents with bounty counters on them" (best-effort)
+  if (/^if\s+your\s+opponents\s+control\s+no\s+permanents\s+with\s+bounty\s+counters\s+on\s+them$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const oppIds = getOpponentIds(ctx, controllerId);
+    if (oppIds.length === 0) return true;
+
+    let allHaveCountersObjects = true;
+    for (const p of battlefield) {
+      if (!p || !oppIds.includes(String(p.controller ?? ''))) continue;
+      if (!(p as any).counters || typeof (p as any).counters !== 'object') {
+        allHaveCountersObjects = false;
+        break;
+      }
+    }
+    if (!allHaveCountersObjects) return null;
+
+    for (const p of battlefield) {
+      if (!p || !oppIds.includes(String(p.controller ?? ''))) continue;
+      const n = getCounterCountCaseInsensitiveFromPerm(p, 'bounty');
+      if (typeof n === 'number' && n > 0) return false;
+    }
+    return true;
+  }
+
+  // "if there are no nonbasic land cards in your library" (best-effort)
+  if (/^if\s+there\s+are\s+no\s+nonbasic\s+land\s+cards\s+in\s+your\s+library$/i.test(clause)) {
+    const zones = (ctx as any).state?.zones;
+    const z = zones?.[controllerId];
+    const lib: any[] = Array.isArray(z?.library) ? z.library : [];
+    if (!Array.isArray(lib) || lib.length === 0) return null;
+    let sawUnknown = false;
+    for (const c of lib) {
+      const tl = c?.type_line ?? c?.card?.type_line;
+      if (typeof tl !== 'string' || !tl.trim()) {
+        sawUnknown = true;
+        continue;
+      }
+      const lower = tl.toLowerCase();
+      if (lower.includes('land') && !lower.includes('basic')) return false;
+    }
+    return sawUnknown ? null : true;
+  }
+
+  // "if there are five colors among permanents you control" (best-effort)
+  if (/^if\s+there\s+are\s+five\s+colors\s+among\s+permanents\s+you\s+control$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const colors = new Set<string>();
+    let sawUnknown = false;
+    for (const p of battlefield) {
+      if (!p || String(p.controller ?? '') !== String(controllerId)) continue;
+      const raw = (p as any)?.card?.colors ?? (p as any)?.colors;
+      if (!Array.isArray(raw)) {
+        sawUnknown = true;
+        continue;
+      }
+      for (const c of raw) {
+        const t = String(c || '').toLowerCase();
+        const norm = normalizeColorToken(t);
+        if (norm) colors.add(norm);
+      }
+      if (colors.size >= 5) return true;
+    }
+    return sawUnknown ? null : false;
+  }
+
+  // "if there are five or more mana values among cards in your graveyard" (best-effort)
+  if (/^if\s+there\s+are\s+five\s+or\s+more\s+mana\s+values\s+among\s+cards\s+in\s+your\s+graveyard$/i.test(clause)) {
+    const gy = getGraveyard(ctx, controllerId);
+    if (!Array.isArray(gy) || gy.length === 0) return null;
+    const vals = new Set<number>();
+    let sawUnknown = false;
+    for (const c of gy) {
+      const mv = getManaValue(c);
+      if (mv === null) {
+        sawUnknown = true;
+      } else {
+        vals.add(mv);
+      }
+      if (vals.size >= 5) return true;
+    }
+    return sawUnknown ? null : false;
+  }
+
+  // "if Rasputin started the turn untapped" (best-effort)
+  if (/^if\s+rasputin\s+started\s+the\s+turn\s+untapped$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const matches = battlefield.filter((p: any) => nameMatchesClauseName(String(p?.card?.name ?? p?.name ?? ''), 'rasputin'));
+    if (matches.length !== 1) return null;
+    const p = matches[0];
+    const raw = (p as any)?.startedTurnUntapped ?? (p as any)?.wasUntappedAtTurnStart;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if there are one or more oil counters on Glistening Extractor" (best-effort)
+  if (/^if\s+there\s+are\s+one\s+or\s+more\s+oil\s+counters\s+on\s+glistening\s+extractor$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const matches = battlefield.filter((p: any) => nameMatchesClauseName(String(p?.card?.name ?? p?.name ?? ''), 'glistening extractor'));
+    if (matches.length !== 1) return null;
+    const n = getCounterCountCaseInsensitiveFromPerm(matches[0], 'oil');
+    return n === null ? null : n > 0;
   }
 
   // "if you didn't activate a loyalty ability of a planeswalker this turn" (The Chain Veil)
@@ -6128,13 +6543,1080 @@ function evaluateInterveningIfClauseInternal(
 
   // "if that creature was dealt excess damage this turn" (needs specific excess-damage tracking)
   if (/^if\s+that\s+creature\s+was\s+dealt\s+excess\s+damage\s+this\s+turn$/i.test(clause)) {
-    const thatId = (sourcePermanent as any)?.thatCreatureId ?? (sourcePermanent as any)?.referencedCreatureId;
+    const thatId =
+      (sourcePermanent as any)?.thatCreatureId ??
+      (sourcePermanent as any)?.referencedCreatureId ??
+      (refs as any)?.thatCreatureId ??
+      (refs as any)?.referencedCreatureId;
     if (typeof thatId === 'string' && thatId) {
       const that = findBattlefieldPermanent(ctx, thatId);
       const v = (that as any)?.wasDealtExcessDamageThisTurn ?? (that as any)?.excessDamageThisTurn;
       return typeof v === 'boolean' ? v : null;
     }
+
+    const stateAny = (ctx as any).state as any;
+    const map = stateAny?.excessDamageThisTurnByCreatureId ?? stateAny?.excessDamageThisTurnByPermanentId;
+    if (map && typeof map === 'object') {
+      const v = map[String(thatId || '')];
+      if (typeof v === 'boolean') return v;
+      if (typeof v === 'number') return v > 0;
+    }
+
     return null;
+  }
+
+  // ===== "that ..." reference templates (best-effort; require refs or tracked state) =====
+  // "if that creature is still on the battlefield"
+  if (/^if\s+that\s+creature\s+is\s+still\s+on\s+the\s+battlefield$/i.test(clause)) {
+    const thatId = (refs as any)?.thatCreatureId ?? (refs as any)?.referencedCreatureId ?? (sourcePermanent as any)?.thatCreatureId;
+    if (typeof thatId !== 'string' || !thatId) return null;
+    return !!findBattlefieldPermanent(ctx, thatId);
+  }
+
+  // "if that creature is 1/1"
+  if (/^if\s+that\s+creature\s+is\s+1\/1$/i.test(clause)) {
+    const thatId = (refs as any)?.thatCreatureId ?? (refs as any)?.referencedCreatureId ?? (sourcePermanent as any)?.thatCreatureId;
+    if (typeof thatId !== 'string' || !thatId) return null;
+    const that = findBattlefieldPermanent(ctx, thatId);
+    if (!that) return null;
+    const p = getPermanentPowerMaybe(that, ctx);
+    const t = getPermanentToughnessMaybe(that, ctx);
+    if (p === null || t === null) return null;
+    return p === 1 && t === 1;
+  }
+
+  // "if that creature entered from a graveyard or you cast it from a graveyard"
+  if (/^if\s+that\s+creature\s+entered\s+from\s+a\s+graveyard\s+or\s+you\s+cast\s+it\s+from\s+a\s+graveyard$/i.test(clause)) {
+    const thatId = (refs as any)?.thatCreatureId ?? (refs as any)?.referencedCreatureId ?? (sourcePermanent as any)?.thatCreatureId;
+    const that = typeof thatId === 'string' && thatId ? findBattlefieldPermanent(ctx, thatId) : null;
+    const enteredFrom = String((that as any)?.enteredFromZone ?? (that as any)?.enteredFrom ?? (that as any)?.card?.enteredFromZone ?? '').toLowerCase();
+    const fromEntered = enteredFrom === 'graveyard';
+    const fromCast = (refs as any)?.wasCastFromGraveyard;
+    if (fromEntered) return true;
+    if (typeof fromCast === 'boolean') return fromCast;
+    return that ? false : null;
+  }
+
+  // "if that creature has greater power or toughness than this creature"
+  if (/^if\s+that\s+creature\s+has\s+greater\s+power\s+or\s+toughness\s+than\s+this\s+creature$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const thatId = (refs as any)?.thatCreatureId ?? (refs as any)?.referencedCreatureId ?? (sourcePermanent as any)?.thatCreatureId;
+    if (typeof thatId !== 'string' || !thatId) return null;
+    const that = findBattlefieldPermanent(ctx, thatId);
+    if (!that) return null;
+    const tp = getPermanentPowerMaybe(that, ctx);
+    const tt = getPermanentToughnessMaybe(that, ctx);
+    const sp = getPermanentPowerMaybe(sourcePermanent, ctx);
+    const st = getPermanentToughnessMaybe(sourcePermanent, ctx);
+    if (tp === null || tt === null || sp === null || st === null) return null;
+    return tp > sp || tt > st;
+  }
+
+  // "if that creature's power is greater than this creature's"
+  if (/^if\s+that\s+creature'?s\s+power\s+is\s+greater\s+than\s+this\s+creature'?s$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const thatId = (refs as any)?.thatCreatureId ?? (refs as any)?.referencedCreatureId ?? (sourcePermanent as any)?.thatCreatureId;
+    if (typeof thatId !== 'string' || !thatId) return null;
+    const that = findBattlefieldPermanent(ctx, thatId);
+    if (!that) return null;
+    const tp = getPermanentPowerMaybe(that, ctx);
+    const sp = getPermanentPowerMaybe(sourcePermanent, ctx);
+    if (tp === null || sp === null) return null;
+    return tp > sp;
+  }
+
+  // "if that creature was destroyed this way" (best-effort; requires explicit refs)
+  if (/^if\s+that\s+creature\s+was\s+destroyed\s+this\s+way$/i.test(clause)) {
+    const raw = (refs as any)?.thatCreatureDestroyedThisWay ?? (refs as any)?.destroyedThisWay;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if that creature was a Horror" (best-effort)
+  if (/^if\s+that\s+creature\s+was\s+a\s+horror$/i.test(clause)) {
+    const thatId = (refs as any)?.thatCreatureId ?? (refs as any)?.referencedCreatureId ?? (sourcePermanent as any)?.thatCreatureId;
+    if (typeof thatId !== 'string' || !thatId) return null;
+    const that = findBattlefieldPermanent(ctx, thatId);
+    if (!that) return null;
+    const tl = String((that as any)?.card?.type_line || '').toLowerCase();
+    if (!tl) return null;
+    return typeLineHasWord(tl, 'horror');
+  }
+
+  // "if that card is on the battlefield" / "if that card is still exiled" (best-effort)
+  if (/^if\s+that\s+card\s+is\s+on\s+the\s+battlefield$/i.test(clause) || /^if\s+that\s+card\s+is\s+still\s+exiled$/i.test(clause)) {
+    const targetZone = /^if\s+that\s+card\s+is\s+still\s+exiled$/i.test(clause) ? 'exile' : 'battlefield';
+    const thatCardId = String((refs as any)?.thatCardId ?? (refs as any)?.thatCard?.id ?? (refs as any)?.thatCardCardId ?? '').trim();
+    if (!thatCardId) return null;
+
+    if (targetZone === 'battlefield') {
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      return battlefield.some((p: any) => String(p?.card?.id ?? p?.cardId ?? p?.id ?? '') === thatCardId);
+    }
+
+    const zones = (ctx as any).state?.zones;
+    if (!zones || typeof zones !== 'object') return null;
+    for (const z of Object.values(zones as any)) {
+      const exile = (z as any)?.exile;
+      if (!Array.isArray(exile)) continue;
+      if (exile.some((c: any) => String(c?.id ?? c?.card?.id ?? c?.cardId ?? '') === thatCardId)) return true;
+    }
+    return false;
+  }
+
+  // "if that player controls a Plains" (best-effort)
+  if (/^if\s+that\s+player\s+controls\s+a\s+plains$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    return countLandsWithSubtype(ctx, thatPlayerId, 'plains') > 0;
+  }
+
+  // "if that player didn't cast a spell this turn" (best-effort)
+  if (/^if\s+that\s+player\s+didn'?t\s+cast\s+a\s+spell\s+this\s+turn$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const spells = (ctx as any).state?.spellsCastThisTurn;
+    if (!Array.isArray(spells)) return null;
+    return !spells.some((s: any) => String(s?.casterId ?? s?.controller ?? '') === thatPlayerId);
+  }
+
+  // "if that player didn't cast a creature spell this turn" (best-effort)
+  if (/^if\s+that\s+player\s+didn'?t\s+cast\s+a\s+creature\s+spell\s+this\s+turn$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const spells = (ctx as any).state?.spellsCastThisTurn;
+    if (!Array.isArray(spells)) return null;
+    return !spells.some((s: any) => {
+      if (String(s?.casterId ?? s?.controller ?? '') !== thatPlayerId) return false;
+      const tl = String(s?.card?.type_line ?? '').toLowerCase();
+      return tl.includes('creature');
+    });
+  }
+
+  // "if that opponent has more life than another of your opponents" (best-effort)
+  if (/^if\s+that\s+opponent\s+has\s+more\s+life\s+than\s+another\s+of\s+your\s+opponents$/i.test(clause)) {
+    const thatOpponentId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+    if (!thatOpponentId) return null;
+    const opponents = getOpponentIds(ctx, controllerId);
+    if (!opponents.length || !opponents.includes(thatOpponentId)) return null;
+    const thatLife = getPlayerLifeMaybe(ctx, thatOpponentId);
+    if (thatLife === null) return null;
+    return opponents.some((oid) => oid !== thatOpponentId && (() => {
+      const ol = getPlayerLifeMaybe(ctx, oid);
+      return ol !== null && thatLife > ol;
+    })());
+  }
+
+  // "if that player has less than half their starting life total" (best-effort)
+  if (/^if\s+that\s+player\s+has\s+less\s+than\s+half\s+their\s+starting\s+life\s+total$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const life = getPlayerLifeMaybe(ctx, thatPlayerId);
+    if (life === null) return null;
+    const starting = getStartingLifeTotal(ctx);
+    return life < starting / 2;
+  }
+
+  // "if life was paid to activate it" (best-effort; requires explicit refs)
+  if (/^if\s+life\s+was\s+paid\s+to\s+activate\s+it$/i.test(clause)) {
+    const raw = (refs as any)?.lifeWasPaidToActivateIt ?? (refs as any)?.lifePaidToActivateIt;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if that spell's mana cost or that ability's activation cost contains {X}" (best-effort)
+  if (/^if\s+that\s+spell'?s\s+mana\s+cost\s+or\s+that\s+ability'?s\s+activation\s+cost\s+contains\s+\{x\}$/i.test(clause)) {
+    const raw = (refs as any)?.costContainsX ?? (refs as any)?.manaCostContainsX;
+    if (typeof raw === 'boolean') return raw;
+
+    const stack = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+    const sid = String((refs as any)?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringStackItemId ?? '').trim();
+    const item = sid ? stack.find((s: any) => String(s?.id || '') === sid) : null;
+    const manaCost = String(item?.card?.mana_cost ?? item?.card?.manaCost ?? '').toLowerCase();
+    if (!manaCost) return null;
+    return manaCost.includes('{x}');
+  }
+
+  // "if one or more players being attacked are poisoned" (best-effort)
+  if (/^if\s+one\s+or\s+more\s+players\s+being\s+attacked\s+are\s+poisoned$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const attacked = new Set<string>();
+    for (const p of battlefield) {
+      const a = (p as any)?.attacking;
+      if (typeof a === 'string' && a) attacked.add(String(a));
+    }
+    if (attacked.size === 0) return null;
+    return Array.from(attacked).some((pid) => getPoisonCounters(ctx, pid) > 0);
+  }
+
+  // "if you attacked with exactly one other creature this combat" (best-effort)
+  if (/^if\s+you\s+attacked\s+with\s+exactly\s+one\s+other\s+creature\s+this\s+combat$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const srcId = String((sourcePermanent as any)?.id ?? '');
+    const attackers = battlefield.filter((p: any) => {
+      if (!p) return false;
+      if (String(p.controller ?? '') !== String(controllerId)) return false;
+      const tl = String(p?.card?.type_line ?? '').toLowerCase();
+      if (!tl.includes('creature')) return false;
+      const attacked = p.attackedThisCombat === true || p.attackedThisTurn === true || p.attacking === true || p.isAttacking === true;
+      return attacked;
+    });
+    const otherCount = attackers.filter((p: any) => String(p?.id ?? '') !== srcId).length;
+    return otherCount === 1;
+  }
+
+  // "if that spell targets only this creature" (best-effort: uses triggering stack item targets)
+  if (/^if\s+that\s+spell\s+targets\s+only\s+this\s+creature$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const stackItem = (refs as any)?.stackItem;
+    const stackId =
+      refs?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringSpellStackItemId;
+    const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+    const item = stackItem ?? (stackId ? stack.find((it: any) => it && String(it.id) === String(stackId)) : null);
+    if (!item) return null;
+
+    const thisId = String((sourcePermanent as any).id || '');
+    if (!thisId) return null;
+
+    const targets: any[] | null = Array.isArray((item as any).targets)
+      ? (item as any).targets
+      : Array.isArray((item as any).targetIds)
+        ? (item as any).targetIds
+        : null;
+
+    if (targets) {
+      const ids = targets.map((t: any) => String(t?.id ?? t)).filter(Boolean);
+      if (!ids.includes(thisId)) return false;
+      return ids.length === 1;
+    }
+
+    const single = (item as any).targetId ?? (item as any).target;
+    if (single !== undefined && single !== null) {
+      return String(single?.id ?? single) === thisId;
+    }
+
+    return null;
+  }
+
+  // "if this creature is monstrous" (best-effort)
+  if (/^if\s+this\s+creature\s+is\s+monstrous$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const raw =
+      (sourcePermanent as any)?.isMonstrous ??
+      (sourcePermanent as any)?.monstrous ??
+      (sourcePermanent as any)?.card?.isMonstrous ??
+      (sourcePermanent as any)?.card?.monstrous;
+    if (typeof raw === 'boolean') return raw;
+    const m = parseMaybeNumber((sourcePermanent as any)?.monstrosity ?? (sourcePermanent as any)?.card?.monstrosity);
+    if (m !== null) return m > 0;
+    return null;
+  }
+
+  // "if this creature regenerated this turn" (best-effort)
+  if (/^if\s+this\s+creature\s+regenerated\s+this\s+turn$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const raw =
+      (sourcePermanent as any)?.regeneratedThisTurn ??
+      (sourcePermanent as any)?.wasRegeneratedThisTurn ??
+      (sourcePermanent as any)?.card?.regeneratedThisTurn ??
+      (sourcePermanent as any)?.card?.wasRegeneratedThisTurn;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if this creature is suspected" (best-effort)
+  if (/^if\s+this\s+creature\s+is\s+suspected$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const raw =
+      (sourcePermanent as any)?.suspected ??
+      (sourcePermanent as any)?.isSuspected ??
+      (sourcePermanent as any)?.card?.suspected ??
+      (sourcePermanent as any)?.card?.isSuspected;
+    if (typeof raw === 'boolean') return raw;
+    const kw = Array.isArray((sourcePermanent as any)?.card?.keywords) ? (sourcePermanent as any).card.keywords : [];
+    if (Array.isArray(kw) && kw.some((k: any) => String(k || '').toLowerCase().includes('suspected'))) return true;
+    return null;
+  }
+
+  // "if it's not suspected" (best-effort)
+  if (/^if\s+it'?s\s+not\s+suspected$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const raw =
+      (sourcePermanent as any)?.suspected ??
+      (sourcePermanent as any)?.isSuspected ??
+      (sourcePermanent as any)?.card?.suspected ??
+      (sourcePermanent as any)?.card?.isSuspected;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+
+  // "if a creature or planeswalker an opponent controlled was dealt excess damage this turn" (best-effort)
+  if (/^if\s+a\s+creature\s+or\s+planeswalker\s+an\s+opponent\s+controlled\s+was\s+dealt\s+excess\s+damage\s+this\s+turn$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    const stateAny = (ctx as any).state as any;
+    const map = stateAny?.excessDamageThisTurnByCreatureId ?? stateAny?.excessDamageThisTurnByPermanentId;
+
+    const oppIds = getOpponentIds(ctx, controllerId);
+    if (!oppIds.length) return false;
+
+    let sawAnyKnown = false;
+    for (const p of battlefield) {
+      if (!p) continue;
+      if (!oppIds.includes(String(p.controller || ''))) continue;
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      const isCreatureOrPW = tl.includes('creature') || tl.includes('planeswalker');
+      if (!isCreatureOrPW) continue;
+
+      const id = String(p.id || '');
+      const flag = (p as any).wasDealtExcessDamageThisTurn;
+      if (typeof flag === 'boolean') {
+        sawAnyKnown = true;
+        if (flag) return true;
+        continue;
+      }
+
+      if (map && typeof map === 'object' && id) {
+        const v = (map as any)[id];
+        if (typeof v === 'boolean') {
+          sawAnyKnown = true;
+          if (v) return true;
+        } else if (typeof v === 'number') {
+          sawAnyKnown = true;
+          if (v > 0) return true;
+        }
+      }
+    }
+
+    return sawAnyKnown ? false : null;
+  }
+
+  // Counters-based artifacts (best-effort)
+  if (/^if\s+this\s+artifact\s+has\s+loyalty\s+counters\s+on\s+it$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const n = getCounterCountCaseInsensitiveFromPerm(sourcePermanent, 'loyalty');
+    return n === null ? null : n > 0;
+  }
+
+  {
+    const m = clause.match(/^if\s+this\s+artifact\s+has\s+([a-z0-9]+)\s+or\s+more\s+charge\s+counters\s+on\s+it$/i);
+    if (m) {
+      if (!sourcePermanent) return null;
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const c = getCounterCountCaseInsensitiveFromPerm(sourcePermanent, 'charge');
+      return c === null ? null : c >= n;
+    }
+  }
+
+  // "if <Name> is tapped" (best-effort; prefers source if name matches)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+is\s+tapped$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const sourceName = normalizeText(String((sourcePermanent as any)?.card?.name ?? (sourcePermanent as any)?.name ?? '')).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+
+      const pick =
+        sourcePermanent && sourceName && nameLower && sourceName === nameLower
+          ? sourcePermanent
+          : (() => {
+              const matches = battlefield.filter(
+                (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+              );
+              return matches.length === 1 ? matches[0] : null;
+            })();
+
+      if (pick) {
+        const tapped = (pick as any)?.tapped;
+        return typeof tapped === 'boolean' ? tapped : null;
+      }
+    }
+  }
+
+  // "if <Name> is tapped" (decidable-false if the named permanent is absent)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+is\s+tapped$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const matches = battlefield.filter(
+        (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+      );
+      if (matches.length === 0) return false;
+    }
+  }
+
+  // "if this card is exiled with an <counter> counter on it" (best-effort)
+  {
+    const m = clause.match(/^if\s+this\s+card\s+is\s+exiled\s+with\s+an?\s+([a-z\-]+)\s+counter\s+on\s+it$/i);
+    if (m) {
+      if (!sourcePermanent) return null;
+      const zone = String((sourcePermanent as any)?.zone ?? (sourcePermanent as any)?.card?.zone ?? '').toLowerCase();
+      if (zone && zone !== 'exile') return false;
+      if (!zone) return null;
+
+      const counterName = String(m[1] || '').toLowerCase();
+      const n = getCounterCountCaseInsensitiveFromPerm(sourcePermanent, counterName);
+      return n === null ? null : n > 0;
+    }
+  }
+
+  // "if three or more cards have been exiled with this artifact" (best-effort)
+  if (/^if\s+three\s+or\s+more\s+cards\s+have\s+been\s+exiled\s+with\s+this\s+artifact$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const srcId = String((sourcePermanent as any)?.id || '');
+    if (!srcId) return null;
+    const zones = getZones(ctx);
+    if (!zones || typeof zones !== 'object') return null;
+
+    let count = 0;
+    for (const z of Object.values(zones as any)) {
+      const exile = (z as any)?.exile;
+      if (!Array.isArray(exile)) continue;
+      for (const c of exile) {
+        if (String(c?.exiledWithSourceId ?? '') === srcId) count++;
+      }
+    }
+    return count >= 3;
+  }
+
+  // "if there are N or more cards exiled with <Name>" (best-effort)
+  {
+    const m = clause.match(/^if\s+there\s+are\s+([a-z0-9]+)\s+or\s+more\s+cards\s+exiled\s+with\s+(.+)$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const nameLower = normalizeText(m[2]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const matches = battlefield.filter(
+        (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+      );
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const srcId = String(matches[0]?.id || '');
+      if (!srcId) return null;
+
+      const zones = getZones(ctx);
+      if (!zones || typeof zones !== 'object') return null;
+      let count = 0;
+      for (const z of Object.values(zones as any)) {
+        const exile = (z as any)?.exile;
+        if (!Array.isArray(exile)) continue;
+        for (const c of exile) {
+          if (String(c?.exiledWithSourceId ?? '') === srcId) count++;
+        }
+      }
+      return count >= n;
+    }
+  }
+
+  // "if <Name> attacked this combat" (best-effort)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+attacked\s+this\s+combat$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const matches = battlefield.filter(
+        (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+      );
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const p = matches[0];
+      const attacked =
+        (p as any)?.attackedThisCombat ??
+        (p as any)?.attackedThisTurn ??
+        ((p as any)?.attacking ? true : undefined) ??
+        ((p as any)?.isAttacking ? true : undefined);
+      return typeof attacked === 'boolean' ? attacked : null;
+    }
+  }
+
+  // "if <Name> dealt damage to another creature this turn" (best-effort)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+dealt\s+damage\s+to\s+another\s+creature\s+this\s+turn$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const matches = battlefield.filter(
+        (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+      );
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const p = matches[0];
+      const raw =
+        (p as any)?.dealtDamageToAnotherCreatureThisTurn ??
+        (p as any)?.dealtDamageToCreatureThisTurn ??
+        (p as any)?.dealtDamageToAnotherCreature ??
+        (p as any)?.dealtDamageToCreature;
+      return typeof raw === 'boolean' ? raw : null;
+    }
+  }
+
+  // "if X is N or more" (best-effort: uses refs.xValue)
+  {
+    const m = clause.match(/^if\s+x\s+is\s+([a-z0-9]+)\s+or\s+more$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const x = parseMaybeNumber((refs as any)?.xValue ?? (sourcePermanent as any)?.xValue ?? (sourcePermanent as any)?.card?.xValue);
+      if (x === null) return null;
+      return x >= n;
+    }
+  }
+
+  // "if this creature didn't enter the battlefield this turn" (best-effort)
+  if (/^if\s+this\s+creature\s+didn'?t\s+enter\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const raw =
+      (sourcePermanent as any)?.enteredThisTurn ??
+      (sourcePermanent as any)?.enteredBattlefieldThisTurn ??
+      (sourcePermanent as any)?.card?.enteredThisTurn ??
+      (sourcePermanent as any)?.card?.enteredBattlefieldThisTurn;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+
+  // "if this creature didn't attack or come under your control this turn" (best-effort)
+  if (/^if\s+this\s+creature\s+didn'?t\s+attack\s+or\s+come\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const attacked = (sourcePermanent as any)?.attackedThisTurn;
+    if (typeof attacked === 'boolean' && attacked) return false;
+    const cameUnder =
+      (sourcePermanent as any)?.cameUnderYourControlThisTurn ??
+      (sourcePermanent as any)?.gainedControlThisTurn ??
+      (sourcePermanent as any)?.cameUnderControlThisTurn ??
+      (sourcePermanent as any)?.card?.cameUnderYourControlThisTurn ??
+      (sourcePermanent as any)?.card?.gainedControlThisTurn;
+    if (typeof attacked === 'boolean' && typeof cameUnder === 'boolean') return !(attacked || cameUnder);
+    return null;
+  }
+
+  // "if that player has N or less life" (requires that-player ref)
+  {
+    const m = clause.match(/^if\s+that\s+player\s+has\s+([a-z0-9]+)\s+or\s+less\s+life$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const thatPlayerId =
+        refs?.thatPlayerId ??
+        refs?.referencedPlayerId ??
+        refs?.theirPlayerId ??
+        (sourcePermanent as any)?.thatPlayerId ??
+        (sourcePermanent as any)?.referencedPlayerId ??
+        (sourcePermanent as any)?.theirPlayerId;
+      if (typeof thatPlayerId !== 'string' || !thatPlayerId) return null;
+      const life = getPlayerLifeMaybe(ctx, String(thatPlayerId));
+      if (life === null) return null;
+      return life <= n;
+    }
+  }
+
+  // "if a creature died under an opponent's control this turn" (best-effort)
+  if (/^if\s+a\s+creature\s+died\s+under\s+an\s+opponent's\s+control\s+this\s+turn$/i.test(clause)) {
+    const controllerId = String((sourcePermanent as any)?.controller ?? (sourcePermanent as any)?.card?.controller ?? '');
+    if (!controllerId) return null;
+    const players = Array.isArray((ctx as any).state?.players) ? (ctx as any).state.players : null;
+    if (!players) return null;
+    const opponentIds = players
+      .map((p: any) => String(p?.id ?? ''))
+      .filter((id: string) => id && id !== controllerId);
+    if (opponentIds.length === 0) return false;
+
+    let sawAnyTracked = false;
+    for (const oppId of opponentIds) {
+      const v = getCreaturesDiedThisTurnByController(ctx, oppId);
+      if (v === null) continue;
+      sawAnyTracked = true;
+      if (v > 0) return true;
+    }
+    return sawAnyTracked ? false : null;
+  }
+
+  // "if a/an/another <Subtype> died under your control this turn" (best-effort)
+  {
+    const m = clause.match(/^if\s+(?:another\s+)?an?\s+([a-z\-]+)\s+died\s+under\s+your\s+control\s+this\s+turn$/i);
+    if (m) {
+      const controllerId = String((sourcePermanent as any)?.controller ?? (sourcePermanent as any)?.card?.controller ?? '');
+      if (!controllerId) return null;
+      const subtypeLower = toLower(m[1]);
+      const n = getCreatureSubtypeDiedThisTurnCount(ctx, controllerId, subtypeLower);
+      return n === null ? null : n >= 1;
+    }
+  }
+
+  // "if <Name> entered this turn" (best-effort)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+entered\s+this\s+turn$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const matches = battlefield.filter(
+        (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+      );
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const p = matches[0];
+      const entered = (p as any)?.enteredThisTurn ?? (p as any)?.enteredBattlefieldThisTurn;
+      return typeof entered === 'boolean' ? entered : null;
+    }
+  }
+
+  // "if <Name> has counters on it" (best-effort)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+has\s+counters\s+on\s+it$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const matches = battlefield.filter(
+        (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+      );
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const p = matches[0];
+      const counters = (p as any)?.counters;
+      if (!counters || typeof counters !== 'object') return null;
+      const total: number = (Object.values(counters as Record<string, unknown>) as unknown[]).reduce<number>(
+        (sum: number, v: unknown) => sum + (typeof v === 'number' ? v : 0),
+        0
+      );
+      return total > 0;
+    }
+  }
+
+  // "if he/she/it was cast" and "if this <thing> was cast" (best-effort)
+  {
+    const m = clause.match(/^if\s+(?:he|she|it|this\s+(?:spell|creature|card))\s+was\s+cast$/i);
+    if (m) {
+      const raw =
+        (refs as any)?.wasCast ??
+        (sourcePermanent as any)?.wasCast ??
+        (sourcePermanent as any)?.card?.wasCast ??
+        (sourcePermanent as any)?.enteredFromCast ??
+        (sourcePermanent as any)?.card?.enteredFromCast;
+      return typeof raw === 'boolean' ? raw : null;
+    }
+  }
+
+  // "if <Name> is a creature" (best-effort)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+is\s+a\s+creature$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const matches = battlefield.filter(
+        (p: any) => normalizeText(String(p?.card?.name ?? p?.name ?? '')).toLowerCase() === nameLower
+      );
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const tl = String(matches[0]?.card?.type_line ?? '').toLowerCase();
+      if (!tl) return null;
+      return tl.includes('creature');
+    }
+  }
+
+  // "if <Name> is in exile with an <counter> counter on it" (best-effort)
+  {
+    const m = clause.match(/^if\s+(.+?)\s+is\s+in\s+exile\s+with\s+an?\s+([a-z\-]+)\s+counter\s+on\s+it$/i);
+    if (m) {
+      const nameLower = normalizeText(m[1]).toLowerCase();
+      const counterName = String(m[2] || '').toLowerCase();
+      const zones = getZones(ctx);
+      if (!zones || typeof zones !== 'object') return null;
+
+      const found: any[] = [];
+      for (const z of Object.values(zones as any)) {
+        const exile = (z as any)?.exile;
+        if (!Array.isArray(exile)) continue;
+        for (const c of exile) {
+          const cn = normalizeText(String(c?.card?.name ?? c?.name ?? '')).toLowerCase();
+          if (cn && cn === nameLower) found.push(c);
+        }
+      }
+
+      if (found.length === 0) return false;
+      if (found.length !== 1) return null;
+
+      const card = found[0];
+      const n = getCounterCountCaseInsensitiveFromPerm(card, counterName);
+      return n === null ? null : n > 0;
+    }
+  }
+
+  // "if it had a counter on it" (best-effort)
+  if (/^if\s+it\s+had\s+a\s+counter\s+on\s+it$/i.test(clause)) {
+    // Prefer the object we're evaluating this clause on when it has explicit counter tracking.
+    // (In the audit probe, refs contains unrelated `thatCreatureId` fields that would otherwise mislead this clause.)
+    const hasCountersOnSource =
+      !!sourcePermanent &&
+      (sourcePermanent as any)?.counters &&
+      typeof (sourcePermanent as any)?.counters === 'object';
+
+    const explicitItId = (refs as any)?.itPermanentId ?? (refs as any)?.itCreatureId;
+    const fallbackId = (refs as any)?.thatPermanentId ?? (refs as any)?.thatCardId ?? (refs as any)?.thatCreatureId;
+
+    const perm =
+      (typeof explicitItId === 'string' && explicitItId ? findBattlefieldPermanent(ctx, explicitItId) : null) ??
+      (hasCountersOnSource ? sourcePermanent : (typeof fallbackId === 'string' && fallbackId ? findBattlefieldPermanent(ctx, fallbackId) : null)) ??
+      sourcePermanent;
+    if (!perm) return null;
+    const counters = (perm as any)?.counters;
+    if (!counters || typeof counters !== 'object') return null;
+    const total: number = (Object.values(counters as Record<string, unknown>) as unknown[]).reduce<number>(
+      (sum: number, v: unknown) => sum + (typeof v === 'number' ? v : 0),
+      0
+    );
+    return total > 0;
+  }
+
+  // "if it didn't die" (best-effort)
+  if (/^if\s+it\s+didn'?t\s+die$/i.test(clause)) {
+    const died =
+      (refs as any)?.itDied ??
+      (refs as any)?.died ??
+      (refs as any)?.thatCreatureDied ??
+      (refs as any)?.wasPutIntoGraveyard;
+    return typeof died === 'boolean' ? !died : null;
+  }
+
+  // "if it wasn't sacrificed" (best-effort)
+  if (/^if\s+it\s+wasn'?t\s+sacrificed$/i.test(clause)) {
+    const wasSacrificed =
+      (refs as any)?.wasSacrificed ??
+      (refs as any)?.itWasSacrificed ??
+      (refs as any)?.thatPermanentWasSacrificed;
+    return typeof wasSacrificed === 'boolean' ? !wasSacrificed : null;
+  }
+
+  // "if equipped creature didn't deal combat damage to a creature this turn" (best-effort)
+  if (/^if\s+equipped\s+creature\s+didn'?t\s+deal\s+combat\s+damage\s+to\s+a\s+creature\s+this\s+turn$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const equippedId =
+      (refs as any)?.equippedCreatureId ??
+      (sourcePermanent as any)?.attachedTo ??
+      (sourcePermanent as any)?.equippedCreatureId;
+    if (typeof equippedId !== 'string' || !equippedId) return null;
+    const equipped = findBattlefieldPermanent(ctx, equippedId);
+    if (!equipped) return null;
+    const raw =
+      (equipped as any)?.dealtCombatDamageToCreatureThisTurn ??
+      (equipped as any)?.dealtCombatDamageToCreature ??
+      (equipped as any)?.dealtCombatDamageToCreatureThisCombat;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+
+  // "if it has the same name as one of the cards exiled with this artifact" (best-effort)
+  if (/^if\s+it\s+has\s+the\s+same\s+name\s+as\s+one\s+of\s+the\s+cards\s+exiled\s+with\s+this\s+artifact$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const srcId = String((sourcePermanent as any)?.id || '');
+    if (!srcId) return null;
+    const triggeringId =
+      (refs as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringStackItemId;
+    if (typeof triggeringId !== 'string' || !triggeringId) return null;
+    const stack = (ctx as any).state?.stack;
+    if (!Array.isArray(stack)) return null;
+    const item = stack.find((s: any) => String(s?.id || '') === triggeringId);
+    const itemName = normalizeText(String(item?.card?.name ?? '')).toLowerCase();
+    if (!itemName) return null;
+
+    const zones = getZones(ctx);
+    if (!zones || typeof zones !== 'object') return null;
+    let sawAny = false;
+    for (const z of Object.values(zones as any)) {
+      const exile = (z as any)?.exile;
+      if (!Array.isArray(exile)) continue;
+      for (const c of exile) {
+        if (String(c?.exiledWithSourceId ?? '') !== srcId) continue;
+        const exName = normalizeText(String(c?.card?.name ?? c?.name ?? '')).toLowerCase();
+        if (!exName) continue;
+        sawAny = true;
+        if (exName === itemName) return true;
+      }
+    }
+    return sawAny ? false : null;
+  }
+
+  // "if Ring Out is in your library" (best-effort)
+  if (/^if\s+ring\s+out\s+is\s+in\s+your\s+library$/i.test(clause)) {
+    const zones = getZones(ctx);
+    if (!zones || typeof zones !== 'object') return null;
+    const z = (zones as any)[String(controllerId)];
+    const lib = z?.library;
+    if (!Array.isArray(lib)) return null;
+    const found = lib.some((c: any) => normalizeText(String(c?.card?.name ?? c?.name ?? '')).toLowerCase() === 'ring out');
+    return found;
+  }
+
+  // "if it wasn't put onto the battlefield with this ability" (best-effort; requires refs)
+  if (/^if\s+it\s+wasn'?t\s+put\s+onto\s+the\s+battlefield\s+with\s+this\s+ability$/i.test(clause)) {
+    const raw =
+      (refs as any)?.wasPutOntoBattlefieldWithThisAbility ??
+      (refs as any)?.putOntoBattlefieldWithThisAbility ??
+      (refs as any)?.wasPutOntoBattlefieldThisWay;
+    return typeof raw === 'boolean' ? !raw : null;
+  }
+
+  // "if a counter was put on <Name> this turn" (best-effort)
+  {
+    const m = clause.match(/^if\s+a\s+counter\s+was\s+put\s+on\s+(.+?)\s+this\s+turn$/i);
+    if (m) {
+      const tokenLower = normalizeText(m[1]).toLowerCase();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+
+      const matches = battlefield.filter((p: any) => {
+        const nm = String(p?.card?.name ?? p?.name ?? '').trim();
+        if (!nm) return false;
+        return normalizeText(nm).toLowerCase().startsWith(tokenLower);
+      });
+
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const p = matches[0];
+      const id = String(p?.id || '');
+
+      const direct = (p as any)?.counterWasPutOnThisTurn ?? (p as any)?.hadCounterPutOnThisTurn;
+      if (typeof direct === 'boolean') return direct;
+
+      const map = (ctx as any).state?.putCounterOnPermanentThisTurnByPermanentId;
+      if (map && typeof map === 'object' && id && typeof (map as any)[id] === 'boolean') return (map as any)[id];
+
+      return null;
+    }
+  }
+
+  // "if it has dealt 10 or more damage to that player this turn" (best-effort; requires refs)
+  if (/^if\s+it\s+has\s+dealt\s+10\s+or\s+more\s+damage\s+to\s+that\s+player\s+this\s+turn$/i.test(clause)) {
+    const n =
+      parseMaybeNumber((refs as any)?.damageDealtToThatPlayerThisTurn) ??
+      parseMaybeNumber((refs as any)?.damageToThatPlayerThisTurn) ??
+      parseMaybeNumber((refs as any)?.damageDealtToPlayerThisTurn);
+    if (n === null) return null;
+    return n >= 10;
+  }
+
+  // "if an Aura you controlled was attached to it" (best-effort)
+  if (/^if\s+an\s+aura\s+you\s+controlled\s+was\s+attached\s+to\s+it$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    const itId =
+      (refs as any)?.itPermanentId ??
+      (refs as any)?.thatPermanentId ??
+      (refs as any)?.thatCreatureId ??
+      (sourcePermanent as any)?.id;
+    if (typeof itId !== 'string' || !itId) return null;
+
+    const auras = battlefield.filter((p: any) => {
+      if (!p) return false;
+      const tl = String(p?.card?.type_line ?? '').toLowerCase();
+      if (!tl.includes('aura')) return false;
+      return String(p?.attachedTo ?? '') === String(itId);
+    });
+    if (auras.length === 0) return false;
+
+    let sawAnyController = false;
+    for (const a of auras) {
+      if (typeof a?.controller === 'string') {
+        sawAnyController = true;
+        if (String(a.controller) === String(controllerId)) return true;
+      }
+    }
+    return sawAnyController ? false : null;
+  }
+
+  // "if it targets a creature you control with the chosen name" (best-effort)
+  if (/^if\s+it\s+targets\s+a\s+creature\s+you\s+control\s+with\s+the\s+chosen\s+name$/i.test(clause)) {
+    const chosenName = String((refs as any)?.chosenName ?? (refs as any)?.chosenCreatureName ?? (refs as any)?.card?.chosenName ?? '').trim();
+    if (!chosenName) return null;
+    const chosenLower = normalizeText(chosenName).toLowerCase();
+
+    const stackId = String((refs as any)?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringStackItemId ?? '');
+    const stack = (ctx as any).state?.stack;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!stackId || !Array.isArray(stack) || !Array.isArray(battlefield)) return null;
+    const item = stack.find((s: any) => String(s?.id || '') === stackId);
+    const targets = item?.targets;
+    if (!Array.isArray(targets)) return null;
+
+    let sawAll = true;
+    for (const tid of targets) {
+      const perm = battlefield.find((p: any) => p && String(p.id || '') === String(tid || ''));
+      if (!perm) {
+        sawAll = false;
+        continue;
+      }
+      const tl = String(perm?.card?.type_line ?? '').toLowerCase();
+      if (!tl.includes('creature')) continue;
+      if (String(perm?.controller ?? '') !== String(controllerId)) continue;
+      const nm = normalizeText(String(perm?.card?.name ?? perm?.name ?? '')).toLowerCase();
+      if (!nm) {
+        sawAll = false;
+        continue;
+      }
+      if (nm === chosenLower) return true;
+    }
+
+    return sawAll ? false : null;
+  }
+
+  // "if it targets one or more other permanents you control" (best-effort)
+  if (/^if\s+it\s+targets\s+one\s+or\s+more\s+other\s+permanents\s+you\s+control$/i.test(clause)) {
+    const stackId = String((refs as any)?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringStackItemId ?? '');
+    const stack = (ctx as any).state?.stack;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!stackId || !Array.isArray(stack) || !Array.isArray(battlefield)) return null;
+    const item = stack.find((s: any) => String(s?.id || '') === stackId);
+    const targets = item?.targets;
+    if (!Array.isArray(targets)) return null;
+
+    const sourceId = String((sourcePermanent as any)?.id ?? '');
+    let sawAll = true;
+    for (const tid of targets) {
+      const perm = battlefield.find((p: any) => p && String(p.id || '') === String(tid || ''));
+      if (!perm) {
+        sawAll = false;
+        continue;
+      }
+      if (String(perm?.controller ?? '') !== String(controllerId)) continue;
+      if (sourceId && String(perm?.id ?? '') === sourceId) continue;
+      return true;
+    }
+
+    return sawAll ? false : null;
+  }
+
+  // "if it was attacking or blocking alone" (best-effort)
+  if (/^if\s+it\s+was\s+attacking\s+or\s+blocking\s+alone$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const controller = String((sourcePermanent as any)?.controller ?? '');
+    if (!controller) return null;
+
+    const isThisAttacking = !!(sourcePermanent as any)?.attacking || (sourcePermanent as any)?.isAttacking === true;
+    const isThisBlocking = !!(sourcePermanent as any)?.blocking || (sourcePermanent as any)?.isBlocking === true;
+    const hasThisInfo = isThisAttacking || isThisBlocking;
+    if (!hasThisInfo) return null;
+
+    let count = 0;
+    for (const p of battlefield) {
+      if (!p || String(p.controller ?? '') !== controller) continue;
+      const attacking = !!p.attacking || p.isAttacking === true;
+      const blocking = !!p.blocking || p.isBlocking === true;
+      if (attacking || blocking) count++;
+    }
+    return count === 1;
+  }
+
+  // "if it shares a creature type with <Name>" (best-effort)
+  {
+    const m = clause.match(/^if\s+it\s+shares\s+a\s+creature\s+type\s+with\s+(.+)$/i);
+    if (m) {
+      if (!sourcePermanent) return null;
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+
+      const itTypeLine = String((sourcePermanent as any)?.card?.type_line ?? '').toLowerCase();
+      if (!itTypeLine.includes('creature')) return null;
+
+      const tokenLower = normalizeText(m[1]).toLowerCase();
+      const matches = battlefield.filter((p: any) => {
+        const nm = String(p?.card?.name ?? p?.name ?? '').trim();
+        if (!nm) return false;
+        return normalizeText(nm).toLowerCase().startsWith(tokenLower);
+      });
+
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) return null;
+      const otherTypeLine = String(matches[0]?.card?.type_line ?? '').toLowerCase();
+      if (!otherTypeLine.includes('creature')) return null;
+
+      const parseSubtypes = (tl: string): string[] => {
+        const idx = tl.indexOf('—');
+        const part = idx >= 0 ? tl.slice(idx + 1) : '';
+        return part
+          .split(/\s+/)
+          .map((s) => s.replace(/[^a-z0-9'’\-]/gi, '').toLowerCase())
+          .filter(Boolean);
+      };
+
+      const a = new Set(parseSubtypes(itTypeLine));
+      const b = new Set(parseSubtypes(otherTypeLine));
+      if (!a.size || !b.size) return null;
+      for (const t of a) {
+        if (b.has(t)) return true;
+      }
+      return false;
+    }
+  }
+
+  // "if any of those creatures have power or toughness equal to the chosen number" (best-effort)
+  if (/^if\s+any\s+of\s+those\s+creatures\s+have\s+power\s+or\s+toughness\s+equal\s+to\s+the\s+chosen\s+number$/i.test(clause)) {
+    const ids = (refs as any)?.thoseCreatureIds;
+    if (!Array.isArray(ids) || !ids.length) return null;
+    const chosen = parseMaybeNumber((refs as any)?.chosenNumber ?? (refs as any)?.chosenValue ?? (refs as any)?.chosen);
+    if (chosen === null) return null;
+
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    let sawAny = false;
+    for (const id of ids) {
+      const perm = battlefield.find((p: any) => p && String(p.id || '') === String(id || ''));
+      if (!perm) continue;
+      sawAny = true;
+      const p = getPermanentPowerMaybe(perm, ctx);
+      const t = getPermanentToughnessMaybe(perm, ctx);
+      if ((p !== null && p === chosen) || (t !== null && t === chosen)) return true;
+      if (p === null || t === null) return null;
+    }
+
+    return sawAny ? false : null;
+  }
+
+  // "if it enlisted a creature this combat" (best-effort)
+  if (/^if\s+it\s+enlisted\s+a\s+creature\s+this\s+combat$/i.test(clause)) {
+    const raw =
+      (refs as any)?.enlistedCreatureThisCombat ??
+      (refs as any)?.enlistedThisCombat ??
+      (sourcePermanent as any)?.enlistedCreatureThisCombat ??
+      (sourcePermanent as any)?.enlistedThisCombat;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if an Assassin crewed it this turn" (best-effort)
+  if (/^if\s+an\s+assassin\s+crewed\s+it\s+this\s+turn$/i.test(clause)) {
+    const types =
+      (refs as any)?.crewedByCreatureTypesThisTurn ??
+      (refs as any)?.crewedBySubtypesThisTurn ??
+      (sourcePermanent as any)?.crewedByCreatureTypesThisTurn ??
+      (sourcePermanent as any)?.crewedBySubtypesThisTurn;
+    if (!Array.isArray(types)) return null;
+    const lower = types.map((t: any) => String(t || '').toLowerCase());
+    return lower.includes('assassin');
+  }
+
+  // "if it was crewed by exactly two creatures" (best-effort)
+  if (/^if\s+it\s+was\s+crewed\s+by\s+exactly\s+two\s+creatures$/i.test(clause)) {
+    const raw =
+      (refs as any)?.crewedByCreatureCountThisTurn ??
+      (sourcePermanent as any)?.crewedByCreatureCountThisTurn ??
+      (refs as any)?.crewedByCountThisTurn ??
+      (sourcePermanent as any)?.crewedByCountThisTurn;
+    if (typeof raw !== 'number') return null;
+    return raw === 2;
   }
 
   // Keyword shorthand: delirium
@@ -7558,7 +9040,7 @@ function evaluateInterveningIfClauseInternal(
       return total === null ? null : total > 0;
     }
   }
-  if (/^if\s+a\s+creature\s+dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn\s+died$/i.test(clause)) return null;
+  // (handled later via best-effort refs/tracking)
 
   // ETB under opponent control (recognized; depends on tracking)
   if (/^if\s+a\s+creature\s+entered\s+the\s+battlefield\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i.test(clause)) {
@@ -7647,7 +9129,7 @@ function evaluateInterveningIfClauseInternal(
   }
 
   // Tribal shorthand like "if a giant" (context-dependent; recognize but unknown)
-  if (/^if\s+a\s+giant$/i.test(clause)) return null;
+  // (handled later via best-effort refs/type lookup)
 
   // Global battlefield color/type constraints
   if (/^if\s+all\s+lands\s+on\s+the\s+battlefield\s+are\s+islands$/i.test(clause)) {
@@ -7861,14 +9343,9 @@ function evaluateInterveningIfClauseInternal(
 
   // Misc context-dependent templates we explicitly recognize (null)
   if (
-    /^if\s+a\s+source\s+would\s+deal\s+damage$/i.test(clause) ||
-    /^if\s+a\s+source\s+would\s+deal\s+damage\s+to\s+that\s+player\s+or\s+a\s+permanent\s+that\s+player\s+controls$/i.test(clause) ||
-    /^if\s+a\s+player\s+would\s+planeswalk\s+as\s+a\s+result\s+of\s+rolling\s+the\s+planar\s+die$/i.test(clause) ||
     /^if\s+an\s+assassin\s+crewed\s+it\s+this\s+turn$/i.test(clause) ||
     /^if\s+an\s+aura\s+you\s+controlled\s+was\s+attached\s+to\s+it$/i.test(clause) ||
-    /^if\s+any\s+of\s+that\s+damage\s+was\s+dealt\s+by\s+a\s+warrior$/i.test(clause) ||
     /^if\s+any\s+of\s+those\s+creatures\s+have\s+power\s+or\s+toughness\s+equal\s+to\s+the\s+chosen\s+number$/i.test(clause) ||
-    /^if\s+another\s+opponent\s+controls\s+([a-z0-9]+)\s+or\s+more\s+nonland\s+permanents\s+that\s+spell\s+could\s+target$/i.test(clause) ||
     /^if\s+an\s+opponent\s+cast\s+a\s+(white|blue|black|red|green)\s+and\/or\s+(white|blue|black|red|green)\s+spell\s+this\s+turn$/i.test(clause) ||
     /^if\s+a\s+player\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+combat\s+damage\s+this\s+turn$/i.test(clause) ||
     /^if\s+a\s+player\s+was\s+dealt\s+combat\s+damage\s+by\s+a\s+zombie\s+this\s+turn$/i.test(clause) ||
@@ -8374,6 +9851,1015 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+this\s+enchantment\s+is\s+on\s+the\s+battlefield$/i.test(clause)) {
     return sourcePermanent ? true : null;
   }
+
+  // --- Targeted patterns that would otherwise be swallowed by broad recognizers below ---
+
+  // "if Sarulf has one or more +1/+1 counters on it"
+  if (/^if\s+sarulf\s+has\s+one\s+or\s+more\s+\+1\/\+1\s+counters\s+on\s+it$/i.test(clause)) {
+    const nameLower = 'sarulf';
+    const candidates: any[] = [];
+    if (sourcePermanent && nameMatchesClauseName(toLower(sourcePermanent?.card?.name || sourcePermanent?.name || ''), nameLower)) {
+      candidates.push(sourcePermanent);
+    }
+    candidates.push(...findBattlefieldPermanentsByName(ctx, nameLower));
+    if (!candidates.length) return null;
+    for (const p of candidates) {
+      const n = getCounterCountCaseInsensitiveFromPerm(p, '+1/+1');
+      if (n === null) return null;
+      if (n > 0) return true;
+    }
+    return false;
+  }
+
+  // "if that player controls one or more lands with contested counters on them"
+  if (/^if\s+that\s+player\s+controls\s+one\s+or\s+more\s+lands\s+with\s+contested\s+counters\s+on\s+them$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    let sawCountersObjectForAny = false;
+    for (const p of battlefield) {
+      if (!p || String(p.controller || '') !== String(thatPlayerId)) continue;
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('land')) continue;
+      if ((p as any).counters && typeof (p as any).counters === 'object') sawCountersObjectForAny = true;
+      const n = getCounterCountCaseInsensitiveFromPerm(p, 'contested');
+      if (n === null) continue;
+      if (n > 0) return true;
+    }
+    return sawCountersObjectForAny ? false : null;
+  }
+
+  // "if two or more permanents you don't control have an aim counter on them"
+  if (/^if\s+two\s+or\s+more\s+permanents\s+you\s+don'?t\s+control\s+have\s+an\s+aim\s+counter\s+on\s+them$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    let count = 0;
+    let allHaveCountersObjects = true;
+    for (const p of battlefield) {
+      if (!p || String(p.controller || '') === String(controllerId)) continue;
+      if (!(p as any).counters || typeof (p as any).counters !== 'object') allHaveCountersObjects = false;
+      const n = getCounterCountCaseInsensitiveFromPerm(p, 'aim');
+      if (n === null) continue;
+      if (n > 0) count++;
+      if (count >= 2) return true;
+    }
+    return allHaveCountersObjects ? false : null;
+  }
+
+  // "if that player doesn't control a creature named Yargle"
+  if (/^if\s+that\s+player\s+doesn'?t\s+control\s+a\s+creature\s+named\s+yargle$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const hasYargle = battlefield.some((p: any) => {
+      if (!p || String(p.controller || '') !== String(thatPlayerId)) return false;
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) return false;
+      return nameMatchesClauseName(toLower(p?.card?.name || p?.name || ''), 'yargle');
+    });
+    return !hasYargle;
+  }
+
+  // "if that player has no cards in hand and this enchantment has two or more quest counters on it"
+  if (/^if\s+that\s+player\s+has\s+no\s+cards\s+in\s+hand\s+and\s+this\s+enchantment\s+has\s+two\s+or\s+more\s+quest\s+counters\s+on\s+it$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId || !sourcePermanent) return null;
+
+    const zones = (ctx as any).state?.zones;
+    if (!zones || typeof zones !== 'object') return null;
+    const z = (zones as any)[thatPlayerId];
+    if (!z || typeof z !== 'object') return null;
+    const handKnown = typeof z.handCount === 'number' || Array.isArray(z.hand);
+    if (!handKnown) return null;
+    const handCount = typeof z.handCount === 'number' ? z.handCount : Array.isArray(z.hand) ? z.hand.length : 0;
+
+    const qc = getCounterCountCaseInsensitiveFromPerm(sourcePermanent, 'quest');
+    if (qc === null) return null;
+    return handCount === 0 && qc >= 2;
+  }
+
+  // "if there are four or more basic land types among lands that player controls"
+  if (/^if\s+there\s+are\s+four\s+or\s+more\s+basic\s+land\s+types\s+among\s+lands\s+that\s+player\s+controls$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const set = new Set<string>();
+    let sawLand = false;
+    for (const p of battlefield) {
+      if (!p || String(p.controller || '') !== String(thatPlayerId)) continue;
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      if (!tl) return null;
+      if (!tl.includes('land')) continue;
+      sawLand = true;
+      for (const t of ['plains', 'island', 'swamp', 'mountain', 'forest']) {
+        if (typeLineHasWord(tl, t)) set.add(t);
+      }
+      if (set.size >= 4) return true;
+    }
+    if (!sawLand) return false;
+    return set.size >= 4;
+  }
+
+  // "if there are four or more land cards in your graveyard and you both own and control Titania"
+  if (/^if\s+there\s+are\s+four\s+or\s+more\s+land\s+cards\s+in\s+your\s+graveyard\s+and\s+you\s+both\s+own\s+and\s+control\s+titania$/i.test(clause)) {
+    const zones = (ctx as any).state?.zones;
+    if (!zones || typeof zones !== 'object') return null;
+    const gy = getGraveyard(ctx, controllerId);
+    let landCount = 0;
+    let unknownTypeCount = 0;
+    for (const c of gy) {
+      const tl = (c as any)?.type_line;
+      if (typeof tl !== 'string') {
+        unknownTypeCount++;
+        continue;
+      }
+      if (String(tl).toLowerCase().includes('land')) landCount++;
+      if (landCount >= 4) break;
+    }
+    if (landCount < 4 && unknownTypeCount > 0) return null;
+    if (landCount < 4) return false;
+
+    const titania = findBattlefieldPermanentsByName(ctx, 'titania');
+    if (!titania.length) return null;
+    let sawOwner = false;
+    for (const p of titania) {
+      if (!p) continue;
+      if (String(p.controller || '') !== String(controllerId)) continue;
+      if (typeof (p as any).owner === 'string') {
+        sawOwner = true;
+        if (String((p as any).owner) === String(controllerId)) return true;
+      }
+    }
+    return sawOwner ? false : null;
+  }
+
+  // "if there are three or more cards exiled with The Mysterious Sphere" (best-effort; needs linked-exile bookkeeping)
+  if (/^if\s+there\s+are\s+three\s+or\s+more\s+cards\s+exiled\s+with\s+the\s+mysterious\s+sphere$/i.test(clause)) {
+    const exiledCards = (refs as any)?.exiledCards;
+    if (!Array.isArray(exiledCards)) return null;
+    return exiledCards.length >= 3;
+  }
+
+  // "if there is an Elf card in your graveyard and this creature has a -1/-1 counter on it"
+  if (/^if\s+there\s+is\s+an\s+elf\s+card\s+in\s+your\s+graveyard\s+and\s+this\s+creature\s+has\s+a\s+-1\/\-1\s+counter\s+on\s+it$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const zones = (ctx as any).state?.zones;
+    if (!zones || typeof zones !== 'object') return null;
+    const gy = getGraveyard(ctx, controllerId);
+    let hasElf = false;
+    let sawUnknown = false;
+    for (const c of gy) {
+      const tl = (c as any)?.type_line;
+      if (typeof tl !== 'string') {
+        sawUnknown = true;
+        continue;
+      }
+      if (typeLineHasWord(String(tl).toLowerCase(), 'elf')) {
+        hasElf = true;
+        break;
+      }
+    }
+    if (!hasElf && sawUnknown) return null;
+    if (!hasElf) return false;
+
+    const c = getCounterCountCaseInsensitiveFromPerm(sourcePermanent, '-1/-1');
+    if (c === null) return null;
+    return c > 0;
+  }
+
+  // "if no other creatures are attacking that player" (best-effort; needs explicit attack-target info)
+  if (/^if\s+no\s+other\s+creatures\s+are\s+attacking\s+that\s+player$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.defendingPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    const sourceId = String((sourcePermanent as any)?.id ?? '').trim();
+    if (!sourceId) return null;
+
+    const getAttackTargetId = (p: any): string | null => {
+      const v = (p as any).attackingTargetId ?? (p as any).attackedPlayerId ?? (p as any).defendingPlayerId;
+      if (typeof v === 'string' && v) return v;
+      if (typeof (p as any).attacking === 'string' && (p as any).attacking) return (p as any).attacking;
+      return null;
+    };
+
+    const sourceTarget = getAttackTargetId(sourcePermanent);
+    if (sourceTarget !== thatPlayerId) return null;
+
+    let countToThatPlayer = 0;
+    let sawAttackerWithUnknownTarget = false;
+    for (const p of battlefield) {
+      if (!p) continue;
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) continue;
+      const isAttacking = (p as any).attacking === true || (p as any).isAttacking === true || typeof (p as any).attacking === 'string' || typeof (p as any).attackingTargetId === 'string';
+      if (!isAttacking) continue;
+      const t = getAttackTargetId(p);
+      if (!t) {
+        sawAttackerWithUnknownTarget = true;
+        continue;
+      }
+      if (t === thatPlayerId) countToThatPlayer++;
+    }
+
+    if (countToThatPlayer >= 2) return false;
+    if (countToThatPlayer === 1) return true;
+    return sawAttackerWithUnknownTarget ? null : false;
+  }
+
+  // "if you both own and control <X> and a creature named <Y>" (best-effort)
+  {
+    const m = clause.match(/^if\s+you\s+both\s+own\s+and\s+control\s+(this\s+creature|[a-z0-9][a-z0-9'’\- ]+)\s+and\s+a\s+creature\s+named\s+(.+)$/i);
+    if (m) {
+      const leftRaw = toLower(m[1]);
+      const rightNameLower = toLower(m[2]).replace(/^"|"$/g, '').trim();
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+
+      const isOwnedAndControlledByYou = (p: any): boolean | null => {
+        if (!p) return null;
+        if (String(p.controller || '') !== String(controllerId)) return false;
+        const owner = (p as any).owner;
+        if (typeof owner !== 'string') return null;
+        return String(owner) === String(controllerId);
+      };
+
+      const leftCandidates: any[] = [];
+      if (leftRaw === 'this creature') {
+        if (!sourcePermanent) return null;
+        leftCandidates.push(sourcePermanent);
+      } else {
+        leftCandidates.push(...findBattlefieldPermanentsByName(ctx, leftRaw));
+      }
+      if (!leftCandidates.length) return null;
+
+      const rightCandidates = findBattlefieldPermanentsByName(ctx, rightNameLower);
+      if (!rightCandidates.length) return null;
+
+      const leftVals = leftCandidates.map(isOwnedAndControlledByYou);
+      const rightVals = rightCandidates.map(isOwnedAndControlledByYou);
+      if (leftVals.some((v) => v === null) || rightVals.some((v) => v === null)) return null;
+      return leftVals.some((v) => v === true) && rightVals.some((v) => v === true);
+    }
+  }
+
+  // "if you chose a creature other than <Name> as your Ring-bearer" (best-effort; requires explicit refs)
+  {
+    const m = clause.match(/^if\s+you\s+chose\s+a\s+creature\s+other\s+than\s+([a-z0-9][a-z0-9'’\- ]+)\s+as\s+your\s+ring-bearer$/i);
+    if (m) {
+      const forbiddenNameLower = toLower(m[1]);
+      const rawName = (refs as any)?.ringBearerName;
+      const rawId = (refs as any)?.ringBearerId;
+      let chosenNameLower = typeof rawName === 'string' ? toLower(rawName) : '';
+      if (!chosenNameLower && typeof rawId === 'string' && rawId) {
+        const p = findBattlefieldPermanent(ctx, rawId);
+        chosenNameLower = p ? toLower(p?.card?.name || p?.name || '') : '';
+      }
+      if (!chosenNameLower) return null;
+      return !nameMatchesClauseName(chosenNameLower, forbiddenNameLower);
+    }
+  }
+
+  // "if you control a creature with power greater than its base power"
+  if (/^if\s+you\s+control\s+a\s+creature\s+with\s+power\s+greater\s+than\s+its\s+base\s+power$/i.test(clause)) {
+    const creatures = getControlledCreatures(ctx, controllerId);
+    if (!creatures.length) return null;
+    let sawComparable = false;
+    let sawUnknown = false;
+    for (const c of creatures) {
+      const baseRaw = parseMaybeNumber((c as any)?.basePower) ?? parseMaybeNumber((c as any)?.card?.power);
+      const cur = getPermanentPowerMaybe(c, ctx);
+      if (baseRaw === null || cur === null) {
+        sawUnknown = true;
+        continue;
+      }
+      sawComparable = true;
+      if (cur > baseRaw) return true;
+    }
+    if (!sawComparable) return null;
+    return sawUnknown ? null : false;
+  }
+
+  // "if you control each creature on the battlefield with the greatest power"
+  if (/^if\s+you\s+control\s+each\s+creature\s+on\s+the\s+battlefield\s+with\s+the\s+greatest\s+power$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const creatures = battlefield.filter((p: any) => p && String(p?.card?.type_line || '').toLowerCase().includes('creature'));
+    if (!creatures.length) return null;
+    const powers: number[] = [];
+    for (const c of creatures) {
+      const p = getPermanentPowerMaybe(c, ctx);
+      if (p === null) return null;
+      powers.push(p);
+    }
+    const max = Math.max(...powers);
+    for (let i = 0; i < creatures.length; i++) {
+      if (powers[i] === max && String(creatures[i]?.controller || '') !== String(controllerId)) return false;
+    }
+    return true;
+  }
+
+  // "if you haven't cast a spell from your hand this turn and this creature doesn't have a flying counter on it"
+  if (/^if\s+you\s+haven'?t\s+cast\s+a\s+spell\s+from\s+your\s+hand\s+this\s+turn\s+and\s+this\s+creature\s+doesn'?t\s+have\s+a\s+flying\s+counter\s+on\s+it$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const map = (ctx as any).state?.spellsCastFromHandThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    const v = (map as any)[controllerId];
+    if (typeof v !== 'number') return null;
+    const flying = getCounterCountCaseInsensitiveFromPerm(sourcePermanent, 'flying');
+    if (flying === null) return null;
+    return v === 0 && flying === 0;
+  }
+
+  // "if you haven't cast a spell from your hand this turn and this enchantment isn't a creature"
+  if (/^if\s+you\s+haven'?t\s+cast\s+a\s+spell\s+from\s+your\s+hand\s+this\s+turn\s+and\s+this\s+enchantment\s+isn'?t\s+a\s+creature$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const map = (ctx as any).state?.spellsCastFromHandThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    const v = (map as any)[controllerId];
+    if (typeof v !== 'number') return null;
+    const tl = String((sourcePermanent as any)?.card?.type_line || '').toLowerCase();
+    if (!tl.includes('enchantment')) return null;
+    return v === 0 && !tl.includes('creature');
+  }
+
+  // "if your devotion to white and black is seven or greater"
+  if (/^if\s+your\s+devotion\s+to\s+white\s+and\s+black\s+is\s+seven\s+or\s+greater$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    let devotion = 0;
+    for (const p of battlefield) {
+      if (!p || String(p.controller || '') !== String(controllerId)) continue;
+      const manaCost = String((p as any)?.card?.mana_cost || (p as any)?.mana_cost || '');
+      if (!manaCost) continue;
+      for (const m of manaCost.matchAll(/\{([^}]+)\}/g)) {
+        const sym = String(m[1] || '').toUpperCase();
+        if (sym.includes('W')) devotion++;
+        if (sym.includes('B')) devotion++;
+        if (devotion >= 7) return true;
+      }
+    }
+    return devotion >= 7;
+  }
+
+  // "if one or more permanents were sacrificed to activate it" (best-effort; requires explicit refs)
+  if (/^if\s+one\s+or\s+more\s+permanents\s+were\s+sacrificed\s+to\s+activate\s+it$/i.test(clause)) {
+    const v = (refs as any)?.permanentsSacrificedToActivateItCount ?? (refs as any)?.sacrificedToActivateItCount;
+    if (typeof v !== 'number') return null;
+    return v >= 1;
+  }
+
+  // "if one or more of them entered from exile or was cast from exile" (best-effort; uses refs.thoseCreatureIds)
+  if (/^if\s+one\s+or\s+more\s+of\s+them\s+entered\s+from\s+exile\s+or\s+was\s+cast\s+from\s+exile$/i.test(clause)) {
+    const ids: string[] = Array.isArray((refs as any)?.thoseCreatureIds) ? (refs as any).thoseCreatureIds : [];
+    if (!ids.length) return null;
+    let sawAny = false;
+    let sawUnknown = false;
+    for (const id of ids) {
+      const p = findBattlefieldPermanent(ctx, id);
+      if (!p) {
+        sawUnknown = true;
+        continue;
+      }
+      sawAny = true;
+      const from = String((p as any)?.enteredFromZone ?? (p as any)?.castFromZone ?? '').toLowerCase();
+      if (from === 'exile') return true;
+    }
+    if (!sawAny) return null;
+    return sawUnknown ? null : false;
+  }
+
+  // "if they entered or were cast from a graveyard" (best-effort; uses refs.thoseCreatureIds)
+  if (/^if\s+they\s+entered\s+or\s+were\s+cast\s+from\s+a\s+graveyard$/i.test(clause)) {
+    const ids: string[] = Array.isArray((refs as any)?.thoseCreatureIds) ? (refs as any).thoseCreatureIds : [];
+    if (!ids.length) return null;
+    let sawAny = false;
+    let sawUnknown = false;
+    for (const id of ids) {
+      const p = findBattlefieldPermanent(ctx, id);
+      if (!p) {
+        sawUnknown = true;
+        continue;
+      }
+      sawAny = true;
+      const from = String((p as any)?.enteredFromZone ?? (p as any)?.castFromZone ?? '').toLowerCase();
+      if (from !== 'graveyard') return false;
+    }
+    if (!sawAny) return null;
+    return sawUnknown ? null : true;
+  }
+
+  // "if they were cast using web-slinging" (best-effort; requires explicit refs)
+  if (/^if\s+they\s+were\s+cast\s+using\s+web-slinging$/i.test(clause)) {
+    const v = (refs as any)?.castUsingWebSlinging ?? (refs as any)?.wereCastUsingWebSlinging;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if you guessed correctly for a card named Spire Phantasm" (best-effort; requires explicit refs)
+  if (/^if\s+you\s+guessed\s+correctly\s+for\s+a\s+card\s+named\s+spire\s+phantasm$/i.test(clause)) {
+    const map = (refs as any)?.guessedCorrectlyForCardName;
+    if (map && typeof map === 'object') {
+      const raw = (map as any)['spire phantasm'] ?? (map as any)['Spire Phantasm'];
+      return typeof raw === 'boolean' ? raw : null;
+    }
+    const guessedName = typeof (refs as any)?.guessedCardName === 'string' ? toLower((refs as any).guessedCardName) : '';
+    const guessedCorrectly = (refs as any)?.guessedCorrectly;
+    if (!guessedName || typeof guessedCorrectly !== 'boolean') return null;
+    if (!nameMatchesClauseName(guessedName, 'spire phantasm')) return null;
+    return guessedCorrectly;
+  }
+
+  // "if you control permanents with names that include all twenty-six letters of the English alphabet"
+  if (/^if\s+you\s+control\s+permanents\s+with\s+names\s+that\s+include\s+all\s+twenty-six\s+letters\s+of\s+the\s+english\s+alphabet$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const letters = new Set<string>();
+    let sawAnyName = false;
+    for (const p of battlefield) {
+      if (!p || String(p.controller || '') !== String(controllerId)) continue;
+      const nm = String(p?.card?.name ?? p?.name ?? '').toLowerCase();
+      if (!nm) continue;
+      sawAnyName = true;
+      for (const ch of nm) {
+        if (ch >= 'a' && ch <= 'z') letters.add(ch);
+      }
+      if (letters.size >= 26) return true;
+    }
+    return sawAnyName ? letters.size >= 26 : null;
+  }
+
+  // "if you haven't scattered the Dragonstorm Globes this game" (best-effort; requires explicit refs)
+  if (/^if\s+you\s+haven'?t\s+scattered\s+the\s+dragonstorm\s+globes\s+this\s+game$/i.test(clause)) {
+    const v = (refs as any)?.scatteredDragonstormGlobes;
+    return typeof v === 'boolean' ? !v : null;
+  }
+
+  // "if you revealed a Dragon card or controlled a Dragon as you cast this spell" (best-effort; requires explicit refs)
+  if (/^if\s+you\s+revealed\s+a\s+dragon\s+card\s+or\s+controlled\s+a\s+dragon\s+as\s+you\s+cast\s+this\s+spell$/i.test(clause)) {
+    const a = (refs as any)?.revealedDragonCardAsCast;
+    const b = (refs as any)?.controlledDragonAsCast;
+    const aBool = typeof a === 'boolean' ? a : null;
+    const bBool = typeof b === 'boolean' ? b : null;
+    if (aBool === null && bBool === null) return null;
+    return (aBool === true) || (bBool === true);
+  }
+
+  // "if your starting library had at least 13 cards over the minimum" (best-effort; requires probe/state metadata)
+  if (/^if\s+your\s+starting\s+library\s+had\s+at\s+least\s+13\s+cards\s+over\s+the\s+minimum$/i.test(clause)) {
+    const map = (ctx as any).state?.startingLibraryCountByPlayer;
+    const min = (ctx as any).state?.minimumLibrarySize;
+    if (!map || typeof map !== 'object' || typeof min !== 'number') return null;
+    const n = (map as any)[controllerId];
+    if (typeof n !== 'number') return null;
+    return n >= (min + 13);
+  }
+
+  // "if it's the first time this ability has resolved this game" (best-effort; requires explicit refs)
+  if (/^if\s+it'?s\s+the\s+first\s+time\s+this\s+ability\s+has\s+resolved\s+this\s+game$/i.test(clause)) {
+    const n = (refs as any)?.abilityResolvedCountBeforeThis ?? (refs as any)?.abilityResolvedCount;
+    if (typeof n !== 'number') return null;
+    return n === 0;
+  }
+
+  // "if it's the first time counters have been put on that creature this turn" (best-effort; requires tracking)
+  if (/^if\s+it'?s\s+the\s+first\s+time\s+counters\s+have\s+been\s+put\s+on\s+that\s+creature\s+this\s+turn$/i.test(clause)) {
+    const thatId = String((refs as any)?.thatCreatureId ?? (refs as any)?.referencedCreatureId ?? '').trim();
+    if (!thatId) return null;
+    const map = (ctx as any).state?.countersPutThisTurnByPermanentId;
+    if (!map || typeof map !== 'object') return null;
+    const n = (map as any)[thatId];
+    return typeof n === 'number' ? n === 1 : null;
+  }
+
+  // "if it's the first time +1/+1 counters have been put on that permanent this turn" (best-effort; requires tracking)
+  if (/^if\s+it'?s\s+the\s+first\s+time\s+\+1\/\+1\s+counters\s+have\s+been\s+put\s+on\s+that\s+permanent\s+this\s+turn$/i.test(clause)) {
+    const thatId = String((refs as any)?.thatPermanentId ?? (refs as any)?.thatCreatureId ?? (refs as any)?.referencedPermanentId ?? '').trim();
+    if (!thatId) return null;
+    const map = (ctx as any).state?.plusOneCountersPutThisTurnByPermanentId;
+    if (!map || typeof map !== 'object') return null;
+    const n = (map as any)[thatId];
+    return typeof n === 'number' ? n === 1 : null;
+  }
+
+  // "if the player hasn't played the card" (best-effort; requires explicit refs)
+  if (/^if\s+the\s+player\s+hasn'?t\s+played\s+the\s+card$/i.test(clause)) {
+    const v = (refs as any)?.playerHasPlayedTheCard;
+    return typeof v === 'boolean' ? !v : null;
+  }
+
+  // "if the result isn't stored on this creature" (best-effort; requires explicit refs)
+  if (/^if\s+the\s+result\s+isn'?t\s+stored\s+on\s+this\s+creature$/i.test(clause)) {
+    const v = (refs as any)?.resultStoredOnThisCreature;
+    return typeof v === 'boolean' ? !v : null;
+  }
+
+  // "if it had power greater than Drizzt's power" (best-effort; requires explicit refs)
+  if (/^if\s+it\s+had\s+power\s+greater\s+than\s+drizzt'?s\s+power$/i.test(clause)) {
+    const itId = String((refs as any)?.itCreatureId ?? (refs as any)?.thatCreatureId ?? '').trim();
+    if (!itId) return null;
+    const itPerm = findBattlefieldPermanent(ctx, itId);
+    if (!itPerm) return null;
+    const drizzt = findBattlefieldPermanentsByName(ctx, 'drizzt');
+    if (!drizzt.length) return null;
+    const itPower = getPermanentPowerMaybe(itPerm, ctx);
+    if (itPower === null) return null;
+    const drizztPower = getPermanentPowerMaybe(drizzt[0], ctx);
+    if (drizztPower === null) return null;
+    return itPower > drizztPower;
+  }
+
+  // "if its power was different from its base power" (best-effort)
+  if (/^if\s+its\s+power\s+was\s+different\s+from\s+its\s+base\s+power$/i.test(clause)) {
+    const itId = String((refs as any)?.itCreatureId ?? (refs as any)?.thatCreatureId ?? '').trim();
+    const p = itId ? findBattlefieldPermanent(ctx, itId) : sourcePermanent;
+    if (!p) return null;
+    const base = parseMaybeNumber((p as any)?.basePower) ?? parseMaybeNumber((p as any)?.card?.power);
+    const cur = getPermanentPowerMaybe(p, ctx);
+    if (base === null || cur === null) return null;
+    return cur !== base;
+  }
+
+  // "if its toughness was less than 1" (best-effort)
+  if (/^if\s+its\s+toughness\s+was\s+less\s+than\s+1$/i.test(clause)) {
+    const itId = String((refs as any)?.itCreatureId ?? (refs as any)?.thatCreatureId ?? '').trim();
+    const p = itId ? findBattlefieldPermanent(ctx, itId) : sourcePermanent;
+    if (!p) return null;
+    const t = getPermanentToughnessMaybe(p, ctx);
+    if (t === null) return null;
+    return t < 1;
+  }
+
+  // "if it's on the battlefield and you control 9 or fewer creatures named \"Name Sticker\" Goblin" (best-effort)
+  if (/^if\s+it'?s\s+on\s+the\s+battlefield\s+and\s+you\s+control\s+9\s+or\s+fewer\s+creatures\s+named\s+"name\s+sticker"\s+goblin$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const count = battlefield.filter((p: any) => {
+      if (!p || String(p.controller || '') !== String(controllerId)) return false;
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) return false;
+      const nm = toLower(p?.card?.name || p?.name || '');
+      return nm.includes('name sticker') && nm.includes('goblin');
+    }).length;
+    return count <= 9;
+  }
+
+  // "if its mana value is equal to 1 plus the number of soul counters on this enchantment" (best-effort)
+  if (/^if\s+its\s+mana\s+value\s+is\s+equal\s+to\s+1\s+plus\s+the\s+number\s+of\s+soul\s+counters\s+on\s+this\s+enchantment$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const sc = getCounterCountCaseInsensitiveFromPerm(sourcePermanent, 'soul');
+    if (sc === null) return null;
+    const stack = (ctx as any).state?.stack;
+    if (!Array.isArray(stack)) return null;
+    const stackItemId = String((refs as any)?.triggeringStackItemId ?? (refs as any)?.itStackItemId ?? '').trim();
+    if (!stackItemId) return null;
+    const item = stack.find((s: any) => String(s?.id ?? '') === stackItemId);
+    if (!item) return null;
+    const mv = (item as any)?.manaValue ?? (item as any)?.card?.manaValue ?? (item as any)?.card?.cmc;
+    if (typeof mv !== 'number') return null;
+    return mv === (1 + sc);
+  }
+
+  // "if that player's program has fewer than five cards" (best-effort; requires explicit refs)
+  if (/^if\s+that\s+player'?s\s+program\s+has\s+fewer\s+than\s+five\s+cards$/i.test(clause)) {
+    const n = (refs as any)?.thatPlayersProgramCardCount;
+    return typeof n === 'number' ? n < 5 : null;
+  }
+
+  // --- Remaining hard / card-specific / replacement-effect templates (best-effort) ---
+
+  // "if you would draw a card" (replacement-effect context; requires explicit refs)
+  if (/^if\s+you\s+would\s+draw\s+a\s+card$/i.test(clause)) {
+    const v = (refs as any)?.wouldDrawCard;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if a source would deal damage" / "if a source would deal damage to that player or a permanent that player controls"
+  if (/^if\s+a\s+source\s+would\s+deal\s+damage\b/i.test(clause)) {
+    if (/^if\s+a\s+source\s+would\s+deal\s+damage\s+to\s+that\s+player\s+or\s+a\s+permanent\s+that\s+player\s+controls$/i.test(clause)) {
+      const v = (refs as any)?.wouldDealDamageToThatPlayerOrTheirPermanent;
+      if (typeof v === 'boolean') return v;
+
+      const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+      const targetPlayerId = String((refs as any)?.damageTargetPlayerId ?? '').trim();
+      const targetPermController = String((refs as any)?.damageTargetPermanentControllerId ?? '').trim();
+      if (!thatPlayerId) return null;
+      if (targetPlayerId) return targetPlayerId === thatPlayerId;
+      if (targetPermController) return targetPermController === thatPlayerId;
+      return null;
+    }
+
+    if (/^if\s+a\s+source\s+would\s+deal\s+damage$/i.test(clause)) {
+      const v = (refs as any)?.wouldDealDamage;
+      return typeof v === 'boolean' ? v : null;
+    }
+  }
+
+  // "if any of that damage was dealt by a Warrior" (best-effort; needs explicit refs)
+  if (/^if\s+any\s+of\s+that\s+damage\s+was\s+dealt\s+by\s+a\s+warrior$/i.test(clause)) {
+    const raw = (refs as any)?.damageIncludedWarriorSource;
+    if (typeof raw === 'boolean') return raw;
+    const ids: string[] = Array.isArray((refs as any)?.damageSourceCreatureIds) ? (refs as any).damageSourceCreatureIds : [];
+    if (!ids.length) return null;
+    let sawAll = true;
+    for (const id of ids) {
+      const p = findBattlefieldPermanent(ctx, id);
+      if (!p) {
+        sawAll = false;
+        continue;
+      }
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      if (typeLineHasWord(tl, 'warrior')) return true;
+    }
+    return sawAll ? false : null;
+  }
+
+  // "if a creature dealt damage by this creature this turn died" (best-effort; requires explicit refs or specific trackers)
+  if (/^if\s+a\s+creature\s+dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn\s+died$/i.test(clause)) {
+    const raw = (refs as any)?.creatureDamagedByThisCreatureDiedThisTurn;
+    if (typeof raw === 'boolean') return raw;
+
+    // Tracker shape: state.creaturesDamagedByThisCreatureThisTurn: { [sourceId]: { [victimId]: true } }
+    // and state.creaturesDiedThisTurnIds: string[]
+    const srcId = String((sourcePermanent as any)?.id ?? '').trim();
+    if (!srcId) return null;
+    const damaged = (ctx as any).state?.creaturesDamagedByThisCreatureThisTurn;
+    const diedIds: any = (ctx as any).state?.creaturesDiedThisTurnIds;
+    if (!damaged || typeof damaged !== 'object' || !Array.isArray(diedIds)) return null;
+    const victims = (damaged as any)[srcId];
+    if (!victims || typeof victims !== 'object') return null;
+    return diedIds.some((id: any) => !!victims[String(id)]);
+  }
+
+  // "if a player would planeswalk as a result of rolling the planar die" (Planechase; needs explicit refs)
+  if (/^if\s+a\s+player\s+would\s+planeswalk\s+as\s+a\s+result\s+of\s+rolling\s+the\s+planar\s+die$/i.test(clause)) {
+    const v = (refs as any)?.planarDieWouldPlaneswalk;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if another opponent controls one or more nonland permanents that spell could target" (targeting legality; needs explicit refs)
+  if (/^if\s+another\s+opponent\s+controls\s+one\s+or\s+more\s+nonland\s+permanents\s+that\s+spell\s+could\s+target$/i.test(clause)) {
+    const v = (refs as any)?.spellCouldTargetNonlandPermanentControlledByAnotherOpponent;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if at least one other Wall creature is blocking that creature and no non-Wall creatures are blocking that creature" (best-effort)
+  if (/^if\s+at\s+least\s+one\s+other\s+wall\s+creature\s+is\s+blocking\s+that\s+creature\s+and\s+no\s+non-wall\s+creatures\s+are\s+blocking\s+that\s+creature$/i.test(clause)) {
+    const thatId = String((refs as any)?.thatCreatureId ?? '').trim();
+    if (!thatId) return null;
+    const blockerIds: string[] = Array.isArray((refs as any)?.blockingCreatureIds) ? (refs as any).blockingCreatureIds : [];
+    if (!blockerIds.length) return null;
+
+    let anyWall = false;
+    let anyNonWall = false;
+    let sawAll = true;
+    for (const bid of blockerIds) {
+      const b = findBattlefieldPermanent(ctx, bid);
+      if (!b) {
+        sawAll = false;
+        continue;
+      }
+      const tl = String(b?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) continue;
+      if (typeLineHasWord(tl, 'wall')) anyWall = true;
+      else anyNonWall = true;
+    }
+    if (!anyWall) return sawAll ? false : null;
+    if (anyNonWall) return false;
+    return true;
+  }
+
+  // "if a Giant" (best-effort shorthand; assumes it refers to a referenced creature)
+  if (/^if\s+a\s+giant$/i.test(clause)) {
+    const v = (refs as any)?.aGiant;
+    if (typeof v === 'boolean') return v;
+    const id = String((refs as any)?.thatCreatureId ?? (refs as any)?.itCreatureId ?? '').trim();
+    if (!id) return null;
+    const p = findBattlefieldPermanent(ctx, id);
+    if (!p) return null;
+    const tl = String(p?.card?.type_line || '').toLowerCase();
+    return tl ? typeLineHasWord(tl, 'giant') : null;
+  }
+
+  // "if Gitrog" / "if Hex" (extremely card-specific shorthand; decide based on battlefield presence)
+  if (/^if\s+gitrog$/i.test(clause) || /^if\s+hex$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const nameLower = /^if\s+gitrog$/i.test(clause) ? 'gitrog' : 'hex';
+    return findBattlefieldPermanentsByName(ctx, nameLower).length > 0;
+  }
+
+  // "if it doesn't share a keyword or ability word with a permanent you control or a card in your graveyard" (best-effort)
+  if (/^if\s+it\s+doesn'?t\s+share\s+a\s+keyword\s+or\s+ability\s+word\s+with\s+a\s+permanent\s+you\s+control\s+or\s+a\s+card\s+in\s+your\s+graveyard$/i.test(clause)) {
+    const v = (refs as any)?.itSharesKeywordOrAbilityWordWithYourPermanentOrGraveyardCard;
+    return typeof v === 'boolean' ? !v : null;
+  }
+
+  // "if it shares a mana value with one or more uncrossed digits in the chosen number" (best-effort)
+  if (/^if\s+it\s+shares\s+a\s+mana\s+value\s+with\s+one\s+or\s+more\s+uncrossed\s+digits\s+in\s+the\s+chosen\s+number$/i.test(clause)) {
+    const digits: number[] = Array.isArray((refs as any)?.uncrossedDigits)
+      ? (refs as any).uncrossedDigits.map((n: any) => (typeof n === 'number' ? n : null)).filter((n: any) => typeof n === 'number')
+      : [];
+    if (!digits.length) return null;
+
+    const explicitMv = (refs as any)?.itsManaValue;
+    let mv: number | null = typeof explicitMv === 'number' ? explicitMv : null;
+    if (mv === null) {
+      const stack = (ctx as any).state?.stack;
+      const stackItemId = String((refs as any)?.triggeringStackItemId ?? '').trim();
+      if (Array.isArray(stack) && stackItemId) {
+        const item = stack.find((s: any) => String(s?.id ?? '') === stackItemId);
+        const mvv = (item as any)?.manaValue ?? (item as any)?.card?.manaValue ?? (item as any)?.card?.cmc;
+        if (typeof mvv === 'number') mv = mvv;
+      }
+    }
+    if (mv === null) return null;
+    return digits.includes(mv);
+  }
+
+  // "if it's represented by food" (best-effort; requires explicit refs)
+  if (/^if\s+it'?s\s+represented\s+by\s+food$/i.test(clause)) {
+    const v = (refs as any)?.representedByFood;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if its power is greater than this creature's power or its toughness is greater than this creature's toughness" (best-effort)
+  if (/^if\s+its\s+power\s+is\s+greater\s+than\s+this\s+creature'?s\s+power\s+or\s+its\s+toughness\s+is\s+greater\s+than\s+this\s+creature'?s\s+toughness$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const itId = String((refs as any)?.itCreatureId ?? (refs as any)?.thatCreatureId ?? '').trim();
+    const it = itId ? findBattlefieldPermanent(ctx, itId) : null;
+    if (!it) return null;
+    const ip = getPermanentPowerMaybe(it, ctx);
+    const itou = getPermanentToughnessMaybe(it, ctx);
+    const sp = getPermanentPowerMaybe(sourcePermanent, ctx);
+    const st = getPermanentToughnessMaybe(sourcePermanent, ctx);
+    if (ip === null || itou === null || sp === null || st === null) return null;
+    return ip > sp || itou > st;
+  }
+
+  // "if more lands entered the battlefield under your control this turn than an opponent had enter during their last turn" (best-effort)
+  if (/^if\s+more\s+lands\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn\s+than\s+an\s+opponent\s+had\s+enter\s+during\s+their\s+last\s+turn$/i.test(clause)) {
+    const yours = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
+    if (yours === null) return null;
+    const last = (ctx as any).state?.landsEnteredBattlefieldLastTurnByPlayerCounts;
+    if (!last || typeof last !== 'object') return null;
+    const opponents = getOpponentIds(ctx, controllerId);
+    if (!opponents.length) return null;
+    let sawAny = false;
+    for (const oid of opponents) {
+      const v = (last as any)[oid];
+      if (typeof v !== 'number') continue;
+      sawAny = true;
+      if (yours > v) return true;
+    }
+    return sawAny ? false : null;
+  }
+
+  // "if no opponent cast a spell since your last turn ended" (best-effort; requires tracking or explicit refs)
+  if (/^if\s+no\s+opponent\s+cast\s+a\s+spell\s+since\s+your\s+last\s+turn\s+ended$/i.test(clause)) {
+    const v = (refs as any)?.noOpponentCastSpellSinceYourLastTurnEnded;
+    if (typeof v === 'boolean') return v;
+    const map = (ctx as any).state?.opponentCastSpellSinceYourLastTurnEnded;
+    if (map && typeof map === 'object') {
+      const opponents = getOpponentIds(ctx, controllerId);
+      if (!opponents.length) return null;
+      const any = opponents.some((oid) => (map as any)[oid] === true);
+      const anyKnown = opponents.some((oid) => typeof (map as any)[oid] === 'boolean');
+      return anyKnown ? !any : null;
+    }
+    return null;
+  }
+
+  // "if none of them were cast or no mana was spent to cast them" (best-effort; requires explicit refs)
+  if (/^if\s+none\s+of\s+them\s+were\s+cast\s+or\s+no\s+mana\s+was\s+spent\s+to\s+cast\s+them$/i.test(clause)) {
+    const noneCast = (refs as any)?.noneOfThemWereCast;
+    const manaSpent = (refs as any)?.manaWasSpentToCastThem;
+    const noneCastBool = typeof noneCast === 'boolean' ? noneCast : null;
+    const manaSpentBool = typeof manaSpent === 'boolean' ? manaSpent : null;
+    if (noneCastBool === null && manaSpentBool === null) return null;
+    return (noneCastBool === true) || (manaSpentBool === false);
+  }
+
+  // "if that creature had to attack this combat" (best-effort; needs explicit refs or tracking)
+  if (/^if\s+that\s+creature\s+had\s+to\s+attack\s+this\s+combat$/i.test(clause)) {
+    const v = (refs as any)?.thatCreatureHadToAttackThisCombat;
+    if (typeof v === 'boolean') return v;
+    const thatId = String((refs as any)?.thatCreatureId ?? '').trim();
+    if (!thatId) return null;
+    const forced = (ctx as any).state?.mustAttackThisCombatByPermanentId;
+    if (forced && typeof forced === 'object') {
+      const vv = (forced as any)[thatId];
+      return typeof vv === 'boolean' ? vv : null;
+    }
+    return null;
+  }
+
+  // "if that creature was destroyed this way" (ensure refs key aliases are handled)
+  if (/^if\s+that\s+creature\s+was\s+destroyed\s+this\s+way$/i.test(clause)) {
+    const raw = (refs as any)?.thatCreatureDestroyedThisWay ?? (refs as any)?.destroyedThisWay;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if that player attacked you during their last turn" (best-effort; requires tracking or explicit refs)
+  if (/^if\s+that\s+player\s+attacked\s+you\s+during\s+their\s+last\s+turn$/i.test(clause)) {
+    const v = (refs as any)?.thatPlayerAttackedYouLastTurn;
+    if (typeof v === 'boolean') return v;
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const map = (ctx as any).state?.attackedYouLastTurnByPlayer;
+    if (map && typeof map === 'object') {
+      const vv = (map as any)[thatPlayerId];
+      return typeof vv === 'boolean' ? vv : null;
+    }
+    return null;
+  }
+
+  // "if that player controls a nonblack" (best-effort; infer from permanent colors when available)
+  if (/^if\s+that\s+player\s+controls\s+a\s+nonblack$/i.test(clause)) {
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    let sawAny = false;
+    let sawUnknown = false;
+    for (const p of battlefield) {
+      if (!p || String(p.controller || '') !== String(thatPlayerId)) continue;
+      const colors = (p as any)?.card?.colors ?? (p as any)?.card?.color_identity;
+      if (!Array.isArray(colors)) {
+        sawUnknown = true;
+        continue;
+      }
+      sawAny = true;
+      const upper = colors.map((c: any) => String(c || '').toUpperCase());
+      if (!upper.includes('B')) return true;
+    }
+    if (!sawAny) return false;
+    return sawUnknown ? null : false;
+  }
+
+  // "if that player didn't tap any nonland permanents that turn" (best-effort; tracking/refs)
+  if (/^if\s+that\s+player\s+didn'?t\s+tap\s+any\s+nonland\s+permanents\s+that\s+turn$/i.test(clause)) {
+    const v = (refs as any)?.thatPlayerTappedNonlandPermanentLastTurn;
+    if (typeof v === 'boolean') return !v;
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const map = (ctx as any).state?.tappedNonlandPermanentLastTurnByPlayer;
+    if (map && typeof map === 'object') {
+      const vv = (map as any)[thatPlayerId];
+      return typeof vv === 'boolean' ? !vv : null;
+    }
+    return null;
+  }
+
+  // "if that player has another opponent who isn't being attacked" (best-effort; requires explicit refs)
+  if (/^if\s+that\s+player\s+has\s+another\s+opponent\s+who\s+isn'?t\s+being\s+attacked$/i.test(clause)) {
+    const v = (refs as any)?.thatPlayerHasAnotherOpponentNotBeingAttacked;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if they aren't attacking you" (best-effort; requires explicit refs or attack-target data)
+  if (/^if\s+they\s+aren'?t\s+attacking\s+you$/i.test(clause)) {
+    const v = (refs as any)?.theyArentAttackingYou;
+    if (typeof v === 'boolean') return v;
+    const ids: string[] = Array.isArray((refs as any)?.thoseCreatureIds) ? (refs as any).thoseCreatureIds : [];
+    if (!ids.length) return null;
+    let sawAny = false;
+    let sawUnknown = false;
+    for (const id of ids) {
+      const p = findBattlefieldPermanent(ctx, id);
+      if (!p) {
+        sawUnknown = true;
+        continue;
+      }
+      sawAny = true;
+      const t = (p as any).attackingTargetId ?? (p as any).attackedPlayerId ?? (p as any).defendingPlayerId ?? (typeof (p as any).attacking === 'string' ? (p as any).attacking : null);
+      if (typeof t !== 'string' || !t) {
+        sawUnknown = true;
+        continue;
+      }
+      if (String(t) === String(controllerId)) return false;
+    }
+    if (!sawAny) return null;
+    return sawUnknown ? null : true;
+  }
+
+  // "if they attacked you and/or a planeswalker you control" (best-effort; needs explicit refs)
+  if (/^if\s+they\s+attacked\s+you\s+and\/or\s+a\s+planeswalker\s+you\s+control$/i.test(clause)) {
+    const v = (refs as any)?.theyAttackedYouOrYourPlaneswalker;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if they were attacked this turn by an Assassin you controlled" (best-effort; tracking/refs)
+  if (/^if\s+they\s+were\s+attacked\s+this\s+turn\s+by\s+an\s+assassin\s+you\s+controlled$/i.test(clause)) {
+    const v = (refs as any)?.theyWereAttackedThisTurnByAssassinYouControlled;
+    if (typeof v === 'boolean') return v;
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+    const map = (ctx as any).state?.attackedByAssassinThisTurnByPlayer;
+    if (map && typeof map === 'object') {
+      const vv = (map as any)[thatPlayerId];
+      return typeof vv === 'boolean' ? vv : null;
+    }
+    return null;
+  }
+
+  // "if you control the artifact with the greatest mana value or tied for the greatest mana value" (best-effort)
+  if (/^if\s+you\s+control\s+the\s+artifact\s+with\s+the\s+greatest\s+mana\s+value\s+or\s+tied\s+for\s+the\s+greatest\s+mana\s+value$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const artifacts = battlefield.filter((p: any) => p && String(p?.card?.type_line || '').toLowerCase().includes('artifact'));
+    if (!artifacts.length) return null;
+    let max: number | null = null;
+    for (const a of artifacts) {
+      const mv = (a as any)?.card?.manaValue ?? (a as any)?.card?.mana_value ?? (a as any)?.card?.cmc;
+      if (typeof mv !== 'number') return null;
+      max = max === null ? mv : Math.max(max, mv);
+    }
+    if (max === null) return null;
+    return artifacts.some((a: any) => {
+      const mv = (a as any)?.card?.manaValue ?? (a as any)?.card?.mana_value ?? (a as any)?.card?.cmc;
+      return typeof mv === 'number' && mv === max && String(a.controller || '') === String(controllerId);
+    });
+  }
+
+  // "if you had another creature enter the battlefield under your control last turn" (best-effort)
+  if (/^if\s+you\s+had\s+another\s+creature\s+enter\s+the\s+battlefield\s+under\s+your\s+control\s+last\s+turn$/i.test(clause)) {
+    const v = (ctx as any).state?.creaturesEnteredBattlefieldLastTurnByController;
+    if (!v || typeof v !== 'object') return null;
+    const n = (v as any)[controllerId];
+    return typeof n === 'number' ? n >= 2 : null;
+  }
+
+  // "if necessary" / "if you have 1" / "if you have a drink 'stache" / "if one player has won more Magic games that day..." / "if your life total is on the lazy caterer's sequence"
+  if (/^if\s+necessary$/i.test(clause)) {
+    const v = (refs as any)?.necessary;
+    return typeof v === 'boolean' ? v : null;
+  }
+  if (/^if\s+you\s+have\s+1$/i.test(clause)) {
+    const v = (refs as any)?.youHaveOne;
+    return typeof v === 'boolean' ? v : null;
+  }
+  if (/^if\s+you\s+have\s+a\s+drink\s+'stache$/i.test(clause)) {
+    const v = (refs as any)?.haveDrinkStache;
+    return typeof v === 'boolean' ? v : null;
+  }
+  if (/^if\s+one\s+player\s+has\s+won\s+more\s+magic\s+games\s+that\s+day\s+than\s+any\s+other\s+player$/i.test(clause)) {
+    const v = (refs as any)?.onePlayerHasWonMoreMagicGamesThatDay;
+    return typeof v === 'boolean' ? v : null;
+  }
+  if (/^if\s+your\s+life\s+total\s+is\s+on\s+the\s+lazy\s+caterer'?s\s+sequence$/i.test(clause)) {
+    const v = (refs as any)?.lifeTotalIsOnLazyCaterersSequence;
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if she was a nonland creature" (best-effort; requires explicit refs)
+  if (/^if\s+she\s+was\s+a\s+nonland\s+creature$/i.test(clause)) {
+    const v = (refs as any)?.sheWasANonlandCreature;
+    if (typeof v === 'boolean') return v;
+    const id = String((refs as any)?.shePermanentId ?? '').trim();
+    if (!id) return null;
+    const p = findBattlefieldPermanent(ctx, id);
+    if (!p) return null;
+    const tl = String(p?.card?.type_line || '').toLowerCase();
+    if (!tl) return null;
+    return tl.includes('creature') && !tl.includes('land');
+  }
+
+  // "if the number of attacking creatures is greater than the number of quest counters on ED-E" (best-effort)
+  if (/^if\s+the\s+number\s+of\s+attacking\s+creatures\s+is\s+greater\s+than\s+the\s+number\s+of\s+quest\s+counters\s+on\s+ed-e$/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const ede = findBattlefieldPermanentsByName(ctx, 'ed-e');
+    if (!ede.length) return null;
+    const qc = getCounterCountCaseInsensitiveFromPerm(ede[0], 'quest');
+    if (qc === null) return null;
+
+    let attackers = 0;
+    let sawAttackInfo = false;
+    for (const p of battlefield) {
+      if (!p) continue;
+      const tl = String(p?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) continue;
+      const isAttacking =
+        (p as any).attacking === true ||
+        (p as any).isAttacking === true ||
+        typeof (p as any).attacking === 'string' ||
+        typeof (p as any).attackingTargetId === 'string' ||
+        typeof (p as any).defendingPlayerId === 'string';
+      if (!isAttacking) continue;
+      sawAttackInfo = true;
+      attackers++;
+    }
+    if (!sawAttackInfo) return null;
+    return attackers > qc;
+  }
+
 
   // Broad umbrella recognizers:
   // These intentionally return `null` (recognized-but-unknown) to avoid the fallback marker
