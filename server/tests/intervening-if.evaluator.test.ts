@@ -2070,6 +2070,19 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(
       isInterveningIfSatisfied(g as any, String(p1), 'If a land entered the battlefield under your control this turn, draw a card.')
     ).toBe(false);
+
+    delete (g.state as any).landsEnteredBattlefieldThisTurn;
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), 'If you had a land enter the battlefield under your control this turn, draw a card.')
+    ).toBe(null);
+    (g.state as any).landsEnteredBattlefieldThisTurn = { [p1]: 0 };
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), 'If you had a land enter the battlefield under your control this turn, draw a card.')
+    ).toBe(false);
+    (g.state as any).landsEnteredBattlefieldThisTurn = { [p1]: 1 };
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), 'If you had a land enter the battlefield under your control this turn, draw a card.')
+    ).toBe(true);
   });
 
   it('supports graveyard creature density and empty-library checks', () => {
@@ -2301,7 +2314,7 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     addPlayer(g, p2, 'P2');
 
     (g.state as any).lifeLostThisTurn = { [p1]: 3, [p2]: 0 };
-    g.nextTurn();
+    (g as any).nextTurn();
 
     const desc = 'At the beginning of your upkeep, if you lost life last turn, draw a card.';
     expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);

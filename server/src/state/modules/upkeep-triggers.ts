@@ -666,12 +666,37 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
   if (idx !== -1) {
     const permanent = battlefield.splice(idx, 1)[0];
     const cardName = permanent.card?.name || "Unknown";
+
+    // Per-turn tracking for intervening-if templates like:
+    // - "if you sacrificed a permanent this turn"
+    // - "if you sacrificed a Food this turn"
+    try {
+      const stateAny = ctx.state as any;
+      const key = String(playerId || permanent?.controller || '').trim();
+      if (key) {
+        stateAny.permanentsSacrificedThisTurn = stateAny.permanentsSacrificedThisTurn || {};
+        stateAny.permanentsSacrificedThisTurn[key] = (stateAny.permanentsSacrificedThisTurn[key] || 0) + 1;
+
+        const tl = String(permanent?.card?.type_line || '').toLowerCase();
+        const nm = String(permanent?.card?.name || '').toLowerCase();
+        const isFood = tl.includes('food') && (tl.includes('artifact') || tl.includes('token'));
+        if (isFood && (nm === 'food' || tl.includes('— food') || tl.includes('- food') || tl.includes('food'))) {
+          stateAny.foodsSacrificedThisTurn = stateAny.foodsSacrificedThisTurn || {};
+          stateAny.foodsSacrificedThisTurn[key] = (stateAny.foodsSacrificedThisTurn[key] || 0) + 1;
+        }
+      }
+    } catch {
+      // best-effort only
+    }
     
     const zones = (ctx as any).zones?.[playerId];
     if (zones) {
       zones.graveyard = zones.graveyard || [];
       zones.graveyard.push({ ...permanent.card, zone: "graveyard" });
-      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), permanent.card, { fromBattlefield: true });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), permanent.card, {
+        fromBattlefield: true,
+        controllerId: String((permanent as any).controller || playerId),
+      });
       zones.graveyardCount = zones.graveyard.length;
     }
     

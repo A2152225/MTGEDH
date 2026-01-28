@@ -2284,6 +2284,37 @@ export function nextTurn(ctx: GameContext) {
       // best-effort only
     }
 
+    // Clear per-turn token creation tracking (for intervening-if templates like
+    // "if you created a token this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.tokensCreatedThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (pid) stateAny.tokensCreatedThisTurn[String(pid)] = 0;
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn sacrifice tracking (for intervening-if templates like
+    // "if you sacrificed a permanent this turn" / "if you sacrificed a Food this turn").
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.permanentsSacrificedThisTurn = {};
+      stateAny.foodsSacrificedThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (!pid) continue;
+        stateAny.permanentsSacrificedThisTurn[String(pid)] = 0;
+        stateAny.foodsSacrificedThisTurn[String(pid)] = 0;
+      }
+    } catch {
+      // best-effort only
+    }
+
     // Clear per-turn counter placement tracking (for intervening-if templates like
     // "if you put a counter on a creature this turn").
     try {
@@ -2332,12 +2363,20 @@ export function nextTurn(ctx: GameContext) {
       stateAny.cardsPutIntoYourGraveyardThisTurn = {};
       stateAny.cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn = {};
       stateAny.creatureCardPutIntoYourGraveyardThisTurn = {};
+
+      // Battlefield-only typed variants.
+      stateAny.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn = {};
+      stateAny.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn = {};
+      stateAny.artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn = false;
       for (const p of players) {
         const pid = (p as any)?.id;
         if (!pid) continue;
         stateAny.cardsPutIntoYourGraveyardThisTurn[String(pid)] = 0;
         stateAny.cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn[String(pid)] = 0;
         stateAny.creatureCardPutIntoYourGraveyardThisTurn[String(pid)] = false;
+
+        stateAny.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn[String(pid)] = false;
+        stateAny.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn[String(pid)] = false;
       }
     } catch {
       // best-effort only
@@ -2403,7 +2442,26 @@ export function nextTurn(ctx: GameContext) {
     for (const pid of players) {
       (ctx as any).state.landsPlayedThisTurn[pid] = 0;
     }
-    
+
+    // Snapshot "cards drawn last turn" before clearing per-turn trackers.
+    // Used by intervening-if clauses like "if you drew a card last turn".
+    try {
+      const last: any = {};
+      const cur = (ctx as any).state.cardsDrawnThisTurn;
+      if (cur && typeof cur === 'object') {
+        for (const [pid, v] of Object.entries(cur)) {
+          if (typeof v === 'number' && !Number.isNaN(v)) last[String(pid)] = v;
+        }
+      }
+      (ctx as any).state.cardsDrawnLastTurnByPlayerCounts = last;
+
+      // Convenience: how many cards did the previous turn's active player draw?
+      // Note: `current` is the old turn player (before we assigned `next`).
+      if (typeof current === 'string' && current) {
+        (ctx as any).state.cardsDrawnLastTurnByActivePlayerCount = last[String(current)] || 0;
+      }
+    } catch {}
+
     // Reset cards drawn this turn for all players (for miracle tracking)
     (ctx as any).state.cardsDrawnThisTurn = {};
 

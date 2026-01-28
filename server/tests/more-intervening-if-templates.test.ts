@@ -219,6 +219,219 @@ describe('Intervening-if evaluator (more templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, { card: { name: 'Any Spell' } })).toBe(null);
   });
 
+  it('supports "if a player was dealt N or more combat damage this turn" (best-effort)', () => {
+    const g = createInitialGameState('t_intervening_if_player_dealt_combat_damage_n');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+    addPlayer(g, p3, 'P3');
+
+    const desc = 'At the beginning of your end step, if a player was dealt 6 or more combat damage this turn, draw a card.';
+
+    // Tracker missing => unknown
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+
+    (g.state as any).creaturesThatDealtDamageToPlayer = {
+      [p2]: { c1: { creatureName: 'Attacker 1', totalDamage: 3 }, c2: { creatureName: 'Attacker 2', totalDamage: 3 } },
+      [p3]: { c3: { creatureName: 'Attacker 3', totalDamage: 2 } },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).creaturesThatDealtDamageToPlayer = {
+      [p2]: { c1: { creatureName: 'Attacker 1', totalDamage: 2 }, c2: { creatureName: 'Attacker 2', totalDamage: 3 } },
+      [p3]: {},
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports "if a player was dealt combat damage by a Zombie this turn" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_player_dealt_zombie_combat_damage');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const desc = 'At the beginning of your end step, if a player was dealt combat damage by a Zombie this turn, draw a card.';
+
+    // Tracker missing => unknown
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+
+    // Positive: zombie attacker still on battlefield
+    (g.state as any).battlefield = [
+      { id: 'z1', controller: p1, card: { type_line: 'Creature — Zombie' } },
+    ];
+    (g.state as any).creaturesThatDealtDamageToPlayer = {
+      [p2]: { z1: { creatureName: 'Zombie Attacker', totalDamage: 1 } },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    // Negative: only known non-zombie sources
+    (g.state as any).battlefield = [
+      { id: 'c1', controller: p1, card: { type_line: 'Creature — Human Soldier' } },
+    ];
+    (g.state as any).creaturesThatDealtDamageToPlayer = {
+      [p2]: { c1: { creatureName: 'Not a Zombie', totalDamage: 1 } },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    // Conservative: damage tracked but we can’t classify the source (left battlefield)
+    (g.state as any).battlefield = [];
+    (g.state as any).creaturesThatDealtDamageToPlayer = {
+      [p2]: { gone: { creatureName: 'Unknown Source', totalDamage: 1 } },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+  });
+
+  it('supports "if it\'s attacking the player with the most life or tied for most life" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_attacking_most_life');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+    addPlayer(g, p3, 'P3');
+
+    const desc = "Whenever it attacks, if it's attacking the player with the most life or tied for most life, draw a card.";
+
+    // Deterministic: p2 and p3 are tied for most life.
+    (g.state as any).life = { [p1]: 20, [p2]: 30, [p3]: 30 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' }, attacking: p2 })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' }, attacking: p1 })).toBe(false);
+
+    // Best-effort: if another player's life isn't present in state.life, we fall back to the player's stored life (typically 40).
+    // With default life (40) for p3, p2 is not the "most life" target.
+    (g.state as any).life = { [p1]: 20, [p2]: 30 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' }, attacking: p2 })).toBe(false);
+
+    // Not attacking => false
+    (g.state as any).life = { [p1]: 20, [p2]: 30, [p3]: 30 };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' } })).toBe(false);
+  });
+
+  it('supports "if you control thirty or more artifacts"', () => {
+    const g = createInitialGameState('t_intervening_if_thirty_artifacts');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc = 'At the beginning of your upkeep, if you control thirty or more artifacts, draw a card.';
+
+    (g.state as any).battlefield = Array.from({ length: 30 }, (_, i) => ({
+      id: `a${i}`,
+      controller: p1,
+      card: { type_line: 'Artifact' },
+    }));
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).battlefield = Array.from({ length: 29 }, (_, i) => ({
+      id: `a${i}`,
+      controller: p1,
+      card: { type_line: 'Artifact' },
+    }));
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+  });
+
+  it('supports "if you control the artifact with the greatest mana value or tied for the greatest mana value" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_greatest_mv_artifact');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    addPlayer(g, p2, 'P2');
+
+    const desc =
+      'At the beginning of your upkeep, if you control the artifact with the greatest mana value or tied for the greatest mana value, draw a card.';
+
+    (g.state as any).battlefield = [
+      { id: 'a1', controller: p1, card: { type_line: 'Artifact', cmc: 5 } },
+      { id: 'a2', controller: p2, card: { type_line: 'Artifact', cmc: 4 } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+
+    (g.state as any).battlefield = [
+      { id: 'a1', controller: p1, card: { type_line: 'Artifact', cmc: 5 } },
+      { id: 'a2', controller: p2, card: { type_line: 'Artifact', cmc: 6 } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(false);
+
+    // Conservative: unknown opponent artifact mana value => null
+    (g.state as any).battlefield = [
+      { id: 'a1', controller: p1, card: { type_line: 'Artifact', cmc: 5 } },
+      { id: 'aU', controller: p2, card: { type_line: 'Artifact' } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(null);
+
+    // If all unknown artifacts are controlled by you and you already control a known max, we can still say true.
+    (g.state as any).battlefield = [
+      { id: 'a1', controller: p1, card: { type_line: 'Artifact', cmc: 5 } },
+      { id: 'aU', controller: p1, card: { type_line: 'Artifact' } },
+      { id: 'a2', controller: p2, card: { type_line: 'Artifact', cmc: 4 } },
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc)).toBe(true);
+  });
+
+  it('supports "if you cast it and there are twenty or more creature cards with mana value 3 or less among cards in your graveyard" (conservative)', () => {
+    const g = createInitialGameState('t_intervening_if_inquisitor_captain');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc =
+      'When this creature enters the battlefield, if you cast it and there are twenty or more creature cards with mana value 3 or less among cards in your graveyard, you gain 1 life.';
+
+    (g.state as any).zones = {
+      [p1]: {
+        graveyard: Array.from({ length: 20 }, (_, i) => ({ id: `g${i}`, type_line: 'Creature', cmc: 3 })),
+      },
+    };
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { enteredFromCast: true })).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { enteredFromCast: false })).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {})).toBe(null);
+
+    // Count fails definitively even if cast is unknown
+    (g.state as any).zones = {
+      [p1]: {
+        graveyard: Array.from({ length: 19 }, (_, i) => ({ id: `g${i}`, type_line: 'Creature', cmc: 3 })),
+      },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, {})).toBe(false);
+  });
+
+  it('supports "if you cast it from your hand and there are five or more other creatures on the battlefield" (Deathbringer Regent style)', () => {
+    const g = createInitialGameState('t_intervening_if_deathbringer_regent');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const desc =
+      'When this creature enters the battlefield, if you cast it from your hand and there are five or more other creatures on the battlefield, destroy all other creatures.';
+
+    (g.state as any).battlefield = [
+      { id: 'src', controller: p1, card: { type_line: 'Creature' } },
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, controller: p1, card: { type_line: 'Creature' } })),
+    ];
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' }, castFromHand: true })
+    ).toBe(true);
+    expect(
+      isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' }, castFromHand: false })
+    ).toBe(false);
+
+    (g.state as any).battlefield = [
+      { id: 'src', controller: p1, card: { type_line: 'Creature' } },
+      ...Array.from({ length: 4 }, (_, i) => ({ id: `c${i}`, controller: p1, card: { type_line: 'Creature' } })),
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' }, castFromHand: true })).toBe(
+      false
+    );
+
+    // Count true but cast-from-hand unknown => null
+    (g.state as any).battlefield = [
+      { id: 'src', controller: p1, card: { type_line: 'Creature' } },
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, controller: p1, card: { type_line: 'Creature' } })),
+    ];
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, { id: 'src', card: { type_line: 'Creature' } })).toBe(null);
+  });
+
   it('supports "if evidence was collected" (best-effort via evidenceCollectedThisTurn)', () => {
     const g = createInitialGameState('t_intervening_if_evidence_collected');
     const p1 = 'p1' as PlayerID;
@@ -526,6 +739,28 @@ describe('Intervening-if evaluator (more templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(null);
 
     (g.state as any).zones[p1].exile.push({ id: 'e4', name: 'D', exiledWithSourceId: 'a1' });
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(true);
+  });
+
+  it('supports "if N or more cards have been exiled with this artifact" (best-effort, via zones)', () => {
+    const g = createInitialGameState('t_intervening_if_exiled_with_artifact_have_been');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    const source: any = { id: 'a1', controller: p1, card: { name: "Colfenor's Urn", type_line: 'Artifact' } };
+    const desc = 'At the beginning of your upkeep, if three or more cards have been exiled with this artifact, draw a card.';
+
+    (g.state as any).zones = {
+      [p1]: {
+        exile: [
+          { id: 'e1', name: 'A', exiledWithSourceId: 'a1' },
+          { id: 'e2', name: 'B', exiledWithSourceId: 'a1' },
+        ],
+      },
+    };
+    expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(null);
+
+    (g.state as any).zones[p1].exile.push({ id: 'e3', name: 'C', exiledWithSourceId: 'a1' });
     expect(isInterveningIfSatisfied(g as any, String(p1), desc, source)).toBe(true);
   });
 

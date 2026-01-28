@@ -437,6 +437,16 @@ export function createToken(
       // Defensive: do not block token creation.
     }
   }
+
+  // Per-turn tracking for intervening-if templates like "if you created a token this turn".
+  try {
+    const stateAny = state as any;
+    const key = String(controller);
+    stateAny.tokensCreatedThisTurn = stateAny.tokensCreatedThisTurn || {};
+    stateAny.tokensCreatedThisTurn[key] = (stateAny.tokensCreatedThisTurn[key] || 0) + createdPermanentIds.length;
+  } catch {
+    // best-effort only
+  }
   bumpSeq();
   runSBA(ctx);
 
@@ -513,6 +523,16 @@ export function createCopyTokensOfCard(
     } catch {
       // Defensive.
     }
+  }
+
+  // Per-turn tracking for intervening-if templates like "if you created a token this turn".
+  try {
+    const stateAny = state as any;
+    const key = String(controller);
+    stateAny.tokensCreatedThisTurn = stateAny.tokensCreatedThisTurn || {};
+    stateAny.tokensCreatedThisTurn[key] = (stateAny.tokensCreatedThisTurn[key] || 0) + created.length;
+  } catch {
+    // best-effort only
   }
 
   bumpSeq();
@@ -799,7 +819,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
     if (card) {
       (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
-      recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true });
+      recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String(controller) });
       (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
     }
   }
@@ -1138,7 +1158,7 @@ export function runSBA(ctx: GameContext) {
           const card = (destroyed as any).card;
           if (card) {
             (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
-            recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true });
+            recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String((destroyed as any).controller || owner) });
             (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
           }
         }
@@ -1214,7 +1234,7 @@ export function runSBA(ctx: GameContext) {
             const card = (removed as any).card;
             if (card) {
               (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
-              recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true });
+              recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String((removed as any).controller || owner) });
               (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
             }
           }

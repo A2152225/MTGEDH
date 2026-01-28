@@ -6491,6 +6491,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Set as active player
       try {
         game.state.turnPlayer = playerId;
+        // Track starting player for intervening-if templates like "if you weren't the starting player".
+        // Best-effort: only set if missing so reconnects/duplicate actions don't overwrite.
+        if (!(game.state as any).startingPlayerId) {
+          (game.state as any).startingPlayerId = playerId;
+        }
         appendGameEvent(game, gameId, "claimTurn", { by: playerId });
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -6547,6 +6552,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Set as active player
       try {
         game.state.turnPlayer = randomPlayer.id;
+        // Track starting player for intervening-if templates like "if you weren't the starting player".
+        (game.state as any).startingPlayerId = randomPlayer.id;
         appendGameEvent(game, gameId, "randomizeStartingPlayer", { 
           selectedPlayerId: randomPlayer.id,
           by: playerId

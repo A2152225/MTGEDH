@@ -59,21 +59,21 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if a creature or planeswalker an opponent controlled was dealt excess damage this turn — e.g. Rith, Liberated Primeval
 - [x] (1) [turn-tracking] if a face-down creature entered the battlefield under your control this turn — e.g. Tunnel Tipster
 - [ ] (1) [misc] if a Giant — e.g. Aegar, the Freezing Flame
-- [ ] (1) [misc] if a land you controlled was put into a graveyard from the battlefield this turn — e.g. The Lady of Otaria
+- [x] (1) [misc] if a land you controlled was put into a graveyard from the battlefield this turn — e.g. The Lady of Otaria
 - [x] (1) [misc] if a permanent was put into your hand from the battlefield this turn — e.g. Barrin, Tolarian Archmage
 - [x] (1) [turn-tracking] if a Phyrexian died under your control this turn — e.g. Brimaz, Blight of Oreskos
 - [ ] (1) [misc] if a Pirate and a Vehicle attacked this combat — e.g. Fearless Swashbuckler
 - [x] (1) [misc] if a player discarded a card this turn — e.g. The Raven Man
-- [ ] (1) [misc] if a player was dealt 6 or more combat damage this turn — e.g. Sidequest: Play Blitzball // World Champion, Celestial Weapon
-- [ ] (1) [misc] if a player was dealt combat damage by a Zombie this turn — e.g. Lost Monarch of Ifnir
+- [x] (1) [misc] if a player was dealt 6 or more combat damage this turn — e.g. Sidequest: Play Blitzball // World Champion, Celestial Weapon
+- [x] (1) [misc] if a player was dealt combat damage by a Zombie this turn — e.g. Lost Monarch of Ifnir
 - [ ] (1) [misc] if a player would planeswalk as a result of rolling the planar die — e.g. Fixed Point in Time
 - [ ] (1) [misc] if a source would deal damage — e.g. Approach My Molten Realm
 - [ ] (1) [needs-event-refs] if a source would deal damage to that player or a permanent that player controls — e.g. Lightning, Army of One
 - [x] (1) [misc] if all nonland permanents you control are white — e.g. Zealots en-Dal
-- [ ] (1) [misc] if an artifact or creature was put into a graveyard from the battlefield this turn — e.g. Ichor Shade
+- [x] (1) [misc] if an artifact or creature was put into a graveyard from the battlefield this turn — e.g. Ichor Shade
 - [ ] (1) [misc] if an Assassin crewed it this turn — e.g. Adrestia
 - [ ] (1) [misc] if an Aura you controlled was attached to it — e.g. Dawn Evangel
-- [ ] (1) [misc] if an enchantment was put into your graveyard from the battlefield this turn — e.g. Kami of Transience
+- [x] (1) [misc] if an enchantment was put into your graveyard from the battlefield this turn — e.g. Kami of Transience
 - [x] (1) [misc] if an opponent cast a blue and/or black spell this turn — e.g. Sandstalker Moloch
 - [x] (1) [misc] if an opponent discarded a card this turn — e.g. Tinybones, Trinket Thief
 - [x] (1) [misc] if an opponent lost life last turn — e.g. Feast on the Fallen
@@ -167,7 +167,7 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [x] (1) [misc] if it wasn't the first land you played this turn — e.g. Fastbond
 - [x] (1) [misc] if it's an opponent's turn — e.g. Discordant Spirit
 - [ ] (1) [misc] if it's at least one of the chosen colors — e.g. Tablet of the Guilds
-- [ ] (1) [misc] if it's attacking the player with the most life or tied for most life — e.g. Scourge of the Throne
+- [x] (1) [misc] if it's attacking the player with the most life or tied for most life — e.g. Scourge of the Throne
 - [x] (1) [misc] if it's modified — e.g. Ian the Reckless
 - [x] (1) [misc] if it's not a Brushwagg — e.g. Unique Charmed Pants
 - [x] (1) [misc] if it's not a Spirit — e.g. Otherworldly Escort
@@ -327,9 +327,9 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [x] (1) [misc] if this enchantment is on the battlefield — e.g. Tombstone Stairwell
 - [x] (1) [misc] if this Vehicle attacked or blocked this combat — e.g. Daredevil Dragster
 - [x] (1) [turn-tracking] if three or more artifacts entered the battlefield under your control this turn — e.g. Malcator, Purity Overseer
-- [ ] (1) [misc] if three or more cards have been exiled with this artifact — e.g. Colfenor's Urn
-- [ ] (1) [misc] if three or more cards were put into your graveyard from anywhere other than the battlefield this turn — e.g. Dimir Strandcatcher
-- [ ] (1) [misc] if three or more cards were put into your graveyard this turn from anywhere — e.g. I Know All, I See All
+- [x] (1) [misc] if three or more cards have been exiled with this artifact — e.g. Colfenor's Urn
+- [x] (1) [misc] if three or more cards were put into your graveyard from anywhere other than the battlefield this turn — e.g. Dimir Strandcatcher
+- [x] (1) [misc] if three or more cards were put into your graveyard this turn from anywhere — e.g. I Know All, I See All
 - [ ] (1) [misc] if three or more mana from creatures was spent to cast it — e.g. Inga and Esika
 - [ ] (1) [misc] if Tolsimir attacked this combat — e.g. Tolsimir, Midnight's Light
 - [x] (1) [misc] if two or more artifacts entered under your control this turn — e.g. Landlore Navigator
@@ -345,7 +345,8 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if you both own and control this creature and a creature named Midnight Scavengers — e.g. Graf Rats // Chittering Host
 - [ ] (1) [misc] if you both own and control Vanille and a creature named Fang — e.g. Vanille, Cheerful l'Cie // Ragnarok, Divine Deliverance
 - [ ] (1) [misc] if you cast it and there are twenty or more creature cards with mana value 3 or less among cards in your graveyard — e.g. Inquisitor Captain
-- [ ] (1) [misc] if you cast it from your hand and there are five or more other creatures on the battlefield — e.g. Deathbringer Regent
+- [x] (1) [misc] if you cast it and there are twenty or more creature cards with mana value 3 or less among cards in your graveyard — e.g. Inquisitor Captain
+- [x] (1) [misc] if you cast it from your hand and there are five or more other creatures on the battlefield — e.g. Deathbringer Regent
 - [ ] (1) [misc] if you cast them — e.g. The Zassacre Zirl
 - [ ] (1) [misc] if you chose a creature other than Aragorn as your Ring-bearer — e.g. Aragorn, Company Leader
 - [ ] (1) [misc] if you chose a creature other than Faramir as your Ring-bearer — e.g. Faramir, Field Commander
@@ -355,21 +356,21 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if you control a creature with power greater than its base power — e.g. Baird, Argivian Recruiter
 - [ ] (1) [misc] if you control each creature on the battlefield with the greatest power — e.g. Might Makes Right
 - [ ] (1) [misc] if you control permanents with names that include all twenty-six letters of the English alphabet — e.g. Now I Know My ABC's
-- [ ] (1) [misc] if you control the artifact with the greatest mana value or tied for the greatest mana value — e.g. Padeem, Consul of Innovation
-- [ ] (1) [misc] if you control thirty or more artifacts — e.g. Knuckles the Echidna
-- [ ] (1) [misc] if you created a token this turn — e.g. Bennie Bracks, Zoologist
+- [x] (1) [misc] if you control the artifact with the greatest mana value or tied for the greatest mana value — e.g. Padeem, Consul of Innovation
+- [x] (1) [misc] if you control thirty or more artifacts — e.g. Knuckles the Echidna
+- [x] (1) [misc] if you created a token this turn — e.g. Bennie Bracks, Zoologist
 - [ ] (1) [misc] if you cycled two or more cards this turn — e.g. Spellpyre Phoenix
-- [ ] (1) [misc] if you didn't activate a loyalty ability of a planeswalker this turn — e.g. The Chain Veil
+- [x] (1) [misc] if you didn't activate a loyalty ability of a planeswalker this turn — e.g. The Chain Veil
 - [ ] (1) [misc] if you didn't have an active tournament — e.g. The Octopus Official
 - [x] (1) [misc] if you didn't lose life this turn — e.g. Luminarch Ascension
 - [x] (1) [misc] if you didn't play a land this turn — e.g. Mercadian Atlas
 - [x] (1) [misc] if you discarded a card this turn — e.g. Ragged Recluse // Odious Witch
 - [ ] (1) [misc] if you don't have a timer running — e.g. Noyd, Keeper of the Void
-- [ ] (1) [misc] if you drew a card last turn — e.g. Mine Is the Only Truth
+- [x] (1) [misc] if you drew a card last turn — e.g. Mine Is the Only Truth
 - [x] (1) [misc] if you drew two or more cards this turn — e.g. Archmage Ascension
 - [x] (1) [misc] if you gained and lost life this turn — e.g. Lunar Convocation
 - [ ] (1) [misc] if you guessed correctly for a card named Spire Phantasm — e.g. Spire Phantasm
-- [ ] (1) [misc] if you had a land enter the battlefield under your control this turn — e.g. Wandering Troubadour
+- [x] (1) [misc] if you had a land enter the battlefield under your control this turn — e.g. Wandering Troubadour
 - [ ] (1) [misc] if you had another creature enter the battlefield under your control last turn — e.g. Ephara, God of the Polis
 - [ ] (1) [misc] if you have 1 — e.g. A Good Thing
 - [ ] (1) [misc] if you have a boon — e.g. Underbridge Warlock
@@ -384,24 +385,24 @@ In real gameplay, many become decidable once event refs/stack metadata are plumb
 - [ ] (1) [misc] if you haven't cast a spell from your hand this turn and this creature doesn't have a flying counter on it — e.g. Inventive Wingsmith
 - [ ] (1) [misc] if you haven't cast a spell from your hand this turn and this enchantment isn't a creature — e.g. Emergent Haunting
 - [ ] (1) [misc] if you haven't scattered the Dragonstorm Globes this game — e.g. Shen, Wish Granter
-- [ ] (1) [misc] if you lost 2 or more life this turn — e.g. The Book of Vile Darkness
+- [x] (1) [misc] if you lost 2 or more life this turn — e.g. The Book of Vile Darkness
 - [ ] (1) [dungeon/initiative] if you or a player you're attacking has the initiative — e.g. Undercellar Sweep
 - [ ] (1) [misc] if you planeswalked to Unyaro this turn — e.g. Unyaro
 - [ ] (1) [misc] if you revealed a Dragon card or controlled a Dragon as you cast this spell — e.g. Orator of Ojutai
 - [ ] (1) [misc] if you roll a 6 — e.g. "Lifetime" Pass Holder
-- [ ] (1) [misc] if you sacrificed a Food this turn — e.g. Elanor Gardner
-- [ ] (1) [misc] if you sacrificed a permanent this turn — e.g. Phoenix Fleet Airship
-- [ ] (1) [misc] if you sacrificed one or more permanents this turn — e.g. Sawblade Skinripper
+- [x] (1) [misc] if you sacrificed a Food this turn — e.g. Elanor Gardner
+- [x] (1) [misc] if you sacrificed a permanent this turn — e.g. Phoenix Fleet Airship
+- [x] (1) [misc] if you sacrificed one or more permanents this turn — e.g. Sawblade Skinripper
 - [ ] (1) [misc] if you were dealt 4 or more damage this turn — e.g. Boarded Window
 - [ ] (1) [misc] if you were the monarch as the turn began — e.g. Knights of the Black Rose
-- [ ] (1) [misc] if you weren't the starting player — e.g. Radiant Smite
+- [x] (1) [misc] if you weren't the starting player — e.g. Radiant Smite
 - [ ] (1) [misc] if you would draw a card — e.g. The Value Knight
 - [ ] (1) [misc] if you're eating — e.g. Thopter Pie Network
 - [ ] (1) [misc] if you've been dealt 5 or more damage this turn — e.g. Nothing Can Stop Me Now
 - [x] (1) [misc] if you've cast a spell with mana value 4 or greater this turn — e.g. Rhino, Barreling Brute
 - [x] (1) [misc] if you've cast three or more instant and sorcery spells this turn — e.g. Arclight Phoenix
 - [ ] (1) [misc] if you've committed a crime this turn — e.g. Servant of the Stinger
-- [ ] (1) [misc] if you've drawn more than one card this turn — e.g. Proft's Eidetic Memory
+- [x] (1) [misc] if you've drawn more than one card this turn — e.g. Proft's Eidetic Memory
 - [ ] (1) [misc] if you've played a land or cast a spell this turn from anywhere other than your hand — e.g. Spider-Man 2099
 - [ ] (1) [misc] if your devotion to white and black is seven or greater — e.g. March of the Canonized
 - [x] (1) [misc] if your life total is greater than your starting life total — e.g. Theopholos, Order Acolyte

@@ -1238,6 +1238,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               stateAny.sacrificedCluesThisTurn = stateAny.sacrificedCluesThisTurn || {};
               stateAny.sacrificedCluesThisTurn[controllerId] = (stateAny.sacrificedCluesThisTurn[controllerId] || 0) + 1;
             }
+
+            // Turn-tracking for intervening-if: "if you sacrificed a permanent this turn".
+            if (controllerId) {
+              const stateAny = ctx.state as any;
+              stateAny.permanentsSacrificedThisTurn = stateAny.permanentsSacrificedThisTurn || {};
+              stateAny.permanentsSacrificedThisTurn[controllerId] = (stateAny.permanentsSacrificedThisTurn[controllerId] || 0) + 1;
+
+              // Turn-tracking for intervening-if: "if you sacrificed a Food this turn".
+              const isFood = tl.includes('food') && (tl.includes('artifact') || tl.includes('token'));
+              if (isFood && (nm === 'food' || tl.includes('— food') || tl.includes('- food') || tl.includes('food'))) {
+                stateAny.foodsSacrificedThisTurn = stateAny.foodsSacrificedThisTurn || {};
+                stateAny.foodsSacrificedThisTurn[controllerId] = (stateAny.foodsSacrificedThisTurn[controllerId] || 0) + 1;
+              }
+            }
           } catch {
             // best-effort only
           }
@@ -1268,6 +1282,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 stateAny.sacrificedCluesThisTurn = stateAny.sacrificedCluesThisTurn || {};
                 stateAny.sacrificedCluesThisTurn[controllerId] = (stateAny.sacrificedCluesThisTurn[controllerId] || 0) + 1;
+              }
+
+              // Same generic/permanent-type sacrifice tracking as sacrificePermanent.
+              if (controllerId) {
+                const stateAny = ctx.state as any;
+                stateAny.permanentsSacrificedThisTurn = stateAny.permanentsSacrificedThisTurn || {};
+                stateAny.permanentsSacrificedThisTurn[controllerId] = (stateAny.permanentsSacrificedThisTurn[controllerId] || 0) + 1;
+
+                const isFood = tl.includes('food') && (tl.includes('artifact') || tl.includes('token'));
+                if (isFood && (nm === 'food' || tl.includes('— food') || tl.includes('- food') || tl.includes('food'))) {
+                  stateAny.foodsSacrificedThisTurn = stateAny.foodsSacrificedThisTurn || {};
+                  stateAny.foodsSacrificedThisTurn[controllerId] = (stateAny.foodsSacrificedThisTurn[controllerId] || 0) + 1;
+                }
               }
             } catch {
               // best-effort only

@@ -4,7 +4,7 @@ export function recordCardPutIntoGraveyardThisTurn(
   ctx: GameContext,
   ownerId: string,
   card: any,
-  options?: { fromBattlefield?: boolean }
+  options?: { fromBattlefield?: boolean; controllerId?: string }
 ) {
   try {
     const stateAny = (ctx as any).state as any;
@@ -24,6 +24,27 @@ export function recordCardPutIntoGraveyardThisTurn(
     if (typeLine.includes("creature")) {
       stateAny.creatureCardPutIntoYourGraveyardThisTurn = stateAny.creatureCardPutIntoYourGraveyardThisTurn || {};
       stateAny.creatureCardPutIntoYourGraveyardThisTurn[owner] = true;
+    }
+
+    // Battlefield-only, typed graveyard tracking for intervening-if templates.
+    if (options?.fromBattlefield) {
+      if (typeLine.includes('enchantment')) {
+        stateAny.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn =
+          stateAny.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn || {};
+        stateAny.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn[owner] = true;
+      }
+
+      // "a land you controlled ..." must be tracked by controller at the time it left the battlefield.
+      const controller = String(options?.controllerId || '').trim();
+      if (controller && typeLine.includes('land')) {
+        stateAny.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn =
+          stateAny.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn || {};
+        stateAny.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn[controller] = true;
+      }
+
+      if (typeLine.includes('artifact') || typeLine.includes('creature')) {
+        stateAny.artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn = true;
+      }
     }
   } catch {
     // best-effort only

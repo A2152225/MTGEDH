@@ -2061,7 +2061,10 @@ function executeTriggerEffect(
             const ownerZones = zones[removed.owner || controller] || {};
             ownerZones.graveyard = ownerZones.graveyard || [];
             ownerZones.graveyard.push({ ...removed.card, zone: 'graveyard' });
-            recordCardPutIntoGraveyardThisTurn(ctx, String(removed.owner || controller), removed.card, { fromBattlefield: true });
+            recordCardPutIntoGraveyardThisTurn(ctx, String(removed.owner || controller), removed.card, {
+              fromBattlefield: true,
+              controllerId: String((removed as any).controller || controller),
+            });
             ownerZones.graveyardCount = ownerZones.graveyard.length;
           }
         }
@@ -4326,7 +4329,10 @@ function executeTriggerEffect(
               ownerZones.graveyard = ownerZones.graveyard || [];
               targetPerm.card.zone = 'graveyard';
               ownerZones.graveyard.push(targetPerm.card);
-              recordCardPutIntoGraveyardThisTurn(ctx, String(targetPerm.owner), targetPerm.card, { fromBattlefield: true });
+              recordCardPutIntoGraveyardThisTurn(ctx, String(targetPerm.owner), targetPerm.card, {
+                fromBattlefield: true,
+                controllerId: String((targetPerm as any).controller || targetPerm.owner),
+              });
               ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
               
               // Check for graveyard triggers (Eldrazi shuffle)
