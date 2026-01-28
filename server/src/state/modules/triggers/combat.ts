@@ -966,7 +966,7 @@ export function getBeginningOfCombatTriggers(
           if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
             interveningText = `At the beginning of combat, ${interveningText}`;
           }
-          const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+          const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
           const ok = isInterveningIfSatisfied(
             ctx,
             trigger.controllerId || permanent.controller,
@@ -991,7 +991,7 @@ export function getBeginningOfCombatTriggers(
         if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
           interveningText = `At the beginning of combat, ${interveningText}`;
         }
-        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
         const ok = isInterveningIfSatisfied(
           ctx,
           trigger.controllerId || permanent.controller,
@@ -1015,7 +1015,7 @@ export function getBeginningOfCombatTriggers(
         if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
           interveningText = `At the beginning of combat, ${interveningText}`;
         }
-        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+        const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
         const ok = isInterveningIfSatisfied(
           ctx,
           trigger.controllerId || permanent.controller,
@@ -1090,7 +1090,7 @@ export function getEndOfCombatTriggers(
       if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
         interveningText = `At end of combat, ${interveningText}`;
       }
-      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
       const ok = isInterveningIfSatisfied(
         ctx,
         (trigger as any).controllerId || permanent.controller,

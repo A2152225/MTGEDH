@@ -1157,6 +1157,14 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             const currentLife = life[defendingPlayerId] ?? startingLife;
             life[defendingPlayerId] = currentLife - actualDamage;
 
+            // Track damage dealt to each player this turn (for intervening-if clauses like
+            // "if an opponent was dealt damage this turn" / "if you were dealt N or more damage this turn").
+            try {
+              (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
+              (state as any).damageTakenThisTurnByPlayer[defendingPlayerId] =
+                ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + actualDamage;
+            } catch {}
+
             // Track life lost this turn for common oracle checks.
             try {
               state.lifeLostThisTurn = state.lifeLostThisTurn || {};
@@ -2478,9 +2486,25 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.lifeLostLastTurnByPlayerCounts = last;
     } catch {}
 
+    // Snapshot "damage taken last turn" before clearing per-turn trackers.
+    // Used by intervening-if clauses like "if an opponent was dealt damage this turn".
+    try {
+      const last: any = {};
+      const cur = (ctx as any).state.damageTakenThisTurnByPlayer;
+      if (cur && typeof cur === 'object') {
+        for (const [pid, v] of Object.entries(cur)) {
+          if (typeof v === 'number' && !Number.isNaN(v)) last[String(pid)] = v;
+        }
+      }
+      (ctx as any).state.damageTakenLastTurnByPlayerCounts = last;
+    } catch {}
+
     // Reset life gain/loss tracking for this turn.
     (ctx as any).state.lifeGainedThisTurn = {};
     (ctx as any).state.lifeLostThisTurn = {};
+
+    // Reset per-player damage taken tracking for this turn.
+    (ctx as any).state.damageTakenThisTurnByPlayer = {};
 
     // Reset land-ETB tracking for this turn.
     (ctx as any).state.landsEnteredBattlefieldThisTurn = {};

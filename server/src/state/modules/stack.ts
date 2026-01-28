@@ -4090,6 +4090,15 @@ function executeTriggerEffect(
       if (targetPlayer) {
         modifyLife(targetId, -damage);
 
+        // Track damage taken this turn for intervening-if templates.
+        try {
+          (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
+          (state as any).damageTakenThisTurnByPlayer[targetId] =
+            ((state as any).damageTakenThisTurnByPlayer[targetId] || 0) + damage;
+        } catch {
+          /* ignore */
+        }
+
         // Queue "Whenever ~ deals damage to a player" triggers from the damage source.
         try {
           const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
@@ -6120,6 +6129,22 @@ export function resolveTopOfStack(ctx: GameContext) {
     if ((item as any).manaSpentBreakdown && typeof (item as any).manaSpentBreakdown === 'object' && !wasCastWithMorph) {
       (newPermanent as any).manaSpentBreakdown = (item as any).manaSpentBreakdown;
       (newPermanent.card as any).manaSpentBreakdown = (item as any).manaSpentBreakdown;
+    }
+
+    // Alternate-cost id (e.g., surge/spectacle/madness/prowl) for intervening-if and other templates.
+    if (typeof (item as any).alternateCostId === 'string' && (item as any).alternateCostId.length > 0 && !wasCastWithMorph) {
+      (newPermanent as any).alternateCostId = (item as any).alternateCostId;
+      (newPermanent.card as any).alternateCostId = (item as any).alternateCostId;
+    }
+
+    // Convoke-derived metadata: how many creatures contributed mana.
+    if (typeof (item as any).manaFromCreaturesSpent === 'number' && !Number.isNaN((item as any).manaFromCreaturesSpent) && !wasCastWithMorph) {
+      (newPermanent as any).manaFromCreaturesSpent = (item as any).manaFromCreaturesSpent;
+      (newPermanent.card as any).manaFromCreaturesSpent = (item as any).manaFromCreaturesSpent;
+    }
+    if (Array.isArray((item as any).convokeTappedCreatures) && !wasCastWithMorph) {
+      (newPermanent as any).convokeTappedCreatures = (item as any).convokeTappedCreatures;
+      (newPermanent.card as any).convokeTappedCreatures = (item as any).convokeTappedCreatures;
     }
 
     // Track cast origin (best-effort) for intervening-if clauses like "if you cast it" / "if you cast it from your hand".

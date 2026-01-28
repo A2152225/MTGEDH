@@ -1821,6 +1821,44 @@ function evaluateInterveningIfClauseInternal(
     return getControlledCreatures(ctx, controllerId).some((c: any) => isPermanentEquipped(ctx, c));
   }
 
+  // Aura context: "enchanted creature ..." / "enchanted permanent ..."
+  // This refers to the permanent enchanted by the *source* Aura.
+  {
+    const wantsEnchantedCreatureUntapped = /^if\s+enchanted\s+creature\s+is\s+untapped$/i.test(clause);
+    const wantsEnchantedPermanentTapped = /^if\s+enchanted\s+permanent\s+is\s+tapped$/i.test(clause);
+    const wantsEnchantedCreatureRed = /^if\s+enchanted\s+creature\s+is\s+red$/i.test(clause);
+    const wantsEnchantedCreatureHasFlying = /^if\s+enchanted\s+creature\s+has\s+flying$/i.test(clause);
+    const wantsEnchantedCreatureHasToxic = /^if\s+enchanted\s+creature\s+has\s+toxic$/i.test(clause);
+
+    if (
+      wantsEnchantedCreatureUntapped ||
+      wantsEnchantedPermanentTapped ||
+      wantsEnchantedCreatureRed ||
+      wantsEnchantedCreatureHasFlying ||
+      wantsEnchantedCreatureHasToxic
+    ) {
+      if (!sourcePermanent) return null;
+      const attachedTo = (sourcePermanent as any)?.attachedTo ?? (sourcePermanent as any)?.attachedToId;
+      if (!attachedTo) return null;
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+      const enchanted = battlefield.find((p: any) => p && String(p.id) === String(attachedTo));
+      if (!enchanted) return null;
+
+      if (wantsEnchantedPermanentTapped) {
+        const tapped = (enchanted as any).tapped;
+        return typeof tapped === 'boolean' ? tapped : null;
+      }
+      if (wantsEnchantedCreatureUntapped) {
+        const tapped = (enchanted as any).tapped;
+        return typeof tapped === 'boolean' ? !tapped : null;
+      }
+      if (wantsEnchantedCreatureRed) return isPermanentRed(enchanted);
+      if (wantsEnchantedCreatureHasFlying) return permanentHasKeyword(enchanted, 'flying');
+      if (wantsEnchantedCreatureHasToxic) return permanentHasKeyword(enchanted, 'toxic');
+    }
+  }
+
   // Monarch / Initiative / City's Blessing
   if (/^if\s+you\s+are\s+the\s+monarch$/i.test(clause)) {
     const monarch = (ctx as any).state?.monarch;
@@ -1840,6 +1878,15 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+you\s+have\s+the\s+initiative$/i.test(clause)) {
     const initiative = (ctx as any).state?.initiative;
     return initiative ? String(initiative) === controllerId : null;
+  }
+
+  if (/^if\s+you\s+or\s+a\s+player\s+you'?re\s+attacking\s+has\s+the\s+initiative$/i.test(clause)) {
+    const initiative = (ctx as any).state?.initiative;
+    if (!initiative) return null;
+    if (String(initiative) === String(controllerId)) return true;
+    const defendingPlayerId = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defendingPlayerId) return null;
+    return String(initiative) === String(defendingPlayerId);
   }
 
   if (/^if\s+you\s+have\s+the\s+city'?s\s+blessing$/i.test(clause)) {
@@ -2181,7 +2228,22 @@ function evaluateInterveningIfClauseInternal(
     const stackItem = (refs as any)?.stackItem;
     if (stackItem) {
       if (typeof stackItem.isManaAbility === 'boolean') return !stackItem.isManaAbility;
+      if (typeof (stackItem as any).activatedAbilityIsManaAbility === 'boolean') return !(stackItem as any).activatedAbilityIsManaAbility;
       if (typeof stackItem.type === 'string' && stackItem.type.toLowerCase() === 'mana_ability') return false;
+    }
+
+    const stackId =
+      (refs as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringSpellStackItemId;
+    if (stackId) {
+      const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+      const triggering = stack.find((it: any) => it && String(it.id) === String(stackId));
+      if (triggering) {
+        if (typeof (triggering as any).isManaAbility === 'boolean') return !(triggering as any).isManaAbility;
+        if (typeof (triggering as any).activatedAbilityIsManaAbility === 'boolean') return !(triggering as any).activatedAbilityIsManaAbility;
+        if (typeof (triggering as any).type === 'string' && String((triggering as any).type).toLowerCase() === 'mana_ability') return false;
+      }
     }
 
     return null;
@@ -3667,13 +3729,113 @@ function evaluateInterveningIfClauseInternal(
   }
 
   // "if one or more of them entered from a graveyard or was cast from a graveyard" (needs plural-context tracking)
-  if (/^if\s+([a-z0-9]+)\s+or\s+more\s+of\s+them\s+entered\s+from\s+a\s+graveyard\s+or\s+was\s+cast\s+from\s+a\s+graveyard$/i.test(clause)) {
-    return null;
+  {
+    const m = clause.match(/^if\s+([a-z0-9]+)\s+or\s+more\s+of\s+them\s+entered\s+from\s+a\s+graveyard\s+or\s+was\s+cast\s+from\s+a\s+graveyard$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+
+      const thoseIdsRaw = refs?.thoseCreatureIds ?? (sourcePermanent as any)?.thoseCreatureIds;
+      if (!Array.isArray(thoseIdsRaw) || thoseIdsRaw.length === 0) return null;
+      const thoseIds = thoseIdsRaw.map((id) => String(id));
+
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+
+      let matchCount = 0;
+      let knownCount = 0;
+      for (const id of thoseIds) {
+        const p = battlefield.find((perm: any) => perm && String(perm.id) === id);
+        if (!p) continue;
+
+        const enteredFrom = (p as any)?.enteredFromZone ?? (p as any)?.card?.enteredFromZone;
+        const castFrom = (p as any)?.castSourceZone ?? (p as any)?.source ?? (p as any)?.card?.castSourceZone ?? (p as any)?.card?.source;
+        const castFromG = (p as any)?.castFromGraveyard ?? (p as any)?.card?.castFromGraveyard;
+        const enteredFromG = (p as any)?.enteredFromGraveyard ?? (p as any)?.card?.enteredFromGraveyard;
+
+        let known = false;
+        let ok = false;
+
+        if (typeof enteredFrom === 'string') {
+          known = true;
+          ok = ok || String(enteredFrom).toLowerCase() === 'graveyard';
+        }
+        if (typeof castFrom === 'string') {
+          known = true;
+          ok = ok || String(castFrom).toLowerCase() === 'graveyard';
+        }
+        if (typeof castFromG === 'boolean') {
+          known = true;
+          ok = ok || castFromG;
+        }
+        if (typeof enteredFromG === 'boolean') {
+          known = true;
+          ok = ok || enteredFromG;
+        }
+
+        if (known) {
+          knownCount++;
+          if (ok) matchCount++;
+        }
+      }
+
+      // If we can already meet the threshold with known matches, conclude true.
+      if (matchCount >= n) return true;
+
+      // If even assuming all unknowns are matches we still can't hit the threshold, conclude false.
+      const unknownCount = thoseIds.length - knownCount;
+      if (matchCount + unknownCount < n) return false;
+
+      // Otherwise we don't have enough tracked data yet.
+      return null;
+    }
   }
 
   // "if one or more of them entered from exile or was cast from exile" (needs plural-context tracking)
-  if (/^if\s+([a-z0-9]+)\s+or\s+more\s+of\s+them\s+entered\s+from\s+exile\s+or\s+was\s+cast\s+from\s+exile$/i.test(clause)) {
-    return null;
+  {
+    const m = clause.match(/^if\s+([a-z0-9]+)\s+or\s+more\s+of\s+them\s+entered\s+from\s+exile\s+or\s+was\s+cast\s+from\s+exile$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+
+      const thoseIdsRaw = refs?.thoseCreatureIds ?? (sourcePermanent as any)?.thoseCreatureIds;
+      if (!Array.isArray(thoseIdsRaw) || thoseIdsRaw.length === 0) return null;
+      const thoseIds = thoseIdsRaw.map((id) => String(id));
+
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+
+      let matchCount = 0;
+      let knownCount = 0;
+      for (const id of thoseIds) {
+        const p = battlefield.find((perm: any) => perm && String(perm.id) === id);
+        if (!p) continue;
+
+        const enteredFrom = (p as any)?.enteredFromZone ?? (p as any)?.card?.enteredFromZone;
+        const castFrom = (p as any)?.castSourceZone ?? (p as any)?.source ?? (p as any)?.card?.castSourceZone ?? (p as any)?.card?.source;
+
+        let known = false;
+        let ok = false;
+        if (typeof enteredFrom === 'string') {
+          known = true;
+          ok = ok || String(enteredFrom).toLowerCase() === 'exile';
+        }
+        if (typeof castFrom === 'string') {
+          known = true;
+          ok = ok || String(castFrom).toLowerCase() === 'exile';
+        }
+
+        if (known) {
+          knownCount++;
+          if (ok) matchCount++;
+        }
+      }
+
+      if (matchCount >= n) return true;
+      const unknownCount = thoseIds.length - knownCount;
+      if (matchCount + unknownCount < n) return false;
+      return null;
+    }
   }
 
   // "if it was kicked"
@@ -3877,6 +4039,20 @@ function evaluateInterveningIfClauseInternal(
     }
   }
 
+  // "if no mana was spent to cast that spell" (refers to the triggering spell on the stack)
+  if (/^if\s+no\s+mana\s+was\s+spent\s+to\s+cast\s+that\s+spell$/i.test(clause)) {
+    const refStackItem = (refs as any)?.stackItem;
+    const stackId =
+      refs?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringSpellStackItemId;
+    const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+    const triggeringStackItem = refStackItem ?? (stackId ? stack.find((it: any) => it && String(it.id) === String(stackId)) : null);
+    const total = sumManaSpentTotal(triggeringStackItem);
+    if (total === null) return null;
+    return total === 0;
+  }
+
   // "if no mana was spent to cast it"
   if (/^if\s+no\s+mana\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {
     const total = sumManaSpentTotal(sourcePermanent);
@@ -3885,7 +4061,10 @@ function evaluateInterveningIfClauseInternal(
   }
 
   // "if mana from a Treasure was spent to cast it" (best-effort; depends on tracking)
-  if (/^if\s+mana\s+from\s+a\s+treasure\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {
+  if (
+    /^if\s+mana\s+from\s+a\s+treasure\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause) ||
+    /^if\s+mana\s+from\s+a\s+treasure\s+was\s+spent\s+to\s+cast\s+it\s+or\s+activate\s+it$/i.test(clause)
+  ) {
     if (!sourcePermanent) return null;
     const v = (sourcePermanent as any)?.manaFromTreasureSpent ?? (sourcePermanent as any)?.card?.manaFromTreasureSpent;
     return typeof v === "boolean" ? v : null;
@@ -4595,6 +4774,71 @@ function evaluateInterveningIfClauseInternal(
     }
   }
 
+  // "if <Name> is in the command zone" / "if <Name> is in the command zone or on the battlefield"
+  // Best-effort: prefers commandZone[controllerId].commanderCards (id+name) so we can map name -> id.
+  {
+    const mz = clause.match(
+      /^if\s+(.+?)\s+is\s+in\s+the\s+command\s+zone(?:\s+or\s+on\s+the\s+battlefield)?$/i
+    );
+    if (mz) {
+      const cardNameRaw = mz[1].trim().replace(/\s+/g, ' ');
+      const wantsOrBattlefield = /\s+or\s+on\s+the\s+battlefield$/i.test(clause);
+
+      const cz = (ctx as any).commandZone ?? (ctx as any).state?.commandZone;
+      const info = cz?.[controllerId];
+      if (!info || typeof info !== 'object') return null;
+
+      const commanderCards = Array.isArray((info as any).commanderCards) ? (info as any).commanderCards : null;
+      const inCZ: string[] = Array.isArray((info as any).inCommandZone) ? (info as any).inCommandZone : [];
+
+      const normalizeName = (s: string) =>
+        String(s || '')
+          .toLowerCase()
+          .replace(/["“”]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const targetName = normalizeName(cardNameRaw);
+
+      let targetId: string | null = null;
+      if (commanderCards) {
+        const hit = commanderCards.find((c: any) => {
+          if (!c) return false;
+          const n = normalizeName(c.name);
+          if (!n) return false;
+          if (n === targetName) return true;
+          // Some oracle templates use abbreviated legendary names (e.g., "Arahbo")
+          // while command-zone metadata stores full names (e.g., "Arahbo, Roar of the World").
+          return n.startsWith(`${targetName},`) || n.startsWith(`${targetName} `);
+        });
+        if (hit?.id) targetId = String(hit.id);
+      }
+
+      // Fallback: if this clause refers to the source card by name, use its id.
+      if (!targetId) {
+        const sourceName = sourcePermanent?.card?.name ?? (sourcePermanent as any)?.name;
+        const sourceId = sourcePermanent?.card?.id ?? (sourcePermanent as any)?.id;
+        if (sourceId && normalizeName(String(sourceName || '')) === targetName) {
+          targetId = String(sourceId);
+        }
+      }
+
+      if (!targetId) return null;
+
+      const isInCommandZone = inCZ.includes(targetId);
+      if (isInCommandZone) return true;
+
+      if (!wantsOrBattlefield) return false;
+
+      const battlefield = (ctx as any).state?.battlefield || [];
+      if (!Array.isArray(battlefield)) return null;
+      return battlefield.some((p: any) => {
+        const cid = p?.card?.id;
+        return cid ? String(cid) === targetId : false;
+      });
+    }
+  }
+
   // "if you don't control ..." / "if you do not control ..." (common negative existence)
   {
     const m = clause.match(/^if\s+you\s+(?:do\s+not|don't)\s+control\s+(?:(?:a|an)\s+)?(?:any\s+)?([a-z0-9\-\s']+)$/i);
@@ -5030,6 +5274,56 @@ function evaluateInterveningIfClauseInternal(
     return getHandCount(ctx, controllerId) === 0;
   }
 
+  // "if that player has no cards in hand" (requires that-player ref)
+  if (/^if\s+that\s+player\s+has\s+no\s+cards\s+in\s+hand$/i.test(clause)) {
+    const thatPlayerId =
+      refs?.thatPlayerId ??
+      refs?.referencedPlayerId ??
+      refs?.theirPlayerId ??
+      (sourcePermanent as any)?.thatPlayerId ??
+      (sourcePermanent as any)?.referencedPlayerId ??
+      (sourcePermanent as any)?.theirPlayerId;
+    if (typeof thatPlayerId !== 'string' || !thatPlayerId) return null;
+    return getHandCount(ctx, String(thatPlayerId)) === 0;
+  }
+
+  // "if that player has N or fewer/less cards in hand" (requires that-player ref)
+  {
+    const m = clause.match(/^if\s+that\s+player\s+has\s+([a-z0-9]+)\s+or\s+(?:fewer|less)\s+cards?\s+in\s+hand$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const thatPlayerId =
+        refs?.thatPlayerId ??
+        refs?.referencedPlayerId ??
+        refs?.theirPlayerId ??
+        (sourcePermanent as any)?.thatPlayerId ??
+        (sourcePermanent as any)?.referencedPlayerId ??
+        (sourcePermanent as any)?.theirPlayerId;
+      if (typeof thatPlayerId !== 'string' || !thatPlayerId) return null;
+      return getHandCount(ctx, String(thatPlayerId)) <= n;
+    }
+  }
+
+  // "if defending player has N or fewer/less cards in hand" (requires defending-player ref)
+  {
+    const m = clause.match(/^if\s+defending\s+player\s+has\s+([a-z0-9]+)\s+or\s+(?:fewer|less)\s+cards?\s+in\s+hand$/i);
+    if (m) {
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const defending = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+      if (!defending) return null;
+      return getHandCount(ctx, defending) <= n;
+    }
+  }
+
+  // "if defending player has more cards in hand than you" (requires defending-player ref)
+  if (/^if\s+defending\s+player\s+has\s+more\s+cards\s+in\s+hand\s+than\s+you$/i.test(clause)) {
+    const defending = getDefendingPlayerIdForInterveningIf(sourcePermanent, refs);
+    if (!defending) return null;
+    return getHandCount(ctx, defending) > getHandCount(ctx, controllerId);
+  }
+
   // "if you have a card in hand" (Imaginary Pet)
   if (/^if\s+you\s+have\s+a\s+card\s+in\s+hand$/i.test(clause)) {
     return getHandCount(ctx, controllerId) > 0;
@@ -5456,6 +5750,37 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.creatureCardLeftGraveyardThisTurn?.[controllerId] ??
       stateAny?.creatureCardsLeftGraveyardThisTurn?.[controllerId];
     return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if a land you controlled was put into a graveyard from the battlefield this turn" (best-effort via turn-tracking)
+  if (/^if\s+a\s+land\s+you\s+controlled\s+was\s+put\s+into\s+a\s+graveyard\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const map = stateAny?.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn;
+    const v = map?.[controllerId];
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if a permanent was put into your hand from the battlefield this turn" (best-effort via turn-tracking)
+  if (/^if\s+a\s+permanent\s+was\s+put\s+into\s+your\s+hand\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const map = stateAny?.permanentPutIntoHandFromBattlefieldThisTurn;
+    const v = map?.[controllerId];
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if an enchantment was put into your graveyard from the battlefield this turn" (best-effort via turn-tracking)
+  if (/^if\s+an\s+enchantment\s+was\s+put\s+into\s+your\s+graveyard\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const map = stateAny?.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn;
+    const v = map?.[controllerId];
+    return typeof v === 'boolean' ? v : null;
+  }
+
+  // "if an artifact or creature was put into a graveyard from the battlefield this turn" (best-effort via turn-tracking)
+  if (/^if\s+an\s+artifact\s+or\s+creature\s+was\s+put\s+into\s+a\s+graveyard\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const v = stateAny?.artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn;
+    return typeof v === 'boolean' ? v : null;
   }
 
   // "if you've cast a noncreature spell this turn"
@@ -5948,6 +6273,26 @@ function evaluateInterveningIfClauseInternal(
       const enchanted = findBattlefieldPermanent(ctx, attachedTo);
       if (!enchanted) return null;
       return permanentHasKeyword(enchanted, String(m[1] || '').toLowerCase());
+    }
+  }
+
+  // "if enchanted creature's power is N or greater" (best-effort: aura attachedTo)
+  {
+    const m = clause.match(/^if\s+enchanted\s+creature'?s\s+power\s+is\s+([a-z0-9]+)\s+or\s+greater$/i);
+    if (m) {
+      if (!sourcePermanent) return null;
+      const n = parseCountToken(m[1]);
+      if (n === null) return null;
+      const attachedTo = String((sourcePermanent as any)?.attachedTo || '');
+      if (!attachedTo) return null;
+      const enchanted = findBattlefieldPermanent(ctx, attachedTo);
+      if (!enchanted) return null;
+      const tl = String(enchanted?.card?.type_line || '').toLowerCase();
+      if (!tl) return null;
+      if (!tl.includes('creature')) return false;
+      const power = getPermanentPowerMaybe(enchanted, ctx);
+      if (power === null) return null;
+      return power >= n;
     }
   }
 
@@ -6595,16 +6940,307 @@ function evaluateInterveningIfClauseInternal(
     if (c === null) return null;
     return c === 1;
   }
-  if (/^if\s+it\s+has\s+madness$/i.test(clause)) return null;
+  if (/^if\s+it\s+has\s+madness$/i.test(clause)) {
+    // Best-effort: determine "it" as the triggering spell on the stack.
+    const fromRefs = (refs as any)?.stackItem?.card;
+    const stackId =
+      refs?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringSpellStackItemId;
+    const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+    const triggering = !fromRefs && stackId ? stack.find((it: any) => it && String(it.id) === String(stackId)) : null;
+    const card = fromRefs ?? triggering?.card;
+    if (!card) return null;
+
+    const keywords = (card as any)?.keywords;
+    if (Array.isArray(keywords) && keywords.some((k: any) => String(k || '').toLowerCase().startsWith('madness'))) return true;
+
+    const oracle = String((card as any)?.oracle_text || '').toLowerCase();
+    if (!oracle) return null;
+    return oracle.includes('madness');
+  }
+
+  // "if the amount of mana spent to cast it was less than its mana value" (needs stack-item cast metadata)
+  if (/^if\s+the\s+amount\s+of\s+mana\s+spent\s+to\s+cast\s+it\s+was\s+less\s+than\s+its\s+mana\s+value$/i.test(clause)) {
+    const stackItem = (refs as any)?.stackItem;
+    const stackId =
+      refs?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringSpellStackItemId;
+
+    const item =
+      stackItem ??
+      (stackId
+        ? ((Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : []) as any[]).find(
+            (it: any) => it && String(it.id) === String(stackId)
+          )
+        : null);
+    if (!item) return null;
+
+    const spent = parseMaybeNumber((item as any)?.manaSpentTotal ?? (item as any)?.manaSpent ?? (item as any)?.manaSpentAmount);
+    const mv = parseMaybeNumber((item as any)?.card?.manaValue ?? (item as any)?.card?.cmc ?? (item as any)?.manaValue);
+    if (spent === null || mv === null) return null;
+    return spent < mv;
+  }
   if (/^if\s+that\s+spell\s+was\s+kicked$/i.test(clause)) {
     if (!sourcePermanent) return null;
     const wasKicked = (sourcePermanent as any)?.wasKicked === true || (sourcePermanent as any)?.card?.wasKicked === true;
     return wasKicked;
   }
 
-  // Alternate cost paid templates (recognized; requires cast metadata)
-  if (/^if\s+its\s+prowl\s+cost\s+was\s+paid$/i.test(clause)) return null;
-  if (/^if\s+its\s+surge\s+cost\s+was\s+paid$/i.test(clause)) return null;
+  // Alternate cost / casting metadata templates
+  // These typically refer to the triggering spell/ability on the stack.
+  const getTriggeringStackItemForInterveningIf = (): any | null => {
+    const fromRefs = (refs as any)?.stackItem;
+    if (fromRefs) return fromRefs;
+
+    const stackId =
+      refs?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringStackItemId ??
+      (sourcePermanent as any)?.triggeringSpellStackItemId;
+    if (!stackId) return null;
+    const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
+    return stack.find((it: any) => it && String(it.id) === String(stackId)) ?? null;
+  };
+
+  // "if evidence was collected" (best-effort)
+  if (/^if\s+evidence\s+was\s+collected$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    const raw =
+      item?.evidenceCollected ??
+      item?.collectedEvidence ??
+      item?.evidenceWasCollected ??
+      item?.card?.evidenceCollected ??
+      item?.card?.collectedEvidence ??
+      item?.card?.evidenceWasCollected;
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw === 'number') return raw > 0;
+
+    const stateAny = (ctx as any).state as any;
+    const byPlayer =
+      stateAny?.evidenceCollectedThisTurn ??
+      stateAny?.evidenceCollectedThisTurnByPlayer ??
+      stateAny?.evidenceCollectedThisTurnByPlayerCounts;
+    if (byPlayer && typeof byPlayer === 'object') {
+      const v = (byPlayer as any)[controllerId];
+      if (typeof v === 'boolean') return v;
+      if (typeof v === 'number') return v > 0;
+    }
+
+    return null;
+  }
+
+  // "if its prowl cost was paid" (best-effort)
+  if (/^if\s+its\s+prowl\s+cost\s+was\s+paid$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    const altId =
+      item?.alternateCostId ??
+      item?.alternativeCost ??
+      item?.card?.alternateCostId ??
+      item?.card?.alternativeCost;
+    if (typeof altId === 'string' && altId.length > 0) return String(altId).toLowerCase() === 'prowl';
+    const raw =
+      item?.prowlCostWasPaid ??
+      item?.paidProwlCost ??
+      item?.prowlPaid ??
+      item?.castWithProwl ??
+      item?.card?.prowlCostWasPaid ??
+      item?.card?.paidProwlCost ??
+      item?.card?.prowlPaid ??
+      item?.card?.castWithProwl;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if its surge cost was paid" (best-effort)
+  if (/^if\s+its\s+surge\s+cost\s+was\s+paid$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    const altId =
+      item?.alternateCostId ??
+      item?.alternativeCost ??
+      item?.card?.alternateCostId ??
+      item?.card?.alternativeCost;
+    if (typeof altId === 'string' && altId.length > 0) return String(altId).toLowerCase() === 'surge';
+    const raw =
+      item?.surgeCostWasPaid ??
+      item?.paidSurgeCost ??
+      item?.surgePaid ??
+      item?.castWithSurge ??
+      item?.card?.surgeCostWasPaid ??
+      item?.card?.paidSurgeCost ??
+      item?.card?.surgePaid ??
+      item?.card?.castWithSurge;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if its madness cost was paid" (best-effort)
+  if (/^if\s+its\s+madness\s+cost\s+was\s+paid$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    const altId =
+      item?.alternateCostId ??
+      item?.alternativeCost ??
+      item?.card?.alternateCostId ??
+      item?.card?.alternativeCost;
+    if (typeof altId === 'string' && altId.length > 0) return String(altId).toLowerCase() === 'madness';
+    const raw =
+      item?.madnessCostWasPaid ??
+      item?.paidMadnessCost ??
+      item?.madnessPaid ??
+      item?.castWithMadness ??
+      item?.card?.madnessCostWasPaid ??
+      item?.card?.paidMadnessCost ??
+      item?.card?.madnessPaid ??
+      item?.card?.castWithMadness;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if its spectacle cost was paid" (best-effort)
+  if (/^if\s+its\s+spectacle\s+cost\s+was\s+paid$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    const altId =
+      item?.alternateCostId ??
+      item?.alternativeCost ??
+      item?.card?.alternateCostId ??
+      item?.card?.alternativeCost;
+    if (typeof altId === 'string' && altId.length > 0) return String(altId).toLowerCase() === 'spectacle';
+    const raw =
+      item?.spectacleCostWasPaid ??
+      item?.paidSpectacleCost ??
+      item?.spectaclePaid ??
+      item?.castWithSpectacle ??
+      item?.card?.spectacleCostWasPaid ??
+      item?.card?.paidSpectacleCost ??
+      item?.card?.spectaclePaid ??
+      item?.card?.castWithSpectacle;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if it was kicked twice" (best-effort; depends on kicker count metadata)
+  if (/^if\s+it\s+was\s+kicked\s+twice$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const rawCount =
+      (sourcePermanent as any)?.kickerPaidCount ??
+      (sourcePermanent as any)?.timesKicked ??
+      (sourcePermanent as any)?.kickedTimes ??
+      (sourcePermanent as any)?.card?.kickerPaidCount ??
+      (sourcePermanent as any)?.card?.timesKicked ??
+      (sourcePermanent as any)?.card?.kickedTimes;
+    const count = parseMaybeNumber(rawCount);
+    if (count !== null) return count >= 2;
+
+    const rawBool =
+      (sourcePermanent as any)?.wasKickedTwice ??
+      (sourcePermanent as any)?.kickedTwice ??
+      (sourcePermanent as any)?.card?.wasKickedTwice ??
+      (sourcePermanent as any)?.card?.kickedTwice;
+    if (typeof rawBool === 'boolean') return rawBool;
+
+    const wasKicked = (sourcePermanent as any)?.wasKicked === true || (sourcePermanent as any)?.card?.wasKicked === true;
+    return wasKicked ? null : false;
+  }
+
+  // Inga and Esika-style: "if three or more mana from creatures was spent to cast it" (best-effort)
+  if (/^if\s+three\s+or\s+more\s+mana\s+from\s+creatures\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {
+    if (!sourcePermanent) return null;
+    const raw =
+      (sourcePermanent as any)?.manaFromCreaturesSpent ??
+      (sourcePermanent as any)?.card?.manaFromCreaturesSpent;
+    const n = parseMaybeNumber(raw);
+    if (n !== null) return n >= 3;
+
+    const tapped =
+      (sourcePermanent as any)?.convokeTappedCreatures ??
+      (sourcePermanent as any)?.card?.convokeTappedCreatures;
+    if (Array.isArray(tapped)) return tapped.length >= 3;
+    return null;
+  }
+
+  // Liberator-style: "if the amount of mana spent to cast that spell is greater than Liberator's power"
+  if (/^if\s+the\s+amount\s+of\s+mana\s+spent\s+to\s+cast\s+that\s+spell\s+is\s+greater\s+than\s+liberator'?s\s+power$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    if (!sourcePermanent) return null;
+
+    const spent = sumManaSpentTotal(item);
+    const pow = getPermanentPowerMaybe(sourcePermanent, ctx);
+    if (spent === null || pow === null) return null;
+    return spent > pow;
+  }
+
+  // "if its additional cost was paid" (best-effort)
+  if (/^if\s+its\s+additional\s+cost\s+was\s+paid$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    const raw =
+      item?.additionalCostWasPaid ??
+      item?.paidAdditionalCost ??
+      item?.additionalCostPaid ??
+      item?.card?.additionalCostWasPaid ??
+      item?.card?.paidAdditionalCost ??
+      item?.card?.additionalCostPaid;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if at least three mana of the same color was spent to cast it" (best-effort)
+  if (/^if\s+at\s+least\s+three\s+mana\s+of\s+the\s+same\s+color\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    const breakdown =
+      (item as any)?.manaSpentBreakdown ??
+      (item as any)?.manaSpentByColor ??
+      (item as any)?.card?.manaSpentBreakdown ??
+      (item as any)?.card?.manaSpentByColor;
+    if (!breakdown || typeof breakdown !== 'object') return null;
+
+    const keys = ['white', 'blue', 'black', 'red', 'green', 'w', 'u', 'b', 'r', 'g'];
+    let max = 0;
+    for (const k of keys) {
+      const n = parseMaybeNumber((breakdown as any)[k]);
+      if (n === null) continue;
+      if (n > max) max = n;
+    }
+    return max >= 3;
+  }
+
+  // "if {S} of any of that spell's colors was spent to cast it" (best-effort)
+  if (/^if\s+\{s\}\s+of\s+any\s+of\s+that\s+spell'?s\s+colors\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+
+    const card = (item as any)?.card;
+    const colors: any[] = Array.isArray(card?.colors) ? card.colors : Array.isArray(card?.color_identity) ? card.color_identity : [];
+    const colorSet = new Set(colors.map((c: any) => String(c || '').toUpperCase()).filter(Boolean));
+    if (colorSet.size === 0) return null;
+
+    const snowByColor =
+      (item as any)?.snowManaSpentByColor ??
+      (item as any)?.snowSpentByColor ??
+      (item as any)?.manaSpentSnowByColor ??
+      (item as any)?.card?.snowManaSpentByColor;
+    if (snowByColor && typeof snowByColor === 'object') {
+      for (const c of Array.from(colorSet)) {
+        const lower = c.toLowerCase();
+        const n =
+          parseMaybeNumber((snowByColor as any)[c]) ??
+          parseMaybeNumber((snowByColor as any)[lower]) ??
+          parseMaybeNumber((snowByColor as any)[
+            c === 'W' ? 'white' : c === 'U' ? 'blue' : c === 'B' ? 'black' : c === 'R' ? 'red' : c === 'G' ? 'green' : ''
+          ]);
+        if (n !== null && n > 0) return true;
+      }
+      return false;
+    }
+
+    const snowColorsSpent = (item as any)?.snowManaColorsSpent ?? (item as any)?.snowColorsSpent ?? (item as any)?.card?.snowManaColorsSpent;
+    if (Array.isArray(snowColorsSpent)) {
+      return snowColorsSpent.some((c: any) => colorSet.has(String(c || '').toUpperCase()));
+    }
+
+    return null;
+  }
 
   // Unearth templates (best-effort: cast metadata)
   if (/^if\s+it\s+was\s+unearthed$/i.test(clause)) {
@@ -6736,9 +7372,53 @@ function evaluateInterveningIfClauseInternal(
     const v = map?.[controllerId];
     return typeof v === 'boolean' ? v : null;
   }
-  if (/^if\s+all\s+your\s+commanders\s+have\s+been\s+revealed$/i.test(clause)) return null;
-  if (/^if\s+play\s+had\s+proceeded\s+clockwise\s+around\s+the\s+table$/i.test(clause)) return null;
-  if (/^if\s+the\s+gift\s+was\s+promised$/i.test(clause)) return null;
+  if (/^if\s+all\s+your\s+commanders\s+have\s+been\s+revealed$/i.test(clause)) {
+    const cz =
+      (ctx as any).state?.commandZone?.[controllerId] ??
+      (ctx as any).commandZone?.[controllerId];
+    if (!cz || typeof cz !== 'object') return null;
+
+    const commanderIds: string[] = Array.isArray(cz.commanderIds) ? cz.commanderIds.map((id: any) => String(id)) : [];
+    const commanderNames: string[] = Array.isArray(cz.commanderNames) ? cz.commanderNames.map((n: any) => String(n)) : [];
+    const commanderCards: any[] = Array.isArray(cz.commanderCards)
+      ? cz.commanderCards
+      : Array.isArray(cz.commanders)
+        ? cz.commanders
+        : [];
+
+    const total = Math.max(commanderIds.length, commanderCards.length, commanderNames.length);
+    if (total === 0) return null;
+
+    // Best-effort: commanders are normally public in Commander; if the engine ever models hidden commanders,
+    // allow explicit flags to make this condition false.
+    for (const c of commanderCards) {
+      if (!c) continue;
+      const faceDown = (c as any).faceDown === true || (c as any).isFaceDown === true;
+      if (faceDown) return false;
+      if (typeof (c as any).revealed === 'boolean' && (c as any).revealed === false) return false;
+      if (typeof (c as any).hidden === 'boolean' && (c as any).hidden === true) return false;
+    }
+
+    return true;
+  }
+  if (/^if\s+play\s+had\s+proceeded\s+clockwise\s+around\s+the\s+table$/i.test(clause)) {
+    const dir = (ctx as any).state?.turnDirection;
+    if (dir === 1) return true;
+    if (dir === -1) return false;
+    return null;
+  }
+  if (/^if\s+the\s+gift\s+was\s+promised$/i.test(clause)) {
+    const v =
+      (refs as any)?.giftPromised ??
+      (refs as any)?.wasGiftPromised ??
+      (refs?.stackItem as any)?.giftPromised ??
+      (refs?.stackItem as any)?.wasGiftPromised ??
+      (sourcePermanent as any)?.giftPromised ??
+      (sourcePermanent as any)?.wasGiftPromised ??
+      (sourcePermanent as any)?.card?.giftPromised ??
+      (sourcePermanent as any)?.card?.wasGiftPromised;
+    return typeof v === 'boolean' ? v : null;
+  }
   if (/^if\s+this\s+card\s+is\s+exiled$/i.test(clause)) {
     if (!sourcePermanent) return null;
     const z = String((sourcePermanent as any)?.zone ?? (sourcePermanent as any)?.card?.zone ?? '').toLowerCase();
@@ -7192,10 +7872,48 @@ function evaluateInterveningIfClauseInternal(
     /^if\s+an\s+opponent\s+cast\s+a\s+(white|blue|black|red|green)\s+and\/or\s+(white|blue|black|red|green)\s+spell\s+this\s+turn$/i.test(clause) ||
     /^if\s+a\s+player\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+combat\s+damage\s+this\s+turn$/i.test(clause) ||
     /^if\s+a\s+player\s+was\s+dealt\s+combat\s+damage\s+by\s+a\s+zombie\s+this\s+turn$/i.test(clause) ||
-    /^if\s+an\s+opponent\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+damage\s+this\s+turn$/i.test(clause) ||
-    /^if\s+an\s+opponent\s+was\s+dealt\s+damage\s+this\s+turn$/i.test(clause)
+    /^if\s+a\s+player\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+damage\s+this\s+turn$/i.test(clause)
   ) {
     return null;
+  }
+
+  // Damage-to-player turn tracking (best-effort).
+  // Backed by ctx.state.damageTakenThisTurnByPlayer (see turn/combat + spell damage handlers).
+  {
+    const mOppN = clause.match(/^if\s+an\s+opponent\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+damage\s+this\s+turn$/i);
+    const wantsOppAny = /^if\s+an\s+opponent\s+was\s+dealt\s+damage\s+this\s+turn$/i.test(clause);
+    const mYouN = clause.match(/^if\s+you\s+were\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+damage\s+this\s+turn$/i);
+    const mYouveN = clause.match(/^if\s+you'?ve\s+been\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+damage\s+this\s+turn$/i);
+
+    if (mOppN || wantsOppAny || mYouN || mYouveN) {
+      const stateAny = (ctx as any).state as any;
+      const map = stateAny?.damageTakenThisTurnByPlayer;
+      if (!map || typeof map !== 'object') return null;
+
+      if (wantsOppAny || mOppN) {
+        const opps = getOpponentIds(ctx, controllerId);
+        if (!opps.length) return false;
+        const n = mOppN ? parseCountToken(mOppN[1]) : 1;
+        if (n === null) return null;
+
+        let sawUnknown = false;
+        for (const oid of opps) {
+          const v = (map as any)[String(oid)];
+          if (typeof v === 'number') {
+            if (v >= n) return true;
+            continue;
+          }
+          sawUnknown = true;
+        }
+        return sawUnknown ? null : false;
+      }
+
+      const token = (mYouN?.[1] ?? mYouveN?.[1]) as string | undefined;
+      const n = token ? parseCountToken(token) : null;
+      if (n === null) return null;
+      const v = (map as any)[String(controllerId)];
+      return typeof v === 'number' ? v >= n : null;
+    }
   }
 
   // ===== Targeted handlers for last fallback-only clauses =====

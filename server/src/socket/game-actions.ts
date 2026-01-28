@@ -5383,12 +5383,78 @@ export function registerGameActions(io: Server, socket: Socket) {
                 .map(([color]) => color);
               (topStackItem as any).manaSpentTotal = manaSpentTotal;
               (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
+
+              // Plumb chosen alternate-cost id onto the stack item so intervening-if clauses can evaluate.
+              if (alternateCostId) {
+                (topStackItem as any).alternateCostId = alternateCostId;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.alternateCostId = alternateCostId;
+                }
+              }
+
+              // Convoke contribution (each tapped creature contributes {1}).
+              if (Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0) {
+                (topStackItem as any).convokeTappedCreatures = convokeTappedCreatures.slice();
+                (topStackItem as any).manaFromCreaturesSpent = convokeTappedCreatures.length;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.convokeTappedCreatures = convokeTappedCreatures.slice();
+                  (topStackItem as any).card.manaFromCreaturesSpent = convokeTappedCreatures.length;
+                }
+              }
+
+              // Best-effort boolean flags for common alternate cost templates.
+              const altLower = alternateCostId ? String(alternateCostId).toLowerCase() : '';
+              if (altLower) {
+                (topStackItem as any).prowlCostWasPaid = altLower === 'prowl';
+                (topStackItem as any).surgeCostWasPaid = altLower === 'surge';
+                (topStackItem as any).madnessCostWasPaid = altLower === 'madness';
+                (topStackItem as any).spectacleCostWasPaid = altLower === 'spectacle';
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.prowlCostWasPaid = (topStackItem as any).prowlCostWasPaid;
+                  (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
+                  (topStackItem as any).card.madnessCostWasPaid = (topStackItem as any).madnessCostWasPaid;
+                  (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
+                }
+              }
               debug(1, `[castSpellFromHand] Added converge data to stack item: ${convergeValue} colors (${(topStackItem as any).manaColorsSpent.join(', ')})`);
             } else if (game.state.stack && game.state.stack.length > 0) {
               // Still attach total-mana info for other intervening-if templates.
               const topStackItem = game.state.stack[game.state.stack.length - 1];
               (topStackItem as any).manaSpentTotal = manaSpentTotal;
               (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
+
+              // Plumb chosen alternate-cost id onto the stack item so intervening-if clauses can evaluate.
+              if (alternateCostId) {
+                (topStackItem as any).alternateCostId = alternateCostId;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.alternateCostId = alternateCostId;
+                }
+              }
+
+              // Convoke contribution (each tapped creature contributes {1}).
+              if (Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0) {
+                (topStackItem as any).convokeTappedCreatures = convokeTappedCreatures.slice();
+                (topStackItem as any).manaFromCreaturesSpent = convokeTappedCreatures.length;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.convokeTappedCreatures = convokeTappedCreatures.slice();
+                  (topStackItem as any).card.manaFromCreaturesSpent = convokeTappedCreatures.length;
+                }
+              }
+
+              // Best-effort boolean flags for common alternate cost templates.
+              const altLower = alternateCostId ? String(alternateCostId).toLowerCase() : '';
+              if (altLower) {
+                (topStackItem as any).prowlCostWasPaid = altLower === 'prowl';
+                (topStackItem as any).surgeCostWasPaid = altLower === 'surge';
+                (topStackItem as any).madnessCostWasPaid = altLower === 'madness';
+                (topStackItem as any).spectacleCostWasPaid = altLower === 'spectacle';
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.prowlCostWasPaid = (topStackItem as any).prowlCostWasPaid;
+                  (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
+                  (topStackItem as any).card.madnessCostWasPaid = (topStackItem as any).madnessCostWasPaid;
+                  (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
+                }
+              }
             }
 
             // Track per-turn "cast from hand" (best-effort)
@@ -5590,6 +5656,19 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         const ctxForInterveningIf = { state: game.state } as any;
+        const stackArr: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+        let triggeringStackItem: any = null;
+        for (let i = stackArr.length - 1; i >= 0; i--) {
+          const it = stackArr[i];
+          if (!it || String(it.controller || '') !== String(playerId)) continue;
+          const cid = String(it?.card?.id || '');
+          if (cid && cid === String(cardId)) {
+            triggeringStackItem = it;
+            break;
+          }
+        }
+        const triggeringStackItemId = triggeringStackItem ? String(triggeringStackItem.id || '') : undefined;
+
         const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand);
         for (const trigger of spellCastTriggers) {
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
@@ -5600,6 +5679,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
           const sourcePerm = (game.state?.battlefield || []).find((p: any) => p && p.id === (trigger as any).permanentId);
           const needsThatPlayerRef = /\bthat player\b/i.test(triggerText);
+          const baseRefs: any = {
+            triggeringStackItemId,
+            stackItem: triggeringStackItem || undefined,
+          };
           const ok = isInterveningIfSatisfied(
             ctxForInterveningIf,
             String(trigger.controllerId || playerId),
@@ -5607,11 +5690,12 @@ export function registerGameActions(io: Server, socket: Socket) {
             sourcePerm,
             needsThatPlayerRef
               ? {
+                  ...baseRefs,
                   thatPlayerId: String(playerId),
                   referencedPlayerId: String(playerId),
                   theirPlayerId: String(playerId),
                 }
-              : undefined
+              : baseRefs
           );
           if (ok === false) {
             debug(2, `[castSpellFromHand] Skipping spell-cast trigger due to unmet intervening-if: ${trigger.cardName} - ${triggerText}`);

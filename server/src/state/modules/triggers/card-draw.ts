@@ -111,7 +111,7 @@ export function getCardDrawTriggers(
         }
       }
 
-      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText);
+      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
 
       const ok = isInterveningIfSatisfied(
         ctx,

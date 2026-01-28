@@ -198,7 +198,7 @@ export function getEndStepTriggers(
         }
       }
 
-      const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+      const needsThatPlayerRef = /\bthat player\b/i.test(synthetic) || /\btheir\b/i.test(synthetic);
 
       const ok = isInterveningIfSatisfied(
         ctx,
@@ -375,7 +375,7 @@ export function getDrawStepTriggers(
         }
       }
 
-      const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+      const needsThatPlayerRef = /\bthat player\b/i.test(synthetic) || /\btheir\b/i.test(synthetic);
 
       const ok = isInterveningIfSatisfied(
         ctx,

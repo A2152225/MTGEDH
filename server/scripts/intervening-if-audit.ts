@@ -74,6 +74,11 @@ function buildProbeContext(): any {
     state: {
       players: [{ id: controllerId }, { id: opp1 }, { id: opp2 }],
 
+      // Turn/phase
+      activePlayer: controllerId,
+      phase: 'main1',
+      turnDirection: 1,
+
       // Common booleans
       // Some best-effort templates return `null` when this is true because attribution isn't tracked.
       // Use `false` to keep those cases decidable under probe.
@@ -88,6 +93,12 @@ function buildProbeContext(): any {
       lifeLostThisTurn: { [controllerId]: 0, [opp1]: 1, [opp2]: 0 },
       landsEnteredBattlefieldThisTurn: { [controllerId]: 1, [opp1]: 0, [opp2]: 0 },
       nonlandPermanentsEnteredBattlefieldThisTurn: { [controllerId]: 2, [opp1]: 0, [opp2]: 0 },
+      artifactsEnteredBattlefieldThisTurnByController: { [controllerId]: 0, [opp1]: 0, [opp2]: 0 },
+      planeswalkersEnteredBattlefieldThisTurnByController: { [controllerId]: 0, [opp1]: 0, [opp2]: 0 },
+      creaturesEnteredBattlefieldThisTurnByController: { [controllerId]: 1, [opp1]: 0, [opp2]: 0 },
+      creaturesEnteredBattlefieldThisTurnByControllerSubtype: { [controllerId]: { wizard: 1 }, [opp1]: {}, [opp2]: {} },
+      creaturesEnteredBattlefieldThisTurnIdsByController: { [controllerId]: ['SRC'], [opp1]: [], [opp2]: [] },
+      faceDownCreaturesEnteredBattlefieldThisTurnByController: { [controllerId]: 0, [opp1]: 0, [opp2]: 0 },
 
       // Turn / phase-ish knobs (best effort)
       dayNight: 'day',
@@ -102,7 +113,54 @@ function buildProbeContext(): any {
       descendedThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
 
       // Spell casting trackers
-      spellsCastThisTurn: [{ id: 'spell1', casterId: controllerId }],
+      spellsCastThisTurn: [
+        { id: 'spell1', casterId: controllerId, card: { type_line: 'Instant' } },
+        { id: 'spell2', casterId: controllerId, card: { type_line: 'Creature — Elf' } },
+      ],
+      playedCardFromExileThisTurn: { [controllerId]: false, [opp1]: false, [opp2]: false },
+      castFromExileThisTurn: { [controllerId]: false, [opp1]: false, [opp2]: false },
+
+      // Dungeon completion (AFR)
+      completedDungeonThisTurn: { [controllerId]: false, [opp1]: false, [opp2]: false },
+      completedDungeon: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      completedDungeons: { [controllerId]: 1, [opp1]: 0, [opp2]: 0 },
+      completedDungeonNames: { [controllerId]: ['Lost Mine of Phandelver'], [opp1]: [], [opp2]: [] },
+
+      // Last-turn trackers
+      lifeLostLastTurnByPlayerCounts: { [controllerId]: 0, [opp1]: 1, [opp2]: 0 },
+      cardsDrawnLastTurnByPlayerCounts: { [controllerId]: 1, [opp1]: 0, [opp2]: 0 },
+
+      // Counter placement trackers
+      putCounterOnCreatureThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      putPlusOneCounterOnPermanentThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+
+      // Graveyard movement trackers
+      cardLeftGraveyardThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      creatureCardLeftGraveyardThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      cardLeftYourGraveyardThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      creatureCardLeftYourGraveyardThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      creatureCardPutIntoYourGraveyardThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      cardsPutIntoYourGraveyardThisTurn: { [controllerId]: 2, [opp1]: 0, [opp2]: 0 },
+      cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn: { [controllerId]: 1, [opp1]: 0, [opp2]: 0 },
+
+      // Battlefield-to-zone typed trackers
+      landYouControlledPutIntoGraveyardFromBattlefieldThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      permanentPutIntoHandFromBattlefieldThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+      artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn: true,
+
+      // Discard trackers
+      anyPlayerDiscardedCardThisTurn: true,
+      discardedCardThisTurn: { [controllerId]: false, [opp1]: true, [opp2]: false },
+
+      // Clue sacrifice trackers
+      cluesSacrificedThisTurn: { [controllerId]: 3, [opp1]: 0, [opp2]: 0 },
+
+      // Evidence (MKM) trackers
+      evidenceCollectedThisTurn: { [controllerId]: true, [opp1]: false, [opp2]: false },
+
+      // Team assignment (Alchemy)
+      team: { [controllerId]: 'mirran', [opp1]: 'phyrexian', [opp2]: 'mirran' },
       // Keep legacy map for convenience, but prefer the newer keys used by the evaluator helpers.
       spellsCastLastTurn: { [controllerId]: 2, [opp1]: 0, [opp2]: 0 },
       spellsCastLastTurnCount: 2,
@@ -113,6 +171,7 @@ function buildProbeContext(): any {
         [opp1]: { SRC: true },
         [opp2]: { SRC: false },
       },
+      damageTakenThisTurnByPlayer: { [controllerId]: 0, [opp1]: 3, [opp2]: 0 },
 
       // Battlefield
       battlefield: [
@@ -120,15 +179,43 @@ function buildProbeContext(): any {
           id: 'SRC',
           controller: controllerId,
           attackedThisTurn: true,
-          card: { id: 'CMD1', type_line: 'Creature — Human Knight', manaValue: 3 },
+          damageThisTurn: 0,
+          card: { id: 'CMD1', type_line: 'Creature — Human Knight', manaValue: 3, power: '3', toughness: '3' },
           counters: { '+1/+1': 1 },
           auras: ['aura1'],
           equipment: ['eq1'],
         },
         {
+          id: 'aura1',
+          controller: controllerId,
+          attachedTo: 'SRC',
+          card: { type_line: 'Enchantment — Aura' },
+        },
+        {
+          id: 'aura2',
+          controller: controllerId,
+          attachedTo: 'SRC',
+          card: { type_line: 'Enchantment — Aura' },
+        },
+        {
+          id: 'eq1',
+          controller: controllerId,
+          attachedTo: 'SRC',
+          card: { type_line: 'Artifact — Equipment' },
+        },
+        {
           id: 'C2',
           controller: controllerId,
-          card: { type_line: 'Creature — Wizard', manaValue: 2 },
+          enteredFromZone: 'graveyard',
+          tapped: false,
+          card: {
+            type_line: 'Creature — Wizard',
+            manaValue: 2,
+            power: '4',
+            toughness: '4',
+            colors: ['R'],
+            oracle_text: 'Flying\nToxic 1',
+          },
         },
         {
           id: 'L1',
@@ -148,32 +235,111 @@ function buildProbeContext(): any {
         {
           id: 'O1',
           controller: opp1,
-          card: { type_line: 'Creature — Human' },
+          card: { type_line: 'Creature — Human', colors: ['B'], set: 'wot', power: '1', toughness: '1' },
+        },
+        {
+          id: 'ATK1',
+          controller: opp1,
+          attacking: controllerId,
+          card: { type_line: 'Creature — Goblin', power: '2', toughness: '2' },
+        },
+        {
+          id: 'ATK2',
+          controller: opp2,
+          attacking: controllerId,
+          card: { type_line: 'Creature — Zombie', power: '2', toughness: '2' },
         },
       ],
 
-      // Zones
-      hands: {
-        [controllerId]: [{ name: 'Card A' }, { name: 'Card B' }],
-        [opp1]: [{ name: 'Card C' }],
-        [opp2]: [{ name: 'Card D' }, { name: 'Card E' }, { name: 'Card F' }],
-      },
-      graveyards: {
-        [controllerId]: [{ type_line: 'Creature — Zombie' }],
-        [opp1]: [],
-        [opp2]: [{ type_line: 'Instant' }, { type_line: 'Creature — Elf' }],
-      },
-      libraries: {
-        [controllerId]: [{}, {}, {}],
-        [opp1]: [{}, {}],
-        [opp2]: [{}, {}, {}, {}, {}],
+      // Stack (for single-target + mana-spent templates)
+      stack: [
+        {
+          id: 'spell1',
+          controller: controllerId,
+          isManaAbility: false,
+          targets: ['O1'],
+          manaSpentTotal: 1,
+          // Alternate cost id (newer templates like spectacle/prowl/surge/madness)
+          alternateCostId: 'spectacle',
+          // Alternate/additional-cost flags (best-effort probe values)
+          prowlCostWasPaid: false,
+          surgeCostWasPaid: false,
+          madnessCostWasPaid: false,
+          spectacleCostWasPaid: true,
+          additionalCostWasPaid: false,
+          card: {
+            id: 'SPELL1',
+            name: 'Probe Spell',
+            type_line: 'Instant',
+            manaValue: 3,
+            colors: ['G'],
+            oracle_text: 'Madness {1}{R}',
+            alternateCostId: 'spectacle',
+          },
+
+          // Snow-mana spent (so "if {S} of any of that spell's colors was spent" is decidable)
+          snowManaSpentByColor: { green: 1 },
+
+          // Mana spent breakdown (so "at least three mana of the same color" can be decidable)
+          manaSpentBreakdown: { green: 3 },
+        },
+      ],
+
+      // Zones (use the structure the evaluator reads)
+      zones: {
+        [controllerId]: {
+          hand: [{ name: 'Card A' }, { name: 'Card B' }],
+          handCount: 2,
+          graveyard: [{ type_line: 'Creature — Zombie' }],
+          graveyardCount: 1,
+          library: [{}, {}, {}],
+          libraryCount: 3,
+          exile: [{ name: 'Exiled Card', type_line: 'Creature — Elf', exiledWithSourceId: 'SRC' }],
+        },
+        [opp1]: {
+          hand: [{ name: 'Card C' }],
+          handCount: 1,
+          graveyard: [],
+          graveyardCount: 0,
+          library: [{}, {}],
+          libraryCount: 2,
+          exile: [],
+        },
+        [opp2]: {
+          hand: [{ name: 'Card D' }, { name: 'Card E' }, { name: 'Card F' }],
+          handCount: 3,
+          graveyard: [{ type_line: 'Instant' }, { type_line: 'Creature — Elf' }],
+          graveyardCount: 2,
+          library: [{}, {}, {}, {}, {}],
+          libraryCount: 5,
+          exile: [],
+        },
       },
 
       // Commander-ish
       commandZone: {
-        [controllerId]: { commanderIds: ['CMD1'] },
-        [opp1]: { commanderIds: ['CMD2'] },
-        [opp2]: { commanderIds: ['CMD3'] },
+        [controllerId]: {
+          commanderIds: ['CMD1', 'CMD_ARAHBO', 'CMD_EDGAR', 'CMD_INALLA', 'CMD_SIDAR'],
+          commanderNames: [
+            'Oloro, Ageless Ascetic',
+            'Arahbo, Roar of the World',
+            'Edgar Markov',
+            'Inalla, Archmage Ritualist',
+            'Sidar Jabari of Zhalfir',
+          ],
+          commanderCards: [
+            { id: 'CMD1', name: 'Oloro, Ageless Ascetic' },
+            { id: 'CMD_ARAHBO', name: 'Arahbo, Roar of the World' },
+            { id: 'CMD_EDGAR', name: 'Edgar Markov' },
+            { id: 'CMD_INALLA', name: 'Inalla, Archmage Ritualist' },
+            { id: 'CMD_SIDAR', name: 'Sidar Jabari of Zhalfir' },
+          ],
+          inCommandZone: ['CMD1'],
+          tax: 0,
+          taxById: { CMD1: 0 },
+        },
+        [opp1]: { commanderIds: ['CMD2'], commanderNames: ['Opponent Commander'], commanderCards: [{ id: 'CMD2', name: 'Opponent Commander' }], inCommandZone: ['CMD2'], tax: 0, taxById: { CMD2: 0 } },
+        [opp2]: { commanderIds: ['CMD3'], commanderNames: ['Opponent Commander 2'], commanderCards: [{ id: 'CMD3', name: 'Opponent Commander 2' }], inCommandZone: ['CMD3'], tax: 0, taxById: { CMD3: 0 } },
       },
 
       // Misc
@@ -187,6 +353,21 @@ function buildProbeSource(controllerId: string): any {
     id: 'SRC',
     controller: controllerId,
     zone: 'battlefield',
+    thatPlayerId: 'P2',
+    referencedPlayerId: 'P2',
+    theirPlayerId: 'P2',
+    defendingPlayerId: 'P2',
+    thoseCreatureIds: ['C2', 'ATK1', 'ATK2'],
+    activatedAbilityIsManaAbility: false,
+    triggeringStackItemId: 'spell1',
+    attachedTo: 'C2',
+    // Attachment id lists used by attachment-based evaluators.
+    attachments: ['aura1', 'aura2'],
+    attachedEquipment: ['eq1'],
+    counters: {},
+    damageThisTurn: 0,
+    wasUnearthed: false,
+    giftPromised: false,
     attackedThisTurn: true,
     enteredFromCast: true,
     wasCast: true,
@@ -194,6 +375,9 @@ function buildProbeSource(controllerId: string): any {
     castSourceZone: 'hand',
     tributePaid: false,
     manaFromTreasureSpent: true,
+    // Convoke-style templates: "mana from creatures was spent to cast it"
+    manaFromCreaturesSpent: 3,
+    convokeTappedCreatures: ['C2', 'ATK1', 'ATK2'],
     card: {
       id: 'CMD1',
       chosenColor: 'red',
@@ -202,10 +386,14 @@ function buildProbeSource(controllerId: string): any {
       castFromForetell: true,
       castDuringOwnMainPhase: true,
       wasKicked: true,
+      kickerPaidCount: 2,
       wasBargained: true,
       isSuspended: true,
       manaValue: 3,
       type_line: 'Creature — Human Knight',
+      power: '2',
+      manaFromCreaturesSpent: 3,
+      convokeTappedCreatures: ['C2', 'ATK1', 'ATK2'],
     },
   };
 }
@@ -282,7 +470,7 @@ async function main(): Promise<void> {
 
   const clauses: ClauseStats[] = [];
   for (const [clauseLower, data] of byClause.entries()) {
-    const detailed = evaluateInterveningIfClauseDetailed(probeCtx, controllerId, data.clause, probeSource);
+    const detailed = evaluateInterveningIfClauseDetailed(probeCtx, controllerId, data.clause, probeSource, probeSource);
 
     const evaluation: ClauseStats['evaluation'] = detailed.matched
       ? detailed.fallback
