@@ -32,6 +32,7 @@ import {
   applyEngineEffects,
   runSBA,
 } from "./counters_tokens.js";
+import { evaluateAction } from "../../rules-engine/index.js";
 import { pushStack, resolveTopOfStack, playLand } from "./stack.js";
 import { nextTurn, nextStep, passPriority } from "./turn.js";
 import { reconcileZonesConsistency } from "./zones.js";
@@ -146,7 +147,46 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       break;
 
     case "dealDamage": {
-      const effects: any[] = [];
+      let effects: any[] = (e as any).effects || [];
+
+      const targetPermanentId = (e as any).targetPermanentId;
+      const amount = (e as any).amount;
+      if (targetPermanentId && amount > 0) {
+        // Turn-tracking for intervening-if: creature→creature damage relationships.
+        // Best-effort: only records when the event explicitly provides a source permanent id and both are creatures.
+        try {
+          const stateAny = ctx.state as any;
+          const sourcePermanentId = String((e as any).sourcePermanentId || (e as any).sourceCreatureId || '');
+          const targetId = String(targetPermanentId);
+          const dmg = Math.max(0, Number(amount ?? 0));
+
+          if (sourcePermanentId && targetId && dmg > 0) {
+            const battlefield = (ctx.state as any).battlefield || [];
+            const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
+            const targetPerm = battlefield.find((p: any) => String(p?.id) === targetId);
+            const sourceTL = String(sourcePerm?.card?.type_line || '').toLowerCase();
+            const targetTL = String(targetPerm?.card?.type_line || '').toLowerCase();
+            if (sourcePerm && targetPerm && sourceTL.includes('creature') && targetTL.includes('creature')) {
+              stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+              stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId] =
+                stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId] || {};
+              stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId][targetId] = true;
+            }
+          }
+        } catch {
+          // best-effort only
+        }
+
+        const action = {
+          type: 'DEAL_DAMAGE' as const,
+          targetPermanentId,
+          amount,
+          wither: Boolean((e as any).wither),
+          infect: Boolean((e as any).infect),
+        };
+        effects = [...evaluateAction(ctx.state, action)];
+      }
+
       applyEngineEffects(ctx, effects);
       runSBA(ctx);
       break;

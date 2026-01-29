@@ -2126,6 +2126,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 // Pay the life cost
                 if (!game.state.life) game.state.life = {};
                 game.state.life[pid] = currentLife - cost.amount;
+
+                // Track life lost this turn.
+                try {
+                  (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+                  (game.state as any).lifeLostThisTurn[String(pid)] = ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(cost.amount);
+                } catch {}
                 
                 io.to(gameId).emit("chat", {
                   id: `m_${Date.now()}`,
@@ -2147,6 +2153,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             if (!game.state.life) game.state.life = {};
             game.state.life[pid] = currentLife - damageAmount;
+
+            // Track per-turn damage and life lost.
+            try {
+              (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+              (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
+                ((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + Number(damageAmount || 0);
+
+              (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+              (game.state as any).lifeLostThisTurn[String(pid)] =
+                ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(damageAmount || 0);
+            } catch {}
             
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -4666,6 +4683,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life[pid] ?? startingLife;
         game.state.life[pid] = currentLife - 1;
+
+        // Track per-turn damage and life lost.
+        try {
+          (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+          (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
+            ((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + 1;
+
+          (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+          (game.state as any).lifeLostThisTurn[String(pid)] = ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + 1;
+        } catch {}
         
         // Sync to player object
         const player = (game.state.players || []).find((p: any) => p.id === pid);

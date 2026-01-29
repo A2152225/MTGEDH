@@ -4099,11 +4099,39 @@ function executeTriggerEffect(
           /* ignore */
         }
 
+        // Track life lost this turn (damage is life loss).
+        try {
+          (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
+          (state as any).lifeLostThisTurn[targetId] = ((state as any).lifeLostThisTurn[targetId] || 0) + damage;
+        } catch {
+          /* ignore */
+        }
+
         // Queue "Whenever ~ deals damage to a player" triggers from the damage source.
         try {
           const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
           if (sourcePermanentId) {
             queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(targetId));
+
+            // Track that a creature dealt damage to a player this turn.
+            try {
+              const battlefield = (state as any).battlefield || [];
+              const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
+              const sourceTL = String(sourcePerm?.card?.type_line || '').toLowerCase();
+              if (sourcePerm && sourceTL.includes('creature')) {
+                const creatureName = String(sourcePerm?.card?.name || 'Unknown Creature');
+                (state as any).creaturesThatDealtDamageToPlayer = (state as any).creaturesThatDealtDamageToPlayer || {};
+                const perPlayer = ((state as any).creaturesThatDealtDamageToPlayer[String(targetId)] =
+                  (state as any).creaturesThatDealtDamageToPlayer[String(targetId)] || {});
+                perPlayer[String(sourcePermanentId)] = {
+                  creatureName,
+                  totalDamage: (perPlayer[String(sourcePermanentId)]?.totalDamage || 0) + damage,
+                  lastDamageTime: Date.now(),
+                };
+              }
+            } catch {
+              /* ignore */
+            }
           }
         } catch {
           // Defensive: do not block resolution on trigger queue failure.
@@ -4116,6 +4144,27 @@ function executeTriggerEffect(
           // Track total damage dealt to this permanent this turn (for intervening-if clauses).
           targetPerm.damageThisTurn = (targetPerm.damageThisTurn || 0) + damage;
           targetPerm.tookDamageThisTurn = true;
+
+          // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
+          try {
+            const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
+            if (sourcePermanentId) {
+              const battlefield = (state as any).battlefield || [];
+              const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
+              const sourceTL = String(sourcePerm?.card?.type_line || '').toLowerCase();
+              const targetTL = String(targetPerm?.card?.type_line || '').toLowerCase();
+              if (sourcePerm && sourceTL.includes('creature') && targetTL.includes('creature')) {
+                const stateAny = state as any;
+                stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId] =
+                  stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId] || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId][String(targetId)] = true;
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+
           debug(2, `[executeTriggerEffect] Dealt ${damage} damage to ${targetPerm.card?.name || targetId}`);
           
           // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
@@ -8741,11 +8790,35 @@ function executeSpellEffect(
       const battlefield = state.battlefield || [];
       const perm = battlefield.find((p: any) => p.id === effect.id);
       if (perm) {
-        (perm as any).damage = ((perm as any).damage || 0) + effect.amount;
-        debug(2, `[resolveSpell] ${spellName} dealt ${effect.amount} damage to ${(perm as any).card?.name || effect.id}`);
+        const dmg = Math.max(0, Number((effect as any).amount ?? 0));
+
+        // Turn-tracking for intervening-if: creature→creature damage relationships, including non-combat sources.
+        // Best-effort: only records when the source is a battlefield creature and the target is a creature permanent.
+        if (dmg > 0 && sourcePermanentId) {
+          try {
+            const srcId = String(sourcePermanentId);
+            const tgtId = String((perm as any)?.id ?? (effect as any)?.id ?? '');
+            if (tgtId) {
+              const sourcePerm = battlefield.find((p: any) => String(p?.id) === srcId);
+              const sourceTL = String(sourcePerm?.card?.type_line || '').toLowerCase();
+              const targetTL = String((perm as any)?.card?.type_line || '').toLowerCase();
+              if (sourcePerm && sourceTL.includes('creature') && targetTL.includes('creature')) {
+                const stateAny = state as any;
+                stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][tgtId] = true;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+        }
+
+        (perm as any).damage = ((perm as any).damage || 0) + dmg;
+        debug(2, `[resolveSpell] ${spellName} dealt ${dmg} damage to ${(perm as any).card?.name || effect.id}`);
         
         // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-        processDamageReceivedTriggers(ctx, perm, effect.amount, (triggerInfo) => {
+        processDamageReceivedTriggers(ctx, perm, dmg, (triggerInfo) => {
           // Initialize pendingDamageTriggers if needed
           if (!state.pendingDamageTriggers) {
             state.pendingDamageTriggers = {};
@@ -8762,7 +8835,7 @@ function executeSpellEffect(
             ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
           };
           
-          debug(2, `[resolveSpell] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${effect.amount} damage`);
+          debug(2, `[resolveSpell] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${dmg} damage`);
         });
       }
       break;
@@ -8771,13 +8844,60 @@ function executeSpellEffect(
       const players = state.players || [];
       const player = players.find((p: any) => p.id === effect.playerId);
       if (player) {
-        (player as any).life = ((player as any).life || 40) - effect.amount;
-        debug(2, `[resolveSpell] ${spellName} dealt ${effect.amount} damage to player ${effect.playerId}`);
+        const dmg = Math.max(0, Number((effect as any).amount ?? 0));
+        const targetPlayerId = String((effect as any).playerId || '');
+        if (dmg <= 0 || !targetPlayerId) break;
+
+        (state as any).life = (state as any).life || {};
+        const current = (state as any).life[targetPlayerId] ?? (player as any).life ?? 40;
+        const next = current - dmg;
+        (state as any).life[targetPlayerId] = next;
+        (player as any).life = next;
+
+        // Track per-turn damage/life loss for intervening-if templates.
+        try {
+          (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
+          (state as any).damageTakenThisTurnByPlayer[targetPlayerId] =
+            ((state as any).damageTakenThisTurnByPlayer[targetPlayerId] || 0) + dmg;
+        } catch {
+          /* best-effort */
+        }
+        try {
+          (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
+          (state as any).lifeLostThisTurn[targetPlayerId] = ((state as any).lifeLostThisTurn[targetPlayerId] || 0) + dmg;
+        } catch {
+          /* best-effort */
+        }
+
+        // Track that a creature dealt damage to a player this turn (used by intervening-if + Reciprocate-style checks).
+        try {
+          if (sourcePermanentId) {
+            const srcId = String(sourcePermanentId);
+            const battlefield = state.battlefield || [];
+            const sourcePerm = battlefield.find((p: any) => String(p?.id) === srcId);
+            const sourceTL = String(sourcePerm?.card?.type_line || '').toLowerCase();
+            if (sourcePerm && sourceTL.includes('creature')) {
+              const creatureName = String(sourcePerm?.card?.name || 'Unknown Creature');
+              (state as any).creaturesThatDealtDamageToPlayer = (state as any).creaturesThatDealtDamageToPlayer || {};
+              const perPlayer = ((state as any).creaturesThatDealtDamageToPlayer[targetPlayerId] =
+                (state as any).creaturesThatDealtDamageToPlayer[targetPlayerId] || {});
+              perPlayer[srcId] = {
+                creatureName,
+                totalDamage: (perPlayer[srcId]?.totalDamage || 0) + dmg,
+                lastDamageTime: Date.now(),
+              };
+            }
+          }
+        } catch {
+          // best-effort only
+        }
+
+        debug(2, `[resolveSpell] ${spellName} dealt ${dmg} damage to player ${targetPlayerId}`);
 
         // If we have a battlefield permanent as the source of this effect, queue its damage-to-player triggers.
         try {
           if (sourcePermanentId) {
-            queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(effect.playerId));
+            queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(targetPlayerId));
           }
         } catch {
           // Defensive: do not block resolution.

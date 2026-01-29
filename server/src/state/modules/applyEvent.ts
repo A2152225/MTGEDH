@@ -618,6 +618,31 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const targetPermanentId = (e as any).targetPermanentId;
         const amount = (e as any).amount;
         if (targetPermanentId && amount > 0) {
+          // Turn-tracking for intervening-if: creature→creature damage relationships for engine-driven damage events.
+          // Best-effort: only records when the event explicitly provides a source permanent id and both are creatures.
+          try {
+            const stateAny = ctx.state as any;
+            const sourcePermanentId = String((e as any).sourcePermanentId || (e as any).sourceCreatureId || '');
+            const targetId = String(targetPermanentId);
+            const dmg = Math.max(0, Number(amount ?? 0));
+
+            if (sourcePermanentId && targetId && dmg > 0) {
+              const battlefield = (ctx.state as any).battlefield || [];
+              const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
+              const targetPerm = battlefield.find((p: any) => String(p?.id) === targetId);
+              const sourceTL = String(sourcePerm?.card?.type_line || '').toLowerCase();
+              const targetTL = String(targetPerm?.card?.type_line || '').toLowerCase();
+              if (sourcePerm && targetPerm && sourceTL.includes('creature') && targetTL.includes('creature')) {
+                stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId] =
+                  stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId] || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[sourcePermanentId][targetId] = true;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           const action = {
             type: 'DEAL_DAMAGE' as const,
             targetPermanentId,
@@ -1376,6 +1401,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const target = battlefield.find((p: any) => p.id === targetId);
           
           if (source && target) {
+            // Best-effort per-turn damage tracking for intervening-if clauses.
+            try {
+              const stateAny = ctx.state as any;
+              const srcId = String(sourceId || '').trim();
+              const tgtId = String(targetId || '').trim();
+              if (srcId && tgtId) {
+                stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][tgtId] = true;
+                stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId] = stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId] || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId][srcId] = true;
+              }
+            } catch {
+              // best-effort only
+            }
+
             // Each creature deals damage to the other equal to its power
             (source as any).damage = ((source as any).damage || 0) + targetPower;
             (target as any).damage = ((target as any).damage || 0) + sourcePower;

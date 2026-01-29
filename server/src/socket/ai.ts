@@ -3915,6 +3915,13 @@ async function executeAIActivateAbility(
             const currentLife = (game.state as any).life?.[playerId] ?? startingLife;
             (game.state as any).life = (game.state as any).life || {};
             (game.state as any).life[playerId] = currentLife - lifeCost;
+
+            // Track life lost this turn.
+            try {
+              (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+              (game.state as any).lifeLostThisTurn[String(playerId)] =
+                ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(lifeCost || 0);
+            } catch {}
             debug(1, `[AI] Paid ${lifeCost} life for fetchland activation`);
           }
           

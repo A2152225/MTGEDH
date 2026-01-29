@@ -1218,6 +1218,10 @@ export type InterveningIfRefs = {
   activatedAbilityIsManaAbility?: boolean;
   triggeringStackItemId?: string;
   stackItem?: { type?: string; isManaAbility?: boolean; targets?: any[]; target?: any; targetId?: any };
+
+  // Best-effort extensibility: many clause evaluators use optional per-event refs.
+  // Keeping this permissive allows call sites to pass additional context without casts.
+  [key: string]: unknown;
 };
 
 function getTargetCountFromStackItemLike(stackItem: any): number | null {

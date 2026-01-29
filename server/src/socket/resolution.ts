@@ -2942,6 +2942,34 @@ async function handleStepResponse(
       sourceCreature.damageMarked = (sourceCreature.damageMarked || 0) + targetPower;
       targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
 
+      // Best-effort per-turn damage tracking for intervening-if clauses.
+      try {
+        const stateAny = game.state as any;
+        const srcId = String(sourceId || '').trim();
+        const tgtId = String(targetCreatureId || '').trim();
+
+        // Track creature damaged by this creature this turn.
+        if (srcId && tgtId) {
+          stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+          stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
+          stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][tgtId] = true;
+          stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId] = stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId] || {};
+          stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId][srcId] = true;
+        }
+
+        // Keep the per-permanent "tookDamageThisTurn"/"damageThisTurn" flags in sync.
+        if (targetPower > 0) {
+          sourceCreature.damageThisTurn = (sourceCreature.damageThisTurn || 0) + targetPower;
+          sourceCreature.tookDamageThisTurn = true;
+        }
+        if (sourcePower > 0) {
+          targetCreature.damageThisTurn = (targetCreature.damageThisTurn || 0) + sourcePower;
+          targetCreature.tookDamageThisTurn = true;
+        }
+      } catch {
+        // best-effort only
+      }
+
       // Queue damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
       const ctx: GameContext = {
         state: game.state,
@@ -3705,6 +3733,13 @@ async function handleStepResponse(
 
       (game.state as any).life = (game.state as any).life || {};
       (game.state as any).life[pid] = currentLife - lifePayment;
+
+      // Track life lost this turn.
+      try {
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(pid)] =
+          ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(lifePayment || 0);
+      } catch {}
       const playerObj = ((game.state as any).players || []).find((p: any) => p?.id === pid);
       if (playerObj) playerObj.life = (game.state as any).life[pid];
 
@@ -4055,12 +4090,29 @@ async function handleStepResponse(
 
       // Pay costs
       if (totalLifeToPay > 0) {
+        game.state.life = game.state.life || {};
+        const startingLife = game.state.startingLife || 40;
+        const currentLife = game.state.life?.[pid] ?? startingLife;
         game.state.life[pid] -= totalLifeToPay;
+
+        // Track life lost this turn.
+        try {
+          (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+          (game.state as any).lifeLostThisTurn[String(pid)] =
+            ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(totalLifeToPay || 0);
+        } catch {}
+
+        // Keep player object in sync.
+        try {
+          const playerObj = ((game.state as any).players || []).find((p: any) => p?.id === pid);
+          if (playerObj) playerObj.life = game.state.life[pid];
+        } catch {}
+
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `${getPlayerName(game, pid)} paid ${totalLifeToPay} life for Phyrexian mana.`,
+          message: `${getPlayerName(game, pid)} paid ${totalLifeToPay} life for Phyrexian mana. (${currentLife} → ${game.state.life[pid]})`,
           ts: Date.now(),
         });
       }
@@ -9935,13 +9987,55 @@ function handleScryResponse(
   // "Scry X. [Name] deals N damage to each opponent."
   const stepData = step as any;
   if (stepData?.pwScryThenDamageToEachOpponent === true) {
+    const findCreatureOnBattlefieldById = (id: string): any | null => {
+      if (!id) return null;
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const perm = battlefield.find((p: any) => String(p?.id) === String(id));
+      if (!perm) return null;
+      const tl = String(perm?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) return null;
+      return perm;
+    };
+
+    const recordPlayerDamageThisTurn = (targetPlayerId: string, dmg: number) => {
+      if (!Number.isFinite(dmg) || dmg <= 0) return;
+      try {
+        (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+        (game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] =
+          ((game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] || 0) + dmg;
+      } catch {}
+      try {
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(targetPlayerId)] = ((game.state as any).lifeLostThisTurn[String(targetPlayerId)] || 0) + dmg;
+      } catch {}
+    };
+
+    const recordCreatureDealtDamageToPlayerThisTurn = (sourceCreature: any, targetPlayerId: string, dmg: number) => {
+      const sourceId = String(sourceCreature?.id || '');
+      if (!sourceId || !Number.isFinite(dmg) || dmg <= 0) return;
+      try {
+        (game.state as any).creaturesThatDealtDamageToPlayer = (game.state as any).creaturesThatDealtDamageToPlayer || {};
+        const perPlayer = (((game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] =
+          (game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] || {}) as any);
+        const creatureName = String(sourceCreature?.card?.name || 'Unknown Creature');
+        perPlayer[sourceId] = {
+          creatureName,
+          totalDamage: (perPlayer[sourceId]?.totalDamage || 0) + dmg,
+          lastDamageTime: Date.now(),
+        };
+      } catch {}
+    };
+
     const controllerId = String(stepData.pwScryThenDamageController || pid);
     const damage = Number(stepData.pwScryThenDamageAmount || 0);
     const sourceName = String(stepData.pwScryThenDamageSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData.pwScryThenDamageSourcePermanentId || '');
 
     if (Number.isFinite(damage) && damage > 0) {
       const startingLife = game.state.startingLife || 40;
       game.state.life = game.state.life || {};
+
+      const sourceCreature = findCreatureOnBattlefieldById(sourcePermanentId);
 
       for (const p of game.state.players || []) {
         if (!p?.id) continue;
@@ -9949,6 +10043,9 @@ function handleScryResponse(
         const oppId = String(p.id);
         const currentLife = game.state.life?.[oppId] ?? startingLife;
         game.state.life[oppId] = currentLife - damage;
+
+        recordPlayerDamageThisTurn(oppId, damage);
+        if (sourceCreature) recordCreatureDealtDamageToPlayerThisTurn(sourceCreature, oppId, damage);
       }
 
       io.to(gameId).emit('chat', {
@@ -11019,6 +11116,12 @@ async function handleLibrarySearchResponse(
     const currentLife = game.state.life?.[pid] ?? startingLife;
     game.state.life = game.state.life || {};
     game.state.life[pid] = currentLife - lifeLoss;
+
+    // Track life lost this turn.
+    try {
+      (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+      (game.state as any).lifeLostThisTurn[String(pid)] = ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(lifeLoss || 0);
+    } catch {}
     debug(2, `[Resolution] ${sourceName}: ${pid} loses ${lifeLoss} life (${currentLife} → ${game.state.life[pid]})`);
   }
   
@@ -13600,6 +13703,13 @@ async function handleOptionChoiceResponse(
       }
 
       game.state.life[playerId] = currentLife - lifeAmount;
+
+      // Track life lost this turn.
+      try {
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(playerId)] =
+          ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(lifeAmount || 0);
+      } catch {}
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -14164,10 +14274,50 @@ async function handleOptionChoiceResponse(
 
   // ===== PLANESWALKER: "Exile the top card... You may cast... If you don't, deal N to each opponent." =====
   if (stepData?.pwChandraImpulseCastOrBurn === true) {
+    const findCreatureOnBattlefieldById = (id: string): any | null => {
+      if (!id) return null;
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const perm = battlefield.find((p: any) => String(p?.id) === String(id));
+      if (!perm) return null;
+      const tl = String(perm?.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) return null;
+      return perm;
+    };
+
+    const recordPlayerDamageThisTurn = (targetPlayerId: string, dmg: number) => {
+      if (!Number.isFinite(dmg) || dmg <= 0) return;
+      try {
+        (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+        (game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] =
+          ((game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] || 0) + dmg;
+      } catch {}
+      try {
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(targetPlayerId)] = ((game.state as any).lifeLostThisTurn[String(targetPlayerId)] || 0) + dmg;
+      } catch {}
+    };
+
+    const recordCreatureDealtDamageToPlayerThisTurn = (sourceCreature: any, targetPlayerId: string, dmg: number) => {
+      const sourceId = String(sourceCreature?.id || '');
+      if (!sourceId || !Number.isFinite(dmg) || dmg <= 0) return;
+      try {
+        (game.state as any).creaturesThatDealtDamageToPlayer = (game.state as any).creaturesThatDealtDamageToPlayer || {};
+        const perPlayer = (((game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] =
+          (game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] || {}) as any);
+        const creatureName = String(sourceCreature?.card?.name || 'Unknown Creature');
+        perPlayer[sourceId] = {
+          creatureName,
+          totalDamage: (perPlayer[sourceId]?.totalDamage || 0) + dmg,
+          lastDamageTime: Date.now(),
+        };
+      } catch {}
+    };
+
     const choiceId = extractId(selectedOption) || 'dont';
     const controllerId = String(stepData.pwChandraImpulseController || playerId);
     const damage = Number(stepData.pwChandraImpulseDamage || 0);
     const sourceName = String(stepData.pwChandraImpulseSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData.pwChandraImpulseSourcePermanentId || '');
     const exiledCardId = String(stepData.pwChandraImpulseExiledCardId || '');
 
     if (choiceId === 'cast') {
@@ -14182,8 +14332,17 @@ async function handleOptionChoiceResponse(
       // Note: We currently don't have a resolution-step-driven "cast a spell now" flow.
       // The card remains in exile and may be cast via the normal casting pipeline.
     } else {
+      if (!Number.isFinite(damage) || damage <= 0) {
+        if (typeof (game as any).bumpSeq === 'function') {
+          (game as any).bumpSeq();
+        }
+        return;
+      }
+
       const startingLife = game.state.startingLife || 40;
       game.state.life = game.state.life || {};
+
+      const sourceCreature = findCreatureOnBattlefieldById(sourcePermanentId);
 
       for (const p of game.state.players || []) {
         if (!p?.id) continue;
@@ -14191,6 +14350,9 @@ async function handleOptionChoiceResponse(
         const pid = String(p.id);
         const currentLife = game.state.life?.[pid] ?? startingLife;
         game.state.life[pid] = currentLife - damage;
+
+        recordPlayerDamageThisTurn(pid, damage);
+        if (sourceCreature) recordCreatureDealtDamageToPlayerThisTurn(sourceCreature, pid, damage);
       }
 
       io.to(gameId).emit('chat', {

@@ -420,7 +420,63 @@ function exilePermanents(ctx: GameContext, permanentIds: string[]) {
 }
 
 function applyDamageToPlayer(ctx: GameContext, playerId: PlayerID, amount: number) {
-  modifyLifeLikeStack(ctx, playerId, -Math.max(0, amount | 0));
+  const dmg = Math.max(0, amount | 0);
+  if (dmg <= 0) return;
+  // We track damage/life-loss explicitly below; avoid double-counting via modifyLifeLikeStack.
+  modifyLifeLikeStack(ctx, playerId, -dmg, { trackLifeChangeThisTurn: false });
+
+  // Best-effort per-turn tracking to help intervening-if evaluation.
+  try {
+    const stateAny = (ctx as any).state as any;
+    stateAny.damageTakenThisTurnByPlayer = stateAny.damageTakenThisTurnByPlayer || {};
+    stateAny.damageTakenThisTurnByPlayer[String(playerId)] =
+      (stateAny.damageTakenThisTurnByPlayer[String(playerId)] || 0) + dmg;
+  } catch {}
+
+  try {
+    const stateAny = (ctx as any).state as any;
+    stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+    stateAny.lifeLostThisTurn[String(playerId)] = (stateAny.lifeLostThisTurn[String(playerId)] || 0) + dmg;
+  } catch {}
+}
+
+function recordCreatureDealtDamageToPlayerThisTurn(
+  ctx: GameContext,
+  sourceCreature: any,
+  targetPlayerId: PlayerID,
+  amount: number
+) {
+  const sourceId = String(sourceCreature?.id || '');
+  const dmg = Math.max(0, amount | 0);
+  if (!sourceId || dmg <= 0) return;
+  try {
+    const stateAny = (ctx as any).state as any;
+    const tl = String(sourceCreature?.card?.type_line || '').toLowerCase();
+    if (!tl.includes('creature')) return;
+
+    const creatureName = String(sourceCreature?.card?.name || 'Unknown Creature');
+    stateAny.creaturesThatDealtDamageToPlayer = stateAny.creaturesThatDealtDamageToPlayer || {};
+    const perPlayer = (stateAny.creaturesThatDealtDamageToPlayer[String(targetPlayerId)] =
+      stateAny.creaturesThatDealtDamageToPlayer[String(targetPlayerId)] || {});
+    perPlayer[sourceId] = {
+      creatureName,
+      totalDamage: (perPlayer[sourceId]?.totalDamage || 0) + dmg,
+      lastDamageTime: Date.now(),
+    };
+  } catch {
+    // best-effort only
+  }
+}
+
+function findCreatureOnBattlefieldById(ctx: GameContext, id: string): any | null {
+  const pid = String(id || '');
+  if (!pid) return null;
+  const battlefield = getBattlefield(ctx);
+  const perm = battlefield.find((p: any) => String(p?.id) === pid);
+  if (!perm) return null;
+  const tl = String(perm?.card?.type_line || '').toLowerCase();
+  if (!tl.includes('creature')) return null;
+  return perm;
 }
 
 function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: number) {
@@ -448,6 +504,25 @@ function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: n
   (perm as any).damageMarked = ((perm as any).damageMarked || 0) + dmg;
   (perm as any).damageThisTurn = ((perm as any).damageThisTurn || 0) + dmg;
   (perm as any).tookDamageThisTurn = true;
+}
+
+function recordCreatureDamagedByCreatureThisTurn(
+  ctx: GameContext,
+  sourceCreatureId: string,
+  targetCreatureId: string,
+  amount?: number
+) {
+  const dmg = Math.max(0, Number(amount ?? 1));
+  if (!sourceCreatureId || !targetCreatureId || dmg <= 0) return;
+  try {
+    const stateAny = (ctx as any).state as any;
+    stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+    stateAny.creaturesDamagedByThisCreatureThisTurn[String(sourceCreatureId)] =
+      stateAny.creaturesDamagedByThisCreatureThisTurn[String(sourceCreatureId)] || {};
+    stateAny.creaturesDamagedByThisCreatureThisTurn[String(sourceCreatureId)][String(targetCreatureId)] = true;
+  } catch {
+    // best-effort only
+  }
 }
 
 function permanentHasKeyword(perm: any, keywordLower: string): boolean {
@@ -5142,6 +5217,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         return true;
       }
 
+      if (targetTypeLineLower.includes("creature")) {
+        recordCreatureDamagedByCreatureThisTurn(ctx, String(sourceCreatureId), String(targetPermanentId), power);
+      }
       applyDamageToPermanent(ctx, targetPermanentId, power);
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (${power})`);
@@ -7385,8 +7463,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const bPT = getActualPowerToughness(b, (ctx as any).state);
 
       // Simultaneous damage (best-effort): each deals damage equal to its power to the other.
-      applyDamageToPermanent(ctx, bId, Math.max(0, aPT.power | 0));
-      applyDamageToPermanent(ctx, aId, Math.max(0, bPT.power | 0));
+      const dmgToB = Math.max(0, aPT.power | 0);
+      const dmgToA = Math.max(0, bPT.power | 0);
+      recordCreatureDamagedByCreatureThisTurn(ctx, String(aId), String(bId), dmgToB);
+      recordCreatureDamagedByCreatureThisTurn(ctx, String(bId), String(aId), dmgToA);
+      applyDamageToPermanent(ctx, bId, dmgToB);
+      applyDamageToPermanent(ctx, aId, dmgToA);
 
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
@@ -7415,8 +7497,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const aPT = getActualPowerToughness(a, (ctx as any).state);
       const bPT = getActualPowerToughness(b, (ctx as any).state);
 
-      applyDamageToPermanent(ctx, bId, Math.max(0, aPT.power | 0));
-      applyDamageToPermanent(ctx, aId, Math.max(0, bPT.power | 0));
+      const dmgToB = Math.max(0, aPT.power | 0);
+      const dmgToA = Math.max(0, bPT.power | 0);
+      recordCreatureDamagedByCreatureThisTurn(ctx, String(aId), String(bId), dmgToB);
+      recordCreatureDamagedByCreatureThisTurn(ctx, String(bId), String(aId), dmgToA);
+      applyDamageToPermanent(ctx, bId, dmgToB);
+      applyDamageToPermanent(ctx, aId, dmgToA);
 
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
@@ -7448,6 +7534,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       if (!targetTL.includes("creature")) return true;
 
       const power = getActualPowerToughness(source, (ctx as any).state).power;
+      recordCreatureDamagedByCreatureThisTurn(ctx, String(sourceCreatureId), String(targetCreatureId), power);
       applyDamageToPermanent(ctx, targetCreatureId, Math.max(0, power | 0));
       (ctx as any).bumpSeq?.();
 
@@ -8226,17 +8313,24 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       if (opponents.length === 0) return true;
 
       let total = 0;
+      const creaturePowers: Array<{ perm: any; power: number }> = [];
       for (const perm of battlefield) {
         if (!perm?.card) continue;
         if (perm.controller !== controller) continue;
         const tl = String(perm.card?.type_line || '').toLowerCase();
         if (!tl.includes('creature')) continue;
         const pt = getActualPowerToughness(ctx as any, perm);
-        total += Math.max(0, pt.power | 0);
+        const pwr = Math.max(0, pt.power | 0);
+        total += pwr;
+        if (pwr > 0) creaturePowers.push({ perm, power: pwr });
       }
 
       if (total <= 0) return true;
       for (const opp of opponents) {
+        // Best-effort: record the individual creature sources that dealt damage.
+        for (const cp of creaturePowers) {
+          recordCreatureDealtDamageToPlayerThisTurn(ctx, cp.perm, opp, cp.power);
+        }
         applyDamageToPlayer(ctx, opp, total);
       }
 
@@ -9444,6 +9538,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         pwScryThenDamageController: controller,
         pwScryThenDamageAmount: dmg,
         pwScryThenDamageSourceName: sourceName,
+        pwScryThenDamageSourcePermanentId: triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued scry ${scryN}, dmg ${dmg})`);
@@ -11493,7 +11588,11 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const opponents = getOpponents(ctx, controller);
       if (opponents.length === 0) return true;
 
+      const sourcePermanentId = String(triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id || '');
+      const sourceCreature = findCreatureOnBattlefieldById(ctx, sourcePermanentId);
+
       for (const opp of opponents) {
+        if (sourceCreature) recordCreatureDealtDamageToPlayerThisTurn(ctx, sourceCreature, opp, dmg);
         applyDamageToPlayer(ctx, opp, dmg);
       }
 
@@ -11812,6 +11911,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         pwChandraImpulseStage: 'ask',
         pwChandraImpulseController: controller,
         pwChandraImpulseSourceName: sourceName,
+        pwChandraImpulseSourcePermanentId: triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id,
         pwChandraImpulseExiledCardId: cardId,
         pwChandraImpulseDamage: dmg,
       } as any);
@@ -12113,7 +12213,10 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       if (!m) return false;
 
       const opponents = getOpponents(ctx, controller);
+      const sourcePermanentId = String(triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id || '');
+      const sourceCreature = findCreatureOnBattlefieldById(ctx, sourcePermanentId);
       for (const opp of opponents) {
+        if (sourceCreature) recordCreatureDealtDamageToPlayerThisTurn(ctx, sourceCreature, opp, 1);
         applyDamageToPlayer(ctx, opp, 1);
       }
 
@@ -12259,7 +12362,10 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       if (!m) return false;
 
       const opponents = getOpponents(ctx, controller);
+      const sourcePermanentId = String(triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id || '');
+      const sourceCreature = findCreatureOnBattlefieldById(ctx, sourcePermanentId);
       for (const opp of opponents) {
+        if (sourceCreature) recordCreatureDealtDamageToPlayerThisTurn(ctx, sourceCreature, opp, 7);
         applyDamageToPlayer(ctx, opp, 7);
       }
       drawCardsFromZone(ctx, controller, 7);
@@ -12281,6 +12387,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const players: any[] = Array.isArray((state as any).players) ? (state as any).players : [];
       const isPlayer = players.some((p: any) => String(p?.id || '') === String(targetId));
       if (isPlayer) {
+        const sourcePermanentId = String(triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id || '');
+        const sourceCreature = findCreatureOnBattlefieldById(ctx, sourcePermanentId);
+        if (sourceCreature) recordCreatureDealtDamageToPlayerThisTurn(ctx, sourceCreature, targetId as any, 7);
         applyDamageToPlayer(ctx, targetId as any, 7);
       } else {
         applyDamageToPermanent(ctx, String(targetId), 7);

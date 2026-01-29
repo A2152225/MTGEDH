@@ -1289,6 +1289,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlocker;
             blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlocker;
             blocker.tookDamageThisTurn = true;
+
+            // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
+            try {
+              const stateAny = (ctx as any).state as any;
+              const srcId = String(attacker?.id || '').trim();
+              const victimId = String(blocker?.id || '').trim();
+              if (srcId && victimId) {
+                stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][victimId] = true;
+              }
+            } catch {
+              // best-effort only
+            }
             remainingDamage -= damageToBlocker;
             
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
@@ -1324,6 +1338,19 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
             const currentLife = life[defendingPlayerId] ?? startingLife;
             life[defendingPlayerId] = currentLife - remainingDamage;
+
+            // Track damage dealt to each player this turn.
+            try {
+              (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
+              (state as any).damageTakenThisTurnByPlayer[defendingPlayerId] =
+                ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + remainingDamage;
+            } catch {}
+
+            // Track life lost this turn for common oracle checks.
+            try {
+              state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+              state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + remainingDamage;
+            } catch {}
             
             result.damageToPlayers[defendingPlayerId] = 
               (result.damageToPlayers[defendingPlayerId] || 0) + remainingDamage;
@@ -1449,6 +1476,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             attacker.damageThisTurn = (attacker.damageThisTurn || 0) + blockerPower;
             attacker.combatDamageThisTurn = (attacker.combatDamageThisTurn || 0) + blockerPower;
             attacker.tookDamageThisTurn = true;
+
+            // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
+            try {
+              const stateAny = (ctx as any).state as any;
+              const srcId = String(blocker?.id || '').trim();
+              const victimId = String(attacker?.id || '').trim();
+              if (srcId && victimId) {
+                stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
+                stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][victimId] = true;
+              }
+            } catch {
+              // best-effort only
+            }
             
             debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerPower} damage to attacker ${card.name || attacker.id}`);
             
@@ -2287,6 +2328,16 @@ export function nextTurn(ctx: GameContext) {
         if (pid) stateAny.discardedCardThisTurn[String(pid)] = false;
       }
       stateAny.anyPlayerDiscardedCardThisTurn = false;
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn combat/damage-death linkage tracking (for intervening-if templates like
+    // "if a creature dealt damage by this creature this turn died").
+    try {
+      const stateAny = (ctx as any).state as any;
+      stateAny.creaturesDamagedByThisCreatureThisTurn = {};
+      stateAny.creaturesDiedThisTurnIds = [];
     } catch {
       // best-effort only
     }

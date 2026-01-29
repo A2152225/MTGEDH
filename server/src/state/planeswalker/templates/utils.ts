@@ -93,7 +93,12 @@ export function parseCreateTokenDescriptor(raw: string): {
   return { name, colors, creatureTypes, abilities };
 }
 
-export function modifyLifeLikeStack(ctx: GameContext, playerId: PlayerID, delta: number) {
+export function modifyLifeLikeStack(
+  ctx: GameContext,
+  playerId: PlayerID,
+  delta: number,
+  options?: { trackLifeChangeThisTurn?: boolean }
+) {
   const state = (ctx as any).state;
   if (!state) return;
 
@@ -103,6 +108,21 @@ export function modifyLifeLikeStack(ctx: GameContext, playerId: PlayerID, delta:
 
   const currentLife = state.life[playerId] ?? startingLife;
   state.life[playerId] = currentLife + delta;
+
+  if (options?.trackLifeChangeThisTurn !== false && delta !== 0) {
+    if (delta > 0) {
+      try {
+        state.lifeGainedThisTurn = state.lifeGainedThisTurn || {};
+        state.lifeGainedThisTurn[String(playerId)] = (state.lifeGainedThisTurn[String(playerId)] || 0) + delta;
+      } catch {}
+    } else {
+      try {
+        state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+        state.lifeLostThisTurn[String(playerId)] =
+          (state.lifeLostThisTurn[String(playerId)] || 0) + Math.abs(delta);
+      } catch {}
+    }
+  }
 
   const player = players.find((p: any) => p.id === playerId);
   if (player) player.life = state.life[playerId];

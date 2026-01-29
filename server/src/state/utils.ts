@@ -778,6 +778,12 @@ export function triggerLifeGainEffects(
         gameState.life = gameState.life || {};
         gameState.life[player.id] = currentLife - 1;
         player.life = gameState.life[player.id];
+
+        // Track life lost this turn.
+        try {
+          gameState.lifeLostThisTurn = gameState.lifeLostThisTurn || {};
+          gameState.lifeLostThisTurn[String(player.id)] = (gameState.lifeLostThisTurn[String(player.id)] || 0) + 1;
+        } catch {}
       }
       triggered.push({ 
         permanent: perm.card.name || perm.id, 
@@ -799,6 +805,13 @@ export function triggerLifeGainEffects(
         gameState.life = gameState.life || {};
         gameState.life[targetOpponent.id] = currentLife - amountGained;
         targetOpponent.life = gameState.life[targetOpponent.id];
+
+        // Track life lost this turn.
+        try {
+          gameState.lifeLostThisTurn = gameState.lifeLostThisTurn || {};
+          gameState.lifeLostThisTurn[String(targetOpponent.id)] =
+            (gameState.lifeLostThisTurn[String(targetOpponent.id)] || 0) + Number(amountGained || 0);
+        } catch {}
         triggered.push({ 
           permanent: perm.card.name || perm.id, 
           effect: `Target opponent lost ${amountGained} life` 

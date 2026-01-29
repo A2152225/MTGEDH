@@ -254,12 +254,42 @@ function executeDealXDamage(
     
     // Damage all players (simplified)
     const players = ctx.state.players || [];
+    (ctx.state as any).life = (ctx.state as any).life || {};
     const life = (ctx.state as any).life || {};
     const startingLife = (ctx.state as any).startingLife || 40;
+
+    const sourceTypeLineLower = String(permanent?.card?.type_line || '').toLowerCase();
+    const isSourceCreature = sourceTypeLineLower.includes('creature');
     
     for (const player of players) {
       const currentLife = life[player.id] ?? startingLife;
       life[player.id] = currentLife - xValue;
+
+      // Sync to player object
+      try {
+        (player as any).life = life[player.id];
+      } catch {}
+
+      // Track per-turn damage/life-loss for intervening-if and other rules.
+      try {
+        (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
+        (ctx.state as any).damageTakenThisTurnByPlayer[String(player.id)] =
+          ((ctx.state as any).damageTakenThisTurnByPlayer[String(player.id)] || 0) + xValue;
+
+        (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+        (ctx.state as any).lifeLostThisTurn[String(player.id)] = ((ctx.state as any).lifeLostThisTurn[String(player.id)] || 0) + xValue;
+
+        if (isSourceCreature && permanent?.id) {
+          (ctx.state as any).creaturesThatDealtDamageToPlayer = (ctx.state as any).creaturesThatDealtDamageToPlayer || {};
+          const perPlayer = (((ctx.state as any).creaturesThatDealtDamageToPlayer[String(player.id)] =
+            (ctx.state as any).creaturesThatDealtDamageToPlayer[String(player.id)] || {}) as any);
+          perPlayer[String(permanent.id)] = {
+            creatureName: String(permanent?.card?.name || permanent.id),
+            totalDamage: (perPlayer[String(permanent.id)]?.totalDamage || 0) + xValue,
+            lastDamageTime: Date.now(),
+          };
+        }
+      } catch {}
     }
     
     return {

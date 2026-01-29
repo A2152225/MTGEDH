@@ -4463,6 +4463,13 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Pay the life immediately
           game.state.life = game.state.life || {};
           game.state.life[playerId] = currentLife - additionalCost.amount;
+
+          // Track life lost this turn.
+          try {
+            (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+            (game.state as any).lifeLostThisTurn[String(playerId)] =
+              ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
+          } catch {}
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,

@@ -47,11 +47,35 @@ export function emitPendingDamageTriggers(
       const controllerId = String(controller || '');
       const dmg = Number(damageAmount || 0);
       if (controllerId && dmg > 0) {
+        const sourceTypeLineLower = String(sourcePerm?.card?.type_line || '').toLowerCase();
+        const isSourceCreature = sourceTypeLineLower.includes('creature');
         for (const p of players) {
           if (!p?.id) continue;
           if (String(p.id) === controllerId) continue;
           const currentLife = Number((life as any)[p.id] ?? startingLife);
           (life as any)[p.id] = currentLife - dmg;
+
+          // Track per-turn damage/life-loss for intervening-if and other rules.
+          try {
+            (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+            (game.state as any).damageTakenThisTurnByPlayer[String(p.id)] =
+              ((game.state as any).damageTakenThisTurnByPlayer[String(p.id)] || 0) + dmg;
+
+            (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+            (game.state as any).lifeLostThisTurn[String(p.id)] = ((game.state as any).lifeLostThisTurn[String(p.id)] || 0) + dmg;
+
+            if (isSourceCreature && sourceId) {
+              (game.state as any).creaturesThatDealtDamageToPlayer = (game.state as any).creaturesThatDealtDamageToPlayer || {};
+              const perPlayer = (((game.state as any).creaturesThatDealtDamageToPlayer[String(p.id)] =
+                (game.state as any).creaturesThatDealtDamageToPlayer[String(p.id)] || {}) as any);
+
+              perPlayer[String(sourceId)] = {
+                creatureName: String(sourceName || sourcePerm?.card?.name || sourceId),
+                totalDamage: (perPlayer[String(sourceId)]?.totalDamage || 0) + dmg,
+                lastDamageTime: Date.now(),
+              };
+            }
+          } catch {}
         }
 
         io.to(gameId).emit('chat', {

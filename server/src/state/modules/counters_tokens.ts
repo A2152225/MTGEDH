@@ -606,6 +606,22 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   // Tokens still "die" even though they don't end up in the graveyard
   if (triggerDeathEffects && isCreature) {
     try {
+      // Best-effort turn tracking for intervening-if templates.
+      try {
+        const stateAny = state as any;
+        const id = String((perm as any)?.id || '').trim();
+        if (id) {
+          stateAny.creaturesDiedThisTurnIds = Array.isArray(stateAny.creaturesDiedThisTurnIds)
+            ? stateAny.creaturesDiedThisTurnIds
+            : [];
+          if (!stateAny.creaturesDiedThisTurnIds.includes(id)) {
+            stateAny.creaturesDiedThisTurnIds.push(id);
+          }
+        }
+      } catch {
+        // best-effort only
+      }
+
       // Check for self death triggers (Aerith Gainsborough, etc.)
       const cardName = (card?.name || '').toLowerCase();
       const oracleText = (card?.oracle_text || '').toLowerCase();
@@ -1091,6 +1107,22 @@ export function runSBA(ctx: GameContext) {
         // Even though tokens don't actually go to the graveyard, they still "die" and trigger death effects
         if (isCreature) {
           try {
+            // Best-effort turn tracking for intervening-if templates.
+            try {
+              const stateAny = state as any;
+              const id = String((destroyed as any)?.id || '').trim();
+              if (id) {
+                stateAny.creaturesDiedThisTurnIds = Array.isArray(stateAny.creaturesDiedThisTurnIds)
+                  ? stateAny.creaturesDiedThisTurnIds
+                  : [];
+                if (!stateAny.creaturesDiedThisTurnIds.includes(id)) {
+                  stateAny.creaturesDiedThisTurnIds.push(id);
+                }
+              }
+            } catch {
+              // best-effort only
+            }
+
             const deathTriggers = getDeathTriggers(ctx, destroyed, controller);
             if (deathTriggers.length > 0) {
               debug(2, `[runSBA] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${(destroyed as any).card?.name || destroyed.id}`);
