@@ -147,11 +147,18 @@ export function createContext(gameId: string): GameContext {
   // Per-turn ETB tracking used by intervening-if evaluation.
   // Stored as ad-hoc fields on state to avoid widening shared GameState types.
   (state as any).landsEnteredBattlefieldThisTurn = {};
+  (state as any).nonlandPermanentsEnteredBattlefieldThisTurn = {};
   (state as any).creaturesEnteredBattlefieldThisTurnByController = {};
   (state as any).creaturesEnteredBattlefieldThisTurnByControllerSubtype = {};
   (state as any).creaturesEnteredBattlefieldThisTurnIdsByController = {};
   (state as any).artifactsEnteredBattlefieldThisTurnByController = {};
+  (state as any).artifactsEnteredBattlefieldThisTurnIdsByController = {};
+  (state as any).enchantmentsEnteredBattlefieldThisTurnByController = {};
+  (state as any).enchantmentsEnteredBattlefieldThisTurnIdsByController = {};
   (state as any).planeswalkersEnteredBattlefieldThisTurnByController = {};
+  (state as any).planeswalkersEnteredBattlefieldThisTurnIdsByController = {};
+  (state as any).battlesEnteredBattlefieldThisTurnByController = {};
+  (state as any).battlesEnteredBattlefieldThisTurnIdsByController = {};
 
   const ctx: GameContext = {
     gameId,

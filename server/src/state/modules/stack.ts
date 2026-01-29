@@ -1047,11 +1047,19 @@ export function triggerETBEffectsForToken(
   const isCreature = (token.card?.type_line || '').toLowerCase().includes('creature');
   const isLand = (token.card?.type_line || '').toLowerCase().includes('land');
   const isArtifact = (token.card?.type_line || '').toLowerCase().includes('artifact');
+  const isEnchantment = (token.card?.type_line || '').toLowerCase().includes('enchantment');
   const isPlaneswalker = (token.card?.type_line || '').toLowerCase().includes('planeswalker');
+  const isBattle = (token.card?.type_line || '').toLowerCase().includes('battle');
   const isToken = true; // By definition, this is a token
 
   // Track "entered this turn" counters for intervening-if templates.
   // (Tokens can matter here: e.g. Treasures for artifact ETBs.)
+  if (!isLand) {
+    (state as any).nonlandPermanentsEnteredBattlefieldThisTurn = (state as any).nonlandPermanentsEnteredBattlefieldThisTurn || {};
+    const key = String(controller);
+    (state as any).nonlandPermanentsEnteredBattlefieldThisTurn[key] =
+      ((state as any).nonlandPermanentsEnteredBattlefieldThisTurn[key] || 0) + 1;
+  }
   if (isLand) {
     (state as any).landsEnteredBattlefieldThisTurn = (state as any).landsEnteredBattlefieldThisTurn || {};
     const key = String(controller);
@@ -1075,12 +1083,48 @@ export function triggerETBEffectsForToken(
     const key = String(controller);
     (state as any).artifactsEnteredBattlefieldThisTurnByController[key] =
       ((state as any).artifactsEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).artifactsEnteredBattlefieldThisTurnIdsByController =
+      (state as any).artifactsEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).artifactsEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(token.id)] = true;
+  }
+  if (isEnchantment) {
+    (state as any).enchantmentsEnteredBattlefieldThisTurnByController =
+      (state as any).enchantmentsEnteredBattlefieldThisTurnByController || {};
+    const key = String(controller);
+    (state as any).enchantmentsEnteredBattlefieldThisTurnByController[key] =
+      ((state as any).enchantmentsEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).enchantmentsEnteredBattlefieldThisTurnIdsByController =
+      (state as any).enchantmentsEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).enchantmentsEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(token.id)] = true;
   }
   if (isPlaneswalker) {
     (state as any).planeswalkersEnteredBattlefieldThisTurnByController = (state as any).planeswalkersEnteredBattlefieldThisTurnByController || {};
     const key = String(controller);
     (state as any).planeswalkersEnteredBattlefieldThisTurnByController[key] =
       ((state as any).planeswalkersEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).planeswalkersEnteredBattlefieldThisTurnIdsByController =
+      (state as any).planeswalkersEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).planeswalkersEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(token.id)] = true;
+  }
+  if (isBattle) {
+    (state as any).battlesEnteredBattlefieldThisTurnByController = (state as any).battlesEnteredBattlefieldThisTurnByController || {};
+    const key = String(controller);
+    (state as any).battlesEnteredBattlefieldThisTurnByController[key] =
+      ((state as any).battlesEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).battlesEnteredBattlefieldThisTurnIdsByController = (state as any).battlesEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).battlesEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(token.id)] = true;
   }
   
   // Check all other permanents for triggers that fire when creatures/permanents enter
@@ -1384,8 +1428,18 @@ export function triggerETBEffectsForPermanent(
   const isCreature = (permanent.card?.type_line || '').toLowerCase().includes('creature');
   const isLand = (permanent.card?.type_line || '').toLowerCase().includes('land');
   const isArtifact = (permanent.card?.type_line || '').toLowerCase().includes('artifact');
+  const isEnchantment = (permanent.card?.type_line || '').toLowerCase().includes('enchantment');
   const isPlaneswalker = (permanent.card?.type_line || '').toLowerCase().includes('planeswalker');
+  const isBattle = (permanent.card?.type_line || '').toLowerCase().includes('battle');
   const isToken = permanent.isToken === true;
+
+  // Track nonland-permanent entries for "this turn" oracle checks.
+  if (!isLand) {
+    (state as any).nonlandPermanentsEnteredBattlefieldThisTurn = (state as any).nonlandPermanentsEnteredBattlefieldThisTurn || {};
+    const key = String(controller);
+    (state as any).nonlandPermanentsEnteredBattlefieldThisTurn[key] =
+      ((state as any).nonlandPermanentsEnteredBattlefieldThisTurn[key] || 0) + 1;
+  }
 
   // Track land entries for "this turn" oracle checks.
   if (isLand) {
@@ -1452,6 +1506,27 @@ export function triggerETBEffectsForPermanent(
     const key = String(controller);
     (state as any).artifactsEnteredBattlefieldThisTurnByController[key] =
       ((state as any).artifactsEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).artifactsEnteredBattlefieldThisTurnIdsByController =
+      (state as any).artifactsEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).artifactsEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(permanent.id)] = true;
+  }
+
+  // Track enchantment entries for "this turn" oracle checks.
+  if (isEnchantment) {
+    (state as any).enchantmentsEnteredBattlefieldThisTurnByController =
+      (state as any).enchantmentsEnteredBattlefieldThisTurnByController || {};
+    const key = String(controller);
+    (state as any).enchantmentsEnteredBattlefieldThisTurnByController[key] =
+      ((state as any).enchantmentsEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).enchantmentsEnteredBattlefieldThisTurnIdsByController =
+      (state as any).enchantmentsEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).enchantmentsEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(permanent.id)] = true;
   }
 
   // Track planeswalker entries for "this turn" oracle checks.
@@ -1460,6 +1535,25 @@ export function triggerETBEffectsForPermanent(
     const key = String(controller);
     (state as any).planeswalkersEnteredBattlefieldThisTurnByController[key] =
       ((state as any).planeswalkersEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).planeswalkersEnteredBattlefieldThisTurnIdsByController =
+      (state as any).planeswalkersEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).planeswalkersEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(permanent.id)] = true;
+  }
+
+  // Track battle entries for "this turn" oracle checks.
+  if (isBattle) {
+    (state as any).battlesEnteredBattlefieldThisTurnByController = (state as any).battlesEnteredBattlefieldThisTurnByController || {};
+    const key = String(controller);
+    (state as any).battlesEnteredBattlefieldThisTurnByController[key] =
+      ((state as any).battlesEnteredBattlefieldThisTurnByController[key] || 0) + 1;
+
+    (state as any).battlesEnteredBattlefieldThisTurnIdsByController = (state as any).battlesEnteredBattlefieldThisTurnIdsByController || {};
+    const byController = (state as any).battlesEnteredBattlefieldThisTurnIdsByController;
+    byController[key] = byController[key] || {};
+    byController[key][String(permanent.id)] = true;
   }
   
   // Check all other permanents for triggers that fire when creatures/permanents enter
@@ -5321,6 +5415,21 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Effect: Draw a card
     if (abilityType === 'cycling') {
       debug(2, `[resolveTopOfStack] Resolving cycling ability from ${sourceName} for ${controller}`);
+
+      // Turn-tracking for intervening-if templates like "if you cycled two or more cards this turn".
+      // Only record positive evidence to avoid false negatives.
+      try {
+        const stateAny = state as any;
+        const key = String(controller);
+        stateAny.cycleCountThisTurn = stateAny.cycleCountThisTurn || {};
+        stateAny.cycleCountThisTurn[key] = (stateAny.cycleCountThisTurn[key] ?? 0) + 1;
+        stateAny.cardsCycledThisTurn = stateAny.cardsCycledThisTurn || {};
+        stateAny.cardsCycledThisTurn[key] = stateAny.cycleCountThisTurn[key];
+        stateAny.cycledCardsThisTurn = stateAny.cycledCardsThisTurn || {};
+        stateAny.cycledCardsThisTurn[key] = stateAny.cycleCountThisTurn[key];
+      } catch {
+        // best-effort only
+      }
       
       const zones = (state as any).zones?.[controller];
       if (!zones) {
@@ -9869,6 +9978,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   const { state, bumpSeq } = ctx;
   const zones = state.zones = state.zones || {};
   let playedFromExile = false;
+  let playedFromGraveyard = false;
   
   // Handle both card object and cardId string
   let card: any;
@@ -9911,9 +10021,22 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         (z as any).exileCount = exileCards.length;
         playedFromExile = true;
       } else {
-        // During replay, card might not be in its expected zone anymore - this is okay
-        debug(1, `playLand: card ${cardOrId} not found in hand or exile for player ${playerId} (may be replay)`);
-        return;
+        // Fallback: allow playing lands from graveyard when an effect permits it (e.g., Crucible of Worlds).
+        // Socket layer validates permission; we double-check as a sanity guard.
+        const hasGraveyardLandPermission = Array.isArray((state as any).landPlayPermissions?.[playerId])
+          ? (state as any).landPlayPermissions[playerId].includes('graveyard')
+          : false;
+        const gyCards = Array.isArray((z as any).graveyard) ? ((z as any).graveyard as any[]) : null;
+        const gyIdx = gyCards ? gyCards.findIndex((c: any) => c && c.id === cardOrId) : -1;
+        if (hasGraveyardLandPermission && gyCards && gyIdx !== -1) {
+          card = gyCards.splice(gyIdx, 1)[0];
+          (z as any).graveyardCount = gyCards.length;
+          playedFromGraveyard = true;
+        } else {
+          // During replay, card might not be in its expected zone anymore - this is okay
+          debug(1, `playLand: card ${cardOrId} not found in expected zone(s) for player ${playerId} (may be replay)`);
+          return;
+        }
       }
     }
   } else {
@@ -9942,6 +10065,17 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         exileCards.splice(exIdx, 1);
         (z as any).exileCount = exileCards.length;
         playedFromExile = true;
+      }
+    }
+
+    // Also try to remove from graveyard if it exists there (e.g., Conduit/Crucible flows or replay).
+    if (z && Array.isArray((z as any).graveyard)) {
+      const gyCards = (z as any).graveyard as any[];
+      const gyIdx = gyCards.findIndex((c: any) => c && c.id === card.id);
+      if (gyIdx !== -1) {
+        gyCards.splice(gyIdx, 1);
+        (z as any).graveyardCount = gyCards.length;
+        playedFromGraveyard = true;
       }
     }
   }
@@ -10211,6 +10345,20 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       const stateAny = state as any;
       stateAny.playedCardFromExileThisTurn = stateAny.playedCardFromExileThisTurn || {};
       stateAny.playedCardFromExileThisTurn[String(playerId)] = true;
+
+      // More specific per-turn tracking (for "played a land ... other than your hand" templates).
+      stateAny.playedLandFromExileThisTurn = stateAny.playedLandFromExileThisTurn || {};
+      stateAny.playedLandFromExileThisTurn[String(playerId)] = true;
+    } catch {
+      // best-effort only
+    }
+  }
+
+  if (playedFromGraveyard) {
+    try {
+      const stateAny = state as any;
+      stateAny.playedLandFromGraveyardThisTurn = stateAny.playedLandFromGraveyardThisTurn || {};
+      stateAny.playedLandFromGraveyardThisTurn[String(playerId)] = true;
     } catch {
       // best-effort only
     }
@@ -10403,6 +10551,10 @@ export function castSpell(
       const stateAny = state as any;
       stateAny.playedCardFromExileThisTurn = stateAny.playedCardFromExileThisTurn || {};
       stateAny.playedCardFromExileThisTurn[String(playerId)] = true;
+
+      // Alias tracking used by some best-effort intervening-if templates.
+      stateAny.castFromExileThisTurn = stateAny.castFromExileThisTurn || {};
+      stateAny.castFromExileThisTurn[String(playerId)] = true;
     } catch {
       // best-effort only
     }

@@ -21,6 +21,31 @@ export function recordCardPutIntoGraveyardThisTurn(
     }
 
     const typeLine = String(card?.type_line || "").toLowerCase();
+
+    // Descend (LCI): you "descended" if a permanent card was put into your graveyard this turn.
+    // Be conservative: only set true on positive evidence.
+    if (
+      typeLine.includes('artifact') ||
+      typeLine.includes('creature') ||
+      typeLine.includes('enchantment') ||
+      typeLine.includes('land') ||
+      typeLine.includes('planeswalker') ||
+      typeLine.includes('battle')
+    ) {
+      stateAny.descendedThisTurn = stateAny.descendedThisTurn || {};
+      stateAny.descendedThisTurn[owner] = true;
+    }
+
+    // Revolt-style tracking: a permanent left the battlefield under a controller's control.
+    // Use controller-at-leave-time when provided; fall back to owner.
+    if (options?.fromBattlefield) {
+      const controllerAtLeave = String(options?.controllerId || owner).trim();
+      if (controllerAtLeave) {
+        stateAny.permanentLeftBattlefieldThisTurn = stateAny.permanentLeftBattlefieldThisTurn || {};
+        stateAny.permanentLeftBattlefieldThisTurn[controllerAtLeave] = true;
+      }
+    }
+
     if (typeLine.includes("creature")) {
       stateAny.creatureCardPutIntoYourGraveyardThisTurn = stateAny.creatureCardPutIntoYourGraveyardThisTurn || {};
       stateAny.creatureCardPutIntoYourGraveyardThisTurn[owner] = true;

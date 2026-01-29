@@ -410,11 +410,25 @@ function destroyPermanents(state: any, permanents: any[]): void {
 
         // Per-turn tracking for intervening-if graveyard-put templates.
         try {
+          state.permanentLeftBattlefieldThisTurn = state.permanentLeftBattlefieldThisTurn || {};
+          if (controller) state.permanentLeftBattlefieldThisTurn[String(controller)] = true;
+
+          const typeLine = String((perm as any).card?.type_line || '').toLowerCase();
+          if (
+            typeLine.includes('artifact') ||
+            typeLine.includes('creature') ||
+            typeLine.includes('enchantment') ||
+            typeLine.includes('land') ||
+            typeLine.includes('planeswalker') ||
+            typeLine.includes('battle')
+          ) {
+            state.descendedThisTurn = state.descendedThisTurn || {};
+            if (controller) state.descendedThisTurn[String(controller)] = true;
+          }
+
           state.cardsPutIntoYourGraveyardThisTurn = state.cardsPutIntoYourGraveyardThisTurn || {};
           state.cardsPutIntoYourGraveyardThisTurn[String(controller)] =
             (state.cardsPutIntoYourGraveyardThisTurn[String(controller)] || 0) + 1;
-
-          const typeLine = String((perm as any).card?.type_line || '').toLowerCase();
           if (typeLine.includes('creature')) {
             state.creatureCardPutIntoYourGraveyardThisTurn = state.creatureCardPutIntoYourGraveyardThisTurn || {};
             state.creatureCardPutIntoYourGraveyardThisTurn[String(controller)] = true;

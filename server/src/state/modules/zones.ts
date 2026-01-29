@@ -702,6 +702,17 @@ export function movePermanentToLibrary(
   const perm = battlefield.splice(idx, 1)[0];
   const owner = perm.owner as PlayerID;
   const card = perm.card;
+
+  // Revolt-style per-turn tracking: a permanent left the battlefield under its controller's control.
+  try {
+    const controllerAtLeave = String((perm as any)?.controller || owner || '').trim();
+    if (controllerAtLeave) {
+      (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
+      (state as any).permanentLeftBattlefieldThisTurn[controllerAtLeave] = true;
+    }
+  } catch {
+    // best-effort only
+  }
   
   // Commander Replacement Effect (Rule 903.9a):
   // If a commander would be put into its owner's library from anywhere,
@@ -788,6 +799,17 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   const perm = battlefield.splice(idx, 1)[0];
   const owner = perm.owner as PlayerID;
   const card = perm.card;
+
+  // Revolt-style per-turn tracking: a permanent left the battlefield under its controller's control.
+  try {
+    const controllerAtLeave = String((perm as any)?.controller || owner || '').trim();
+    if (controllerAtLeave) {
+      (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
+      (state as any).permanentLeftBattlefieldThisTurn[controllerAtLeave] = true;
+    }
+  } catch {
+    // best-effort only
+  }
 
   // Tokens cease to exist when they leave the battlefield (Rule 111.7).
   if ((perm as any).isToken === true) {

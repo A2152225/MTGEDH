@@ -974,6 +974,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "playLand": {
+        // Turn-tracking: persisted events include fromZone (hand/graveyard). Use this as
+        // authoritative positive evidence for intervening-if templates.
+        try {
+          const playerId = String((e as any).playerId);
+          const fromZone = String((e as any).fromZone || '').toLowerCase();
+          const stateAny = (ctx.state as any) as any;
+          if (fromZone === 'graveyard') {
+            stateAny.playedLandFromGraveyardThisTurn = stateAny.playedLandFromGraveyardThisTurn || {};
+            stateAny.playedLandFromGraveyardThisTurn[playerId] = true;
+          }
+        } catch {
+          // best-effort only
+        }
+
         // Prefer full card object for replay (contains all card data)
         // Fall back to cardId for backward compatibility with old events
         const cardData = (e as any).card || (e as any).cardId;

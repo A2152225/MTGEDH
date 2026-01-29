@@ -173,8 +173,29 @@ function getArtifactsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: stri
   return typeof v === 'number' ? v : 0;
 }
 
+function getEnchantmentsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+  const map = (ctx as any).state?.enchantmentsEnteredBattlefieldThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  const v = (map as any)[playerId];
+  return typeof v === 'number' ? v : 0;
+}
+
 function getPlaneswalkersEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
   const map = (ctx as any).state?.planeswalkersEnteredBattlefieldThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  const v = (map as any)[playerId];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getBattlesEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+  const map = (ctx as any).state?.battlesEnteredBattlefieldThisTurnByController;
+  if (!map || typeof map !== 'object') return null;
+  const v = (map as any)[playerId];
+  return typeof v === 'number' ? v : 0;
+}
+
+function getNonlandPermanentsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+  const map = (ctx as any).state?.nonlandPermanentsEnteredBattlefieldThisTurn;
   if (!map || typeof map !== 'object') return null;
   const v = (map as any)[playerId];
   return typeof v === 'number' ? v : 0;
@@ -673,6 +694,39 @@ function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, 
     if (n === null) return null;
     if (!excludeId) return n;
     if (n === 0) return 0;
+
+    // Prefer deterministic id-tracking if available.
+    const idsByController = (ctx as any).state?.artifactsEnteredBattlefieldThisTurnIdsByController;
+    const key = String(controllerId);
+    const idsForController = idsByController && typeof idsByController === 'object' ? idsByController[key] : null;
+    if (idsForController && typeof idsForController === 'object') {
+      if ((idsForController as any)[String(excludeId)] === true) {
+        return Math.max(0, n - 1);
+      }
+      return n;
+    }
+
+    // Conservative fallback: without id-tracking, "another" with exactly 1 is ambiguous.
+    if (n >= 2) return 1;
+    return null;
+  }
+
+  if (typeLower === 'enchantment') {
+    const n = getEnchantmentsEnteredBattlefieldThisTurn(ctx, controllerId);
+    if (n === null) return null;
+    if (!excludeId) return n;
+    if (n === 0) return 0;
+
+    const idsByController = (ctx as any).state?.enchantmentsEnteredBattlefieldThisTurnIdsByController;
+    const key = String(controllerId);
+    const idsForController = idsByController && typeof idsByController === 'object' ? idsByController[key] : null;
+    if (idsForController && typeof idsForController === 'object') {
+      if ((idsForController as any)[String(excludeId)] === true) {
+        return Math.max(0, n - 1);
+      }
+      return n;
+    }
+
     if (n >= 2) return 1;
     return null;
   }
@@ -682,6 +736,37 @@ function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, 
     if (n === null) return null;
     if (!excludeId) return n;
     if (n === 0) return 0;
+
+    const idsByController = (ctx as any).state?.planeswalkersEnteredBattlefieldThisTurnIdsByController;
+    const key = String(controllerId);
+    const idsForController = idsByController && typeof idsByController === 'object' ? idsByController[key] : null;
+    if (idsForController && typeof idsForController === 'object') {
+      if ((idsForController as any)[String(excludeId)] === true) {
+        return Math.max(0, n - 1);
+      }
+      return n;
+    }
+
+    if (n >= 2) return 1;
+    return null;
+  }
+
+  if (typeLower === 'battle') {
+    const n = getBattlesEnteredBattlefieldThisTurn(ctx, controllerId);
+    if (n === null) return null;
+    if (!excludeId) return n;
+    if (n === 0) return 0;
+
+    const idsByController = (ctx as any).state?.battlesEnteredBattlefieldThisTurnIdsByController;
+    const key = String(controllerId);
+    const idsForController = idsByController && typeof idsByController === 'object' ? idsByController[key] : null;
+    if (idsForController && typeof idsForController === 'object') {
+      if ((idsForController as any)[String(excludeId)] === true) {
+        return Math.max(0, n - 1);
+      }
+      return n;
+    }
+
     if (n >= 2) return 1;
     return null;
   }
@@ -1589,10 +1674,8 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
-      const map = (ctx as any).state?.nonlandPermanentsEnteredBattlefieldThisTurn;
-      const v = map?.[controllerId];
-      if (typeof v === "number") return v >= n;
-      return null;
+      const v = getNonlandPermanentsEnteredBattlefieldThisTurn(ctx, controllerId);
+      return v === null ? null : v >= n;
     }
   }
 
@@ -1609,7 +1692,14 @@ function evaluateInterveningIfClauseInternal(
       const typeLower = plural.endsWith('s') ? plural.slice(0, -1) : plural;
 
       // Deterministic per-turn tracking when available (avoid false negatives).
-      if (typeLower === 'land' || typeLower === 'creature' || typeLower === 'artifact' || typeLower === 'planeswalker') {
+      if (
+        typeLower === 'land' ||
+        typeLower === 'creature' ||
+        typeLower === 'artifact' ||
+        typeLower === 'enchantment' ||
+        typeLower === 'planeswalker' ||
+        typeLower === 'battle'
+      ) {
         const c = countControlledEnteredThisTurn(ctx, controllerId, typeLower);
         if (c === null) return null;
         return c >= n;
@@ -3665,9 +3755,18 @@ function evaluateInterveningIfClauseInternal(
 
   // "if you descended this turn" (best-effort: requires a per-turn flag)
   if (/^if\s+you\s+descended\s+this\s+turn$/i.test(clause)) {
-    const map = (ctx as any).state?.descendedThisTurn;
-    const v = map?.[controllerId] ?? (ctx as any).state?.descended;
-    return typeof v === "boolean" ? v : null;
+    const stateAny: any = (ctx as any).state || {};
+    const map = stateAny?.descendedThisTurn;
+
+    const tracked = map && typeof map === 'object' ? (map as any)[controllerId] : undefined;
+    if (typeof tracked === 'boolean') return tracked;
+
+    // Positive evidence: any creature card entering your graveyard implies you descended.
+    const creatureCard = stateAny?.creatureCardPutIntoYourGraveyardThisTurn?.[controllerId];
+    if (creatureCard === true) return true;
+
+    const v = stateAny?.descended;
+    return typeof v === 'boolean' ? v : null;
   }
 
   // "if you attacked with N or more creatures this turn" (Planechase and similar)

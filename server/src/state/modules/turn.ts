@@ -2317,6 +2317,29 @@ export function nextTurn(ctx: GameContext) {
       // best-effort only
     }
 
+    // Clear additional per-turn play/cast zone tracking (used by some intervening-if templates).
+    // Keep these undefined-until-seen to avoid false negatives.
+    try {
+      const stateAny = (ctx as any).state as any;
+      stateAny.castFromExileThisTurn = {};
+      stateAny.castFromGraveyardThisTurn = {};
+      stateAny.playedLandFromGraveyardThisTurn = {};
+      stateAny.playedLandFromExileThisTurn = {};
+    } catch {
+      // best-effort only
+    }
+
+    // Clear cycling tracking (used by "if you cycled two or more cards this turn" templates).
+    // Keep these undefined-until-seen to avoid false negatives.
+    try {
+      const stateAny = (ctx as any).state as any;
+      stateAny.cycleCountThisTurn = {};
+      stateAny.cardsCycledThisTurn = {};
+      stateAny.cycledCardsThisTurn = {};
+    } catch {
+      // best-effort only
+    }
+
     // Clear per-turn discard tracking (for intervening-if templates like
     // "if a player discarded a card this turn" / "if an opponent discarded a card this turn").
     try {
@@ -2573,9 +2596,18 @@ export function nextTurn(ctx: GameContext) {
     // Reset land-ETB tracking for this turn.
     (ctx as any).state.landsEnteredBattlefieldThisTurn = {};
 
+    // Reset nonland-permanent ETB tracking for this turn.
+    (ctx as any).state.nonlandPermanentsEnteredBattlefieldThisTurn = {};
+
     // Reset artifact/planeswalker ETB tracking for this turn.
     (ctx as any).state.artifactsEnteredBattlefieldThisTurnByController = {};
+    (ctx as any).state.artifactsEnteredBattlefieldThisTurnIdsByController = {};
+    (ctx as any).state.enchantmentsEnteredBattlefieldThisTurnByController = {};
+    (ctx as any).state.enchantmentsEnteredBattlefieldThisTurnIdsByController = {};
     (ctx as any).state.planeswalkersEnteredBattlefieldThisTurnByController = {};
+    (ctx as any).state.planeswalkersEnteredBattlefieldThisTurnIdsByController = {};
+    (ctx as any).state.battlesEnteredBattlefieldThisTurnByController = {};
+    (ctx as any).state.battlesEnteredBattlefieldThisTurnIdsByController = {};
 
     // Reset die roll tracking for this turn.
     (ctx as any).state.dieRollsThisTurn = {};
@@ -2596,6 +2628,7 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnIdsByController = {};
     (ctx as any).state.faceDownCreaturesEnteredBattlefieldThisTurnByController = {};
     (ctx as any).state.permanentLeftBattlefieldThisTurn = {};
+    (ctx as any).state.descendedThisTurn = {};
 
     // Reset per-permanent damage tracking for "this turn" intervening-if clauses.
     try {
