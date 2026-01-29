@@ -234,6 +234,12 @@ export function resolveDamageTrigger(
 ): string {
   const state = (ctx as any).state;
   const life = state.life || {};
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const dmg = Math.max(0, Number(triggerInfo.damageAmount ?? 0));
+  const sourceId = String(triggerInfo.sourceId || '');
+  const sourcePerm = sourceId ? battlefield.find((p: any) => String(p?.id) === sourceId) : null;
+  const sourceTL = String(sourcePerm?.card?.type_line || '').toLowerCase();
+  const isSourceCreature = !!(sourcePerm && sourceTL.includes('creature'));
   
   // Handle "each opponent" targeting
   if (triggerInfo.targetType === 'each_opponent') {
@@ -241,10 +247,33 @@ export function resolveDamageTrigger(
     const opponents = Object.keys(life).filter(pid => pid !== controller);
     
     for (const opponentId of opponents) {
-      life[opponentId] = (life[opponentId] || 40) - triggerInfo.damageAmount;
+      life[opponentId] = (life[opponentId] || 40) - dmg;
+
+      // Track per-turn damage/life-loss for intervening-if and other rules.
+      try {
+        state.damageTakenThisTurnByPlayer = state.damageTakenThisTurnByPlayer || {};
+        state.damageTakenThisTurnByPlayer[String(opponentId)] =
+          (state.damageTakenThisTurnByPlayer[String(opponentId)] || 0) + dmg;
+      } catch {}
+      try {
+        state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+        state.lifeLostThisTurn[String(opponentId)] = (state.lifeLostThisTurn[String(opponentId)] || 0) + dmg;
+      } catch {}
+      try {
+        if (isSourceCreature && sourceId) {
+          state.creaturesThatDealtDamageToPlayer = state.creaturesThatDealtDamageToPlayer || {};
+          const perPlayer = ((state.creaturesThatDealtDamageToPlayer[String(opponentId)] =
+            state.creaturesThatDealtDamageToPlayer[String(opponentId)] || {}) as any);
+          perPlayer[sourceId] = {
+            creatureName: String(sourcePerm?.card?.name || triggerInfo.sourceName || sourceId),
+            totalDamage: (perPlayer[sourceId]?.totalDamage || 0) + dmg,
+            lastDamageTime: Date.now(),
+          };
+        }
+      } catch {}
     }
     
-    return `${triggerInfo.sourceName} dealt ${triggerInfo.damageAmount} damage to each opponent.`;
+    return `${triggerInfo.sourceName} dealt ${dmg} damage to each opponent.`;
   }
   
   // Handle single target
@@ -254,18 +283,41 @@ export function resolveDamageTrigger(
   
   // Check if target is a player
   if (life.hasOwnProperty(targetId)) {
-    life[targetId] = (life[targetId] || 40) - triggerInfo.damageAmount;
-    return `${triggerInfo.sourceName} dealt ${triggerInfo.damageAmount} damage to player.`;
+    life[targetId] = (life[targetId] || 40) - dmg;
+
+    // Track per-turn damage/life-loss for intervening-if and other rules.
+    try {
+      state.damageTakenThisTurnByPlayer = state.damageTakenThisTurnByPlayer || {};
+      state.damageTakenThisTurnByPlayer[String(targetId)] = (state.damageTakenThisTurnByPlayer[String(targetId)] || 0) + dmg;
+    } catch {}
+    try {
+      state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+      state.lifeLostThisTurn[String(targetId)] = (state.lifeLostThisTurn[String(targetId)] || 0) + dmg;
+    } catch {}
+    try {
+      if (isSourceCreature && sourceId) {
+        state.creaturesThatDealtDamageToPlayer = state.creaturesThatDealtDamageToPlayer || {};
+        const perPlayer = ((state.creaturesThatDealtDamageToPlayer[String(targetId)] =
+          state.creaturesThatDealtDamageToPlayer[String(targetId)] || {}) as any);
+        perPlayer[sourceId] = {
+          creatureName: String(sourcePerm?.card?.name || triggerInfo.sourceName || sourceId),
+          totalDamage: (perPlayer[sourceId]?.totalDamage || 0) + dmg,
+          lastDamageTime: Date.now(),
+        };
+      }
+    } catch {}
+
+    return `${triggerInfo.sourceName} dealt ${dmg} damage to player.`;
   }
   
   // Check if target is a permanent (planeswalker, creature, etc.)
   const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
   if (targetPerm) {
     // Mark damage on the permanent
-    targetPerm.damageMarked = (targetPerm.damageMarked || 0) + triggerInfo.damageAmount;
+    targetPerm.damageMarked = (targetPerm.damageMarked || 0) + dmg;
     
     const targetName = targetPerm.card?.name || "target";
-    return `${triggerInfo.sourceName} dealt ${triggerInfo.damageAmount} damage to ${targetName}.`;
+    return `${triggerInfo.sourceName} dealt ${dmg} damage to ${targetName}.`;
   }
   
   return `${triggerInfo.sourceName} dealt ${triggerInfo.damageAmount} damage.`;

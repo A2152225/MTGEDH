@@ -741,10 +741,51 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   break;
                 }
                 case 'DamagePlayer': {
-                  // Reduce player life
-                  if (ctx.life && eff.playerId) {
-                    ctx.life[eff.playerId] = (ctx.life[eff.playerId] ?? ctx.state.startingLife ?? 40) - eff.amount;
-                  }
+                  const playerId = String((eff as any).playerId || '');
+                  const dmg = Math.max(0, Number((eff as any).amount ?? 0));
+                  if (!playerId || dmg <= 0) break;
+
+                  (ctx.state as any).life = (ctx.state as any).life || {};
+                  (ctx as any).life = (ctx as any).life || {};
+                  const players = (ctx.state as any).players || [];
+                  const player = players.find((p: any) => String(p?.id) === playerId);
+                  const startingLife = (ctx.state as any).startingLife ?? 40;
+                  const current = (ctx.state as any).life[playerId] ?? (ctx as any).life?.[playerId] ?? player?.life ?? startingLife;
+                  const next = current - dmg;
+                  (ctx.state as any).life[playerId] = next;
+                  (ctx as any).life[playerId] = next;
+                  if (player) player.life = next;
+
+                  // Track per-turn damage/life loss for intervening-if templates.
+                  try {
+                    (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
+                    (ctx.state as any).damageTakenThisTurnByPlayer[playerId] =
+                      ((ctx.state as any).damageTakenThisTurnByPlayer[playerId] || 0) + dmg;
+                  } catch {}
+                  try {
+                    (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+                    (ctx.state as any).lifeLostThisTurn[playerId] = ((ctx.state as any).lifeLostThisTurn[playerId] || 0) + dmg;
+                  } catch {}
+
+                  // Best-effort attribution: if the effect includes a source battlefield creature.
+                  try {
+                    const sourcePermanentId = String((eff as any).sourcePermanentId || (eff as any).sourceId || '');
+                    if (sourcePermanentId) {
+                      const battlefield = (ctx.state as any).battlefield || [];
+                      const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
+                      const tl = String(sourcePerm?.card?.type_line || '').toLowerCase();
+                      if (sourcePerm && tl.includes('creature')) {
+                        (ctx.state as any).creaturesThatDealtDamageToPlayer = (ctx.state as any).creaturesThatDealtDamageToPlayer || {};
+                        const perPlayer = (((ctx.state as any).creaturesThatDealtDamageToPlayer[playerId] =
+                          (ctx.state as any).creaturesThatDealtDamageToPlayer[playerId] || {}) as any);
+                        perPlayer[sourcePermanentId] = {
+                          creatureName: String(sourcePerm?.card?.name || sourcePermanentId),
+                          totalDamage: (perPlayer[sourcePermanentId]?.totalDamage || 0) + dmg,
+                          lastDamageTime: Date.now(),
+                        };
+                      }
+                    }
+                  } catch {}
                   break;
                 }
                 case 'GainLife': {
@@ -765,6 +806,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   (ctx as any).life = (ctx as any).life || {};
                   (ctx as any).life[playerId] = next;
                   if (player) player.life = next;
+
+                  // Track life gained this turn.
+                  try {
+                    (ctx.state as any).lifeGainedThisTurn = (ctx.state as any).lifeGainedThisTurn || {};
+                    (ctx.state as any).lifeGainedThisTurn[String(playerId)] =
+                      ((ctx.state as any).lifeGainedThisTurn[String(playerId)] || 0) + finalAmount;
+                  } catch {}
                   break;
                 }
                 case 'LoseLife': {
@@ -785,6 +833,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   (ctx as any).life = (ctx as any).life || {};
                   (ctx as any).life[playerId] = next;
                   if (player) player.life = next;
+
+                  // Track life lost this turn.
+                  try {
+                    (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+                    (ctx.state as any).lifeLostThisTurn[String(playerId)] =
+                      ((ctx.state as any).lifeLostThisTurn[String(playerId)] || 0) + Math.abs(finalAmount);
+                  } catch {}
                   break;
                 }
                 case 'DrawCards':
@@ -1555,7 +1610,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const payLife = (e as any).payLife;
         try {
           if (payLife && pid && ctx.life) {
-            ctx.life[pid] = (ctx.life[pid] ?? ctx.state.startingLife ?? 40) - 2;
+            (ctx.state as any).life = (ctx.state as any).life || {};
+            (ctx as any).life = (ctx as any).life || {};
+            const players = (ctx.state as any).players || [];
+            const player = players.find((p: any) => String(p?.id) === String(pid));
+            const startingLife = (ctx.state as any).startingLife ?? 40;
+            const current = (ctx.state as any).life?.[pid] ?? (ctx as any).life?.[pid] ?? player?.life ?? startingLife;
+            const next = Number(current) - 2;
+            (ctx.state as any).life[pid] = next;
+            (ctx as any).life[pid] = next;
+            if (player) player.life = next;
+
+            // Track life lost this turn.
+            try {
+              (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+              (ctx.state as any).lifeLostThisTurn[String(pid)] = ((ctx.state as any).lifeLostThisTurn[String(pid)] || 0) + 2;
+            } catch {}
           }
           if (!payLife && permId) {
             // Land enters tapped

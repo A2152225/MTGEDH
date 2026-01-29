@@ -240,9 +240,24 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       if (perm) {
         if ((e as any).payLife) {
           // Pay 2 life to enter untapped
-          const life = ctx.state?.life || {};
-          life[(e as any).playerId] = (life[(e as any).playerId] || 40) - 2;
+          const pid = String((e as any).playerId || '');
+          const life = (ctx.state as any).life || {};
+          const current = Number(life[pid] ?? (ctx.state as any).startingLife ?? 40);
+          const next = current - 2;
+          life[pid] = next;
           ctx.state.life = life;
+
+          // Sync to player object
+          try {
+            const player = ((ctx.state as any).players || []).find((p: any) => String(p?.id) === pid);
+            if (player) player.life = next;
+          } catch {}
+
+          // Track life lost this turn.
+          try {
+            (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+            (ctx.state as any).lifeLostThisTurn[pid] = ((ctx.state as any).lifeLostThisTurn[pid] || 0) + 2;
+          } catch {}
           perm.tapped = false;
         } else {
           // Enter tapped
