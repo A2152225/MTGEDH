@@ -165,6 +165,11 @@ export function createContext(gameId: string): GameContext {
   (state as any).battlesEnteredBattlefieldThisTurnByController = {};
   (state as any).battlesEnteredBattlefieldThisTurnIdsByController = {};
 
+  // Per-turn tap tracking used by intervening-if evaluation.
+  // Conservative: we only set `true` on positive evidence and avoid writing `false`.
+  (state as any).tappedNonlandPermanentThisTurnByPlayer = {};
+  (state as any).tappedNonlandPermanentLastTurnByPlayer = {};
+
   const ctx: GameContext = {
     gameId,
     state,

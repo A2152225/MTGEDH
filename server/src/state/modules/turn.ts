@@ -2237,6 +2237,29 @@ export function nextTurn(ctx: GameContext) {
           (attackedThisTurnByPlayer as any)[ended] = [];
         }
 
+        // Persist whether this player tapped any nonland permanents during their last turn.
+        // Conservative: only set `true` on positive evidence; otherwise clear any prior value.
+        const tappedNonlandThisTurn = stateAny.tappedNonlandPermanentThisTurnByPlayer;
+        const didTapNonland = tappedNonlandThisTurn && typeof tappedNonlandThisTurn === 'object'
+          ? (tappedNonlandThisTurn as any)[ended]
+          : undefined;
+        if (tappedNonlandThisTurn && typeof tappedNonlandThisTurn === 'object') {
+          stateAny.tappedNonlandPermanentLastTurnByPlayer = stateAny.tappedNonlandPermanentLastTurnByPlayer || {};
+          if (didTapNonland === true) (stateAny.tappedNonlandPermanentLastTurnByPlayer as any)[ended] = true;
+          else {
+            try {
+              delete (stateAny.tappedNonlandPermanentLastTurnByPlayer as any)[ended];
+            } catch {
+              (stateAny.tappedNonlandPermanentLastTurnByPlayer as any)[ended] = undefined;
+            }
+          }
+          try {
+            delete (tappedNonlandThisTurn as any)[ended];
+          } catch {
+            (tappedNonlandThisTurn as any)[ended] = undefined;
+          }
+        }
+
         // Initialize the per-opponent map to `false` for known opponents.
         // This allows "no opponent cast a spell since your last turn ended" to return true/false
         // when the engine has sufficient team information.
@@ -2464,6 +2487,21 @@ export function nextTurn(ctx: GameContext) {
       stateAny.playedLandFromExileThisTurn = {};
       stateAny.playedFromExileThisTurn = {};
       stateAny.cardsPlayedFromExileThisTurn = {};
+    } catch {
+      // best-effort only
+    }
+
+    // Clear per-turn Warp tracking (for intervening-if templates like
+    // "...or a spell was warped this turn").
+    // We can safely initialize to false at the beginning of each turn.
+    try {
+      const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+      stateAny.spellWasWarpedThisTurn = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (pid) stateAny.spellWasWarpedThisTurn[String(pid)] = false;
+      }
     } catch {
       // best-effort only
     }

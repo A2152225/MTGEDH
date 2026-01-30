@@ -5448,7 +5448,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const stackLengthBefore = game.state.stack?.length || 0;
           
           if (typeof game.applyEvent === 'function') {
-            game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [], xValue });
+            game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [], xValue, alternateCostId });
             
             // Verify the spell was actually added to the stack
             const stackLengthAfter = game.state.stack?.length || 0;
@@ -5724,6 +5724,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Include full card data for replay to work correctly after server restart
           card: cardInHand,
           xValue,
+          alternateCostId,
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(castSpell) failed:', e);

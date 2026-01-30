@@ -1901,6 +1901,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Set tapped on the permanent
     (permanent as any).tapped = true;
+
+    // Intervening-if support: record that this player tapped a nonland permanent this turn.
+    // Conservative: only mark true on positive evidence.
+    try {
+      if (!isLand) {
+        (game.state as any).tappedNonlandPermanentThisTurnByPlayer = (game.state as any).tappedNonlandPermanentThisTurnByPlayer || {};
+        (game.state as any).tappedNonlandPermanentThisTurnByPlayer[String(pid)] = true;
+      }
+    } catch {}
     
     // Also ensure it's set in the main battlefield array (defensive programming)
     const battlefieldIndex = battlefield.findIndex((p: any) => p?.id === permanentId);

@@ -1051,6 +1051,14 @@ export async function executeDeclareAttackers(
     const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
     if (!hasVigilance) {
       (creature as any).tapped = true;
+
+      // Intervening-if support: track that this player tapped a nonland permanent this turn.
+      // Conservative: only set true on positive evidence.
+      try {
+        const stateAny = game.state as any;
+        stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+        stateAny.tappedNonlandPermanentThisTurnByPlayer[String(playerId)] = true;
+      } catch {}
     }
   }
 

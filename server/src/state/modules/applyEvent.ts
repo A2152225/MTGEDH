@@ -44,6 +44,7 @@ import {
   movePermanentToExile,
 } from "./counters_tokens";
 import { pushStack, resolveTopOfStack, playLand, castSpell } from "./stack";
+import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
@@ -996,6 +997,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "castSpell": {
+        // Turn-tracking: "a spell was warped this turn" (702.185c) means it was cast for its warp cost.
+        // Persisted events may include alternateCostId; older streams may only have it on the card object.
+        try {
+          const pid = String((e as any).playerId || '');
+          const alt =
+            (e as any).alternateCostId ??
+            (e as any).alternate_cost_id ??
+            (e as any).card?.alternateCostId ??
+            (e as any).card?.card?.alternateCostId;
+          const altLower = String(alt || '').toLowerCase().trim();
+          if (pid && altLower === 'warp') {
+            const stateAny = (ctx.state as any) as any;
+            stateAny.spellWasWarpedThisTurn = stateAny.spellWasWarpedThisTurn || {};
+            stateAny.spellWasWarpedThisTurn[pid] = true;
+          }
+        } catch {
+          // best-effort only
+        }
+
         // Prefer full card object for replay (contains all card data)
         // Fall back to cardId for backward compatibility with old events
         const spellCardData = (e as any).card || (e as any).cardId;
@@ -1305,6 +1325,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const perm = battlefield.find((p: any) => p.id === permId);
           if (perm) {
             (perm as any).tapped = tapped;
+
+            // Intervening-if support: record that a player tapped a nonland permanent this turn.
+            // Conservative: only set true on positive evidence when the event includes playerId.
+            if (tapped) {
+              try {
+                const pid = String((e as any).playerId || '').trim();
+                const tl = String((perm as any)?.card?.type_line || '').toLowerCase();
+                const isLand = tl.includes('land');
+                if (pid && !isLand) {
+                  const stateAny = ctx.state as any;
+                  stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+                  stateAny.tappedNonlandPermanentThisTurnByPlayer[pid] = true;
+                }
+              } catch {
+                /* ignore */
+              }
+            }
             ctx.bumpSeq();
           }
         } catch (err) {
@@ -1520,7 +1557,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const defendingPlayer = (atk as any)?.defendingPlayer || (atk as any)?.defendingPlayerId || (atk as any)?.targetPlayerId;
               const targetPermanentId = (atk as any)?.targetPermanentId;
               (perm as any).attacking = defendingPlayer || targetPermanentId || true;
-              (perm as any).tapped = true; // Attacking creatures tap
+
+              // Attacking creatures tap unless they have vigilance.
+              // Keep replay deterministic and aligned with live combat logic.
+              const hasVigilance = permanentHasKeyword(perm, 'vigilance');
+              if (!hasVigilance) {
+                (perm as any).tapped = true;
+                try {
+                  const attackerPid = String((e as any).playerId || '').trim();
+                  if (attackerPid) {
+                    const stateAny = ctx.state as any;
+                    stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+                    stateAny.tappedNonlandPermanentThisTurnByPlayer[attackerPid] = true;
+                  }
+                } catch {
+                  /* ignore */
+                }
+              }
             }
           }
           ctx.bumpSeq();

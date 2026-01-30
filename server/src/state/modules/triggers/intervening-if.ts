@@ -1365,6 +1365,56 @@ function attachInterveningIfRefs(sourcePermanent: any, refs?: InterveningIfRefs)
   return next;
 }
 
+type DayNightStatusForInterveningIf = 'day' | 'night' | 'neither';
+
+function getDayNightStatusForInterveningIf(ctx: GameContext): DayNightStatusForInterveningIf | null {
+  const stateAny = (ctx as any).state as any;
+
+  // Prefer authoritative `state.dayNight` but support several legacy aliases / shapes.
+  const candidates: unknown[] = [
+    stateAny?.dayNight,
+    stateAny?.day_night,
+    stateAny?.dayNightState,
+    stateAny?.dayNight?.state,
+    stateAny?.dayNight?.value,
+    stateAny?.dayNight?.current,
+  ];
+
+  for (const cand of candidates) {
+    if (typeof cand !== 'string') continue;
+    const v = String(cand).toLowerCase();
+    if (v === 'day' || v === 'night') return v;
+    if (v === 'neither' || v === 'none') return 'neither';
+  }
+
+  // Legacy boolean flags.
+  const isDay = stateAny?.isDay;
+  const isNight = stateAny?.isNight;
+  if (typeof isDay === 'boolean' && typeof isNight === 'boolean') {
+    if (isDay && !isNight) return 'day';
+    if (!isDay && isNight) return 'night';
+    if (!isDay && !isNight) return 'neither';
+    return null;
+  }
+
+  // Best-effort inference from battlefield face text.
+  // If the engine has correctly applied transforms, daybound should only appear during day,
+  // and nightbound should only appear during night.
+  const battlefield = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
+  let sawDaybound = false;
+  let sawNightbound = false;
+  for (const perm of battlefield) {
+    const oracle = String(perm?.card?.oracle_text || '').toLowerCase();
+    if (!sawDaybound && oracle.includes('daybound')) sawDaybound = true;
+    if (!sawNightbound && oracle.includes('nightbound')) sawNightbound = true;
+    if (sawDaybound && sawNightbound) break;
+  }
+  if (sawDaybound && !sawNightbound) return 'day';
+  if (sawNightbound && !sawDaybound) return 'night';
+
+  return null;
+}
+
 function evaluateInterveningIfClauseInternal(
   ctx: GameContext,
   controllerId: string,
@@ -1379,32 +1429,24 @@ function evaluateInterveningIfClauseInternal(
   // Most of the pre-day/night werewolf templates are handled via spells-cast-last-turn checks.
   // For explicit day/night templates, this is best-effort because not all game states track it yet.
   if (/^if\s+(?:it'?s|it\s+is)\s+day$/i.test(clause)) {
-    const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
-    if (typeof dn === 'string') return String(dn).toLowerCase() === 'day';
-    const isDay = (ctx as any).state?.isDay;
-    if (typeof isDay === 'boolean') return isDay;
+    const status = getDayNightStatusForInterveningIf(ctx);
+    if (status === 'day') return true;
+    if (status === 'night' || status === 'neither') return false;
     return null;
   }
 
   if (/^if\s+(?:it'?s|it\s+is)\s+night$/i.test(clause)) {
-    const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
-    if (typeof dn === 'string') return String(dn).toLowerCase() === 'night';
-    const isNight = (ctx as any).state?.isNight;
-    if (typeof isNight === 'boolean') return isNight;
+    const status = getDayNightStatusForInterveningIf(ctx);
+    if (status === 'night') return true;
+    if (status === 'day' || status === 'neither') return false;
     return null;
   }
 
   // "If it's neither day nor night" (common on cards that start the designation).
   if (/^if\s+(?:it'?s|it\s+is)\s+neither\s+day\s+nor\s+night$/i.test(clause)) {
-    const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
-    if (typeof dn === 'string') {
-      const v = String(dn).toLowerCase();
-      return v !== 'day' && v !== 'night';
-    }
-    // If the state uses boolean flags, "neither" is when both are false.
-    const isDay = (ctx as any).state?.isDay;
-    const isNight = (ctx as any).state?.isNight;
-    if (typeof isDay === 'boolean' && typeof isNight === 'boolean') return !isDay && !isNight;
+    const status = getDayNightStatusForInterveningIf(ctx);
+    if (status === 'neither') return true;
+    if (status === 'day' || status === 'night') return false;
     return null;
   }
 
@@ -1413,18 +1455,9 @@ function evaluateInterveningIfClauseInternal(
     const m = clause.match(/^if\s+(it'?s|it\s+is)\s+neither\s+day\s+nor\s+night\s+and\s+(.+)$/i);
     if (m) {
       const rest = String(m[2] || '').trim();
-      const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
-      let neither: boolean | null = null;
-      if (typeof dn === 'string') {
-        const v = String(dn).toLowerCase();
-        neither = v !== 'day' && v !== 'night';
-      } else {
-        const isDay = (ctx as any).state?.isDay;
-        const isNight = (ctx as any).state?.isNight;
-        if (typeof isDay === 'boolean' && typeof isNight === 'boolean') neither = !isDay && !isNight;
-      }
-      if (typeof neither !== 'boolean') return null;
-      if (!neither) return false;
+      const status = getDayNightStatusForInterveningIf(ctx);
+      if (status === null) return null;
+      if (status !== 'neither') return false;
       return evaluateInterveningIfClauseInternal(ctx, controllerId, `if ${rest}`, sourcePermanent);
     }
   }
@@ -1435,16 +1468,12 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const which = String(m[2] || '').toLowerCase();
       const rest = String(m[3] || '').trim();
-      const dn = (ctx as any).state?.dayNight ?? (ctx as any).state?.day_night ?? (ctx as any).state?.dayNightState;
-      const isDay = typeof dn === 'string' ? String(dn).toLowerCase() === 'day' : (ctx as any).state?.isDay;
-      const isNight = typeof dn === 'string' ? String(dn).toLowerCase() === 'night' : (ctx as any).state?.isNight;
-
+      const status = getDayNightStatusForInterveningIf(ctx);
+      if (status === null) return null;
       if (which === 'day') {
-        if (typeof isDay !== 'boolean') return null;
-        if (!isDay) return false;
+        if (status !== 'day') return false;
       } else {
-        if (typeof isNight !== 'boolean') return null;
-        if (!isNight) return false;
+        if (status !== 'night') return false;
       }
 
       // Evaluate the remainder as another intervening-if clause.
@@ -6110,6 +6139,12 @@ function evaluateInterveningIfClauseInternal(
   // "if you planeswalked to Unyaro this turn" (best-effort)
   if (/^if\s+you\s+planeswalked\s+to\s+unyaro\s+this\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
+
+    // If Planechase is explicitly disabled for this game, this is provably false.
+    // Keep null when we don't know the ruleset.
+    const planechaseEnabled = stateAny?.houseRules?.enablePlanechase;
+    if (planechaseEnabled === false) return false;
+
     const list = stateAny?.planeswalkedToThisTurn?.[controllerId] ?? stateAny?.planeswalkedToPlanesThisTurn?.[controllerId];
     if (!Array.isArray(list)) return null;
     return list.some((p: any) => String(p || '').toLowerCase() === 'unyaro');
@@ -6125,6 +6160,14 @@ function evaluateInterveningIfClauseInternal(
     // This is authoritative in this codebase (used by nextTurn to skip defeated players).
     const inactive = (ctx as any).inactive;
     if (inactive instanceof Set) return inactive.size >= 2;
+
+    // Authoritative fallback: count defeated players from the current player list.
+    // Do NOT treat "conceded" as lost until the engine marks them hasLost/eliminated.
+    const players = Array.isArray(stateAny?.players) ? stateAny.players : null;
+    if (players) {
+      const lostCount = players.filter((p: any) => p && (p.hasLost === true || p.eliminated === true)).length;
+      return lostCount >= 2;
+    }
 
     return null;
   }
@@ -10621,6 +10664,13 @@ function evaluateInterveningIfClauseInternal(
 
   // "if a player would planeswalk as a result of rolling the planar die" (Planechase; needs explicit refs)
   if (/^if\s+a\s+player\s+would\s+planeswalk\s+as\s+a\s+result\s+of\s+rolling\s+the\s+planar\s+die$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+
+    // If Planechase is explicitly disabled for this game, this is provably false.
+    // Keep null when we don't know the ruleset.
+    const planechaseEnabled = stateAny?.houseRules?.enablePlanechase;
+    if (planechaseEnabled === false) return false;
+
     const v = (refs as any)?.planarDieWouldPlaneswalk;
     return typeof v === 'boolean' ? v : null;
   }
