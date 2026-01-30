@@ -13,6 +13,7 @@
 
 import type { GameContext } from "../context.js";
 import { debug } from "../../utils/debug.js";
+import { recordCardLeftGraveyardThisTurn } from "./turn-tracking.js";
 
 /**
  * Shuffle cards from one zone into library.
@@ -105,19 +106,13 @@ export function shuffleZoneIntoLibrary(
 
   // Turn-tracking for intervening-if: a card left your graveyard this turn.
   if (sourceZone === 'graveyard') {
+    // This operation is authoritative: cards were removed from graveyard.
+    // Record both generic and creature-card evidence.
     try {
-      const stateAny = (ctx as any).state as any;
-      stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
-      stateAny.cardLeftGraveyardThisTurn[String(playerId)] = true;
-
-      const movedCreature = cardsToShuffle.some((c: any) => String(c?.type_line || c?.card?.type_line || '').toLowerCase().includes('creature'));
-      if (movedCreature) {
-        stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
-        stateAny.creatureCardLeftGraveyardThisTurn[String(playerId)] = true;
-      }
-    } catch {
-      // best-effort only
-    }
+      recordCardLeftGraveyardThisTurn(ctx, String(playerId), cardsToShuffle.find((c: any) => String(c?.type_line || '').toLowerCase().includes('creature')));
+      // Also record generic evidence even if there were no creature cards.
+      recordCardLeftGraveyardThisTurn(ctx, String(playerId), cardsToShuffle[0]);
+    } catch {}
   }
   
   debug(1, `[shuffleZoneIntoLibrary] Shuffled ${cardsToShuffle.length} cards from ${sourceZone} into ${playerId}'s library (new library size: ${newLibrary.length})`);

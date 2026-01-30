@@ -6119,7 +6119,14 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+two\s+or\s+more\s+players\s+have\s+lost\s+the\s+game$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
     const v = stateAny?.playersLostCount ?? stateAny?.playersWhoLostCount;
-    return typeof v === 'number' ? v >= 2 : null;
+    if (typeof v === 'number') return v >= 2;
+
+    // If the engine provides the defeated-player set on the context, prefer that.
+    // This is authoritative in this codebase (used by nextTurn to skip defeated players).
+    const inactive = (ctx as any).inactive;
+    if (inactive instanceof Set) return inactive.size >= 2;
+
+    return null;
   }
 
   // "if your opponents control no permanents with bounty counters on them" (best-effort)
@@ -9047,13 +9054,20 @@ function evaluateInterveningIfClauseInternal(
     }
   }
   if (/^if\s+a\s+card\s+left\s+your\s+graveyard\s+this\s+turn$/i.test(clause)) {
-    const map = (ctx as any).state?.cardLeftYourGraveyardThisTurn;
-    const v = map?.[controllerId] ?? (ctx as any).state?.cardLeftGraveyardThisTurn?.[controllerId];
+    const stateAny = (ctx as any).state as any;
+    const v =
+      stateAny?.cardLeftYourGraveyardThisTurn?.[controllerId] ??
+      stateAny?.cardLeftGraveyardThisTurn?.[controllerId] ??
+      stateAny?.cardsLeftGraveyardThisTurn?.[controllerId] ??
+      stateAny?.leftGraveyardThisTurn?.[controllerId];
     return typeof v === 'boolean' ? v : null;
   }
   if (/^if\s+a\s+creature\s+card\s+left\s+your\s+graveyard\s+this\s+turn$/i.test(clause)) {
-    const map = (ctx as any).state?.creatureCardLeftYourGraveyardThisTurn;
-    const v = map?.[controllerId];
+    const stateAny = (ctx as any).state as any;
+    const v =
+      stateAny?.creatureCardLeftYourGraveyardThisTurn?.[controllerId] ??
+      stateAny?.creatureCardLeftGraveyardThisTurn?.[controllerId] ??
+      stateAny?.creatureCardsLeftGraveyardThisTurn?.[controllerId];
     return typeof v === 'boolean' ? v : null;
   }
   if (/^if\s+a\s+creature\s+card\s+was\s+put\s+into\s+your\s+graveyard\s+from\s+anywhere\s+this\s+turn$/i.test(clause)) {
@@ -10568,7 +10582,12 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+any\s+of\s+that\s+damage\s+was\s+dealt\s+by\s+a\s+warrior$/i.test(clause)) {
     const raw = (refs as any)?.damageIncludedWarriorSource;
     if (typeof raw === 'boolean') return raw;
-    const ids: string[] = Array.isArray((refs as any)?.damageSourceCreatureIds) ? (refs as any).damageSourceCreatureIds : [];
+    const ids: string[] =
+      (Array.isArray((refs as any)?.damageSourceCreatureIds) ? (refs as any).damageSourceCreatureIds : null) ??
+      (Array.isArray((refs as any)?.damageSourcePermanentIds) ? (refs as any).damageSourcePermanentIds : null) ??
+      (Array.isArray((refs as any)?.damageSourceIds) ? (refs as any).damageSourceIds : null) ??
+      (Array.isArray((refs as any)?.damageSourceCreatureIdList) ? (refs as any).damageSourceCreatureIdList : null) ??
+      [];
     if (!ids.length) return null;
     let sawAll = true;
     for (const id of ids) {
@@ -10609,7 +10628,95 @@ function evaluateInterveningIfClauseInternal(
   // "if another opponent controls one or more nonland permanents that spell could target" (targeting legality; needs explicit refs)
   if (/^if\s+another\s+opponent\s+controls\s+one\s+or\s+more\s+nonland\s+permanents\s+that\s+spell\s+could\s+target$/i.test(clause)) {
     const v = (refs as any)?.spellCouldTargetNonlandPermanentControlledByAnotherOpponent;
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+
+    // Conservative fallback:
+    // - Requires knowing which opponent is "the" opponent (so we can interpret "another opponent")
+    // - Requires spell oracle text so we can determine if it targets nonland permanents at all
+    // - Only returns false when provably false (e.g., no "another" opponents exist, or no matching permanents exist)
+    const referencedOpponentId = String(
+      (refs as any)?.thatPlayerId ??
+      (refs as any)?.referencedPlayerId ??
+      (refs as any)?.opponentId ??
+      (refs as any)?.targetOpponentId ??
+      ''
+    ).trim();
+    if (!referencedOpponentId) return null;
+
+    const opponents = getOpponentIds(ctx, controllerId);
+    const otherOpponents = opponents.filter((oid) => String(oid) !== referencedOpponentId);
+    if (!otherOpponents.length) return false; // no "another opponent" exists
+
+    const spellCard =
+      (refs as any)?.spellCard ??
+      (refs as any)?.thatSpellCard ??
+      (refs as any)?.spell ??
+      (refs as any)?.stackItem?.card ??
+      (refs as any)?.stackItem?.card?.card;
+    const oracle = String(spellCard?.oracle_text || '').toLowerCase();
+    if (!oracle) return null;
+
+    // Detect whether the spell can target *some* nonland permanent, conservatively.
+    // We only decide when the target pattern is clearly broad (no extra qualifiers).
+    if (oracle.includes('target permanent card')) return null; // not battlefield targeting
+    if (
+      oracle.includes('target nonland permanent you control') ||
+      oracle.includes('target permanent you control')
+    ) {
+      return false;
+    }
+
+    const findBroadTargetPattern = (needle: string): boolean | null => {
+      const idx = oracle.indexOf(needle);
+      if (idx === -1) return null;
+      // Look at the remainder of the sentence to see if there are qualifiers.
+      const rest = oracle.slice(idx + needle.length);
+      const endIdxRaw = rest.search(/[\.;\n]/);
+      const clauseRest = (endIdxRaw >= 0 ? rest.slice(0, endIdxRaw) : rest).trim();
+      if (!clauseRest) return true; // ends immediately: broad
+      // Common qualifier signals.
+      if (
+        clauseRest.startsWith(' you control') ||
+        clauseRest.startsWith(' an opponent controls') ||
+        clauseRest.startsWith(' controlled by') ||
+        clauseRest.includes(' you control') ||
+        clauseRest.includes(' an opponent controls') ||
+        clauseRest.includes(' controlled by') ||
+        clauseRest.includes(' with ') ||
+        clauseRest.includes(' that ') ||
+        clauseRest.includes(' unless ') ||
+        clauseRest.includes(' among ')
+      ) {
+        return false;
+      }
+      // If it continues only with punctuation like "," or "(" it might still be broad; be cautious.
+      return clauseRest.startsWith(',') || clauseRest.startsWith('(') ? false : true;
+    };
+
+    const broadNonland = findBroadTargetPattern('target nonland permanent');
+    const broadPermanent = findBroadTargetPattern('target permanent');
+    const isBroad = broadNonland === true || broadPermanent === true;
+    if (!isBroad) return null;
+
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    const isNonland = (perm: any): boolean => {
+      const tl = String(perm?.card?.type_line || '').toLowerCase();
+      return !tl.includes('land');
+    };
+
+    let sawAnyNonlandOnOtherOpponent = false;
+    for (const oid of otherOpponents) {
+      const found = battlefield.some((p: any) => p && String(p.controller || '') === String(oid) && isNonland(p));
+      if (found) {
+        sawAnyNonlandOnOtherOpponent = true;
+        break;
+      }
+    }
+
+    // With a broad target pattern, we can decide from battlefield state.
+    return sawAnyNonlandOnOtherOpponent;
   }
 
   // "if at least one other Wall creature is blocking that creature and no non-Wall creatures are blocking that creature" (best-effort)
@@ -10728,12 +10835,18 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+no\s+opponent\s+cast\s+a\s+spell\s+since\s+your\s+last\s+turn\s+ended$/i.test(clause)) {
     const v = (refs as any)?.noOpponentCastSpellSinceYourLastTurnEnded;
     if (typeof v === 'boolean') return v;
-    const map = (ctx as any).state?.opponentCastSpellSinceYourLastTurnEnded;
-    if (map && typeof map === 'object') {
+    const rawMap = (ctx as any).state?.opponentCastSpellSinceYourLastTurnEnded;
+    if (rawMap && typeof rawMap === 'object') {
+      // Support both shapes:
+      // - legacy: { [opponentId]: boolean }
+      // - per-player: { [playerId]: { [opponentId]: boolean } }
+      const inner = ((rawMap as any)[controllerId] && typeof (rawMap as any)[controllerId] === 'object')
+        ? (rawMap as any)[controllerId]
+        : rawMap;
       const opponents = getOpponentIds(ctx, controllerId);
       if (!opponents.length) return null;
-      const any = opponents.some((oid) => (map as any)[oid] === true);
-      const anyKnown = opponents.some((oid) => typeof (map as any)[oid] === 'boolean');
+      const any = opponents.some((oid) => (inner as any)[oid] === true);
+      const anyKnown = opponents.some((oid) => typeof (inner as any)[oid] === 'boolean');
       return anyKnown ? !any : null;
     }
     return null;
@@ -10775,11 +10888,24 @@ function evaluateInterveningIfClauseInternal(
     if (typeof v === 'boolean') return v;
     const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
     if (!thatPlayerId) return null;
-    const map = (ctx as any).state?.attackedYouLastTurnByPlayer;
-    if (map && typeof map === 'object') {
-      const vv = (map as any)[thatPlayerId];
-      return typeof vv === 'boolean' ? vv : null;
+
+    // Legacy shape: { [attackerId]: boolean }
+    const legacy = (ctx as any).state?.attackedYouLastTurnByPlayer;
+    if (legacy && typeof legacy === 'object') {
+      const vv = (legacy as any)[thatPlayerId];
+      if (typeof vv === 'boolean') return vv;
     }
+
+    // Newer best-effort shape: { [attackerId]: string[] attackedPlayerIds }
+    // Only return false when the tracked list is present and does not include you.
+    const listMap = (ctx as any).state?.attackedPlayersLastTurnByPlayer;
+    if (listMap && typeof listMap === 'object') {
+      const attacked = (listMap as any)[thatPlayerId];
+      if (Array.isArray(attacked)) {
+        return attacked.map((x: any) => String(x || '').trim()).filter(Boolean).includes(String(controllerId));
+      }
+    }
+
     return null;
   }
 
@@ -10823,7 +10949,25 @@ function evaluateInterveningIfClauseInternal(
   // "if that player has another opponent who isn't being attacked" (best-effort; requires explicit refs)
   if (/^if\s+that\s+player\s+has\s+another\s+opponent\s+who\s+isn'?t\s+being\s+attacked$/i.test(clause)) {
     const v = (refs as any)?.thatPlayerHasAnotherOpponentNotBeingAttacked;
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+
+    // Conservative fallback using per-combat attacked-defender tracking.
+    // Interprets "another opponent" as an opponent other than the controller of this ability.
+    const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
+    if (!thatPlayerId) return null;
+
+    const tracked = (ctx as any).state?.attackedDefendingPlayersThisCombatByPlayer;
+    const list = tracked && typeof tracked === 'object' ? (tracked as any)[thatPlayerId] : null;
+    if (!Array.isArray(list)) return null; // no declare-attackers context available
+
+    const opponents = getOpponentIds(ctx, thatPlayerId);
+    const otherOpponents = opponents.filter((oid) => String(oid) !== String(controllerId));
+    if (!otherOpponents.length) return false;
+
+    const attacked = new Set(list.map((x: any) => String(x || '').trim()).filter(Boolean));
+    return otherOpponents.some((oid) => !attacked.has(String(oid)))
+      ? true
+      : false;
   }
 
   // "if they aren't attacking you" (best-effort; requires explicit refs or attack-target data)
@@ -10855,7 +10999,69 @@ function evaluateInterveningIfClauseInternal(
   // "if they attacked you and/or a planeswalker you control" (best-effort; needs explicit refs)
   if (/^if\s+they\s+attacked\s+you\s+and\/or\s+a\s+planeswalker\s+you\s+control$/i.test(clause)) {
     const v = (refs as any)?.theyAttackedYouOrYourPlaneswalker;
-    return typeof v === 'boolean' ? v : null;
+
+    // Primary path: explicit ref provided by the event.
+    if (typeof v === 'boolean') return v;
+
+    // Fallback path: if we have the set of "those creatures" and their declared attack targets,
+    // we can sometimes decide this conservatively.
+    const ids: string[] = Array.isArray((refs as any)?.thoseCreatureIds) ? (refs as any).thoseCreatureIds : [];
+    if (!ids.length) return null;
+
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    const planeswalkerIds = new Set(
+      battlefield
+        .filter(
+          (p: any) =>
+            p &&
+            String(p.controller || '') === String(controllerId) &&
+            String(p.card?.type_line || '').toLowerCase().includes('planeswalker')
+        )
+        .map((p: any) => String(p.id))
+    );
+
+    let sawAny = false;
+    let sawUnknown = false;
+    let sawMatch = false;
+    let sawNonMatch = false;
+
+    for (const id of ids) {
+      const p = findBattlefieldPermanent(ctx, id);
+      if (!p) {
+        sawUnknown = true;
+        continue;
+      }
+      sawAny = true;
+
+      const t =
+        (p as any).attackingTargetId ??
+        (p as any).attackedPlayerId ??
+        (p as any).defendingPlayerId ??
+        (typeof (p as any).attacking === 'string' ? (p as any).attacking : null);
+
+      if (typeof t !== 'string' || !t) {
+        sawUnknown = true;
+        continue;
+      }
+
+      const isMatch = String(t) === String(controllerId) || planeswalkerIds.has(String(t));
+      if (isMatch) sawMatch = true;
+      else sawNonMatch = true;
+    }
+
+    if (!sawAny) return null;
+    if (sawUnknown) return null;
+
+    // If all observed attackers match, the clause is true under either interpretation (any vs all).
+    if (sawMatch && !sawNonMatch) return true;
+
+    // If none match, the clause is false under either interpretation.
+    if (!sawMatch && sawNonMatch) return false;
+
+    // Mixed targets (some match, some not) is ambiguous without explicit refs.
+    return null;
   }
 
   // "if they were attacked this turn by an Assassin you controlled" (best-effort; tracking/refs)
@@ -10866,8 +11072,14 @@ function evaluateInterveningIfClauseInternal(
     if (!thatPlayerId) return null;
     const map = (ctx as any).state?.attackedByAssassinThisTurnByPlayer;
     if (map && typeof map === 'object') {
-      const vv = (map as any)[thatPlayerId];
-      return typeof vv === 'boolean' ? vv : null;
+      // Support both shapes:
+      // - legacy: { [defendingPlayerId]: boolean }
+      // - per-controller: { [attackerControllerId]: { [defendingPlayerId]: true } }
+      const inner = ((map as any)[controllerId] && typeof (map as any)[controllerId] === 'object')
+        ? (map as any)[controllerId]
+        : map;
+      const vv = (inner as any)[thatPlayerId];
+      return typeof vv === 'boolean' ? vv : (vv === true ? true : null);
     }
     return null;
   }

@@ -14762,9 +14762,59 @@ async function handleOptionChoiceResponse(
         stateAny.completedDungeonThisTurn = stateAny.completedDungeonThisTurn || {};
         stateAny.completedDungeonThisTurn[playerId] = true;
 
+        // Back-compat per-turn alias.
+        stateAny.dungeonCompletedThisTurn = stateAny.dungeonCompletedThisTurn || {};
+        stateAny.dungeonCompletedThisTurn[playerId] = true;
+
         // Back-compat flags used by older evaluator logic.
         stateAny.completedDungeon = stateAny.completedDungeon || {};
         stateAny.completedDungeon[playerId] = true;
+
+        // Back-compat alias.
+        stateAny.dungeonCompleted = stateAny.dungeonCompleted || {};
+        stateAny.dungeonCompleted[playerId] = true;
+
+        // Name-based completion evidence used by intervening-if clauses like
+        // "if you haven't completed Tomb of Annihilation".
+        try {
+          const dungeonName = String(prog.dungeonName || '').trim();
+          if (dungeonName) {
+            const nameLower = dungeonName.toLowerCase();
+            const pidKey = String(playerId);
+
+            // Array-style aliases.
+            stateAny.completedDungeonNameList = stateAny.completedDungeonNameList || {};
+            stateAny.completedDungeonNames = stateAny.completedDungeonNames || {};
+            stateAny.completedDungeonsByName = stateAny.completedDungeonsByName || {};
+            stateAny.completedDungeonNameList[pidKey] = Array.isArray(stateAny.completedDungeonNameList[pidKey])
+              ? stateAny.completedDungeonNameList[pidKey]
+              : [];
+            stateAny.completedDungeonNames[pidKey] = Array.isArray(stateAny.completedDungeonNames[pidKey])
+              ? stateAny.completedDungeonNames[pidKey]
+              : [];
+            stateAny.completedDungeonsByName[pidKey] = Array.isArray(stateAny.completedDungeonsByName[pidKey])
+              ? stateAny.completedDungeonsByName[pidKey]
+              : [];
+            stateAny.completedDungeonNameList[pidKey].push(dungeonName);
+            stateAny.completedDungeonNames[pidKey].push(dungeonName);
+            stateAny.completedDungeonsByName[pidKey].push(dungeonName);
+
+            // Map-style aliases.
+            stateAny.completedDungeonNamesMap = stateAny.completedDungeonNamesMap || {};
+            stateAny.completedDungeonsByNameMap = stateAny.completedDungeonsByNameMap || {};
+            stateAny.completedDungeonNamesMap[pidKey] =
+              stateAny.completedDungeonNamesMap[pidKey] && typeof stateAny.completedDungeonNamesMap[pidKey] === 'object'
+                ? stateAny.completedDungeonNamesMap[pidKey]
+                : {};
+            stateAny.completedDungeonsByNameMap[pidKey] =
+              stateAny.completedDungeonsByNameMap[pidKey] && typeof stateAny.completedDungeonsByNameMap[pidKey] === 'object'
+                ? stateAny.completedDungeonsByNameMap[pidKey]
+                : {};
+            stateAny.completedDungeonNamesMap[pidKey][nameLower] = true;
+            stateAny.completedDungeonsByNameMap[pidKey][nameLower] =
+              (stateAny.completedDungeonsByNameMap[pidKey][nameLower] || 0) + 1;
+          }
+        } catch {}
 
         delete stateAny.dungeonProgress[playerId];
 
@@ -16140,7 +16190,10 @@ async function handleGraveyardSelectionResponse(
   const cardName = String(stepData.cardName || step.sourceName || 'Effect');
   const title = String(stepData.title || cardName || 'Select from Graveyard');
   const targetPlayerId = String(stepData.targetPlayerId || pid || '').trim();
-  const destination = (stepData.destination || 'hand') as 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+  const destination = (stepData.destination || 'hand') as 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
+
+  const purpose = String(stepData.purpose || '').trim();
+  const collectEvidenceMinManaValue = Number(stepData.collectEvidenceMinManaValue ?? 0);
 
   if (!targetPlayerId) {
     emitToPlayer(io, pid, 'error', { code: 'NO_TARGET_PLAYER', message: 'No graveyard specified for selection' });
@@ -16150,6 +16203,27 @@ async function handleGraveyardSelectionResponse(
   if (response.cancelled) {
     // Optional steps may be cancelled; mandatory steps should generally not be.
     debug(2, `[Resolution] GRAVEYARD_SELECTION cancelled by ${pid} (${title})`);
+
+     // For cast continuations (e.g., optional collect evidence), treat cancel as decline and continue.
+     const castArgs = stepData.castSpellFromHandArgs as any;
+     if (castArgs && typeof castArgs === 'object' && castArgs.cardId) {
+       const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
+       const alreadyMarked = basePayment.some((p: any) => p && p.collectEvidenceResolved === true);
+       const paymentWithMarker = alreadyMarked
+         ? basePayment
+         : [...basePayment, { collectEvidenceResolved: true, collectEvidenceDeclined: true, evidenceCollected: false }];
+
+       emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
+         gameId,
+         cardId: String(castArgs.cardId),
+         targets: castArgs.targets,
+         payment: paymentWithMarker,
+         xValue: castArgs.xValue,
+         alternateCostId: castArgs.alternateCostId,
+         convokeTappedCreatures: castArgs.convokeTappedCreatures,
+       });
+     }
+
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
     return;
@@ -16186,13 +16260,44 @@ async function handleGraveyardSelectionResponse(
   zones[targetPlayerId] = zones[targetPlayerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
   const srcZones = zones[targetPlayerId] as any;
   srcZones.graveyard = Array.isArray(srcZones.graveyard) ? srcZones.graveyard : [];
+  srcZones.exile = Array.isArray(srcZones.exile) ? srcZones.exile : [];
 
   zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
   const dstZones = zones[pid] as any;
   dstZones.hand = Array.isArray(dstZones.hand) ? dstZones.hand : [];
+  dstZones.exile = Array.isArray(dstZones.exile) ? dstZones.exile : [];
 
   const movedCards: string[] = [];
   const movedCardIds: string[] = [];
+
+  // Collect evidence validation: ensure the chosen cards meet the required total mana value.
+  let evidenceCollected = false;
+  if (purpose.toLowerCase() === 'collectevidence' && destination === 'exile' && collectEvidenceMinManaValue > 0 && selectedCardIds.length > 0) {
+    try {
+      const { cardManaValue } = await import("../state/utils.js");
+      const chosen = selectedCardIds
+        .map((id) => (srcZones.graveyard as any[]).find((c: any) => c && String(c.id) === String(id)))
+        .filter(Boolean);
+
+      const total = chosen.reduce((sum: number, c: any) => sum + (cardManaValue(c) || 0), 0);
+      if (!(total >= collectEvidenceMinManaValue)) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'CANNOT_COLLECT_EVIDENCE',
+          message: `Collect evidence ${collectEvidenceMinManaValue}: selected cards total mana value ${total} (need ${collectEvidenceMinManaValue} or more).`,
+        });
+        return;
+      }
+
+      evidenceCollected = true;
+    } catch {
+      // If we can't validate, be conservative and reject instead of silently allowing.
+      emitToPlayer(io, pid as any, 'error', {
+        code: 'CANNOT_COLLECT_EVIDENCE',
+        message: `Collect evidence validation failed; please try again.`,
+      });
+      return;
+    }
+  }
 
   for (const cardId of selectedCardIds) {
     const idx = (srcZones.graveyard as any[]).findIndex((c: any) => c && String(c.id) === String(cardId));
@@ -16225,11 +16330,31 @@ async function handleGraveyardSelectionResponse(
       else (lib as any[]).push(libCard);
       (game as any).libraries?.set(pid, lib);
       dstZones.libraryCount = (lib as any[]).length;
+    } else if (destination === 'exile') {
+      // Exile belongs to the zone owner, not the selecting player.
+      (srcZones.exile as any[]).push({ ...(card as any), zone: 'exile' });
     }
   }
 
   srcZones.graveyardCount = (srcZones.graveyard as any[]).length;
   dstZones.handCount = (dstZones.hand as any[]).length;
+  srcZones.exileCount = (srcZones.exile as any[]).length;
+  dstZones.exileCount = (dstZones.exile as any[]).length;
+
+  // Turn-tracking for intervening-if: evidence was collected this turn.
+  if (evidenceCollected) {
+    try {
+      const stateAny = game.state as any;
+      stateAny.evidenceCollectedThisTurn = stateAny.evidenceCollectedThisTurn || {};
+      stateAny.evidenceCollectedThisTurnByPlayer = stateAny.evidenceCollectedThisTurnByPlayer || {};
+      stateAny.evidenceCollectedThisTurnByPlayerCounts = stateAny.evidenceCollectedThisTurnByPlayerCounts || {};
+      stateAny.evidenceCollectedThisTurn[String(pid)] = true;
+      stateAny.evidenceCollectedThisTurnByPlayer[String(pid)] = true;
+      stateAny.evidenceCollectedThisTurnByPlayerCounts[String(pid)] = (stateAny.evidenceCollectedThisTurnByPlayerCounts[String(pid)] || 0) + 1;
+    } catch {
+      // best-effort only
+    }
+  }
 
   // Persist event for replay (legacy name retained).
   try {
@@ -16239,6 +16364,9 @@ async function handleGraveyardSelectionResponse(
       selectedCardIds: movedCardIds,
       destination,
       movedCards,
+      purpose: purpose || undefined,
+      collectEvidenceMinManaValue: Number.isFinite(collectEvidenceMinManaValue) ? collectEvidenceMinManaValue : undefined,
+      evidenceCollected: evidenceCollected || undefined,
     });
   } catch (e) {
     debugWarn(1, 'appendEvent(confirmGraveyardTargets) failed:', e);
@@ -16251,7 +16379,9 @@ async function handleGraveyardSelectionResponse(
         ? 'battlefield'
         : destination === 'library_top'
           ? 'top of library'
-          : 'bottom of library';
+          : destination === 'library_bottom'
+            ? 'bottom of library'
+            : 'exile';
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -16259,6 +16389,30 @@ async function handleGraveyardSelectionResponse(
       from: 'system',
       message: `${getPlayerName(game, pid)} moves ${movedCards.join(', ')} from graveyard to ${destName} (${cardName}).`,
       ts: Date.now(),
+    });
+  }
+
+  // Optional cast continuation (used for additional-cost flows like collect evidence).
+  const castArgs = stepData.castSpellFromHandArgs as any;
+  if (castArgs && typeof castArgs === 'object' && castArgs.cardId) {
+    const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
+    const alreadyMarked = basePayment.some((p: any) => p && p.collectEvidenceResolved === true);
+    const evidenceMarker = {
+      collectEvidenceResolved: true,
+      evidenceCollected: evidenceCollected === true,
+      evidenceWasCollected: evidenceCollected === true,
+      collectedEvidence: evidenceCollected === true,
+    };
+    const paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, evidenceMarker];
+
+    emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
+      gameId,
+      cardId: String(castArgs.cardId),
+      targets: castArgs.targets,
+      payment: paymentWithMarker,
+      xValue: castArgs.xValue,
+      alternateCostId: castArgs.alternateCostId,
+      convokeTappedCreatures: castArgs.convokeTappedCreatures,
     });
   }
 

@@ -14,7 +14,7 @@
 import type { GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
-import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 
 import {
   importDeckResolved,
@@ -1331,6 +1331,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const stateAny = ctx.state as any;
               stateAny.sacrificedCluesThisTurn = stateAny.sacrificedCluesThisTurn || {};
               stateAny.sacrificedCluesThisTurn[controllerId] = (stateAny.sacrificedCluesThisTurn[controllerId] || 0) + 1;
+
+              // Aliases consumed by intervening-if.
+              stateAny.cluesSacrificedThisTurn = stateAny.cluesSacrificedThisTurn || {};
+              stateAny.cluesSacrificedThisTurn[controllerId] = (stateAny.cluesSacrificedThisTurn[controllerId] || 0) + 1;
+              stateAny.cluesSacrificedThisTurnCount = stateAny.cluesSacrificedThisTurnCount || {};
+              stateAny.cluesSacrificedThisTurnCount[controllerId] = (stateAny.cluesSacrificedThisTurnCount[controllerId] || 0) + 1;
             }
 
             // Turn-tracking for intervening-if: "if you sacrificed a permanent this turn".
@@ -1376,6 +1382,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 stateAny.sacrificedCluesThisTurn = stateAny.sacrificedCluesThisTurn || {};
                 stateAny.sacrificedCluesThisTurn[controllerId] = (stateAny.sacrificedCluesThisTurn[controllerId] || 0) + 1;
+
+                // Aliases consumed by intervening-if.
+                stateAny.cluesSacrificedThisTurn = stateAny.cluesSacrificedThisTurn || {};
+                stateAny.cluesSacrificedThisTurn[controllerId] = (stateAny.cluesSacrificedThisTurn[controllerId] || 0) + 1;
+                stateAny.cluesSacrificedThisTurnCount = stateAny.cluesSacrificedThisTurnCount || {};
+                stateAny.cluesSacrificedThisTurnCount[controllerId] = (stateAny.cluesSacrificedThisTurnCount[controllerId] || 0) + 1;
               }
 
               // Same generic/permanent-type sacrifice tracking as sacrificePermanent.
@@ -1404,18 +1416,110 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "declareAttackers": {
         // Set attackers for combat
-        const attackers = (e as any).attackers as Array<{ attackerId: string; defendingPlayer?: string }> || [];
+        const attackers = ((e as any).attackers as any[]) || [];
         try {
           const battlefield = ctx.state.battlefield || [];
+
+          // Best-effort combat trackers consumed by intervening-if.
+          try {
+            const stateAny = ctx.state as any;
+            const playerId = String((e as any).playerId || "").trim();
+            if (playerId) {
+              stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
+              stateAny.attackedPlayersThisTurnByPlayer[playerId] = Array.isArray(stateAny.attackedPlayersThisTurnByPlayer[playerId])
+                ? stateAny.attackedPlayersThisTurnByPlayer[playerId]
+                : [];
+
+              stateAny.attackedDefendingPlayersThisCombatByPlayer = stateAny.attackedDefendingPlayersThisCombatByPlayer || {};
+              // Reset per-combat (not per-turn) so extra combats are evaluated correctly.
+              stateAny.attackedDefendingPlayersThisCombatByPlayer[playerId] = [];
+            }
+            stateAny.mustAttackThisCombatByPermanentId = {};
+
+            for (const atk of attackers) {
+              const attackerId = String(atk?.attackerId || atk?.creatureId || "").trim();
+              if (!attackerId) continue;
+
+              // Track who was attacked (player-only, not planeswalkers).
+              const targetPlayerId = String(atk?.defendingPlayer || atk?.defendingPlayerId || atk?.targetPlayerId || "").trim();
+              if (playerId && targetPlayerId) {
+                const list: string[] = stateAny.attackedPlayersThisTurnByPlayer[playerId];
+                if (Array.isArray(list) && !list.includes(targetPlayerId)) list.push(targetPlayerId);
+              }
+
+              // Track who is being attacked as the defending player for this combat.
+              // Includes planeswalker/battle targets by resolving their controller.
+              if (playerId) {
+                const list: string[] = stateAny.attackedDefendingPlayersThisCombatByPlayer?.[playerId];
+                if (Array.isArray(list)) {
+                  let defendingPid = targetPlayerId;
+                  if (!defendingPid) {
+                    const targetPermId = String(atk?.targetPermanentId || "").trim();
+                    if (targetPermId) {
+                      const targetPerm = battlefield.find((p: any) => p?.id === targetPermId);
+                      const targetController = String((targetPerm as any)?.controller || '').trim();
+                      if (targetController) defendingPid = targetController;
+                    }
+                  }
+                  if (defendingPid && !list.includes(defendingPid)) list.push(defendingPid);
+                }
+              }
+
+              const perm = battlefield.find((p: any) => p?.id === attackerId);
+              if (!perm) continue;
+
+              // Track "they were attacked this turn by an Assassin you controlled".
+              // Conservative: only set true on positive evidence.
+              try {
+                const tl = String((perm as any)?.card?.type_line || '').toLowerCase();
+                if (tl && /\bassassin\b/i.test(tl) && playerId) {
+                  let defendingPid = targetPlayerId;
+                  if (!defendingPid) {
+                    const targetPermId = String(atk?.targetPermanentId || "").trim();
+                    if (targetPermId) {
+                      const targetPerm = battlefield.find((p: any) => p?.id === targetPermId);
+                      const targetController = String((targetPerm as any)?.controller || '').trim();
+                      if (targetController) defendingPid = targetController;
+                    }
+                  }
+                  if (defendingPid) {
+                    stateAny.attackedByAssassinThisTurnByPlayer = stateAny.attackedByAssassinThisTurnByPlayer || {};
+                    stateAny.attackedByAssassinThisTurnByPlayer[playerId] = stateAny.attackedByAssassinThisTurnByPlayer[playerId] || {};
+                    stateAny.attackedByAssassinThisTurnByPlayer[playerId][defendingPid] = true;
+                  }
+                }
+              } catch {
+                // best-effort only
+              }
+
+              // Track whether this attacker was under a must-attack requirement this combat.
+              // Conservative: only mark `true` on positive evidence.
+              const isForced =
+                Boolean((perm as any).mustAttackEachCombat) ||
+                Boolean((perm as any).mustAttack) ||
+                (Array.isArray((perm as any).goadedBy) && (perm as any).goadedBy.length > 0) ||
+                (typeof (perm as any).goaded === 'object' && (perm as any).goaded !== null && Object.keys((perm as any).goaded).length > 0);
+              if (isForced) {
+                stateAny.mustAttackThisCombatByPermanentId[attackerId] = true;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           // Clear previous attackers
           for (const perm of battlefield) {
             if (perm) (perm as any).attacking = undefined;
           }
           // Set new attackers
           for (const atk of attackers) {
-            const perm = battlefield.find((p: any) => p.id === atk.attackerId);
+            const attackerId = String((atk as any)?.attackerId || (atk as any)?.creatureId || "").trim();
+            if (!attackerId) continue;
+            const perm = battlefield.find((p: any) => p.id === attackerId);
             if (perm) {
-              (perm as any).attacking = atk.defendingPlayer || true;
+              const defendingPlayer = (atk as any)?.defendingPlayer || (atk as any)?.defendingPlayerId || (atk as any)?.targetPlayerId;
+              const targetPermanentId = (atk as any)?.targetPermanentId;
+              (perm as any).attacking = defendingPlayer || targetPermanentId || true;
               (perm as any).tapped = true; // Attacking creatures tap
             }
           }
@@ -1594,19 +1698,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 (z.exile as any[]).push({ ...card, zone: "exile" });
 
                 // Turn-tracking for intervening-if: a card left your graveyard this turn.
-                try {
-                  const stateAny = ctx.state as any;
-                  stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
-                  stateAny.cardLeftGraveyardThisTurn[String(pid)] = true;
+                recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
 
-                  const tl = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
-                  if (tl.includes('creature')) {
-                    stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
-                    stateAny.creatureCardLeftGraveyardThisTurn[String(pid)] = true;
-                  }
-                } catch {
-                  // best-effort only
-                }
+                // Turn-tracking for intervening-if: you cast a spell from your graveyard this turn.
+                // Flashback is a cast-from-graveyard pattern.
+                const stateAny = ctx.state as any;
+                stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+                stateAny.castFromGraveyardThisTurn[String(pid)] = true;
               }
             }
           }
@@ -2149,7 +2247,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         
         try {
           const zones = ctx.state.zones || {};
-          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
           zones[pid] = z;
           ctx.state.zones = zones;
           
@@ -2261,6 +2359,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ctx.libraries.set(pid, libBottom);
                 z.libraryCount = libBottom.length;
                 break;
+              case 'exile':
+                z.exile = z.exile || [];
+                (z.exile as any[]).push({ ...card, zone: 'exile' });
+                z.exileCount = (z.exile as any[]).length;
+                break;
             }
           }
           
@@ -2275,6 +2378,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (movedCreature) {
                 stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
                 stateAny.creatureCardLeftGraveyardThisTurn[String(pid)] = true;
+              }
+
+              // Turn-tracking for intervening-if: evidence was collected this turn.
+              // Only set true on explicit positive evidence from persisted events.
+              const evidenceCollected = (e as any)?.evidenceCollected === true;
+              const purpose = String((e as any)?.purpose || '').toLowerCase();
+              if (evidenceCollected || (purpose === 'collectevidence' && String(destination).toLowerCase() === 'exile')) {
+                stateAny.evidenceCollectedThisTurn = stateAny.evidenceCollectedThisTurn || {};
+                stateAny.evidenceCollectedThisTurnByPlayer = stateAny.evidenceCollectedThisTurnByPlayer || {};
+                stateAny.evidenceCollectedThisTurnByPlayerCounts = stateAny.evidenceCollectedThisTurnByPlayerCounts || {};
+                stateAny.evidenceCollectedThisTurn[String(pid)] = true;
+                stateAny.evidenceCollectedThisTurnByPlayer[String(pid)] = true;
+                stateAny.evidenceCollectedThisTurnByPlayerCounts[String(pid)] = (stateAny.evidenceCollectedThisTurnByPlayerCounts[String(pid)] || 0) + 1;
               }
             } catch {
               // best-effort only

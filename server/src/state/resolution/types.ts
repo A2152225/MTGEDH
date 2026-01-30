@@ -291,7 +291,24 @@ export interface GraveyardSelectionStep extends BaseResolutionStep {
   readonly filter?: { types?: string[]; subtypes?: string[]; excludeTypes?: string[] };
   readonly minTargets: number;
   readonly maxTargets: number;
-  readonly destination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+  readonly destination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
+
+  /** Optional semantic purpose used for server-side validation/continuation. */
+  readonly purpose?: 'collectEvidence' | string;
+
+  /** For collect-evidence prompts: required total mana value to exile. */
+  readonly collectEvidenceMinManaValue?: number;
+
+  /** Optional continuation context so the server can resume castSpellFromHand. */
+  readonly castSpellFromHandArgs?: {
+    cardId: string;
+    payment?: any;
+    targets?: any;
+    xValue?: number;
+    alternateCostId?: string;
+    convokeTappedCreatures?: string[];
+  };
+
   readonly validTargets: readonly {
     id: string;
     name: string;

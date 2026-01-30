@@ -932,6 +932,30 @@ export async function executeDeclareAttackers(
   const battlefield = game.state?.battlefield || [];
   const attackerIds: string[] = [];
 
+  // Per-combat/per-turn tracking consumed by intervening-if.
+  // - attackedPlayersThisTurnByPlayer: { [attackerPlayerId]: string[] }
+  // - attackedDefendingPlayersThisCombatByPlayer: { [attackerPlayerId]: string[] }
+  // - mustAttackThisCombatByPermanentId: { [creatureId]: true }
+  // - attackedByAssassinThisTurnByPlayer: { [attackerControllerId]: { [defendingPlayerId]: true } }
+  try {
+    const stateAny = game.state as any;
+    stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
+    stateAny.attackedPlayersThisTurnByPlayer[String(playerId)] = Array.isArray(stateAny.attackedPlayersThisTurnByPlayer[String(playerId)])
+      ? stateAny.attackedPlayersThisTurnByPlayer[String(playerId)]
+      : [];
+    stateAny.attackedDefendingPlayersThisCombatByPlayer = stateAny.attackedDefendingPlayersThisCombatByPlayer || {};
+    // Reset per-combat (not per-turn) so extra combats are evaluated correctly.
+    stateAny.attackedDefendingPlayersThisCombatByPlayer[String(playerId)] = [];
+    stateAny.mustAttackThisCombatByPermanentId = {};
+
+    // Per-turn; do not reset here.
+    stateAny.attackedByAssassinThisTurnByPlayer = stateAny.attackedByAssassinThisTurnByPlayer || {};
+    stateAny.attackedByAssassinThisTurnByPlayer[String(playerId)] =
+      stateAny.attackedByAssassinThisTurnByPlayer[String(playerId)] || {};
+  } catch {
+    // best-effort only
+  }
+
   for (const attacker of attackers) {
     const creature = battlefield.find(
       (perm: any) => perm?.id === attacker.creatureId && perm?.controller === playerId
@@ -946,6 +970,83 @@ export async function executeDeclareAttackers(
     const targetPlayerId = attacker.targetPlayerId || attacker.defendingPlayerId;
     (creature as any).attacking = targetPlayerId || attacker.targetPermanentId;
     (creature as any).attackedThisTurn = true;
+
+    // Track who was attacked (player-only, not planeswalkers).
+    try {
+      const targetPid = String(targetPlayerId || '').trim();
+      if (targetPid) {
+        const stateAny = game.state as any;
+        const list: string[] = stateAny.attackedPlayersThisTurnByPlayer?.[String(playerId)];
+        if (Array.isArray(list) && !list.includes(targetPid)) list.push(targetPid);
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Track who is being attacked as the defending player for this combat.
+    // Includes planeswalker/battle targets by resolving their controller.
+    try {
+      const stateAny = game.state as any;
+      const list: string[] = stateAny.attackedDefendingPlayersThisCombatByPlayer?.[String(playerId)];
+      if (Array.isArray(list)) {
+        let defendingPid = String(targetPlayerId || '').trim();
+        if (!defendingPid) {
+          const targetPermId = String(attacker.targetPermanentId || '').trim();
+          if (targetPermId) {
+            const targetPerm = battlefield.find((p: any) => p?.id === targetPermId);
+            const targetController = String((targetPerm as any)?.controller || '').trim();
+            if (targetController) defendingPid = targetController;
+          }
+        }
+        if (defendingPid && !list.includes(defendingPid)) list.push(defendingPid);
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Track "they were attacked this turn by an Assassin you controlled".
+    // Conservative: only set true on positive evidence.
+    try {
+      const tl = String((creature as any)?.card?.type_line || '').toLowerCase();
+      if (tl && /\bassassin\b/i.test(tl)) {
+        let defendingPid = String(targetPlayerId || '').trim();
+        if (!defendingPid) {
+          const targetPermId = String(attacker.targetPermanentId || '').trim();
+          if (targetPermId) {
+            const targetPerm = battlefield.find((p: any) => p?.id === targetPermId);
+            const targetController = String((targetPerm as any)?.controller || '').trim();
+            if (targetController) defendingPid = targetController;
+          }
+        }
+        if (defendingPid) {
+          const stateAny = game.state as any;
+          stateAny.attackedByAssassinThisTurnByPlayer = stateAny.attackedByAssassinThisTurnByPlayer || {};
+          stateAny.attackedByAssassinThisTurnByPlayer[String(playerId)] =
+            stateAny.attackedByAssassinThisTurnByPlayer[String(playerId)] || {};
+          stateAny.attackedByAssassinThisTurnByPlayer[String(playerId)][defendingPid] = true;
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Track whether this attacker was under a must-attack requirement this combat.
+    // Conservative: only mark `true` on positive evidence.
+    try {
+      const stateAny = game.state as any;
+      const isForced =
+        Boolean((creature as any).mustAttackEachCombat) ||
+        Boolean((creature as any).mustAttack) ||
+        (Array.isArray((creature as any).goadedBy) && (creature as any).goadedBy.length > 0) ||
+        (typeof (creature as any).goaded === 'object' && (creature as any).goaded !== null && Object.keys((creature as any).goaded).length > 0);
+
+      if (isForced) {
+        stateAny.mustAttackThisCombatByPermanentId = stateAny.mustAttackThisCombatByPermanentId || {};
+        stateAny.mustAttackThisCombatByPermanentId[String(attacker.creatureId)] = true;
+      }
+    } catch {
+      // best-effort only
+    }
 
     const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
     if (!hasVigilance) {
@@ -2278,6 +2379,23 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Advance to next step
       if (typeof (game as any).nextStep === "function") {
         await (game as any).nextStep();
+      }
+
+      // Record authoritative evidence for last-turn attack templates.
+      // Also persist a declareAttackers event with zero attackers so replay can reconstruct.
+      try {
+        const stateAny = game.state as any;
+        stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
+        stateAny.attackedPlayersThisTurnByPlayer[String(playerId)] = [];
+        stateAny.attackedDefendingPlayersThisCombatByPlayer = stateAny.attackedDefendingPlayersThisCombatByPlayer || {};
+        stateAny.attackedDefendingPlayersThisCombatByPlayer[String(playerId)] = [];
+
+        await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {
+          playerId,
+          attackers: [],
+        });
+      } catch (e) {
+        debugWarn(2, '[combat] Failed to persist skipDeclareAttackers declareAttackers event:', e);
       }
 
       io.to(gameId).emit("chat", {

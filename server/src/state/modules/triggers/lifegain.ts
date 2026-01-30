@@ -16,6 +16,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { recordCardLeftGraveyardThisTurn } from "../turn-tracking.js";
 
 /**
  * Helper to extract card ID from various card formats in zones
@@ -530,20 +531,8 @@ export function executeRatchetTrigger(
   // Move artifact from graveyard to battlefield tapped
   graveyard.splice(targetIdx, 1);
 
-  // Turn-tracking for intervening-if: a card left your graveyard this turn.
-  try {
-    const stateAny = ctx.state as any;
-    stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
-    stateAny.cardLeftGraveyardThisTurn[String(trigger.controllerId)] = true;
-
-    const tl = String(cardData?.type_line || '').toLowerCase();
-    if (tl.includes('creature')) {
-      stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
-      stateAny.creatureCardLeftGraveyardThisTurn[String(trigger.controllerId)] = true;
-    }
-  } catch {
-    // best-effort only
-  }
+  // Turn-tracking for intervening-if templates.
+  recordCardLeftGraveyardThisTurn(ctx, String(trigger.controllerId), cardData);
   
   const newPermanent = {
     id: `perm_${cardData.id}_${Date.now()}`,

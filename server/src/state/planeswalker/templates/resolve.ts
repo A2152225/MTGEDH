@@ -4,6 +4,7 @@ import { debug } from "../../../utils/debug.js";
 import { getActualPowerToughness, uid } from "../../utils.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary } from "../../modules/zones.js";
 import { createToken, movePermanentToExile, movePermanentToGraveyard, updateCounters } from "../../modules/counters_tokens.js";
+import { recordCardLeftGraveyardThisTurn } from "../../modules/turn-tracking.js";
 import { applyTemporaryLandBonus } from "../../modules/game-state-effects.js";
 import { addExtraTurn, nextTurn } from "../../modules/turn.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
@@ -2972,6 +2973,8 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       if (idx < 0) return true;
 
       const [card] = graveyard.splice(idx, 1);
+      // Turn-tracking for intervening-if templates.
+      recordCardLeftGraveyardThisTurn(ctx as any, String(controller), card);
       const tl = String((card as any)?.type_line || '').toLowerCase();
       if (tl.includes('land')) {
         // Put it back; spec says nonland
@@ -12114,6 +12117,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
         const movedHand = z.hand.splice(0, z.hand.length).map((c: any) => ({ ...(c as any), zone: 'exile' }));
         const movedGy = z.graveyard.splice(0, z.graveyard.length).map((c: any) => ({ ...(c as any), zone: 'exile' }));
+
+        if (movedGy.length > 0) {
+          // Turn-tracking: cards left this graveyard this turn.
+          recordCardLeftGraveyardThisTurn(ctx as any, String(opp), movedGy.find((c: any) => String(c?.type_line || '').toLowerCase().includes('creature')));
+          recordCardLeftGraveyardThisTurn(ctx as any, String(opp), movedGy[0]);
+        }
 
         z.exile.unshift(...movedHand, ...movedGy);
         movedTotal += movedHand.length + movedGy.length;

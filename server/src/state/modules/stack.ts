@@ -1,6 +1,6 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
+import { uid, parsePT, addEnergyCounters, addTokenCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange } from "./game-state-effects.js";
 import { 
   detectKeywords, 
@@ -255,11 +255,6 @@ export function detectEntersWithCounters(card: any): Record<string, number> {
   // Undying creatures returning (handled by death trigger, not here)
   
   // Ravenous - if X >= 5 (handled separately with X value)
-  
-  // Devour (handled separately with sacrificed creatures count)
-  
-  // Tribute N - opponent may put counters (handled interactively)
-  
   return counters;
 }
 
@@ -915,6 +910,49 @@ export function pushStack(
   }
 ) {
   const { state } = ctx;
+
+  // Turn-tracking for intervening-if templates like "if you've committed a crime this turn".
+  // Conservative: only record `true` when we have positive evidence.
+  try {
+    const controllerId = String((item as any)?.controller ?? '');
+    const targets = Array.isArray((item as any)?.targets) ? ((item as any).targets as any[]) : [];
+    if (controllerId && targets.length > 0) {
+      const playerIds = new Set(
+        Array.isArray((state as any).players) ? ((state as any).players as any[]).map((p: any) => String(p?.id ?? '')).filter(Boolean) : []
+      );
+      const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+      let committed = false;
+      for (const t of targets) {
+        const tid = String(typeof t === 'string' ? t : (t as any)?.id ?? '');
+        if (!tid) continue;
+        if (playerIds.has(tid)) {
+          if (tid !== controllerId) {
+            committed = true;
+            break;
+          }
+          continue;
+        }
+        const perm = battlefield.find((p: any) => String(p?.id ?? '') === tid);
+        const permController = perm?.controller ? String(perm.controller) : '';
+        if (permController && permController !== controllerId) {
+          committed = true;
+          break;
+        }
+      }
+      if (committed) {
+        const stateAny = state as any;
+        stateAny.committedCrimeThisTurn = stateAny.committedCrimeThisTurn || {};
+        stateAny.committedCrimeThisTurn[controllerId] = true;
+        stateAny.crimeCommittedThisTurn = stateAny.crimeCommittedThisTurn || {};
+        stateAny.crimeCommittedThisTurn[controllerId] = true;
+        stateAny.hasCommittedCrimeThisTurn = stateAny.hasCommittedCrimeThisTurn || {};
+        stateAny.hasCommittedCrimeThisTurn[controllerId] = true;
+      }
+    }
+  } catch {
+    // best-effort only
+  }
+
   state.stack = state.stack || [];
   state.stack.push(item as any);
   ctx.bumpSeq();
@@ -2843,6 +2881,34 @@ function executeTriggerEffect(
       addEnergyCounters(state, controller, amount, sourceName);
       handled = true;
       // Don't return - there might be more effects after energy gain
+    }
+  }
+
+  // Pattern: "you get N token counter(s)" (The Tokenator, etc.)
+  // Keep this separate from generic "counter" logic; token counters are on players.
+  if (!handled) {
+    const tokenMatch = desc.match(/you get (?:(\d+|one|two|three|four|five|six|seven|eight|nine|ten) )?token counters?/i);
+    if (tokenMatch) {
+      const wordToNum: Record<string, number> = {
+        one: 1,
+        two: 2,
+        three: 3,
+        four: 4,
+        five: 5,
+        six: 6,
+        seven: 7,
+        eight: 8,
+        nine: 9,
+        ten: 10,
+      };
+      let amount = 1;
+      if (tokenMatch[1]) {
+        amount = wordToNum[tokenMatch[1].toLowerCase()] || parseInt(tokenMatch[1], 10) || 1;
+      }
+
+      addTokenCounters(state, controller, amount, sourceName);
+      handled = true;
+      // Don't return - there may be follow-up effects (e.g., "Then create ...")
     }
   }
   
@@ -10346,6 +10412,12 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       stateAny.playedCardFromExileThisTurn = stateAny.playedCardFromExileThisTurn || {};
       stateAny.playedCardFromExileThisTurn[String(playerId)] = true;
 
+      // Alias tracking used by some best-effort intervening-if templates.
+      stateAny.playedFromExileThisTurn = stateAny.playedFromExileThisTurn || {};
+      stateAny.playedFromExileThisTurn[String(playerId)] = true;
+      stateAny.cardsPlayedFromExileThisTurn = stateAny.cardsPlayedFromExileThisTurn || {};
+      stateAny.cardsPlayedFromExileThisTurn[String(playerId)] = (stateAny.cardsPlayedFromExileThisTurn[String(playerId)] || 0) + 1;
+
       // More specific per-turn tracking (for "played a land ... other than your hand" templates).
       stateAny.playedLandFromExileThisTurn = stateAny.playedLandFromExileThisTurn || {};
       stateAny.playedLandFromExileThisTurn[String(playerId)] = true;
@@ -10385,6 +10457,7 @@ export function castSpell(
   const { state, bumpSeq } = ctx;
   const zones = state.zones = state.zones || {};
   let castFromExile = false;
+  let castFromGraveyard = false;
   
   // Handle both card object and cardId string
   let card: any;
@@ -10438,9 +10511,18 @@ export function castSpell(
         (z as any).exileCount = exileCards.length;
         castFromExile = true;
       } else {
-        // During replay, card might not be in its expected zone anymore - this is okay
-        debug(1, `castSpell: card ${cardOrId} not found in hand or exile for player ${playerId} (may be replay)`);
-        return;
+        // Fallback: allow casting spells from graveyard when an effect permits it (flashback, etc.).
+        const gyCards = Array.isArray((z as any).graveyard) ? ((z as any).graveyard as any[]) : null;
+        const gyIdx = gyCards ? gyCards.findIndex((c: any) => c && c.id === cardOrId) : -1;
+        if (gyCards && gyIdx !== -1) {
+          card = gyCards.splice(gyIdx, 1)[0];
+          (z as any).graveyardCount = gyCards.length;
+          castFromGraveyard = true;
+        } else {
+          // During replay, card might not be in its expected zone anymore - this is okay
+          debug(1, `castSpell: card ${cardOrId} not found in hand, exile, or graveyard for player ${playerId} (may be replay)`);
+          return;
+        }
       }
     }
   } else {
@@ -10469,6 +10551,17 @@ export function castSpell(
         exileCards.splice(exIdx, 1);
         (z as any).exileCount = exileCards.length;
         castFromExile = true;
+      }
+    }
+
+    // Also try to remove from graveyard if it exists there (e.g., flashback-like flows).
+    if (z && Array.isArray((z as any).graveyard)) {
+      const gyCards = (z as any).graveyard as any[];
+      const gyIdx = gyCards.findIndex((c: any) => c && c.id === card.id);
+      if (gyIdx !== -1) {
+        gyCards.splice(gyIdx, 1);
+        (z as any).graveyardCount = gyCards.length;
+        castFromGraveyard = true;
       }
     }
   }
@@ -10544,6 +10637,31 @@ export function castSpell(
     manaValue: spellManaValue,
   };
 
+  // Turn-tracking for intervening-if templates like "if you've committed a crime this turn".
+  // Conservative: only record `true` when we have positive evidence.
+  try {
+    const controllerId = String(playerId);
+    const committed = targetDetails.some((t) => {
+      if (t.type === 'player') return String(t.id) !== controllerId;
+      if (t.type === 'permanent') {
+        const c = t.controllerId ? String(t.controllerId) : '';
+        return Boolean(c) && c !== controllerId;
+      }
+      return false;
+    });
+    if (committed) {
+      const stateAny = state as any;
+      stateAny.committedCrimeThisTurn = stateAny.committedCrimeThisTurn || {};
+      stateAny.committedCrimeThisTurn[controllerId] = true;
+      stateAny.crimeCommittedThisTurn = stateAny.crimeCommittedThisTurn || {};
+      stateAny.crimeCommittedThisTurn[controllerId] = true;
+      stateAny.hasCommittedCrimeThisTurn = stateAny.hasCommittedCrimeThisTurn || {};
+      stateAny.hasCommittedCrimeThisTurn[controllerId] = true;
+    }
+  } catch {
+    // best-effort only
+  }
+
   // Turn-tracking for intervening-if templates: "if you (didn't) play a card from exile this turn".
   // Casting a spell counts as playing a card.
   if (castFromExile) {
@@ -10553,8 +10671,25 @@ export function castSpell(
       stateAny.playedCardFromExileThisTurn[String(playerId)] = true;
 
       // Alias tracking used by some best-effort intervening-if templates.
+      stateAny.playedFromExileThisTurn = stateAny.playedFromExileThisTurn || {};
+      stateAny.playedFromExileThisTurn[String(playerId)] = true;
+      stateAny.cardsPlayedFromExileThisTurn = stateAny.cardsPlayedFromExileThisTurn || {};
+      stateAny.cardsPlayedFromExileThisTurn[String(playerId)] = (stateAny.cardsPlayedFromExileThisTurn[String(playerId)] || 0) + 1;
+
+      // Alias tracking used by some best-effort intervening-if templates.
       stateAny.castFromExileThisTurn = stateAny.castFromExileThisTurn || {};
       stateAny.castFromExileThisTurn[String(playerId)] = true;
+    } catch {
+      // best-effort only
+    }
+  }
+
+  // Turn-tracking for intervening-if templates: cast from graveyard.
+  if (castFromGraveyard) {
+    try {
+      const stateAny = state as any;
+      stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+      stateAny.castFromGraveyardThisTurn[String(playerId)] = true;
     } catch {
       // best-effort only
     }

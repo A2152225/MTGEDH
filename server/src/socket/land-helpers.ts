@@ -31,7 +31,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad' | 'strive' | 'blight';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad' | 'strive' | 'blight' | 'collect_evidence';
   amount: number;
   filter?: string;
   cost?: string;
@@ -43,6 +43,10 @@ export interface AdditionalCostResult {
   blightIsOptional?: boolean;
   blightOrPayCost?: string;
   blightIsX?: boolean;
+
+  // Collect evidence additional-cost support
+  collectEvidenceValue?: number;
+  collectEvidenceIsOptional?: boolean;
 }
 
 /**
@@ -56,6 +60,25 @@ export interface AdditionalCostResult {
  */
 export function detectAdditionalCost(oracleText: string): AdditionalCostResult | null {
   const lowerText = (oracleText || "").toLowerCase();
+
+  // Collect evidence as an additional cost (MKM keyword action)
+  // Examples:
+  // - "As an additional cost to cast this spell, you may collect evidence 6."
+  // - "As an additional cost to cast this spell, collect evidence 3."
+  // Note: "collect evidence X" is currently not supported (needs dynamic value).
+  const collectEvidenceMatch = (oracleText || '').match(/\bas an additional cost to cast this spell,\s*(you may\s+)?collect evidence\s*(\d+)\b[^.]*\./i);
+  if (collectEvidenceMatch) {
+    const optional = Boolean(collectEvidenceMatch[1]);
+    const n = Number.parseInt(String(collectEvidenceMatch[2] || '0'), 10);
+    if (Number.isFinite(n) && n > 0) {
+      return {
+        type: 'collect_evidence',
+        amount: 0,
+        collectEvidenceIsOptional: optional,
+        collectEvidenceValue: n,
+      };
+    }
+  }
 
   // Blight as an additional cost (new keyword-action cost)
   // Patterns observed in dataset:

@@ -162,6 +162,31 @@ export function setCommander(
     debug(2, `[setCommander] Library is empty or null for player ${playerId}`);
   }
 
+  // Intervening-if helper: snapshot starting library size (pre-opening-draw).
+  // Only record during pre_game and only if we haven't already recorded a value.
+  // IMPORTANT: must happen after commander removal but before opening draw.
+  try {
+    const stateAny = state as any;
+    if (String(stateAny?.phase) === "pre_game") {
+      stateAny.startingLibraryCountByPlayer = stateAny.startingLibraryCountByPlayer || {};
+      if (typeof stateAny.startingLibraryCountByPlayer[playerId] !== "number") {
+        const z = zones[playerId] || null;
+        const handCount = z ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray((z as any).hand) ? (z as any).hand.length : 0)) : 0;
+        // Only snapshot if the player hasn't taken an opening hand yet.
+        if (handCount === 0) {
+          stateAny.startingLibraryCountByPlayer[playerId] = (libraries.get(playerId) || []).length;
+        }
+      }
+
+      if (typeof stateAny.minimumLibrarySize !== "number") {
+        const fmt = String(stateAny?.format ?? "commander").toLowerCase();
+        stateAny.minimumLibrarySize = fmt === "commander" ? 99 : 60;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
   (info as any).commanderCards = built;
   commandZone[playerId] = info;
   

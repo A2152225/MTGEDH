@@ -2967,6 +2967,35 @@ export function getEnergyCount(gameState: any, playerId: string): number {
 }
 
 /**
+ * Add token counters to a player.
+ * Token counters are a player resource used by some cards (e.g., "you get two token counters").
+ *
+ * We keep a couple of alias maps in sync because intervening-if supports multiple field names.
+ */
+export function addTokenCounters(
+  gameState: any,
+  playerId: string,
+  amount: number,
+  source?: string
+): number {
+  if (!gameState || !playerId || amount <= 0) return 0;
+
+  const tokenCounters = (gameState.tokenCounters = gameState.tokenCounters || {});
+  tokenCounters[playerId] = (tokenCounters[playerId] || 0) + amount;
+
+  // Alias used by some best-effort consumers.
+  const tokenCounterCount = (gameState.tokenCounterCount = gameState.tokenCounterCount || {});
+  tokenCounterCount[playerId] = tokenCounters[playerId];
+
+  debug(
+    2,
+    `[addTokenCounters] ${playerId} gained ${amount} token counter(s)${source ? ` from ${source}` : ''} (total: ${tokenCounters[playerId]})`
+  );
+
+  return tokenCounters[playerId];
+}
+
+/**
  * Normalize a card name for oracle text matching.
  * 
  * Modern MTG oracle text uses shortened names for cards with titles:

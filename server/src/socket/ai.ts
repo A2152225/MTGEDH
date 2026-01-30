@@ -3525,6 +3525,22 @@ async function executeAICastSpell(
         debug(1, '[AI] Spell added to stack:', card.name, 'with', targets.length, 'target(s)');
       }
     }
+
+    // Track: "no opponent cast a spell since your last turn ended" (best-effort)
+    // Only flips `false -> true` for already-known opponent entries to avoid guessing in team games.
+    try {
+      const stateAny = game.state as any;
+      const map = stateAny?.opponentCastSpellSinceYourLastTurnEnded;
+      if (map && typeof map === 'object') {
+        for (const [, inner] of Object.entries(map)) {
+          if (!inner || typeof inner !== 'object' || Array.isArray(inner)) continue;
+          if (typeof (inner as any)[playerId] === 'boolean') (inner as any)[playerId] = true;
+        }
+        if (typeof (map as any)[playerId] === 'boolean') (map as any)[playerId] = true;
+      }
+    } catch {
+      // best-effort only
+    }
     
     // Consume mana from pool to pay for spell (leave any excess)
     const pool = (game.state as any).manaPool[playerId];

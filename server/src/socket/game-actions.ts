@@ -4335,9 +4335,90 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check for additional costs (discard a card, sacrifice, etc.)
       // This handles cards like Seize the Spoils, Faithless Looting, etc.
       const additionalCost = detectAdditionalCost(oracleText);
-      const additionalCostPaid = (payment as any[])?.some((p: any) => p.additionalCostPaid === true) ||
+      const additionalCostPaid = (payment as any[])?.some((p: any) => p && p.additionalCostPaid === true) ||
                                   (targets as any)?.additionalCostPaid === true;
+
+      // Collect-evidence additional cost markers (optional costs must avoid re-prompt loops).
+      const collectEvidenceMarker = (payment as any[])?.find((p: any) =>
+        p && (p.collectEvidenceResolved === true || p.evidenceCollected === true || p.evidenceWasCollected === true || p.collectedEvidence === true)
+      );
+      const collectEvidenceResolved =
+        collectEvidenceMarker?.collectEvidenceResolved === true ||
+        (targets as any)?.collectEvidenceResolved === true ||
+        (cardInHand as any)?.collectEvidenceResolved === true;
+      const evidenceCollected =
+        collectEvidenceMarker?.evidenceCollected === true ||
+        collectEvidenceMarker?.evidenceWasCollected === true ||
+        collectEvidenceMarker?.collectedEvidence === true ||
+        (targets as any)?.evidenceCollected === true ||
+        (targets as any)?.evidenceWasCollected === true ||
+        (targets as any)?.collectedEvidence === true ||
+        (cardInHand as any)?.evidenceCollected === true ||
+        (cardInHand as any)?.evidenceWasCollected === true ||
+        (cardInHand as any)?.collectedEvidence === true;
       
+      if (!shouldSkipAllPrompts && additionalCost?.type === 'collect_evidence' && !collectEvidenceResolved) {
+        const required = Number((additionalCost as any).collectEvidenceValue || 0);
+        const optional = Boolean((additionalCost as any).collectEvidenceIsOptional);
+
+        if (!Number.isFinite(required) || required <= 0) {
+          socket.emit('error', {
+            code: 'UNSUPPORTED_ADDITIONAL_COST',
+            message: `Additional cost "Collect evidence" is not supported yet for ${cardInHand.name}.`,
+          });
+          return;
+        }
+
+        const gy = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+        const validTargets = gy.map((c: any) => ({
+          id: String(c?.id || ''),
+          name: String(c?.name || c?.id || 'Card'),
+          typeLine: c?.type_line,
+          manaCost: c?.mana_cost,
+          imageUrl: c?.image_uris?.small || c?.image_uris?.normal,
+        })).filter((t: any) => Boolean(t.id));
+
+        const effectId = cardId;
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => (s as any)?.type === ResolutionStepType.GRAVEYARD_SELECTION && String((s as any)?.effectId || '') === String(effectId));
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.GRAVEYARD_SELECTION,
+            playerId: playerId as any,
+            sourceId: effectId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: optional
+              ? `You may collect evidence ${required} for ${cardInHand.name} by exiling cards from your graveyard (total mana value ${required} or more). Submit with 0 selections to decline.`
+              : `Collect evidence ${required} for ${cardInHand.name} by exiling cards from your graveyard (total mana value ${required} or more).`,
+            mandatory: !optional,
+            effectId,
+            cardName: cardInHand.name,
+            title: `Collect evidence ${required} (${cardInHand.name})`,
+            targetPlayerId: playerId,
+            minTargets: optional ? 0 : 1,
+            maxTargets: Math.max(optional ? 0 : 1, validTargets.length),
+            destination: 'exile',
+            purpose: 'collectEvidence',
+            collectEvidenceMinManaValue: required,
+            validTargets,
+            castSpellFromHandArgs: {
+              cardId,
+              payment,
+              targets,
+              xValue,
+              alternateCostId,
+              convokeTappedCreatures,
+            },
+          } as any);
+        }
+
+        debug(2, `[castSpellFromHand] Queued collect evidence ${required} prompt for ${cardInHand.name}`);
+        return; // Wait for graveyard selection via Resolution Queue
+      }
+
       if (!shouldSkipAllPrompts && additionalCost && !additionalCostPaid) {
         // Need to prompt for additional cost payment
         if (additionalCost.type === 'discard') {
@@ -5423,6 +5504,32 @@ export function registerGameActions(io: Server, socket: Socket) {
                   (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
                 }
               }
+
+              // Intervening-if support: "if its additional cost was paid".
+              // Be conservative: only set `true` on positive evidence.
+              if (additionalCostPaid === true) {
+                (topStackItem as any).additionalCostWasPaid = true;
+                (topStackItem as any).paidAdditionalCost = true;
+                (topStackItem as any).additionalCostPaid = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.additionalCostWasPaid = true;
+                  (topStackItem as any).card.paidAdditionalCost = true;
+                  (topStackItem as any).card.additionalCostPaid = true;
+                }
+              }
+
+              // Intervening-if support: "if evidence was collected" (Collect evidence additional cost).
+              // Be conservative: only set `true` on positive evidence.
+              if (evidenceCollected === true) {
+                (topStackItem as any).evidenceCollected = true;
+                (topStackItem as any).evidenceWasCollected = true;
+                (topStackItem as any).collectedEvidence = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.evidenceCollected = true;
+                  (topStackItem as any).card.evidenceWasCollected = true;
+                  (topStackItem as any).card.collectedEvidence = true;
+                }
+              }
               debug(1, `[castSpellFromHand] Added converge data to stack item: ${convergeValue} colors (${(topStackItem as any).manaColorsSpent.join(', ')})`);
             } else if (game.state.stack && game.state.stack.length > 0) {
               // Still attach total-mana info for other intervening-if templates.
@@ -5460,6 +5567,32 @@ export function registerGameActions(io: Server, socket: Socket) {
                   (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
                   (topStackItem as any).card.madnessCostWasPaid = (topStackItem as any).madnessCostWasPaid;
                   (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
+                }
+              }
+
+              // Intervening-if support: "if its additional cost was paid".
+              // Be conservative: only set `true` on positive evidence.
+              if (additionalCostPaid === true) {
+                (topStackItem as any).additionalCostWasPaid = true;
+                (topStackItem as any).paidAdditionalCost = true;
+                (topStackItem as any).additionalCostPaid = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.additionalCostWasPaid = true;
+                  (topStackItem as any).card.paidAdditionalCost = true;
+                  (topStackItem as any).card.additionalCostPaid = true;
+                }
+              }
+
+              // Intervening-if support: "if evidence was collected" (Collect evidence additional cost).
+              // Be conservative: only set `true` on positive evidence.
+              if (evidenceCollected === true) {
+                (topStackItem as any).evidenceCollected = true;
+                (topStackItem as any).evidenceWasCollected = true;
+                (topStackItem as any).collectedEvidence = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.evidenceCollected = true;
+                  (topStackItem as any).card.evidenceWasCollected = true;
+                  (topStackItem as any).card.collectedEvidence = true;
                 }
               }
             }
@@ -5523,6 +5656,20 @@ export function registerGameActions(io: Server, socket: Socket) {
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
               xValue,
+              ...(additionalCostPaid === true
+                ? {
+                    additionalCostWasPaid: true,
+                    paidAdditionalCost: true,
+                    additionalCostPaid: true,
+                  }
+                : {}),
+              ...(evidenceCollected === true
+                ? {
+                    evidenceCollected: true,
+                    evidenceWasCollected: true,
+                    collectedEvidence: true,
+                  }
+                : {}),
               // Converge tracking for cards like Bring to Light
               convergeValue: convergeValue > 0 ? convergeValue : undefined,
               manaColorsSpent: convergeValue > 0 ? Object.entries(manaConsumption.consumed)
@@ -5660,6 +5807,24 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
         } catch (err) {
           debugWarn(2, '[castSpellFromHand] Failed to track spellsCastThisTurn:', err);
+        }
+
+        // Track: "no opponent cast a spell since your last turn ended" (best-effort)
+        // Only flips `false -> true` for already-known opponent entries to avoid guessing in team games.
+        try {
+          const stateAny = game.state as any;
+          const map = stateAny?.opponentCastSpellSinceYourLastTurnEnded;
+          if (map && typeof map === 'object') {
+            // Per-player nested shape
+            for (const [, inner] of Object.entries(map)) {
+              if (!inner || typeof inner !== 'object' || Array.isArray(inner)) continue;
+              if (typeof (inner as any)[playerId] === 'boolean') (inner as any)[playerId] = true;
+            }
+            // Legacy flat shape (kept for backward compatibility)
+            if (typeof (map as any)[playerId] === 'boolean') (map as any)[playerId] = true;
+          }
+        } catch (err) {
+          debugWarn(2, '[castSpellFromHand] Failed to update opponentCastSpellSinceYourLastTurnEnded:', err);
         }
 
         const ctxForInterveningIf = { state: game.state } as any;
@@ -9461,7 +9626,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     minTargets: number;
     maxTargets: number;
     targetPlayerId?: string; // Whose graveyard to search (defaults to self)
-    destination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+    destination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
     title?: string;
     description?: string;
   }) => {

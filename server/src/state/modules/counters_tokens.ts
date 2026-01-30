@@ -221,6 +221,34 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
   } catch {
     // best-effort only
   }
+
+  // Turn-tracking for intervening-if templates like:
+  // - "if it's the first time counters have been put on that creature this turn"
+  // - "if it's the first time +1/+1 counters have been put on that permanent this turn"
+  // These are tracked as *event counts*, not total number of counters.
+  try {
+    const stateAny = state as any;
+    const anyPositive = Object.values(modifiedDeltas).some((amount) => Number(amount) > 0);
+    if (anyPositive) {
+      stateAny.putCounterOnPermanentThisTurnByPermanentId = stateAny.putCounterOnPermanentThisTurnByPermanentId || {};
+      stateAny.putCounterOnPermanentThisTurnByPermanentId[String(permanentId)] = true;
+
+      stateAny.countersPutThisTurnByPermanentId = stateAny.countersPutThisTurnByPermanentId || {};
+      stateAny.countersPutThisTurnByPermanentId[String(permanentId)] =
+        Number(stateAny.countersPutThisTurnByPermanentId[String(permanentId)] || 0) + 1;
+    }
+
+    const plusOnePositive = Object.entries(modifiedDeltas).some(
+      ([counterType, amount]) => isPlusOneCounterKey(counterType) && Number(amount) > 0
+    );
+    if (plusOnePositive) {
+      stateAny.plusOneCountersPutThisTurnByPermanentId = stateAny.plusOneCountersPutThisTurnByPermanentId || {};
+      stateAny.plusOneCountersPutThisTurnByPermanentId[String(permanentId)] =
+        Number(stateAny.plusOneCountersPutThisTurnByPermanentId[String(permanentId)] || 0) + 1;
+    }
+  } catch {
+    // best-effort only
+  }
   
   const current: Record<string, number> = { ...(p.counters ?? {}) };
   for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
@@ -444,6 +472,12 @@ export function createToken(
     const key = String(controller);
     stateAny.tokensCreatedThisTurn = stateAny.tokensCreatedThisTurn || {};
     stateAny.tokensCreatedThisTurn[key] = (stateAny.tokensCreatedThisTurn[key] || 0) + createdPermanentIds.length;
+
+    // Aliases consumed by intervening-if.
+    stateAny.tokenCreatedThisTurn = stateAny.tokenCreatedThisTurn || {};
+    stateAny.createdTokenThisTurn = stateAny.createdTokenThisTurn || {};
+    stateAny.tokenCreatedThisTurn[key] = (stateAny.tokenCreatedThisTurn[key] || 0) + createdPermanentIds.length;
+    stateAny.createdTokenThisTurn[key] = (stateAny.createdTokenThisTurn[key] || 0) + createdPermanentIds.length;
   } catch {
     // best-effort only
   }
@@ -531,6 +565,12 @@ export function createCopyTokensOfCard(
     const key = String(controller);
     stateAny.tokensCreatedThisTurn = stateAny.tokensCreatedThisTurn || {};
     stateAny.tokensCreatedThisTurn[key] = (stateAny.tokensCreatedThisTurn[key] || 0) + created.length;
+
+    // Aliases consumed by intervening-if.
+    stateAny.tokenCreatedThisTurn = stateAny.tokenCreatedThisTurn || {};
+    stateAny.createdTokenThisTurn = stateAny.createdTokenThisTurn || {};
+    stateAny.tokenCreatedThisTurn[key] = (stateAny.tokenCreatedThisTurn[key] || 0) + created.length;
+    stateAny.createdTokenThisTurn[key] = (stateAny.createdTokenThisTurn[key] || 0) + created.length;
   } catch {
     // best-effort only
   }

@@ -516,6 +516,18 @@ class GameManagerClass {
       game.state.phase = "pre_game";
     }
 
+    // Intervening-if helper: minimum library size depends on format.
+    // Default commander: minimum library size is 99 (100-card deck incl commander).
+    try {
+      const fmt = String(game.state?.format ?? "commander").toLowerCase();
+      const derivedMin = fmt === "commander" ? 99 : 60;
+      if (typeof (game.state as any).minimumLibrarySize !== "number") {
+        (game.state as any).minimumLibrarySize = derivedMin;
+      }
+    } catch {
+      /* ignore */
+    }
+
     try {
       if (typeof game.seq === "undefined") game.seq = 0;
       game.state.players = game.state.players || [];

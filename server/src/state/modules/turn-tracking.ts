@@ -87,3 +87,29 @@ export function recordPermanentPutIntoHandFromBattlefieldThisTurn(ctx: GameConte
     // best-effort only
   }
 }
+
+export function recordCardLeftGraveyardThisTurn(ctx: GameContext, ownerId: string, card?: any) {
+  try {
+    const stateAny = (ctx as any).state as any;
+    const owner = String(ownerId || "").trim();
+    if (!owner) return;
+
+    // Alias fields used by various intervening-if templates.
+    stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
+    stateAny.cardsLeftGraveyardThisTurn = stateAny.cardsLeftGraveyardThisTurn || {};
+    stateAny.leftGraveyardThisTurn = stateAny.leftGraveyardThisTurn || {};
+    stateAny.cardLeftGraveyardThisTurn[owner] = true;
+    stateAny.cardsLeftGraveyardThisTurn[owner] = true;
+    stateAny.leftGraveyardThisTurn[owner] = true;
+
+    const typeLine = String(card?.type_line || card?.card?.type_line || "").toLowerCase();
+    if (typeLine.includes('creature')) {
+      stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
+      stateAny.creatureCardsLeftGraveyardThisTurn = stateAny.creatureCardsLeftGraveyardThisTurn || {};
+      stateAny.creatureCardLeftGraveyardThisTurn[owner] = true;
+      stateAny.creatureCardsLeftGraveyardThisTurn[owner] = true;
+    }
+  } catch {
+    // best-effort only
+  }
+}

@@ -144,6 +144,11 @@ export function createContext(gameId: string): GameContext {
     landsPlayedThisTurn: {} as any,
   };
 
+  // Intervening-if helpers: record baseline deck/library metadata.
+  // Commander minimum deck is 100 including commander(s); library minimum is 99.
+  (state as any).minimumLibrarySize = 99;
+  (state as any).startingLibraryCountByPlayer = {};
+
   // Per-turn ETB tracking used by intervening-if evaluation.
   // Stored as ad-hoc fields on state to avoid widening shared GameState types.
   (state as any).landsEnteredBattlefieldThisTurn = {};
