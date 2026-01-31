@@ -2478,16 +2478,18 @@ export function nextTurn(ctx: GameContext) {
     
     // Clear noncreature spells cast this turn counter (for Esper Sentinel, Rhystic Study, etc.)
     // These abilities trigger on each player's FIRST noncreature spell each turn
-    if ((ctx as any).state.noncreatureSpellsCastThisTurn) {
-      (ctx as any).state.noncreatureSpellsCastThisTurn = {};
-      debug(2, `${ts()} [nextTurn] Cleared noncreatureSpellsCastThisTurn for new turn`);
+    (ctx as any).state.noncreatureSpellsCastThisTurn = {};
+    for (const pid of players) {
+      (ctx as any).state.noncreatureSpellsCastThisTurn[String(pid)] = 0;
     }
+    debug(2, `${ts()} [nextTurn] Cleared noncreatureSpellsCastThisTurn for new turn`);
 
     // Clear spells cast from hand this turn counter (for intervening-if templates)
-    if ((ctx as any).state.spellsCastFromHandThisTurn) {
-      (ctx as any).state.spellsCastFromHandThisTurn = {};
-      debug(2, `${ts()} [nextTurn] Cleared spellsCastFromHandThisTurn for new turn`);
+    (ctx as any).state.spellsCastFromHandThisTurn = {};
+    for (const pid of players) {
+      (ctx as any).state.spellsCastFromHandThisTurn[String(pid)] = 0;
     }
+    debug(2, `${ts()} [nextTurn] Cleared spellsCastFromHandThisTurn for new turn`);
 
     // Clear spells cast this turn list (for Storm and "if N or more spells were cast this turn" templates)
     // and snapshot last-turn history for intervening-if evaluation.
@@ -2667,9 +2669,18 @@ export function nextTurn(ctx: GameContext) {
     // "if evidence was collected").
     try {
       const stateAny = (ctx as any).state as any;
+      const players = Array.isArray(stateAny.players) ? stateAny.players : [];
       stateAny.evidenceCollectedThisTurn = {};
       stateAny.evidenceCollectedThisTurnByPlayer = {};
       stateAny.evidenceCollectedThisTurnByPlayerCounts = {};
+      for (const p of players) {
+        const pid = (p as any)?.id;
+        if (!pid) continue;
+        const key = String(pid);
+        stateAny.evidenceCollectedThisTurn[key] = false;
+        stateAny.evidenceCollectedThisTurnByPlayer[key] = false;
+        stateAny.evidenceCollectedThisTurnByPlayerCounts[key] = 0;
+      }
     } catch {
       // best-effort only
     }
@@ -2872,6 +2883,9 @@ export function nextTurn(ctx: GameContext) {
 
     // Reset cards drawn this turn for all players (for miracle tracking)
     (ctx as any).state.cardsDrawnThisTurn = {};
+    for (const pid of players) {
+      (ctx as any).state.cardsDrawnThisTurn[String(pid)] = 0;
+    }
 
     // Snapshot "life lost last turn" before clearing per-turn trackers.
     // Used by intervening-if clauses like "if you lost life last turn".
@@ -2908,9 +2922,16 @@ export function nextTurn(ctx: GameContext) {
     // Reset life gain/loss tracking for this turn.
     (ctx as any).state.lifeGainedThisTurn = {};
     (ctx as any).state.lifeLostThisTurn = {};
+    for (const pid of players) {
+      (ctx as any).state.lifeGainedThisTurn[String(pid)] = 0;
+      (ctx as any).state.lifeLostThisTurn[String(pid)] = 0;
+    }
 
     // Reset per-player damage taken tracking for this turn.
     (ctx as any).state.damageTakenThisTurnByPlayer = {};
+    for (const pid of players) {
+      (ctx as any).state.damageTakenThisTurnByPlayer[String(pid)] = 0;
+    }
 
     // Reset land-ETB tracking for this turn.
     (ctx as any).state.landsEnteredBattlefieldThisTurn = {};
@@ -2930,6 +2951,9 @@ export function nextTurn(ctx: GameContext) {
 
     // Reset die roll tracking for this turn.
     (ctx as any).state.dieRollsThisTurn = {};
+    for (const pid of players) {
+      (ctx as any).state.dieRollsThisTurn[String(pid)] = [];
+    }
 
     // Reset dungeon completion tracking for this turn.
     (ctx as any).state.completedDungeonThisTurn = {};

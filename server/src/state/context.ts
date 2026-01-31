@@ -173,6 +173,84 @@ export function createContext(gameId: string): GameContext {
   (state as any).creaturesDiedThisTurnIds = [];
   (state as any).permanentLeftBattlefieldThisTurn = {};
 
+  // Additional per-turn trackers used by intervening-if evaluation.
+  // These are safe defaults; state modules update them on positive evidence.
+  (state as any).lifeGainedThisTurn = {};
+  (state as any).lifeLostThisTurn = {};
+  (state as any).cardsDrawnThisTurn = {};
+  (state as any).spellsCastFromHandThisTurn = {};
+  (state as any).noncreatureSpellsCastThisTurn = {};
+  (state as any).damageTakenThisTurnByPlayer = {};
+  (state as any).discardedCardThisTurn = {};
+  (state as any).anyPlayerDiscardedCardThisTurn = false;
+  (state as any).dieRollsThisTurn = {};
+  (state as any).countersPutThisTurnByPermanentId = {};
+  (state as any).plusOneCountersPutThisTurnByPermanentId = {};
+  (state as any).creaturesThatDealtDamageToPlayer = {};
+
+  // Per-turn / per-cycle trackers used by recognized intervening-if templates.
+  // These are safe defaults; state modules update them on positive evidence.
+  (state as any).completedDungeonThisTurn = {};
+  (state as any).dungeonCompletedThisTurn = {};
+  (state as any).tookCombatDamageSinceLastTurn = {};
+  (state as any).combatDamageDealtToPlayerSinceLastTurn = {};
+
+  // Cycling/crime/day-night trackers used by recognized intervening-if templates.
+  (state as any).cycleCountThisTurn = {};
+  (state as any).cardsCycledThisTurn = {};
+  (state as any).cycledCardsThisTurn = {};
+  (state as any).committedCrimeThisTurn = {};
+  (state as any).crimeCommittedThisTurn = {};
+  (state as any).hasCommittedCrimeThisTurn = {};
+  (state as any).dayNightChangedThisTurn = false;
+
+  // Additional per-turn trackers used by newer recognized templates.
+  (state as any).spellWasWarpedThisTurn = {};
+  (state as any).evidenceCollectedThisTurn = {};
+  (state as any).evidenceCollectedThisTurnByPlayer = {};
+  (state as any).evidenceCollectedThisTurnByPlayerCounts = {};
+  (state as any).playedCardFromExileThisTurn = {};
+  (state as any).discardedCardThisTurn = (state as any).discardedCardThisTurn || {};
+  (state as any).anyPlayerDiscardedCardThisTurn = typeof (state as any).anyPlayerDiscardedCardThisTurn === 'boolean'
+    ? (state as any).anyPlayerDiscardedCardThisTurn
+    : false;
+
+  // Token/sacrifice/counter placement trackers (used by various intervening-if templates).
+  (state as any).tokensCreatedThisTurn = {};
+  (state as any).tokenCreatedThisTurn = {};
+  (state as any).createdTokenThisTurn = {};
+  (state as any).sacrificedCluesThisTurn = {};
+  (state as any).cluesSacrificedThisTurn = {};
+  (state as any).cluesSacrificedThisTurnCount = {};
+  (state as any).permanentsSacrificedThisTurn = {};
+  (state as any).foodsSacrificedThisTurn = {};
+  (state as any).putCounterOnCreatureThisTurn = {};
+  (state as any).placedCounterOnCreatureThisTurn = {};
+  (state as any).countersPlacedOnCreaturesThisTurn = {};
+  (state as any).putPlusOneCounterOnPermanentThisTurn = {};
+  (state as any).placedPlusOneCounterOnPermanentThisTurn = {};
+  (state as any).plusOneCounterPlacedOnPermanentThisTurn = {};
+  (state as any).putCounterOnPermanentThisTurnByPermanentId = (state as any).putCounterOnPermanentThisTurnByPermanentId || {};
+
+  // Graveyard-leave trackers (used by intervening-if templates).
+  (state as any).cardLeftGraveyardThisTurn = {};
+  (state as any).cardsLeftGraveyardThisTurn = {};
+  (state as any).leftGraveyardThisTurn = {};
+  (state as any).creatureCardLeftGraveyardThisTurn = {};
+  (state as any).creatureCardsLeftGraveyardThisTurn = {};
+  (state as any).cardLeftYourGraveyardThisTurn = {};
+  (state as any).creatureCardLeftYourGraveyardThisTurn = {};
+  (state as any).cardsPutIntoYourGraveyardThisTurn = {};
+  (state as any).cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn = {};
+  (state as any).creatureCardPutIntoYourGraveyardThisTurn = {};
+  (state as any).landYouControlledPutIntoGraveyardFromBattlefieldThisTurn = {};
+  (state as any).enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn = {};
+  (state as any).artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn = false;
+  (state as any).permanentPutIntoHandFromBattlefieldThisTurn = {};
+  (state as any).creaturesDamagedByThisCreatureThisTurn = {};
+  (state as any).attackedByAssassinThisTurnByPlayer = {};
+  (state as any).putCounterOnPermanentThisTurnByPermanentId = {};
+
   // Per-turn tap tracking used by intervening-if evaluation.
   // Conservative: we only set `true` on positive evidence and avoid writing `false`.
   (state as any).tappedNonlandPermanentThisTurnByPlayer = {};
@@ -183,6 +261,9 @@ export function createContext(gameId: string): GameContext {
   (state as any).spellsCastThisTurn = [];
   (state as any).spellsCastLastTurnCount = 0;
   (state as any).spellsCastLastTurnByPlayerCounts = {};
+  (state as any).lifeLostLastTurnByPlayerCounts = {};
+  (state as any).lifeLostLastTurnByPlayer = {};
+  (state as any).lifeLostLastTurn = {};
   (state as any).landsEnteredBattlefieldLastTurnByPlayerCounts = {};
   (state as any).creaturesEnteredBattlefieldLastTurnByController = {};
   (state as any).attackedPlayersThisTurnByPlayer = {};

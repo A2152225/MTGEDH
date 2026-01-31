@@ -129,10 +129,9 @@ function getLifeLostThisTurn(ctx: GameContext, playerId: string): number {
   return typeof v === 'number' ? v : 0;
 }
 
-function getLandsPlayedThisTurn(ctx: GameContext, playerId: string): number | null {
+function getLandsPlayedThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.landsPlayedThisTurn;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
@@ -159,80 +158,72 @@ function getLibraryCountMaybe(ctx: GameContext, playerId: string): number | null
   return null;
 }
 
-function getLandsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+function getLandsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.landsEnteredBattlefieldThisTurn;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)?.[playerId];
+  const v = map && typeof map === 'object' ? (map as any)?.[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getArtifactsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+function getArtifactsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.artifactsEnteredBattlefieldThisTurnByController;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getEnchantmentsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+function getEnchantmentsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.enchantmentsEnteredBattlefieldThisTurnByController;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getPlaneswalkersEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+function getPlaneswalkersEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.planeswalkersEnteredBattlefieldThisTurnByController;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getBattlesEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+function getBattlesEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.battlesEnteredBattlefieldThisTurnByController;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getNonlandPermanentsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+function getNonlandPermanentsEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.nonlandPermanentsEnteredBattlefieldThisTurn;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getCreaturesEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number | null {
+function getCreaturesEnteredBattlefieldThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByController;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getCreaturesDiedThisTurnByController(ctx: GameContext, playerId: string): number | null {
+function getCreaturesDiedThisTurnByController(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.creaturesDiedThisTurnByController;
-  if (!map || typeof map !== 'object') return null;
-  const v = (map as any)[playerId];
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
   return typeof v === 'number' ? v : 0;
 }
 
-function getCreaturesDiedThisTurnTotal(ctx: GameContext): number | null {
+function getCreaturesDiedThisTurnTotal(ctx: GameContext): number {
   const map = (ctx as any).state?.creaturesDiedThisTurnByController;
-  if (!map || typeof map !== 'object') return null;
+  if (!map || typeof map !== 'object') return 0;
   return (Object.values(map as any) as any[]).reduce((sum: number, v: any) => sum + (typeof v === 'number' ? v : 0), 0);
 }
 
-function getCreatureSubtypeDiedThisTurnCount(ctx: GameContext, controllerId: string, subtypeLower: string): number | null {
+function getCreatureSubtypeDiedThisTurnCount(ctx: GameContext, controllerId: string, subtypeLower: string): number {
   const map = (ctx as any).state?.creaturesDiedThisTurnByControllerSubtype;
-  if (!map || typeof map !== 'object') return null;
+  if (!map || typeof map !== 'object') return 0;
   const byController = (map as any)[String(controllerId)];
   if (!byController || typeof byController !== 'object') return 0;
   const v = (byController as any)[String(subtypeLower)];
   return typeof v === 'number' ? v : 0;
 }
 
-function getCreatureSubtypeDiedThisTurnSum(ctx: GameContext, controllerIds: string[], subtypeLower: string): number | null {
+function getCreatureSubtypeDiedThisTurnSum(ctx: GameContext, controllerIds: string[], subtypeLower: string): number {
   const map = (ctx as any).state?.creaturesDiedThisTurnByControllerSubtype;
-  if (!map || typeof map !== 'object') return null;
+  if (!map || typeof map !== 'object') return 0;
   let total = 0;
   for (const id of controllerIds) {
     const byController = (map as any)[String(id)];
@@ -243,18 +234,18 @@ function getCreatureSubtypeDiedThisTurnSum(ctx: GameContext, controllerIds: stri
   return total;
 }
 
-function getCreatureSubtypeEnteredThisTurnCount(ctx: GameContext, controllerId: string, subtypeLower: string): number | null {
+function getCreatureSubtypeEnteredThisTurnCount(ctx: GameContext, controllerId: string, subtypeLower: string): number {
   const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByControllerSubtype;
-  if (!map || typeof map !== 'object') return null;
+  if (!map || typeof map !== 'object') return 0;
   const byController = (map as any)[String(controllerId)];
   if (!byController || typeof byController !== 'object') return 0;
   const v = (byController as any)[String(subtypeLower)];
   return typeof v === 'number' ? v : 0;
 }
 
-function getCreatureSubtypeEnteredThisTurnSum(ctx: GameContext, controllerIds: string[], subtypeLower: string): number | null {
+function getCreatureSubtypeEnteredThisTurnSum(ctx: GameContext, controllerIds: string[], subtypeLower: string): number {
   const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByControllerSubtype;
-  if (!map || typeof map !== 'object') return null;
+  if (!map || typeof map !== 'object') return 0;
   let total = 0;
   for (const id of controllerIds) {
     const byController = (map as any)[String(id)];
@@ -439,11 +430,11 @@ function didSourceDealDamageToOpponentThisTurn(ctx: GameContext, controllerId: s
   return null;
 }
 
-function didSourceDealDamageToAnyPlayerThisTurn(ctx: GameContext, sourcePermanentId: string): boolean | null {
+function didSourceDealDamageToAnyPlayerThisTurn(ctx: GameContext, sourcePermanentId: string): boolean {
   const tracker = (ctx as any).state?.creaturesThatDealtDamageToPlayer;
-  if (!tracker || typeof tracker !== 'object') return null;
+  if (!tracker || typeof tracker !== 'object') return false;
   const sid = String(sourcePermanentId || '');
-  if (!sid) return null;
+  if (!sid) return false;
   return Object.values(tracker).some((entry: any) => entry && typeof entry === 'object' && !!entry[sid]);
 }
 
@@ -642,7 +633,6 @@ function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, 
   if (typeLower === 'land') {
     // Land entries are tracked via a per-turn counter map.
     const n = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
-    if (n === null) return null;
 
     // For "another land" templates, exclude the source permanent if it is itself a land that entered this turn.
     if (excludeId) {
@@ -660,7 +650,6 @@ function countControlledEnteredThisTurn(ctx: GameContext, controllerId: string, 
   if (typeLower === 'creature') {
     // Creature entries are tracked via a per-turn counter map.
     const n = getCreaturesEnteredBattlefieldThisTurn(ctx, controllerId);
-    if (n === null) return null;
 
     // For "another creature" templates, exclude the source permanent if it is itself a creature that entered this turn.
     if (excludeId) {
@@ -1134,11 +1123,10 @@ function isCreatureDiedThisTurn(ctx: GameContext): boolean | null {
   return typeof v === "boolean" ? v : null;
 }
 
-function didPermanentLeaveBattlefieldThisTurn(ctx: GameContext, playerId: string): boolean | null {
+function didPermanentLeaveBattlefieldThisTurn(ctx: GameContext, playerId: string): boolean {
   const map = (ctx as any).state?.permanentLeftBattlefieldThisTurn;
-  if (!map || typeof map !== "object") return null;
-  const v = map[playerId];
-  return typeof v === "boolean" ? v : null;
+  const v = map && typeof map === 'object' ? (map as any)[playerId] : undefined;
+  return typeof v === 'boolean' ? v : false;
 }
 
 function getTurnPlayerId(ctx: GameContext): string | null {
@@ -1610,21 +1598,10 @@ function evaluateInterveningIfClauseInternal(
     return getLifeGainedThisTurn(ctx, controllerId) > 0;
   }
 
-  // "...if your team gained life this turn..." (team formats; best-effort when per-turn tracking exists)
+  // "...if your team gained life this turn..." (team formats)
   if (/^if\s+your\s+team\s+gained\s+life\s+this\s+turn$/i.test(clause)) {
-    const map = (ctx as any).state?.lifeGainedThisTurn;
-    if (!map || typeof map !== 'object') return null;
-
     const teamIds = getTeamMemberIds(ctx, controllerId);
-    const any = teamIds.some((pid) => {
-      const v = (map as any)[String(pid)];
-      return typeof v === 'number' ? v > 0 : false;
-    });
-    if (any) return true;
-
-    // If the map exists but some entries are missing/non-numeric, we can't safely say false.
-    const allNumeric = teamIds.every((pid) => typeof (map as any)[String(pid)] === 'number');
-    return allNumeric ? false : null;
+    return teamIds.some((pid) => getLifeGainedThisTurn(ctx, String(pid)) > 0);
   }
 
   // "...if you lost life this turn..."
@@ -1637,7 +1614,7 @@ function evaluateInterveningIfClauseInternal(
     return getLifeLostThisTurn(ctx, controllerId) === 0;
   }
 
-  // "...if you lost N or more life this turn..." (best-effort)
+  // "...if you lost N or more life this turn..."
   {
     const m = clause.match(/^if\s+you\s+lost\s+([a-z0-9]+)\s+or\s+more\s+life\s+this\s+turn$/i);
     if (m) {
@@ -1724,12 +1701,11 @@ function evaluateInterveningIfClauseInternal(
   // "if a land entered the battlefield under your control this turn and you control a prime number of lands"
   if (/^if\s+a\s+land\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn\s+and\s+you\s+control\s+a\s+prime\s+number\s+of\s+lands$/i.test(clause)) {
     const n = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
-    if (n === null) return null;
     if (n <= 0) return false;
     return isPrimeNumber(countByPermanentType(ctx, controllerId, 'land'));
   }
 
-  // "if N or more nonland permanents entered the battlefield under your control this turn" (best-effort)
+  // "if N or more nonland permanents entered the battlefield under your control this turn"
   {
     const m = clause.match(
       /^if\s+([a-z0-9]+)\s+or\s+more\s+nonland\s+permanents\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i
@@ -1738,11 +1714,11 @@ function evaluateInterveningIfClauseInternal(
       const n = parseCountToken(m[1]);
       if (n === null) return null;
       const v = getNonlandPermanentsEnteredBattlefieldThisTurn(ctx, controllerId);
-      return v === null ? null : v >= n;
+      return v >= n;
     }
   }
 
-  // "if N or more <type> entered (the battlefield) under your control this turn" (best-effort)
+  // "if N or more <type> entered (the battlefield) under your control this turn"
   {
     const m = clause.match(
       /^if\s+([a-z0-9]+)\s+or\s+more\s+(artifacts|creatures|enchantments|lands|planeswalkers|battles)\s+entered(?:\s+the\s+battlefield)?\s+under\s+your\s+control\s+this\s+turn$/i
@@ -1836,13 +1812,13 @@ function evaluateInterveningIfClauseInternal(
     return didSourceDealDamageToOpponentThisTurn(ctx, controllerId, String(sourcePermanent.id));
   }
 
-  // "if it dealt combat damage to a player this turn" (Wave of Rats; best-effort)
+  // "if it dealt combat damage to a player this turn" (Wave of Rats)
   if (/^if\s+it\s+dealt\s+combat\s+damage\s+to\s+a\s+player\s+this\s+turn$/i.test(clause)) {
     if (!sourcePermanent?.id) return null;
     return didSourceDealDamageToAnyPlayerThisTurn(ctx, String(sourcePermanent.id));
   }
 
-  // "if a player was dealt N or more combat damage this turn" (best-effort)
+  // "if a player was dealt N or more combat damage this turn"
   {
     const m = clause.match(/^if\s+a\s+player\s+was\s+dealt\s+([a-z0-9]+)\s+or\s+more\s+combat\s+damage\s+this\s+turn$/i);
     if (m) {
@@ -1850,7 +1826,7 @@ function evaluateInterveningIfClauseInternal(
       if (n === null) return null;
 
       const tracker = (ctx as any).state?.creaturesThatDealtDamageToPlayer;
-      if (!tracker || typeof tracker !== 'object') return null;
+      if (!tracker || typeof tracker !== 'object') return false;
 
       for (const perDamagedPlayer of Object.values(tracker as any)) {
         if (!perDamagedPlayer || typeof perDamagedPlayer !== 'object') continue;
@@ -3801,55 +3777,35 @@ function evaluateInterveningIfClauseInternal(
     return v;
   }
 
-  // "if no creatures died this turn" (best-effort: only global boolean is tracked)
+  // "if no creatures died this turn"
   if (/^if\s+no\s+creatures\s+died\s+this\s+turn$/i.test(clause)) {
-    const v = isCreatureDiedThisTurn(ctx);
-    return v === null ? null : !v;
+    return getCreaturesDiedThisTurnTotal(ctx) === 0;
   }
 
-  // "if a creature died under your control this turn" (best-effort: only global boolean is tracked)
+  // "if a creature died under your control this turn"
   if (/^if\s+a\s+creature\s+died\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
-    const n = getCreaturesDiedThisTurnByController(ctx, controllerId);
-    if (typeof n === 'number') return n > 0;
-
-    const v = isCreatureDiedThisTurn(ctx);
-    if (v === false) return false;
-    return null;
+    return getCreaturesDiedThisTurnByController(ctx, controllerId) > 0;
   }
 
-  // "if N or more creatures died under your control this turn" (best-effort)
+  // "if N or more creatures died under your control this turn"
   {
     const m = clause.match(/^if\s+([a-z0-9]+)\s+or\s+more\s+creatures\s+died\s+under\s+your\s+control\s+this\s+turn$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
 
-      const byController = getCreaturesDiedThisTurnByController(ctx, controllerId);
-      if (typeof byController === 'number') return byController >= n;
-
-      const v = isCreatureDiedThisTurn(ctx);
-      if (v === false) return false;
-      if (v === null) return null;
-      if (n <= 1) return true;
-      return null;
+      return getCreaturesDiedThisTurnByController(ctx, controllerId) >= n;
     }
   }
 
-  // "if N or more creatures died this turn" (best-effort: only global boolean is tracked)
+  // "if N or more creatures died this turn"
   {
     const m = clause.match(/^if\s+([a-z0-9]+)\s+or\s+more\s+creatures\s+died\s+this\s+turn$/i);
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
 
-      const total = getCreaturesDiedThisTurnTotal(ctx);
-      if (typeof total === 'number') return total >= n;
-
-      const v = isCreatureDiedThisTurn(ctx);
-      if (v === false) return false;
-      if (v === null) return null;
-      if (n <= 1) return true;
-      return null;
+      return getCreaturesDiedThisTurnTotal(ctx) >= n;
     }
   }
 
@@ -3922,47 +3878,33 @@ function evaluateInterveningIfClauseInternal(
     return didPermanentLeaveBattlefieldThisTurn(ctx, controllerId);
   }
 
-  // "if no permanents left the battlefield this turn" (best-effort; needs per-player tracking)
+  // "if no permanents left the battlefield this turn"
   if (/^if\s+no\s+permanents\s+left\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
     const stateAny: any = (ctx as any).state || {};
     const players = Array.isArray(stateAny.players) ? stateAny.players : [];
     const ids = players.map((p: any) => String(p?.id || '')).filter(Boolean);
     if (!ids.length) return null;
 
-    let unknown = false;
-    for (const pid of ids) {
-      const v = didPermanentLeaveBattlefieldThisTurn(ctx, pid);
-      if (v === true) return false;
-      if (v === null) unknown = true;
-    }
-    return unknown ? null : true;
+    return ids.every((pid) => !didPermanentLeaveBattlefieldThisTurn(ctx, pid));
   }
 
-  // "if a nonland permanent left the battlefield this turn or a spell was warped this turn" (best-effort)
+  // "if a nonland permanent left the battlefield this turn or a spell was warped this turn"
   if (/^if\s+a\s+nonland\s+permanent\s+left\s+the\s+battlefield\s+this\s+turn\s+or\s+a\s+spell\s+was\s+warped\s+this\s+turn$/i.test(clause)) {
     const left = didPermanentLeaveBattlefieldThisTurn(ctx, controllerId);
     const warpedMap = (ctx as any).state?.spellWasWarpedThisTurn;
-    const warped = warpedMap?.[controllerId];
-    const warpedBool = typeof warped === "boolean" ? warped : null;
+    const warped = warpedMap && typeof warpedMap === 'object' ? (warpedMap as any)[controllerId] : undefined;
+    const warpedBool = typeof warped === 'boolean' ? warped : false;
 
-    if (left === true || warpedBool === true) return true;
-    if (left === false && warpedBool === false) return false;
-    return null;
+    return left || warpedBool;
   }
 
-  // "if you descended this turn" (best-effort: requires a per-turn flag)
+  // "if you descended this turn"
   if (/^if\s+you\s+descended\s+this\s+turn$/i.test(clause)) {
     const stateAny: any = (ctx as any).state || {};
     const map = stateAny?.descendedThisTurn;
 
     const tracked = map && typeof map === 'object' ? (map as any)[controllerId] : undefined;
-    if (typeof tracked === 'boolean') return tracked;
-
-    // Positive evidence: any creature card entering your graveyard implies you descended.
-    const creatureCard = stateAny?.creatureCardPutIntoYourGraveyardThisTurn?.[controllerId];
-    if (creatureCard === true) return true;
-
-    return null;
+    return typeof tracked === 'boolean' ? tracked : false;
   }
 
   // "if you attacked with N or more creatures this turn" (Planechase and similar)
@@ -5064,8 +5006,13 @@ function evaluateInterveningIfClauseInternal(
     const wantsThisTurn = /\s+this\s+turn$/i.test(clause);
 
     if (wantsThisTurn) {
-      const thisTurn = stateAny?.completedDungeonThisTurn?.[controllerId] ?? stateAny?.dungeonCompletedThisTurn?.[controllerId];
+      const a = stateAny?.completedDungeonThisTurn;
+      const b = stateAny?.dungeonCompletedThisTurn;
+      const hasTracking = (a && typeof a === 'object') || (b && typeof b === 'object');
+      const thisTurn = a?.[controllerId] ?? b?.[controllerId];
       if (typeof thisTurn === 'boolean') return thisTurn;
+      // If tracking exists but this player has no entry, treat as "didn't complete a dungeon this turn".
+      if (thisTurn === undefined && hasTracking) return false;
       // If we don't have per-turn tracking, we can't safely answer the "this turn" variant.
       return null;
     }
@@ -5880,7 +5827,6 @@ function evaluateInterveningIfClauseInternal(
   // "if you didn't play a land this turn" (Mercadian Atlas)
   if (/^if\s+you\s+(?:did\s+not|didn't)\s+play\s+a\s+land\s+this\s+turn$/i.test(clause)) {
     const n = getLandsPlayedThisTurn(ctx, controllerId);
-    if (n === null) return null;
     return n === 0;
   }
 
@@ -5890,7 +5836,6 @@ function evaluateInterveningIfClauseInternal(
     /^if\s+it\s+wasn'?t\s+the\s+first\s+land\s+you\s+played\s+this\s+turn$/i.test(clause)
   ) {
     const n = getLandsPlayedThisTurn(ctx, controllerId);
-    if (n === null) return null;
     // This land counts as one of the lands played this turn.
     return n >= 2;
   }
@@ -6115,7 +6060,7 @@ function evaluateInterveningIfClauseInternal(
     return getSpellsCastFromHandThisTurnCount(ctx, controllerId) === 0;
   }
 
-  // "if you (didn't|did not) play a card from exile this turn" (best-effort)
+  // "if you (didn't|did not) play a card from exile this turn"
   if (
     /^if\s+you\s+(?:didn't|did\s+not)\s+play\s+a\s+card\s+from\s+exile\s+this\s+turn$/i.test(clause) ||
     /^if\s+you\s+(?:didn't|did\s+not)\s+play\s+a\s+card\s+from\s+exile\s+this\s+turn\.$/i.test(clause)
@@ -6128,10 +6073,15 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.castFromExileThisTurn?.[controllerId];
     if (typeof raw === 'boolean') return !raw;
     if (typeof raw === 'number') return raw === 0;
-    return null;
+    const hasAnyTracker =
+      (stateAny?.playedFromExileThisTurn && typeof stateAny.playedFromExileThisTurn === 'object') ||
+      (stateAny?.playedCardFromExileThisTurn && typeof stateAny.playedCardFromExileThisTurn === 'object') ||
+      (stateAny?.cardsPlayedFromExileThisTurn && typeof stateAny.cardsPlayedFromExileThisTurn === 'object') ||
+      (stateAny?.castFromExileThisTurn && typeof stateAny.castFromExileThisTurn === 'object');
+    return hasAnyTracker ? true : null;
   }
 
-  // "if you played a card from exile this turn" (best-effort)
+  // "if you played a card from exile this turn"
   if (/^if\s+you\s+played\s+a\s+card\s+from\s+exile\s+this\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
     const raw =
@@ -6141,27 +6091,40 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.castFromExileThisTurn?.[controllerId];
     if (typeof raw === 'boolean') return raw;
     if (typeof raw === 'number') return raw > 0;
+    const hasAnyTracker =
+      (stateAny?.playedFromExileThisTurn && typeof stateAny.playedFromExileThisTurn === 'object') ||
+      (stateAny?.playedCardFromExileThisTurn && typeof stateAny.playedCardFromExileThisTurn === 'object') ||
+      (stateAny?.cardsPlayedFromExileThisTurn && typeof stateAny.cardsPlayedFromExileThisTurn === 'object') ||
+      (stateAny?.castFromExileThisTurn && typeof stateAny.castFromExileThisTurn === 'object');
+    return hasAnyTracker ? false : null;
+  }
+
+  // "if you cycled two or more cards this turn"
+  if (/^if\s+you\s+cycled\s+two\s+or\s+more\s+cards\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const a = stateAny?.cardsCycledThisTurn;
+    const b = stateAny?.cycledCardsThisTurn;
+    const c = stateAny?.cycleCountThisTurn;
+    const hasTracking = (a && typeof a === 'object') || (b && typeof b === 'object') || (c && typeof c === 'object');
+    const raw = a?.[controllerId] ?? b?.[controllerId] ?? c?.[controllerId];
+    if (typeof raw === 'number') return raw >= 2;
+    // If tracking exists but this player has no entry, treat as 0.
+    if (raw === undefined && hasTracking) return false;
     return null;
   }
 
-  // "if you cycled two or more cards this turn" (best-effort)
-  if (/^if\s+you\s+cycled\s+two\s+or\s+more\s+cards\s+this\s+turn$/i.test(clause)) {
-    const stateAny = (ctx as any).state as any;
-    const raw =
-      stateAny?.cardsCycledThisTurn?.[controllerId] ??
-      stateAny?.cycledCardsThisTurn?.[controllerId] ??
-      stateAny?.cycleCountThisTurn?.[controllerId];
-    return typeof raw === 'number' ? raw >= 2 : null;
-  }
-
-  // "if you've committed a crime this turn" (best-effort)
+  // "if you've committed a crime this turn"
   if (/^if\s+you\s+(?:have\s+)?committed\s+a\s+crime\s+this\s+turn$/i.test(clause) || /^if\s+you'?ve\s+committed\s+a\s+crime\s+this\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
-    const raw =
-      stateAny?.committedCrimeThisTurn?.[controllerId] ??
-      stateAny?.crimeCommittedThisTurn?.[controllerId] ??
-      stateAny?.hasCommittedCrimeThisTurn?.[controllerId];
-    return typeof raw === 'boolean' ? raw : null;
+    const a = stateAny?.committedCrimeThisTurn;
+    const b = stateAny?.crimeCommittedThisTurn;
+    const c = stateAny?.hasCommittedCrimeThisTurn;
+    const hasTracking = (a && typeof a === 'object') || (b && typeof b === 'object') || (c && typeof c === 'object');
+    const raw = a?.[controllerId] ?? b?.[controllerId] ?? c?.[controllerId];
+    if (typeof raw === 'boolean') return raw;
+    // If tracking exists but this player has no entry, treat as "not committed".
+    if (raw === undefined && hasTracking) return false;
+    return null;
   }
 
   // "if you've cast a spell with mana value N or greater this turn" (best-effort)
@@ -6216,14 +6179,18 @@ function evaluateInterveningIfClauseInternal(
   ) {
     const stateAny = (ctx as any).state as any;
     const raw = stateAny?.permanentsSacrificedThisTurn?.[controllerId];
-    return typeof raw === 'number' ? raw > 0 : null;
+    if (typeof raw === 'number') return raw > 0;
+    const hasTracker = stateAny?.permanentsSacrificedThisTurn && typeof stateAny.permanentsSacrificedThisTurn === 'object';
+    return hasTracker ? false : null;
   }
 
   // "if you sacrificed a Food this turn"
   if (/^if\s+you\s+sacrificed\s+a\s+food\s+this\s+turn\.?$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
     const raw = stateAny?.foodsSacrificedThisTurn?.[controllerId];
-    return typeof raw === 'number' ? raw > 0 : null;
+    if (typeof raw === 'number') return raw > 0;
+    const hasTracker = stateAny?.foodsSacrificedThisTurn && typeof stateAny.foodsSacrificedThisTurn === 'object';
+    return hasTracker ? false : null;
   }
 
   // "if you weren't the starting player"
@@ -6243,17 +6210,25 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.createdTokenThisTurn?.[controllerId];
     if (typeof raw === 'number') return raw > 0;
     if (typeof raw === 'boolean') return raw;
-    return null;
+    const hasAnyTracker =
+      (stateAny?.tokensCreatedThisTurn && typeof stateAny.tokensCreatedThisTurn === 'object') ||
+      (stateAny?.tokenCreatedThisTurn && typeof stateAny.tokenCreatedThisTurn === 'object') ||
+      (stateAny?.createdTokenThisTurn && typeof stateAny.createdTokenThisTurn === 'object');
+    return hasAnyTracker ? false : null;
   }
 
-  // "if you were the monarch as the turn began" (best-effort)
+  // "if you were the monarch as the turn began"
   if (/^if\s+you\s+were\s+the\s+monarch\s+as\s+the\s+turn\s+began$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
-    const raw =
-      stateAny?.monarchAtTurnBeginByPlayer?.[controllerId] ??
-      stateAny?.wasMonarchAtTurnBegin?.[controllerId] ??
-      stateAny?.monarchAtTurnBegan?.[controllerId];
-    return typeof raw === 'boolean' ? raw : null;
+    const a = stateAny?.monarchAtTurnBeginByPlayer;
+    const b = stateAny?.wasMonarchAtTurnBegin;
+    const c = stateAny?.monarchAtTurnBegan;
+    const hasTracking = (a && typeof a === 'object') || (b && typeof b === 'object') || (c && typeof c === 'object');
+    const raw = a?.[controllerId] ?? b?.[controllerId] ?? c?.[controllerId];
+    if (typeof raw === 'boolean') return raw;
+    // If tracking exists but this player has no entry, treat as "not monarch".
+    if (raw === undefined && hasTracking) return false;
+    return null;
   }
 
   // "if you have an {E}" (energy; best-effort)
@@ -6298,13 +6273,17 @@ function evaluateInterveningIfClauseInternal(
     return typeof raw === 'boolean' ? !raw : null;
   }
 
-  // "if you haven't been dealt combat damage since your last turn" (best-effort)
+  // "if you haven't been dealt combat damage since your last turn"
   if (/^if\s+you\s+haven'?t\s+been\s+dealt\s+combat\s+damage\s+since\s+your\s+last\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
-    const raw =
-      stateAny?.combatDamageDealtToPlayerSinceLastTurn?.[controllerId] ??
-      stateAny?.tookCombatDamageSinceLastTurn?.[controllerId];
-    return typeof raw === 'boolean' ? !raw : null;
+    const a = stateAny?.combatDamageDealtToPlayerSinceLastTurn;
+    const b = stateAny?.tookCombatDamageSinceLastTurn;
+    const hasTracking = (a && typeof a === 'object') || (b && typeof b === 'object');
+    const raw = a?.[controllerId] ?? b?.[controllerId];
+    if (typeof raw === 'boolean') return !raw;
+    // If tracking exists but this player has no entry, treat as "no combat damage since last turn".
+    if (raw === undefined && hasTracking) return true;
+    return null;
   }
 
   // "if you planeswalked to Unyaro this turn" (best-effort)
@@ -6477,7 +6456,12 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.cardLeftGraveyardThisTurn?.[controllerId] ??
       stateAny?.cardsLeftGraveyardThisTurn?.[controllerId] ??
       stateAny?.leftGraveyardThisTurn?.[controllerId];
-    return typeof raw === 'boolean' ? raw : null;
+    if (typeof raw === 'boolean') return raw;
+    const hasAnyTracker =
+      (stateAny?.cardLeftGraveyardThisTurn && typeof stateAny.cardLeftGraveyardThisTurn === 'object') ||
+      (stateAny?.cardsLeftGraveyardThisTurn && typeof stateAny.cardsLeftGraveyardThisTurn === 'object') ||
+      (stateAny?.leftGraveyardThisTurn && typeof stateAny.leftGraveyardThisTurn === 'object');
+    return hasAnyTracker ? false : null;
   }
 
   // "if a creature card left your graveyard this turn" (Syrix, Carrier of the Flame)
@@ -6489,7 +6473,11 @@ function evaluateInterveningIfClauseInternal(
     const raw =
       stateAny?.creatureCardLeftGraveyardThisTurn?.[controllerId] ??
       stateAny?.creatureCardsLeftGraveyardThisTurn?.[controllerId];
-    return typeof raw === 'boolean' ? raw : null;
+    if (typeof raw === 'boolean') return raw;
+    const hasAnyTracker =
+      (stateAny?.creatureCardLeftGraveyardThisTurn && typeof stateAny.creatureCardLeftGraveyardThisTurn === 'object') ||
+      (stateAny?.creatureCardsLeftGraveyardThisTurn && typeof stateAny.creatureCardsLeftGraveyardThisTurn === 'object');
+    return hasAnyTracker ? false : null;
   }
 
   // "if a land you controlled was put into a graveyard from the battlefield this turn" (best-effort via turn-tracking)
@@ -6497,7 +6485,9 @@ function evaluateInterveningIfClauseInternal(
     const stateAny = (ctx as any).state as any;
     const map = stateAny?.landYouControlledPutIntoGraveyardFromBattlefieldThisTurn;
     const v = map?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasTracker = map && typeof map === 'object';
+    return hasTracker ? false : null;
   }
 
   // "if a permanent was put into your hand from the battlefield this turn" (best-effort via turn-tracking)
@@ -6505,7 +6495,9 @@ function evaluateInterveningIfClauseInternal(
     const stateAny = (ctx as any).state as any;
     const map = stateAny?.permanentPutIntoHandFromBattlefieldThisTurn;
     const v = map?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasTracker = map && typeof map === 'object';
+    return hasTracker ? false : null;
   }
 
   // "if an enchantment was put into your graveyard from the battlefield this turn" (best-effort via turn-tracking)
@@ -6513,7 +6505,9 @@ function evaluateInterveningIfClauseInternal(
     const stateAny = (ctx as any).state as any;
     const map = stateAny?.enchantmentPutIntoYourGraveyardFromBattlefieldThisTurn;
     const v = map?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasTracker = map && typeof map === 'object';
+    return hasTracker ? false : null;
   }
 
   // "if an artifact or creature was put into a graveyard from the battlefield this turn" (best-effort via turn-tracking)
@@ -6654,16 +6648,17 @@ function evaluateInterveningIfClauseInternal(
     return last === null ? null : last === 0;
   }
 
-  // "if you lost life last turn" (best-effort)
+  // "if you lost life last turn"
   if (/^if\s+you\s+lost\s+life\s+last\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
-    const raw =
-      stateAny?.lifeLostLastTurn?.[controllerId] ??
-      stateAny?.lifeLostLastTurnByPlayer?.[controllerId] ??
-      stateAny?.lifeLostLastTurnByPlayerCounts?.[controllerId];
-    if (typeof raw === 'boolean') return raw;
-    if (typeof raw === 'number') return raw > 0;
-    return null;
+    const counts =
+      (stateAny?.lifeLostLastTurnByPlayerCounts && typeof stateAny.lifeLostLastTurnByPlayerCounts === 'object'
+        ? stateAny.lifeLostLastTurnByPlayerCounts
+        : null) ??
+      (stateAny?.lifeLostLastTurnByPlayer && typeof stateAny.lifeLostLastTurnByPlayer === 'object' ? stateAny.lifeLostLastTurnByPlayer : null) ??
+      (stateAny?.lifeLostLastTurn && typeof stateAny.lifeLostLastTurn === 'object' ? stateAny.lifeLostLastTurn : null);
+    const n = counts && typeof (counts as any)[controllerId] === 'number' ? (counts as any)[controllerId] : 0;
+    return n > 0;
   }
 
   // "if you drew a card last turn" (Mine Is the Only Truth)
@@ -6678,7 +6673,7 @@ function evaluateInterveningIfClauseInternal(
     return null;
   }
 
-  // "if an opponent lost life last turn" (best-effort)
+  // "if an opponent lost life last turn"
   if (/^if\s+an\s+opponent\s+lost\s+life\s+last\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
     const counts =
@@ -6699,8 +6694,7 @@ function evaluateInterveningIfClauseInternal(
         if (raw > 0) return true;
         continue;
       }
-      // Unknown for this opponent => overall unknown.
-      return null;
+      // Container exists but this opponent has no entry: treat as 0.
     }
 
     return false;
@@ -6838,7 +6832,12 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.putCounterOnCreatureThisTurn?.[controllerId] ??
       stateAny?.placedCounterOnCreatureThisTurn?.[controllerId] ??
       stateAny?.countersPlacedOnCreaturesThisTurn?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasAnyTracker =
+      (stateAny?.putCounterOnCreatureThisTurn && typeof stateAny.putCounterOnCreatureThisTurn === 'object') ||
+      (stateAny?.placedCounterOnCreatureThisTurn && typeof stateAny.placedCounterOnCreatureThisTurn === 'object') ||
+      (stateAny?.countersPlacedOnCreaturesThisTurn && typeof stateAny.countersPlacedOnCreaturesThisTurn === 'object');
+    return hasAnyTracker ? false : null;
   }
 
   // "if a +1/+1 counter was put on a permanent under your control this turn" (Fairgrounds Trumpeter)
@@ -6852,7 +6851,12 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.putPlusOneCounterOnPermanentThisTurn?.[controllerId] ??
       stateAny?.placedPlusOneCounterOnPermanentThisTurn?.[controllerId] ??
       stateAny?.plusOneCounterPlacedOnPermanentThisTurn?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasAnyTracker =
+      (stateAny?.putPlusOneCounterOnPermanentThisTurn && typeof stateAny.putPlusOneCounterOnPermanentThisTurn === 'object') ||
+      (stateAny?.placedPlusOneCounterOnPermanentThisTurn && typeof stateAny.placedPlusOneCounterOnPermanentThisTurn === 'object') ||
+      (stateAny?.plusOneCounterPlacedOnPermanentThisTurn && typeof stateAny.plusOneCounterPlacedOnPermanentThisTurn === 'object');
+    return hasAnyTracker ? false : null;
   }
 
   // "if you sacrificed N or more Clues this turn" (best-effort)
@@ -6867,7 +6871,11 @@ function evaluateInterveningIfClauseInternal(
         stateAny?.sacrificedCluesThisTurn?.[controllerId] ??
         stateAny?.cluesSacrificedThisTurnCount?.[controllerId];
       if (typeof raw === 'number') return raw >= n;
-      return null;
+      const hasAnyTracker =
+        (stateAny?.cluesSacrificedThisTurn && typeof stateAny.cluesSacrificedThisTurn === 'object') ||
+        (stateAny?.sacrificedCluesThisTurn && typeof stateAny.sacrificedCluesThisTurn === 'object') ||
+        (stateAny?.cluesSacrificedThisTurnCount && typeof stateAny.cluesSacrificedThisTurnCount === 'object');
+      return hasAnyTracker ? false : null;
     }
   }
 
@@ -7722,7 +7730,10 @@ function evaluateInterveningIfClauseInternal(
       if (typeof direct === 'boolean') return direct;
 
       const map = (ctx as any).state?.putCounterOnPermanentThisTurnByPermanentId;
-      if (map && typeof map === 'object' && id && typeof (map as any)[id] === 'boolean') return (map as any)[id];
+      if (map && typeof map === 'object' && id) {
+        const v = (map as any)[id];
+        return typeof v === 'boolean' ? v : false;
+      }
 
       return null;
     }
@@ -9184,7 +9195,9 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+evidence\s+was\s+collected$/i.test(clause)) {
     const map = (ctx as any).state?.evidenceCollectedThisTurn;
     const v = map?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasTracker = map && typeof map === 'object';
+    return hasTracker ? false : null;
   }
   if (/^if\s+all\s+your\s+commanders\s+have\s+been\s+revealed$/i.test(clause)) {
     const cz =
@@ -9282,7 +9295,13 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.cardLeftGraveyardThisTurn?.[controllerId] ??
       stateAny?.cardsLeftGraveyardThisTurn?.[controllerId] ??
       stateAny?.leftGraveyardThisTurn?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasAnyTracker =
+      (stateAny?.cardLeftYourGraveyardThisTurn && typeof stateAny.cardLeftYourGraveyardThisTurn === 'object') ||
+      (stateAny?.cardLeftGraveyardThisTurn && typeof stateAny.cardLeftGraveyardThisTurn === 'object') ||
+      (stateAny?.cardsLeftGraveyardThisTurn && typeof stateAny.cardsLeftGraveyardThisTurn === 'object') ||
+      (stateAny?.leftGraveyardThisTurn && typeof stateAny.leftGraveyardThisTurn === 'object');
+    return hasAnyTracker ? false : null;
   }
   if (/^if\s+a\s+creature\s+card\s+left\s+your\s+graveyard\s+this\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
@@ -9290,12 +9309,19 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.creatureCardLeftYourGraveyardThisTurn?.[controllerId] ??
       stateAny?.creatureCardLeftGraveyardThisTurn?.[controllerId] ??
       stateAny?.creatureCardsLeftGraveyardThisTurn?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasAnyTracker =
+      (stateAny?.creatureCardLeftYourGraveyardThisTurn && typeof stateAny.creatureCardLeftYourGraveyardThisTurn === 'object') ||
+      (stateAny?.creatureCardLeftGraveyardThisTurn && typeof stateAny.creatureCardLeftGraveyardThisTurn === 'object') ||
+      (stateAny?.creatureCardsLeftGraveyardThisTurn && typeof stateAny.creatureCardsLeftGraveyardThisTurn === 'object');
+    return hasAnyTracker ? false : null;
   }
   if (/^if\s+a\s+creature\s+card\s+was\s+put\s+into\s+your\s+graveyard\s+from\s+anywhere\s+this\s+turn$/i.test(clause)) {
     const map = (ctx as any).state?.creatureCardPutIntoYourGraveyardThisTurn;
     const v = map?.[controllerId];
-    return typeof v === 'boolean' ? v : null;
+    if (typeof v === 'boolean') return v;
+    const hasTracker = map && typeof map === 'object';
+    return hasTracker ? false : null;
   }
 
   // Death-count templates (recognized; depends on tracking)
@@ -9367,7 +9393,7 @@ function evaluateInterveningIfClauseInternal(
       if (unknown) return null;
       if (!opps.length) return false;
       const total = getCreatureSubtypeDiedThisTurnSum(ctx, opps.map(String), subtype);
-      return total === null ? null : total > 0;
+      return total > 0;
     }
   }
   {
@@ -9378,7 +9404,7 @@ function evaluateInterveningIfClauseInternal(
       const ids = getAllPlayerIds(ctx, controllerId);
       if (!ids.length) return null;
       const total = getCreatureSubtypeDiedThisTurnSum(ctx, ids.map(String), subtype);
-      return total === null ? null : total > 0;
+      return total > 0;
     }
   }
   // (handled later via best-effort refs/tracking)
@@ -9421,7 +9447,7 @@ function evaluateInterveningIfClauseInternal(
       const subtype = String(m[1] || '').toLowerCase();
       if (!isLikelyCreatureSubtypeToken(subtype)) return null;
       const n = getCreatureSubtypeEnteredThisTurnCount(ctx, controllerId, subtype);
-      return typeof n === 'number' ? n > 0 : null;
+      return n > 0;
     }
   }
   {
@@ -9433,7 +9459,7 @@ function evaluateInterveningIfClauseInternal(
       if (unknown) return null;
       if (!opps.length) return false;
       const total = getCreatureSubtypeEnteredThisTurnSum(ctx, opps.map(String), subtype);
-      return total === null ? null : total > 0;
+      return total > 0;
     }
   }
   {
@@ -9444,7 +9470,7 @@ function evaluateInterveningIfClauseInternal(
       const ids = getAllPlayerIds(ctx, controllerId);
       if (!ids.length) return null;
       const total = getCreatureSubtypeEnteredThisTurnSum(ctx, ids.map(String), subtype);
-      return total === null ? null : total > 0;
+      return total > 0;
     }
   }
 
@@ -9659,7 +9685,6 @@ function evaluateInterveningIfClauseInternal(
   // Prime-number landfall template (already handled earlier too; keep for safety)
   if (/^if\s+a\s+land\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn\s+and\s+you\s+control\s+a\s+prime\s+number\s+of\s+lands$/i.test(clause)) {
     const n = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
-    if (n === null) return null;
     if (n <= 0) return false;
     return isPrimeNumber(countByPermanentType(ctx, controllerId, 'land'));
   }
@@ -10848,7 +10873,7 @@ function evaluateInterveningIfClauseInternal(
     const diedIds: any = (ctx as any).state?.creaturesDiedThisTurnIds;
     if (!damaged || typeof damaged !== 'object' || !Array.isArray(diedIds)) return null;
     const victims = (damaged as any)[srcId];
-    if (!victims || typeof victims !== 'object') return null;
+    if (!victims || typeof victims !== 'object') return false;
     return diedIds.some((id: any) => !!victims[String(id)]);
   }
 
@@ -11333,7 +11358,8 @@ function evaluateInterveningIfClauseInternal(
         ? (map as any)[controllerId]
         : map;
       const vv = (inner as any)[thatPlayerId];
-      return typeof vv === 'boolean' ? vv : (vv === true ? true : null);
+      if (typeof vv === 'boolean') return vv;
+      return vv === true ? true : false;
     }
     return null;
   }
