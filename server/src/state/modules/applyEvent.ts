@@ -1016,16 +1016,35 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
 
+        const stackLengthBefore = ctx.state.stack?.length || 0;
+
         // Prefer full card object for replay (contains all card data)
         // Fall back to cardId for backward compatibility with old events
         const spellCardData = (e as any).card || (e as any).cardId;
         castSpell(
-          ctx as any, 
-          (e as any).playerId, 
+          ctx as any,
+          (e as any).playerId,
           spellCardData,
           (e as any).targets,
           (e as any).xValue
         );
+
+        // Intervening-if support: "if mana from a Treasure was spent to cast it".
+        // Persisted events can carry positive-only evidence; apply it to the newly created stack item.
+        try {
+          if ((e as any).manaFromTreasureSpent === true) {
+            const stackArr = (ctx.state.stack || []) as any[];
+            if (stackArr.length > stackLengthBefore && stackArr.length > 0) {
+              const topStackItem = stackArr[stackArr.length - 1];
+              (topStackItem as any).manaFromTreasureSpent = true;
+              if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                (topStackItem as any).card.manaFromTreasureSpent = true;
+              }
+            }
+          }
+        } catch {
+          // best-effort only
+        }
         break;
       }
 
@@ -2017,7 +2036,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "setHouseRules": {
         // Set house rules for the game
-        const rules = (e as any).rules;
+        const rules = (e as any).rules ?? (e as any).houseRules;
         try {
           if (rules && typeof rules === 'object') {
             (ctx.state as any).houseRules = { ...(ctx.state as any).houseRules, ...rules };
@@ -2367,7 +2386,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const graveyard = z.graveyard as any[];
 
           let movedAny = false;
-          let movedCreature = false;
+          let movedCreatureCard: any | undefined;
           
           for (const cardId of selectedCardIds) {
             const cardIndex = graveyard.findIndex((c: any) => c?.id === cardId);
@@ -2376,7 +2395,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const [card] = graveyard.splice(cardIndex, 1);
             movedAny = true;
             const tl = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
-            if (tl.includes('creature')) movedCreature = true;
+            if (!movedCreatureCard && tl.includes('creature')) movedCreatureCard = card;
             
             switch (destination) {
               case 'hand':
@@ -2425,13 +2444,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // Turn-tracking for intervening-if: a card left your graveyard this turn.
           if (movedAny) {
             try {
+              recordCardLeftGraveyardThisTurn(ctx as any, String(pid), movedCreatureCard);
+
               const stateAny = ctx.state as any;
-              stateAny.cardLeftGraveyardThisTurn = stateAny.cardLeftGraveyardThisTurn || {};
-              stateAny.cardLeftGraveyardThisTurn[String(pid)] = true;
-              if (movedCreature) {
-                stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
-                stateAny.creatureCardLeftGraveyardThisTurn[String(pid)] = true;
-              }
 
               // Turn-tracking for intervening-if: evidence was collected this turn.
               // Only set true on explicit positive evidence from persisted events.

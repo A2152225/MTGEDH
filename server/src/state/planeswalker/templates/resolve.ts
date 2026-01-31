@@ -498,6 +498,10 @@ function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: n
       if (remaining > 0 && dmg > remaining) {
         stateAny.excessDamageThisTurnByCreatureId = stateAny.excessDamageThisTurnByCreatureId || {};
         stateAny.excessDamageThisTurnByCreatureId[String(permanentId)] = true;
+
+        // Legacy alias used by some intervening-if templates.
+        stateAny.excessDamageThisTurnByPermanentId = stateAny.excessDamageThisTurnByPermanentId || {};
+        stateAny.excessDamageThisTurnByPermanentId[String(permanentId)] = true;
         (perm as any).wasDealtExcessDamageThisTurn = true;
       }
     }

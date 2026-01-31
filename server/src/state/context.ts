@@ -165,10 +165,33 @@ export function createContext(gameId: string): GameContext {
   (state as any).battlesEnteredBattlefieldThisTurnByController = {};
   (state as any).battlesEnteredBattlefieldThisTurnIdsByController = {};
 
+  // Per-turn LTB/dies tracking used by intervening-if evaluation.
+  // These must exist even before the first event writes them, otherwise recognized
+  // templates (e.g. "if a creature died this turn") collapse to `null` instead of 0.
+  (state as any).creaturesDiedThisTurnByController = {};
+  (state as any).creaturesDiedThisTurnByControllerSubtype = {};
+  (state as any).creaturesDiedThisTurnIds = [];
+  (state as any).permanentLeftBattlefieldThisTurn = {};
+
   // Per-turn tap tracking used by intervening-if evaluation.
   // Conservative: we only set `true` on positive evidence and avoid writing `false`.
   (state as any).tappedNonlandPermanentThisTurnByPlayer = {};
   (state as any).tappedNonlandPermanentLastTurnByPlayer = {};
+
+  // Intervening-if: baseline per-game/last-turn trackers.
+  // These start at safe defaults so early-game checks don't collapse to null.
+  (state as any).spellsCastThisTurn = [];
+  (state as any).spellsCastLastTurnCount = 0;
+  (state as any).spellsCastLastTurnByPlayerCounts = {};
+  (state as any).landsEnteredBattlefieldLastTurnByPlayerCounts = {};
+  (state as any).creaturesEnteredBattlefieldLastTurnByController = {};
+  (state as any).attackedPlayersThisTurnByPlayer = {};
+  (state as any).attackedPlayersLastTurnByPlayer = {};
+  (state as any).attackedYouLastTurnByPlayer = {};
+  (state as any).opponentCastSpellSinceYourLastTurnEnded = {};
+  (state as any).monarchAtTurnBeginByPlayer = {};
+  (state as any).wasMonarchAtTurnBegin = {};
+  (state as any).monarchAtTurnBegan = {};
 
   const ctx: GameContext = {
     gameId,

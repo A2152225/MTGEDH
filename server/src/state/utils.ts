@@ -2923,6 +2923,14 @@ export function addEnergyCounters(
   // Initialize energy if it doesn't exist
   const energy = gameState.energy = gameState.energy || {};
   energy[playerId] = (energy[playerId] || 0) + amount;
+
+  // Legacy alias map used by some intervening-if fallbacks.
+  try {
+    const energyCount = (gameState.energyCount = gameState.energyCount || {});
+    energyCount[playerId] = energy[playerId] || 0;
+  } catch {
+    // best-effort only
+  }
   
   debug(2, `[addEnergyCounters] ${playerId} gained ${amount} energy${source ? ` from ${source}` : ''} (total: ${energy[playerId]})`);
   
@@ -2953,6 +2961,14 @@ export function spendEnergyCounters(
   }
   
   energy[playerId] = currentEnergy - amount;
+
+  // Legacy alias map used by some intervening-if fallbacks.
+  try {
+    const energyCount = (gameState.energyCount = gameState.energyCount || {});
+    energyCount[playerId] = energy[playerId] || 0;
+  } catch {
+    // best-effort only
+  }
   debug(2, `[spendEnergyCounters] ${playerId} spent ${amount} energy (remaining: ${energy[playerId]})`);
   
   return true;

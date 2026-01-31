@@ -297,9 +297,6 @@ function getPoisonCounters(ctx: GameContext, playerId: string): number {
   const ctxPoison = (ctx as any)?.poison?.[playerId];
   if (typeof ctxPoison === 'number') return ctxPoison;
 
-  const playerStatus = state?.playerStatus?.[playerId]?.poison;
-  if (typeof playerStatus === 'number') return playerStatus;
-
   const players = Array.isArray(state.players) ? state.players : [];
   const p = players.find((pp: any) => String(pp?.id || '') === playerId);
   const fromPlayer = p?.poisonCounters;
@@ -427,7 +424,8 @@ function countControlledPermanentsBySubtype(ctx: GameContext, controllerId: stri
 }
 
 function didSourceDealDamageToOpponentThisTurn(ctx: GameContext, controllerId: string, sourcePermanentId: string): boolean | null {
-  const opponents = getOpponentIds(ctx, controllerId);
+  const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+  if (unknown) return null;
   if (!opponents.length) return false;
 
   const tracker = (ctx as any).state?.creaturesThatDealtDamageToPlayer;
@@ -1161,6 +1159,41 @@ function getOpponentIds(ctx: GameContext, controllerId: string): string[] {
     .filter((id: string) => id && id !== controllerId);
 }
 
+function getOpponentInfo(
+  ctx: GameContext,
+  controllerId: string
+): { opponents: string[]; unknown: boolean } {
+  const stateAny: any = (ctx as any).state || {};
+  const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+  const otherIds = players
+    .map((p: any) => String(p?.id || ''))
+    .filter((id: string) => Boolean(id) && id !== String(controllerId));
+
+  const anyTeamData =
+    (stateAny.team && typeof stateAny.team === 'object' && Object.keys(stateAny.team).length > 0) ||
+    (stateAny.teams && typeof stateAny.teams === 'object' && Object.keys(stateAny.teams).length > 0) ||
+    (stateAny.playerTeam && typeof stateAny.playerTeam === 'object' && Object.keys(stateAny.playerTeam).length > 0) ||
+    players.some((p: any) => Boolean(p?.team ?? p?.teamId ?? p?.playerTeam));
+
+  if (!anyTeamData) return { opponents: otherIds, unknown: false };
+
+  const controllerTeam = getPlayerTeamId(ctx, controllerId);
+  if (!controllerTeam) return { opponents: otherIds, unknown: true };
+
+  const opponents: string[] = [];
+  let unknown = false;
+  for (const pid of otherIds) {
+    const t = getPlayerTeamId(ctx, pid);
+    if (!t) {
+      unknown = true;
+      continue;
+    }
+    if (String(t) !== String(controllerTeam)) opponents.push(pid);
+  }
+
+  return { opponents, unknown };
+}
+
 function getPlayerTeamId(ctx: GameContext, playerId: string): string | null {
   const stateAny: any = (ctx as any).state || {};
   const direct = stateAny?.team?.[playerId] ?? stateAny?.teams?.[playerId] ?? stateAny?.playerTeam?.[playerId];
@@ -1636,7 +1669,8 @@ function evaluateInterveningIfClauseInternal(
 
   // "...if an opponent lost life this turn..." (Theater of Horrors/Florian-style)
   if (/^if\s+an\s+opponent\s+(?:has\s+)?lost\s+life\s+this\s+turn$/i.test(clause)) {
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return false;
     const anyLossTracked = opps.some((oid) => getLifeLostThisTurn(ctx, oid) > 0);
     if (anyLossTracked) return true;
@@ -2494,7 +2528,10 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+(?:it'?s|it\s+is)\s+an\s+opponent'?s\s+turn$/i.test(clause)) {
     const active = getActivePlayerId(ctx);
     if (!active) return null;
-    return active !== controllerId;
+    if (String(active) === String(controllerId)) return false;
+    const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
+    return opponents.includes(String(active));
   }
 
   // Life comparisons vs opponents
@@ -2506,65 +2543,89 @@ function evaluateInterveningIfClauseInternal(
     const noOppMore = clause.match(/^if\s+no\s+opponent\s+has\s+more\s+life\s+than\s+you$/i);
     if (noOppMore) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return true;
-      return oppIds.every((opp) => getPlayerLife(ctx, opp) <= yourLife);
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return true;
+      return opponents.every((opp) => getPlayerLife(ctx, opp) <= yourLife);
     }
 
     const oppMore = clause.match(/^if\s+an\s+opponent\s+has\s+more\s+life\s+than\s+you$/i);
     if (oppMore) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return false;
-      return oppIds.some((opp) => getPlayerLife(ctx, opp) > yourLife);
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return false;
+      return opponents.some((opp) => getPlayerLife(ctx, opp) > yourLife);
     }
 
-    const youMoreThanEach = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+each\s+(?:opponent|other\s+player)$/i);
-    if (youMoreThanEach) {
+    const youMoreThanEachOpponent = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+each\s+opponent$/i);
+    if (youMoreThanEachOpponent) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return true;
-      return oppIds.every((opp) => yourLife > getPlayerLife(ctx, opp));
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return true;
+      return opponents.every((opp) => yourLife > getPlayerLife(ctx, opp));
+    }
+
+    const youMoreThanEachOtherPlayer = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+each\s+other\s+player$/i);
+    if (youMoreThanEachOtherPlayer) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const others = getOpponentIds(ctx, controllerId);
+      if (!others.length) return true;
+      return others.every((pid) => yourLife > getPlayerLife(ctx, pid));
     }
 
     const youMoreThanAn = clause.match(/^if\s+you\s+have\s+more\s+life\s+than\s+an\s+opponent$/i);
     if (youMoreThanAn) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return false;
-      return oppIds.some((opp) => yourLife > getPlayerLife(ctx, opp));
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return false;
+      return opponents.some((opp) => yourLife > getPlayerLife(ctx, opp));
     }
 
     const noOppLess = clause.match(/^if\s+no\s+opponent\s+has\s+less\s+life\s+than\s+you$/i);
     if (noOppLess) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return true;
-      return oppIds.every((opp) => getPlayerLife(ctx, opp) >= yourLife);
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return true;
+      return opponents.every((opp) => getPlayerLife(ctx, opp) >= yourLife);
     }
 
     const oppLess = clause.match(/^if\s+an\s+opponent\s+has\s+less\s+life\s+than\s+you$/i);
     if (oppLess) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return false;
-      return oppIds.some((opp) => getPlayerLife(ctx, opp) < yourLife);
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return false;
+      return opponents.some((opp) => getPlayerLife(ctx, opp) < yourLife);
     }
 
-    const youLessThanEach = clause.match(/^if\s+you\s+have\s+less\s+life\s+than\s+each\s+(?:opponent|other\s+player)$/i);
-    if (youLessThanEach) {
+    const youLessThanEachOpponent = clause.match(/^if\s+you\s+have\s+less\s+life\s+than\s+each\s+opponent$/i);
+    if (youLessThanEachOpponent) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return true;
-      return oppIds.every((opp) => yourLife < getPlayerLife(ctx, opp));
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return true;
+      return opponents.every((opp) => yourLife < getPlayerLife(ctx, opp));
+    }
+
+    const youLessThanEachOtherPlayer = clause.match(/^if\s+you\s+have\s+less\s+life\s+than\s+each\s+other\s+player$/i);
+    if (youLessThanEachOtherPlayer) {
+      const yourLife = getPlayerLife(ctx, controllerId);
+      const others = getOpponentIds(ctx, controllerId);
+      if (!others.length) return true;
+      return others.every((pid) => yourLife < getPlayerLife(ctx, pid));
     }
 
     const youLessThanAn = clause.match(/^if\s+you\s+have\s+less\s+life\s+than\s+an\s+opponent$/i);
     if (youLessThanAn) {
       const yourLife = getPlayerLife(ctx, controllerId);
-      const oppIds = getOpponentIds(ctx, controllerId);
-      if (!oppIds.length) return false;
-      return oppIds.some((opp) => yourLife < getPlayerLife(ctx, opp));
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
+      if (!opponents.length) return false;
+      return opponents.some((opp) => yourLife < getPlayerLife(ctx, opp));
     }
   }
 
@@ -2733,7 +2794,8 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, "creature")
           : countByPermanentType(ctx, controllerId, "land");
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return false;
 
       return opponentIds.some((oppId) => {
@@ -2760,7 +2822,8 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -2781,7 +2844,8 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return false;
       return opponentIds.some((oppId) => {
         const oppCount =
@@ -2802,7 +2866,8 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -2829,9 +2894,9 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
-
       if (scope === 'an opponent') {
+        const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+        if (unknown) return null;
         if (!opponentIds.length) return false;
         return opponentIds.some((oppId) => {
           const oppCount =
@@ -2842,7 +2907,21 @@ function evaluateInterveningIfClauseInternal(
         });
       }
 
-      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (scope === 'each other player') {
+        const others = getOpponentIds(ctx, controllerId);
+        if (!others.length) return true;
+        return others.every((pid) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, pid, 'creature')
+              : countByPermanentType(ctx, pid, 'land');
+          return cmp === 'fewer' ? yourCount < oppCount : yourCount > oppCount;
+        });
+      }
+
+      // "each opponent"
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -2869,10 +2948,11 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
       const satisfies = (a: number, b: number) => (cmpWord === 'more' ? a <= b : a >= b);
 
       if (scope === 'an opponent') {
+        const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+        if (unknown) return null;
         if (!opponentIds.length) return false;
         return opponentIds.some((oppId) => {
           const oppCount =
@@ -2883,7 +2963,21 @@ function evaluateInterveningIfClauseInternal(
         });
       }
 
-      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (scope === 'each other player') {
+        const others = getOpponentIds(ctx, controllerId);
+        if (!others.length) return true;
+        return others.every((pid) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, pid, 'creature')
+              : countByPermanentType(ctx, pid, 'land');
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      // "each opponent"
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -2916,12 +3010,12 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
-
       const satisfies = (a: number, b: number) =>
         cmpKind === 'gte' ? a >= b : cmpKind === 'lte' ? a <= b : a === b;
 
       if (scope === 'an opponent') {
+        const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+        if (unknown) return null;
         if (!opponentIds.length) return false;
         return opponentIds.some((oppId) => {
           const oppCount =
@@ -2932,7 +3026,21 @@ function evaluateInterveningIfClauseInternal(
         });
       }
 
-      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (scope === 'each other player') {
+        const others = getOpponentIds(ctx, controllerId);
+        if (!others.length) return true;
+        return others.every((pid) => {
+          const oppCount =
+            subject === 'creatures'
+              ? countByPermanentType(ctx, pid, 'creature')
+              : countByPermanentType(ctx, pid, 'land');
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      // "each opponent"
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -2960,9 +3068,10 @@ function evaluateInterveningIfClauseInternal(
           : zone === 'graveyard'
             ? getGraveyardCount(ctx, controllerId)
             : getLibraryCount(ctx, controllerId);
-      const opponentIds = getOpponentIds(ctx, controllerId);
 
       if (scope === 'an opponent') {
+        const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+        if (unknown) return null;
         if (!opponentIds.length) return false;
         return opponentIds.some((oppId) => {
           const oppCount =
@@ -2975,7 +3084,23 @@ function evaluateInterveningIfClauseInternal(
         });
       }
 
-      // "each opponent" / "each other player" (for "you" these are equivalent)
+      if (scope === 'each other player') {
+        const others = getOpponentIds(ctx, controllerId);
+        if (!others.length) return true;
+        return others.every((pid) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, pid)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, pid)
+                : getLibraryCount(ctx, pid);
+          return cmp === 'more' ? yourCount > oppCount : yourCount < oppCount;
+        });
+      }
+
+      // "each opponent"
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -3005,11 +3130,11 @@ function evaluateInterveningIfClauseInternal(
           : zone === 'graveyard'
             ? getGraveyardCount(ctx, controllerId)
             : getLibraryCount(ctx, controllerId);
-
-      const opponentIds = getOpponentIds(ctx, controllerId);
       const satisfies = (a: number, b: number) => (cmpWord === 'more' ? a <= b : a >= b);
 
       if (scope === 'an opponent') {
+        const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+        if (unknown) return null;
         if (!opponentIds.length) return false;
         return opponentIds.some((oppId) => {
           const oppCount =
@@ -3022,6 +3147,23 @@ function evaluateInterveningIfClauseInternal(
         });
       }
 
+      if (scope === 'each other player') {
+        const others = getOpponentIds(ctx, controllerId);
+        if (!others.length) return true;
+        return others.every((pid) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, pid)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, pid)
+                : getLibraryCount(ctx, pid);
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      // "each opponent"
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -3104,12 +3246,12 @@ function evaluateInterveningIfClauseInternal(
           : zone === 'graveyard'
             ? getGraveyardCount(ctx, controllerId)
             : getLibraryCount(ctx, controllerId);
-
-      const opponentIds = getOpponentIds(ctx, controllerId);
       const satisfies = (a: number, b: number) =>
         cmpKind === 'gte' ? a >= b : cmpKind === 'lte' ? a <= b : a === b;
 
       if (scope === 'an opponent') {
+        const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+        if (unknown) return null;
         if (!opponentIds.length) return false;
         return opponentIds.some((oppId) => {
           const oppCount =
@@ -3122,6 +3264,23 @@ function evaluateInterveningIfClauseInternal(
         });
       }
 
+      if (scope === 'each other player') {
+        const others = getOpponentIds(ctx, controllerId);
+        if (!others.length) return true;
+        return others.every((pid) => {
+          const oppCount =
+            zone === 'hand'
+              ? getHandCount(ctx, pid)
+              : zone === 'graveyard'
+                ? getGraveyardCount(ctx, pid)
+                : getLibraryCount(ctx, pid);
+          return satisfies(yourCount, oppCount);
+        });
+      }
+
+      // "each opponent"
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponentIds.length) return true;
       return opponentIds.every((oppId) => {
         const oppCount =
@@ -3156,7 +3315,8 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       const satisfies = (oppCount: number) =>
         cmpKind === 'gte' ? oppCount >= yourCount : cmpKind === 'lte' ? oppCount <= yourCount : oppCount === yourCount;
 
@@ -3206,7 +3366,8 @@ function evaluateInterveningIfClauseInternal(
             ? getGraveyardCount(ctx, controllerId)
             : getLibraryCount(ctx, controllerId);
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       const satisfies = (oppCount: number) =>
         cmpKind === 'gte' ? oppCount >= yourCount : cmpKind === 'lte' ? oppCount <= yourCount : oppCount === yourCount;
 
@@ -3251,7 +3412,8 @@ function evaluateInterveningIfClauseInternal(
           ? countByPermanentType(ctx, controllerId, 'creature')
           : countByPermanentType(ctx, controllerId, 'land');
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       const satisfies = (oppCount: number) => (cmpWord === 'more' ? oppCount <= yourCount : oppCount >= yourCount);
 
       if (scope === 'an opponent') {
@@ -3293,7 +3455,8 @@ function evaluateInterveningIfClauseInternal(
             ? getGraveyardCount(ctx, controllerId)
             : getLibraryCount(ctx, controllerId);
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       const satisfies = (oppCount: number) => (cmpWord === 'more' ? oppCount <= yourCount : oppCount >= yourCount);
 
       if (scope === 'an opponent') {
@@ -3339,7 +3502,8 @@ function evaluateInterveningIfClauseInternal(
             ? getGraveyardCount(ctx, controllerId)
             : getLibraryCount(ctx, controllerId);
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const { opponents: opponentIds, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
 
       if (scope === 'an opponent') {
         if (!opponentIds.length) return false;
@@ -3384,7 +3548,10 @@ function evaluateInterveningIfClauseInternal(
       if (n === null) return null;
       const zone = m[4].toLowerCase();
 
-      const opponentIds = getOpponentIds(ctx, controllerId);
+      const otherPlayerIds = scope === 'each other player' ? getOpponentIds(ctx, controllerId) : null;
+      const opponentInfo = scope === 'each other player' ? null : getOpponentInfo(ctx, controllerId);
+      if (opponentInfo?.unknown) return null;
+      const opponentIds = scope === 'each other player' ? otherPlayerIds ?? [] : opponentInfo?.opponents ?? [];
 
       const satisfies = (oppId: string) => {
         const oppCount =
@@ -3692,7 +3859,8 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
-      const opps = getOpponentIds(ctx, controllerId);
+      const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       return opps.some((oid) => getLifeLostThisTurn(ctx, oid) >= n);
     }
   }
@@ -3794,8 +3962,7 @@ function evaluateInterveningIfClauseInternal(
     const creatureCard = stateAny?.creatureCardPutIntoYourGraveyardThisTurn?.[controllerId];
     if (creatureCard === true) return true;
 
-    const v = stateAny?.descended;
-    return typeof v === 'boolean' ? v : null;
+    return null;
   }
 
   // "if you attacked with N or more creatures this turn" (Planechase and similar)
@@ -4940,7 +5107,8 @@ function evaluateInterveningIfClauseInternal(
     const m = clause.match(/^if\s+an\s+opponent\s+has\s+([a-z0-9]+)\s+or\s+more\s+poison\s+counters$/i);
     const n = m ? parseCountToken(m[1]) : null;
     if (n === null) return null;
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return false;
     return opps.some((oid) => getPoisonCounters(ctx, oid) >= n);
   }
@@ -5280,7 +5448,8 @@ function evaluateInterveningIfClauseInternal(
     if (m1) {
       const noun = String(m1[1] || '').trim().toLowerCase().replace(/\s+/g, ' ');
       const nounToken = noun.endsWith('s') ? noun.slice(0, -1) : noun;
-      const opps = getOpponentIds(ctx, controllerId);
+      const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opps.length) return true;
       return opps.every((oid) => countByPermanentType(ctx, oid, nounToken) === 0);
     }
@@ -5289,7 +5458,8 @@ function evaluateInterveningIfClauseInternal(
     if (m2) {
       const noun = String(m2[1] || '').trim().toLowerCase().replace(/\s+/g, ' ');
       const nounToken = noun.endsWith('s') ? noun.slice(0, -1) : noun;
-      const opps = getOpponentIds(ctx, controllerId);
+      const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opps.length) return true;
       return opps.every((oid) => countByPermanentType(ctx, oid, nounToken) === 0);
     }
@@ -5297,7 +5467,8 @@ function evaluateInterveningIfClauseInternal(
 
   // "if your opponents control no creatures" (Kezzerdrix)
   if (/^if\s+your\s+opponents\s+control\s+no\s+creatures$/i.test(clause)) {
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return true;
     return opps.every((oid) => countByPermanentType(ctx, oid, 'creature') === 0);
   }
@@ -6141,9 +6312,9 @@ function evaluateInterveningIfClauseInternal(
     const stateAny = (ctx as any).state as any;
 
     // If Planechase is explicitly disabled for this game, this is provably false.
-    // Keep null when we don't know the ruleset.
+    // In this codebase Planechase is NYI; treat "not enabled" as disabled.
     const planechaseEnabled = stateAny?.houseRules?.enablePlanechase;
-    if (planechaseEnabled === false) return false;
+    if (planechaseEnabled !== true) return false;
 
     const list = stateAny?.planeswalkedToThisTurn?.[controllerId] ?? stateAny?.planeswalkedToPlanesThisTurn?.[controllerId];
     if (!Array.isArray(list)) return null;
@@ -6176,7 +6347,8 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+your\s+opponents\s+control\s+no\s+permanents\s+with\s+bounty\s+counters\s+on\s+them$/i.test(clause)) {
     const battlefield = (ctx as any).state?.battlefield;
     if (!Array.isArray(battlefield)) return null;
-    const oppIds = getOpponentIds(ctx, controllerId);
+    const { opponents: oppIds, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (oppIds.length === 0) return true;
 
     let allHaveCountersObjects = true;
@@ -6451,9 +6623,13 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+an\s+opponent\s+cast\s+two\s+or\s+more\s+spells\s+last\s+turn$/i.test(clause)) {
     const counts = getSpellsCastLastTurnByPlayerCounts(ctx);
     if (!counts) return null;
-    for (const [pid, n] of Object.entries(counts)) {
-      if (pid === controllerId) continue;
-      if (typeof n === 'number' && n >= 2) return true;
+    const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
+    if (!opponents.length) return false;
+    for (const oid of opponents) {
+      const n = (counts as any)[String(oid)];
+      if (typeof n !== 'number') return null;
+      if (n >= 2) return true;
     }
     return false;
   }
@@ -6509,7 +6685,8 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.lifeLostLastTurnByPlayerCounts ?? stateAny?.lifeLostLastTurnByPlayer ?? stateAny?.lifeLostLastTurn;
     if (!counts || typeof counts !== 'object') return null;
 
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return false;
 
     for (const oid of opps) {
@@ -6850,7 +7027,8 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+that\s+opponent\s+has\s+more\s+life\s+than\s+another\s+of\s+your\s+opponents$/i.test(clause)) {
     const thatOpponentId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? '').trim();
     if (!thatOpponentId) return null;
-    const opponents = getOpponentIds(ctx, controllerId);
+    const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opponents.length || !opponents.includes(thatOpponentId)) return null;
     const thatLife = getPlayerLifeMaybe(ctx, thatOpponentId);
     if (thatLife === null) return null;
@@ -7013,7 +7191,8 @@ function evaluateInterveningIfClauseInternal(
     const stateAny = (ctx as any).state as any;
     const map = stateAny?.excessDamageThisTurnByCreatureId ?? stateAny?.excessDamageThisTurnByPermanentId;
 
-    const oppIds = getOpponentIds(ctx, controllerId);
+    const { opponents: oppIds, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!oppIds.length) return false;
 
     let sawAnyKnown = false;
@@ -9138,7 +9317,8 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+a\s+creature\s+died\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i.test(clause)) {
     const map = (ctx as any).state?.creaturesDiedThisTurnByController;
     if (!map) return null;
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return false;
     return opps.some((oid) => ((map as any)[String(oid)] || 0) > 0);
   }
@@ -9183,7 +9363,8 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const subtype = String(m[1] || '').toLowerCase();
       if (!isLikelyCreatureSubtypeToken(subtype)) return null;
-      const opps = getOpponentIds(ctx, controllerId);
+      const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opps.length) return false;
       const total = getCreatureSubtypeDiedThisTurnSum(ctx, opps.map(String), subtype);
       return total === null ? null : total > 0;
@@ -9206,7 +9387,8 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+a\s+creature\s+entered\s+the\s+battlefield\s+under\s+an\s+opponent'?s\s+control\s+this\s+turn$/i.test(clause)) {
     const map = (ctx as any).state?.creaturesEnteredBattlefieldThisTurnByController;
     if (!map) return null;
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return false;
     return opps.some((oid) => ((map as any)[String(oid)] || 0) > 0);
   }
@@ -9247,7 +9429,8 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const subtype = String(m[1] || '').toLowerCase();
       if (!isLikelyCreatureSubtypeToken(subtype)) return null;
-      const opps = getOpponentIds(ctx, controllerId);
+      const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opps.length) return false;
       const total = getCreatureSubtypeEnteredThisTurnSum(ctx, opps.map(String), subtype);
       return total === null ? null : total > 0;
@@ -9447,7 +9630,8 @@ function evaluateInterveningIfClauseInternal(
     return false;
   }
   if (/^if\s+an\s+opponent\s+has\s+no\s+cards\s+in\s+hand$/i.test(clause)) {
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return false;
     return opps.some((oid) => getHandCount(ctx, oid) === 0);
   }
@@ -9456,7 +9640,8 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
-      const opps = getOpponentIds(ctx, controllerId);
+      const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opps.length) return false;
       return opps.some((oid) => countByPermanentType(ctx, oid, 'creature') >= n);
     }
@@ -9465,7 +9650,10 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+an\s+opponent\s+is\s+the\s+monarch$/i.test(clause)) {
     const monarch = (ctx as any).state?.monarch;
     if (!monarch) return false;
-    return String(monarch) !== controllerId;
+    if (String(monarch) === String(controllerId)) return false;
+    const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
+    return opponents.includes(String(monarch));
   }
 
   // Prime-number landfall template (already handled earlier too; keep for safety)
@@ -9496,7 +9684,8 @@ function evaluateInterveningIfClauseInternal(
     const stateAny = (ctx as any).state as any;
     const map = stateAny?.discardedCardThisTurn;
     if (!map || typeof map !== 'object') return null;
-    const opps = getOpponentIds(ctx, controllerId);
+    const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opps.length) return false;
     return opps.some((oid) => map[String(oid)] === true);
   }
@@ -9528,7 +9717,8 @@ function evaluateInterveningIfClauseInternal(
       if (!map || typeof map !== 'object') return null;
 
       if (wantsOppAny || mOppN) {
-        const opps = getOpponentIds(ctx, controllerId);
+        const { opponents: opps, unknown } = getOpponentInfo(ctx, controllerId);
+        if (unknown) return null;
         if (!opps.length) return false;
         const n = mOppN ? parseCountToken(mOppN[1]) : 1;
         if (n === null) return null;
@@ -10693,7 +10883,9 @@ function evaluateInterveningIfClauseInternal(
     ).trim();
     if (!referencedOpponentId) return null;
 
-    const opponents = getOpponentIds(ctx, controllerId);
+    const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
+    if (!opponents.includes(referencedOpponentId)) return null;
     const otherOpponents = opponents.filter((oid) => String(oid) !== referencedOpponentId);
     if (!otherOpponents.length) return false; // no "another opponent" exists
 
@@ -10869,7 +11061,8 @@ function evaluateInterveningIfClauseInternal(
     if (yours === null) return null;
     const last = (ctx as any).state?.landsEnteredBattlefieldLastTurnByPlayerCounts;
     if (!last || typeof last !== 'object') return null;
-    const opponents = getOpponentIds(ctx, controllerId);
+    const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+    if (unknown) return null;
     if (!opponents.length) return null;
     let sawAny = false;
     for (const oid of opponents) {
@@ -10893,7 +11086,8 @@ function evaluateInterveningIfClauseInternal(
       const inner = ((rawMap as any)[controllerId] && typeof (rawMap as any)[controllerId] === 'object')
         ? (rawMap as any)[controllerId]
         : rawMap;
-      const opponents = getOpponentIds(ctx, controllerId);
+      const { opponents, unknown } = getOpponentInfo(ctx, controllerId);
+      if (unknown) return null;
       if (!opponents.length) return null;
       const any = opponents.some((oid) => (inner as any)[oid] === true);
       const anyKnown = opponents.some((oid) => typeof (inner as any)[oid] === 'boolean');
@@ -10944,6 +11138,15 @@ function evaluateInterveningIfClauseInternal(
     if (legacy && typeof legacy === 'object') {
       const vv = (legacy as any)[thatPlayerId];
       if (typeof vv === 'boolean') return vv;
+
+      // Alternate legacy-ish shape: { [defenderId]: { [attackerId]: boolean } }
+      const inner = (legacy as any)[String(controllerId)];
+      if (inner && typeof inner === 'object') {
+        const v2 = (inner as any)[thatPlayerId];
+        if (typeof v2 === 'boolean') return v2;
+        if (v2 === true) return true;
+        if (v2 === false) return false;
+      }
     }
 
     // Newer best-effort shape: { [attackerId]: string[] attackedPlayerIds }
@@ -11010,7 +11213,8 @@ function evaluateInterveningIfClauseInternal(
     const list = tracked && typeof tracked === 'object' ? (tracked as any)[thatPlayerId] : null;
     if (!Array.isArray(list)) return null; // no declare-attackers context available
 
-    const opponents = getOpponentIds(ctx, thatPlayerId);
+    const { opponents, unknown } = getOpponentInfo(ctx, thatPlayerId);
+    if (unknown) return null;
     const otherOpponents = opponents.filter((oid) => String(oid) !== String(controllerId));
     if (!otherOpponents.length) return false;
 

@@ -216,6 +216,35 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
         const stateAny = state as any;
         stateAny.putPlusOneCounterOnPermanentThisTurn = stateAny.putPlusOneCounterOnPermanentThisTurn || {};
         stateAny.putPlusOneCounterOnPermanentThisTurn[controllerId] = true;
+
+        // Additional aliases consumed by intervening-if.
+        stateAny.placedPlusOneCounterOnPermanentThisTurn = stateAny.placedPlusOneCounterOnPermanentThisTurn || {};
+        stateAny.plusOneCounterPlacedOnPermanentThisTurn = stateAny.plusOneCounterPlacedOnPermanentThisTurn || {};
+        stateAny.placedPlusOneCounterOnPermanentThisTurn[controllerId] = true;
+        stateAny.plusOneCounterPlacedOnPermanentThisTurn[controllerId] = true;
+      }
+    }
+  } catch {
+    // best-effort only
+  }
+
+  // Turn-tracking for intervening-if templates like:
+  // "if you put a counter on a creature this turn".
+  // Best-effort: treat "you" as the controller of the creature receiving the counter.
+  try {
+    const stateAny = state as any;
+    const controllerId = String((p as any).controller || '').trim();
+    if (controllerId) {
+      const typeLine = String((p as any)?.card?.type_line || '').toLowerCase();
+      const isCreature = typeLine.includes('creature');
+      const anyPositive = Object.values(modifiedDeltas).some((amount) => Number(amount) > 0);
+      if (isCreature && anyPositive) {
+        stateAny.putCounterOnCreatureThisTurn = stateAny.putCounterOnCreatureThisTurn || {};
+        stateAny.placedCounterOnCreatureThisTurn = stateAny.placedCounterOnCreatureThisTurn || {};
+        stateAny.countersPlacedOnCreaturesThisTurn = stateAny.countersPlacedOnCreaturesThisTurn || {};
+        stateAny.putCounterOnCreatureThisTurn[controllerId] = true;
+        stateAny.placedCounterOnCreatureThisTurn[controllerId] = true;
+        stateAny.countersPlacedOnCreaturesThisTurn[controllerId] = true;
       }
     }
   } catch {
@@ -613,6 +642,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       (state as any).creaturesDiedThisTurnByController = (state as any).creaturesDiedThisTurnByController || {};
       const key = String(controller);
       (state as any).creaturesDiedThisTurnByController[key] = ((state as any).creaturesDiedThisTurnByController[key] || 0) + 1;
+
+      // Legacy alias map used by some intervening-if death-count templates.
+      (state as any).creaturesDiedUnderYourControlThisTurn = (state as any).creaturesDiedUnderYourControlThisTurn || {};
+      (state as any).creaturesDiedUnderYourControlThisTurn[key] = ((state as any).creaturesDiedUnderYourControlThisTurn[key] || 0) + 1;
 
       // Track creature subtype deaths this turn (for templates like "if a Phyrexian died under your control this turn").
       try {

@@ -1476,6 +1476,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               if (remaining > 0 && blockerPower > remaining) {
                 stateAny.excessDamageThisTurnByCreatureId = stateAny.excessDamageThisTurnByCreatureId || {};
                 stateAny.excessDamageThisTurnByCreatureId[String(attacker.id)] = true;
+
+                // Legacy alias used by some intervening-if templates.
+                stateAny.excessDamageThisTurnByPermanentId = stateAny.excessDamageThisTurnByPermanentId || {};
+                stateAny.excessDamageThisTurnByPermanentId[String(attacker.id)] = true;
                 (attacker as any).wasDealtExcessDamageThisTurn = true;
               }
             } catch {}
@@ -2165,6 +2169,9 @@ export function nextTurn(ctx: GameContext) {
     // Increment turn number
     (ctx as any).state.turnNumber = ((ctx as any).state.turnNumber || 0) + 1;
     const turnNumber = (ctx as any).state.turnNumber;
+
+    // Legacy alias used by older client/replay consumers.
+    (ctx as any).state.turn = turnNumber;
     
     // Rule 500.7: Check for extra turns
     // Extra turns are stored in a LIFO stack (most recently created is taken first)
@@ -2204,8 +2211,8 @@ export function nextTurn(ctx: GameContext) {
         // Used by intervening-if templates like:
         // "if more lands entered the battlefield under your control this turn than an opponent had enter during their last turn".
         const landsThisTurn = stateAny.landsEnteredBattlefieldThisTurn;
-        if (landsThisTurn && typeof landsThisTurn === 'object') {
-          const v = (landsThisTurn as any)[ended];
+        {
+          const v = landsThisTurn && typeof landsThisTurn === 'object' ? (landsThisTurn as any)[ended] : undefined;
           const n = typeof v === 'number' && !Number.isNaN(v) ? v : 0;
           stateAny.landsEnteredBattlefieldLastTurnByPlayerCounts = stateAny.landsEnteredBattlefieldLastTurnByPlayerCounts || {};
           stateAny.landsEnteredBattlefieldLastTurnByPlayerCounts[ended] = n;
@@ -2215,8 +2222,8 @@ export function nextTurn(ctx: GameContext) {
         // Used by intervening-if templates like:
         // "if you had another creature enter the battlefield under your control last turn".
         const creaturesThisTurn = stateAny.creaturesEnteredBattlefieldThisTurnByController;
-        if (creaturesThisTurn && typeof creaturesThisTurn === 'object') {
-          const v = (creaturesThisTurn as any)[ended];
+        {
+          const v = creaturesThisTurn && typeof creaturesThisTurn === 'object' ? (creaturesThisTurn as any)[ended] : undefined;
           const n = typeof v === 'number' && !Number.isNaN(v) ? v : 0;
           stateAny.creaturesEnteredBattlefieldLastTurnByController = stateAny.creaturesEnteredBattlefieldLastTurnByController || {};
           stateAny.creaturesEnteredBattlefieldLastTurnByController[ended] = n;
@@ -2232,6 +2239,20 @@ export function nextTurn(ctx: GameContext) {
           stateAny.attackedPlayersLastTurnByPlayer[ended] = Array.from(
             new Set(attackedList.map((x: any) => String(x || '').trim()).filter(Boolean))
           );
+
+          // Additional legacy/compat shape used by some intervening-if fallbacks:
+          // attackedYouLastTurnByPlayer[defenderId][attackerId] = true
+          try {
+            stateAny.attackedYouLastTurnByPlayer = stateAny.attackedYouLastTurnByPlayer || {};
+            for (const defenderId of stateAny.attackedPlayersLastTurnByPlayer[ended]) {
+              const def = String(defenderId || '').trim();
+              if (!def) continue;
+              stateAny.attackedYouLastTurnByPlayer[def] = stateAny.attackedYouLastTurnByPlayer[def] || {};
+              stateAny.attackedYouLastTurnByPlayer[def][ended] = true;
+            }
+          } catch {
+            // best-effort only
+          }
 
           // Clear for future combats in the next cycle.
           (attackedThisTurnByPlayer as any)[ended] = [];
@@ -2300,6 +2321,45 @@ export function nextTurn(ctx: GameContext) {
     }
     
     (ctx as any).state.turnPlayer = next;
+
+    // Legacy alias: some templates still reference `activePlayer`.
+    try {
+      (ctx as any).state.activePlayer = next;
+    } catch {
+      // best-effort only
+    }
+
+    // Derive team maps from player objects when present (team formats / Alchemy).
+    // Do not invent team assignments when none exist.
+    try {
+      const stateAny = (ctx as any).state as any;
+      const playersAll = Array.isArray(stateAny.players) ? (stateAny.players as any[]) : [];
+      const teamMap: Record<string, string> = {};
+      for (const p of playersAll) {
+        const pid = String(p?.id || '').trim();
+        if (!pid) continue;
+        const t = p?.team ?? p?.teamId ?? p?.playerTeam;
+        if (typeof t === 'string' && t.trim()) teamMap[pid] = String(t).trim();
+      }
+      if (Object.keys(teamMap).length > 0) {
+        stateAny.team = { ...(stateAny.team || {}), ...teamMap };
+        stateAny.teams = { ...(stateAny.teams || {}), ...teamMap };
+        stateAny.playerTeam = { ...(stateAny.playerTeam || {}), ...teamMap };
+      }
+    } catch {
+      // best-effort only
+    }
+
+    // Derived convenience counters used by some intervening-if fallbacks.
+    try {
+      const stateAny = (ctx as any).state as any;
+      const playersAll = Array.isArray(stateAny.players) ? (stateAny.players as any[]) : [];
+      const lostCount = playersAll.filter((p: any) => p && (p.hasLost === true || p.eliminated === true)).length;
+      stateAny.playersLostCount = lostCount;
+      stateAny.playersWhoLostCount = lostCount;
+    } catch {
+      // best-effort only
+    }
 
     // Track "were the monarch as the turn began" deterministically.
     // This is safe to store as boolean because it is derived from authoritative current state.
@@ -2430,36 +2490,48 @@ export function nextTurn(ctx: GameContext) {
     }
 
     // Clear spells cast this turn list (for Storm and "if N or more spells were cast this turn" templates)
-    if ((ctx as any).state.spellsCastThisTurn) {
-      // Preserve minimal last-turn history for common oracle checks like
-      // "If no spells were cast last turn" (e.g., some werewolf / day-night templates).
-      (ctx as any).state.spellsCastLastTurnCount = Array.isArray((ctx as any).state.spellsCastThisTurn)
-        ? (ctx as any).state.spellsCastThisTurn.length
-        : 0;
+    // and snapshot last-turn history for intervening-if evaluation.
+    try {
+      const stateAny = (ctx as any).state as any;
+      const spells = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
 
-      // Preserve per-player counts as well (best-effort: depends on tracked spell objects having casterId).
-      try {
-        const counts: Record<string, number> = {};
-        const spells = Array.isArray((ctx as any).state.spellsCastThisTurn) ? (ctx as any).state.spellsCastThisTurn : [];
-        for (const s of spells) {
-          const casterId = (s as any)?.casterId;
-          if (!casterId) continue;
-          const key = String(casterId);
-          counts[key] = (counts[key] || 0) + 1;
-        }
-        (ctx as any).state.spellsCastLastTurnByPlayerCounts = counts;
+      // "No spells were cast last turn" is safe to answer deterministically.
+      stateAny.spellsCastLastTurnCount = spells.length;
 
-        // Convenience: how many spells did the previous turn's active player cast?
-        // Note: `current` is the old turn player (before we assigned `next`).
-        if (typeof current === 'string' && current) {
-          (ctx as any).state.spellsCastLastTurnByActivePlayerCount = counts[String(current)] || 0;
-        }
-      } catch (err) {
-        // best-effort only
+      // Preserve per-player counts when spell objects have casterId.
+      // If attribution is incomplete, leave the breakdown as null to avoid false negatives.
+      const playersAll = Array.isArray(stateAny.players) ? (stateAny.players as any[]) : [];
+      const counts: Record<string, number> = {};
+      for (const p of playersAll) {
+        const pid = (p as any)?.id;
+        if (pid) counts[String(pid)] = 0;
       }
 
-      (ctx as any).state.spellsCastThisTurn = [];
+      let attributionUnknown = false;
+      for (const s of spells) {
+        const casterId = (s as any)?.casterId;
+        if (!casterId) {
+          attributionUnknown = true;
+          continue;
+        }
+        const key = String(casterId);
+        counts[key] = (counts[key] || 0) + 1;
+      }
+
+      if (!attributionUnknown) {
+        stateAny.spellsCastLastTurnByPlayerCounts = counts;
+        if (typeof current === 'string' && current) {
+          stateAny.spellsCastLastTurnByActivePlayerCount = counts[String(current)] || 0;
+        }
+      } else {
+        stateAny.spellsCastLastTurnByPlayerCounts = null;
+        stateAny.spellsCastLastTurnByActivePlayerCount = undefined;
+      }
+
+      stateAny.spellsCastThisTurn = [];
       debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
+    } catch {
+      // best-effort only
     }
 
     // Clear played-from-exile tracking (for intervening-if templates like
@@ -2625,17 +2697,29 @@ export function nextTurn(ctx: GameContext) {
       const stateAny = (ctx as any).state as any;
       const players = Array.isArray(stateAny.players) ? stateAny.players : [];
       stateAny.putCounterOnCreatureThisTurn = {};
+      stateAny.placedCounterOnCreatureThisTurn = {};
+      stateAny.countersPlacedOnCreaturesThisTurn = {};
       for (const p of players) {
         const pid = (p as any)?.id;
-        if (pid) stateAny.putCounterOnCreatureThisTurn[String(pid)] = false;
+        if (!pid) continue;
+        const key = String(pid);
+        stateAny.putCounterOnCreatureThisTurn[key] = false;
+        stateAny.placedCounterOnCreatureThisTurn[key] = false;
+        stateAny.countersPlacedOnCreaturesThisTurn[key] = false;
       }
 
       // Also track a stricter +1/+1 counter placement condition used by oracle text like:
       // "if a +1/+1 counter was put on a permanent under your control this turn" (Fairgrounds Trumpeter).
       stateAny.putPlusOneCounterOnPermanentThisTurn = {};
+      stateAny.placedPlusOneCounterOnPermanentThisTurn = {};
+      stateAny.plusOneCounterPlacedOnPermanentThisTurn = {};
       for (const p of players) {
         const pid = (p as any)?.id;
-        if (pid) stateAny.putPlusOneCounterOnPermanentThisTurn[String(pid)] = false;
+        if (!pid) continue;
+        const key = String(pid);
+        stateAny.putPlusOneCounterOnPermanentThisTurn[key] = false;
+        stateAny.placedPlusOneCounterOnPermanentThisTurn[key] = false;
+        stateAny.plusOneCounterPlacedOnPermanentThisTurn[key] = false;
       }
 
       // Per-permanent event counts for "first time counters were put on ... this turn" templates.
@@ -2656,6 +2740,8 @@ export function nextTurn(ctx: GameContext) {
       stateAny.leftGraveyardThisTurn = {};
       stateAny.creatureCardLeftGraveyardThisTurn = {};
       stateAny.creatureCardsLeftGraveyardThisTurn = {};
+      stateAny.cardLeftYourGraveyardThisTurn = {};
+      stateAny.creatureCardLeftYourGraveyardThisTurn = {};
       for (const p of players) {
         const pid = (p as any)?.id;
         if (!pid) continue;
@@ -2664,6 +2750,8 @@ export function nextTurn(ctx: GameContext) {
         stateAny.leftGraveyardThisTurn[String(pid)] = false;
         stateAny.creatureCardLeftGraveyardThisTurn[String(pid)] = false;
         stateAny.creatureCardsLeftGraveyardThisTurn[String(pid)] = false;
+        stateAny.cardLeftYourGraveyardThisTurn[String(pid)] = false;
+        stateAny.creatureCardLeftYourGraveyardThisTurn[String(pid)] = false;
       }
     } catch {
       // best-effort only
@@ -2762,6 +2850,7 @@ export function nextTurn(ctx: GameContext) {
     // Used by intervening-if clauses like "if you drew a card last turn".
     try {
       const last: any = {};
+      for (const pid of players) last[String(pid)] = 0;
       const cur = (ctx as any).state.cardsDrawnThisTurn;
       if (cur && typeof cur === 'object') {
         for (const [pid, v] of Object.entries(cur)) {
@@ -2769,6 +2858,10 @@ export function nextTurn(ctx: GameContext) {
         }
       }
       (ctx as any).state.cardsDrawnLastTurnByPlayerCounts = last;
+
+      // Legacy aliases used by intervening-if fallbacks.
+      (ctx as any).state.cardsDrawnLastTurnByPlayer = last;
+      (ctx as any).state.cardsDrawnLastTurn = last;
 
       // Convenience: how many cards did the previous turn's active player draw?
       // Note: `current` is the old turn player (before we assigned `next`).
@@ -2784,6 +2877,7 @@ export function nextTurn(ctx: GameContext) {
     // Used by intervening-if clauses like "if you lost life last turn".
     try {
       const last: any = {};
+      for (const pid of players) last[String(pid)] = 0;
       const cur = (ctx as any).state.lifeLostThisTurn;
       if (cur && typeof cur === 'object') {
         for (const [pid, v] of Object.entries(cur)) {
@@ -2791,12 +2885,17 @@ export function nextTurn(ctx: GameContext) {
         }
       }
       (ctx as any).state.lifeLostLastTurnByPlayerCounts = last;
+
+      // Legacy aliases used by intervening-if fallbacks.
+      (ctx as any).state.lifeLostLastTurnByPlayer = last;
+      (ctx as any).state.lifeLostLastTurn = last;
     } catch {}
 
     // Snapshot "damage taken last turn" before clearing per-turn trackers.
     // Used by intervening-if clauses like "if an opponent was dealt damage this turn".
     try {
       const last: any = {};
+      for (const pid of players) last[String(pid)] = 0;
       const cur = (ctx as any).state.damageTakenThisTurnByPlayer;
       if (cur && typeof cur === 'object') {
         for (const [pid, v] of Object.entries(cur)) {
@@ -2844,12 +2943,45 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.creatureDiedThisTurn = false;
     (ctx as any).state.creaturesDiedThisTurnByController = {};
     (ctx as any).state.creaturesDiedThisTurnByControllerSubtype = {};
+    // Legacy alias map used by some death-count templates.
+    (ctx as any).state.creaturesDiedUnderYourControlThisTurn = {};
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnByController = {};
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnByControllerSubtype = {};
     (ctx as any).state.creaturesEnteredBattlefieldThisTurnIdsByController = {};
     (ctx as any).state.faceDownCreaturesEnteredBattlefieldThisTurnByController = {};
-    (ctx as any).state.permanentLeftBattlefieldThisTurn = {};
-    (ctx as any).state.descendedThisTurn = {};
+    // Initialize per-turn boolean trackers for all players so intervening-if can return false deterministically.
+    {
+      const left: any = {};
+      const descended: any = {};
+      for (const pid of players) {
+        left[String(pid)] = false;
+        descended[String(pid)] = false;
+      }
+      (ctx as any).state.permanentLeftBattlefieldThisTurn = left;
+      (ctx as any).state.descendedThisTurn = descended;
+    }
+
+    // Initialize attack target tracking for all players so "attacked last turn" snapshots are deterministic.
+    try {
+      const stateAny = (ctx as any).state as any;
+      stateAny.attackedPlayersThisTurnByPlayer = {};
+      for (const pid of players) stateAny.attackedPlayersThisTurnByPlayer[String(pid)] = [];
+    } catch {
+      // best-effort only
+    }
+
+    // Planechase (NYI): initialize per-turn trackers so intervening-if clauses can be deterministic.
+    // Shape: { [playerId]: string[] }
+    {
+      const planeswalked: any = {};
+      const players = Array.isArray((ctx as any).state?.players) ? (ctx as any).state.players : [];
+      for (const p of players) {
+        const pid = String(p?.id || '').trim();
+        if (pid) planeswalked[pid] = [];
+      }
+      (ctx as any).state.planeswalkedToThisTurn = planeswalked;
+      (ctx as any).state.planeswalkedToPlanesThisTurn = planeswalked;
+    }
 
     // Reset per-permanent damage tracking for "this turn" intervening-if clauses.
     try {

@@ -68,6 +68,17 @@ export function setDayNightState(state: any, next: DayNight): void {
   if (prev === next) return;
 
   state.dayNight = next;
+
+  // Legacy aliases used by older templates / intervening-if fallbacks.
+  // Keep these deterministic and derived from authoritative `state.dayNight`.
+  try {
+    state.dayNightState = next;
+    state.day_night = next;
+    state.isDay = next === 'day';
+    state.isNight = next === 'night';
+  } catch {
+    // best-effort only
+  }
   state.dayNightChangedThisTurn = true;
   state.dayNightChangedFrom = prev;
   state.dayNightChangedTo = next;

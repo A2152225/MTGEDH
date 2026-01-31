@@ -5382,6 +5382,26 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (convergeValue > 0) {
         debug(2, `[castSpellFromHand] Converge: ${convergeValue} different color(s) spent for ${cardInHand.name}`);
       }
+
+      // Intervening-if support: "if mana from a Treasure was spent to cast it".
+      // Be conservative: only record positive evidence when we can directly see a Treasure used as a payment source.
+      // (Do NOT set false, because floating mana in the pool may have been produced by a Treasure earlier.)
+      let manaFromTreasureSpent: true | undefined;
+      try {
+        if (Array.isArray(payment) && payment.length > 0) {
+          const battlefield = (game.state.battlefield || []) as any[];
+          for (const pay of payment) {
+            const perm = battlefield.find((p: any) => p?.id === pay?.permanentId && p?.controller === playerId);
+            const typeLine = String(perm?.card?.type_line || '').toLowerCase();
+            if (/\btreasure\b/.test(typeLine)) {
+              manaFromTreasureSpent = true;
+              break;
+            }
+          }
+        }
+      } catch {
+        // best-effort only
+      }
       
       // Bump sequence to ensure state changes are visible
       if (typeof game.bumpSeq === 'function') {
@@ -5448,7 +5468,11 @@ export function registerGameActions(io: Server, socket: Socket) {
           const stackLengthBefore = game.state.stack?.length || 0;
           
           if (typeof game.applyEvent === 'function') {
-            game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [], xValue, alternateCostId });
+            const castEv: any = { type: "castSpell", playerId, cardId, targets: targets || [], xValue, alternateCostId };
+            if (manaFromTreasureSpent === true) {
+              castEv.manaFromTreasureSpent = true;
+            }
+            game.applyEvent(castEv);
             
             // Verify the spell was actually added to the stack
             const stackLengthAfter = game.state.stack?.length || 0;
@@ -5502,6 +5526,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                   (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
                   (topStackItem as any).card.madnessCostWasPaid = (topStackItem as any).madnessCostWasPaid;
                   (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
+                }
+              }
+
+              // Intervening-if support: "if mana from a Treasure was spent to cast it".
+              if (manaFromTreasureSpent === true) {
+                (topStackItem as any).manaFromTreasureSpent = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.manaFromTreasureSpent = true;
                 }
               }
 
@@ -5567,6 +5599,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                   (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
                   (topStackItem as any).card.madnessCostWasPaid = (topStackItem as any).madnessCostWasPaid;
                   (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
+                }
+              }
+
+              // Intervening-if support: "if mana from a Treasure was spent to cast it".
+              if (manaFromTreasureSpent === true) {
+                (topStackItem as any).manaFromTreasureSpent = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.manaFromTreasureSpent = true;
                 }
               }
 
@@ -5652,10 +5692,11 @@ export function registerGameActions(io: Server, socket: Socket) {
             const stackItem = {
               id: `stack_${Date.now()}_${cardId}`,
               controller: playerId,
-              card: { ...removedCard, zone: "stack" },
+              card: { ...removedCard, zone: "stack", ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}) },
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
               xValue,
+              ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
               ...(additionalCostPaid === true
                 ? {
                     additionalCostWasPaid: true,
@@ -5725,6 +5766,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: cardInHand,
           xValue,
           alternateCostId,
+          ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(castSpell) failed:', e);
@@ -6752,6 +6794,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Best-effort: only set if missing so reconnects/duplicate actions don't overwrite.
         if (!(game.state as any).startingPlayerId) {
           (game.state as any).startingPlayerId = playerId;
+          // Legacy alias for intervening-if fallbacks.
+          (game.state as any).startingPlayer = (game.state as any).startingPlayerId;
         }
         appendGameEvent(game, gameId, "claimTurn", { by: playerId });
         io.to(gameId).emit("chat", {
@@ -6811,6 +6855,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         game.state.turnPlayer = randomPlayer.id;
         // Track starting player for intervening-if templates like "if you weren't the starting player".
         (game.state as any).startingPlayerId = randomPlayer.id;
+        // Legacy alias for intervening-if fallbacks.
+        (game.state as any).startingPlayer = (game.state as any).startingPlayerId;
         appendGameEvent(game, gameId, "randomizeStartingPlayer", { 
           selectedPlayerId: randomPlayer.id,
           by: playerId
@@ -8968,6 +9014,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         appendEvent(gameId, (game as any).seq ?? 0, "setHouseRules", { 
           playerId, 
           houseRules,
+          rules: houseRules,
         });
       } catch (e) {
         debugWarn(1, "appendEvent(setHouseRules) failed:", e);

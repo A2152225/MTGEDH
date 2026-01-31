@@ -102,12 +102,19 @@ export function recordCardLeftGraveyardThisTurn(ctx: GameContext, ownerId: strin
     stateAny.cardsLeftGraveyardThisTurn[owner] = true;
     stateAny.leftGraveyardThisTurn[owner] = true;
 
+    // Additional alias fields used by some intervening-if templates.
+    stateAny.cardLeftYourGraveyardThisTurn = stateAny.cardLeftYourGraveyardThisTurn || {};
+    stateAny.cardLeftYourGraveyardThisTurn[owner] = true;
+
     const typeLine = String(card?.type_line || card?.card?.type_line || "").toLowerCase();
     if (typeLine.includes('creature')) {
       stateAny.creatureCardLeftGraveyardThisTurn = stateAny.creatureCardLeftGraveyardThisTurn || {};
       stateAny.creatureCardsLeftGraveyardThisTurn = stateAny.creatureCardsLeftGraveyardThisTurn || {};
       stateAny.creatureCardLeftGraveyardThisTurn[owner] = true;
       stateAny.creatureCardsLeftGraveyardThisTurn[owner] = true;
+
+      stateAny.creatureCardLeftYourGraveyardThisTurn = stateAny.creatureCardLeftYourGraveyardThisTurn || {};
+      stateAny.creatureCardLeftYourGraveyardThisTurn[owner] = true;
     }
   } catch {
     // best-effort only
