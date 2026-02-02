@@ -5468,7 +5468,47 @@ export function registerGameActions(io: Server, socket: Socket) {
           const stackLengthBefore = game.state.stack?.length || 0;
           
           if (typeof game.applyEvent === 'function') {
-            const castEv: any = { type: "castSpell", playerId, cardId, targets: targets || [], xValue, alternateCostId };
+            const castEv: any = {
+              type: "castSpell",
+              playerId,
+              cardId,
+              targets: targets || [],
+              xValue,
+              alternateCostId,
+              // Provenance / replay-stable metadata for intervening-if templates.
+              fromZone: 'hand',
+              castFromHand: true,
+              manaSpentTotal,
+              manaSpentBreakdown: { ...manaConsumption.consumed },
+              ...(convergeValue > 0
+                ? {
+                    convergeValue,
+                    manaColorsSpent: Object.entries(manaConsumption.consumed)
+                      .filter(([color, amount]) => color !== 'colorless' && amount > 0)
+                      .map(([color]) => color),
+                  }
+                : {}),
+              ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0
+                ? {
+                    convokeTappedCreatures: convokeTappedCreatures.slice(),
+                    manaFromCreaturesSpent: convokeTappedCreatures.length,
+                  }
+                : {}),
+              ...(additionalCostPaid === true
+                ? {
+                    additionalCostWasPaid: true,
+                    paidAdditionalCost: true,
+                    additionalCostPaid: true,
+                  }
+                : {}),
+              ...(evidenceCollected === true
+                ? {
+                    evidenceCollected: true,
+                    evidenceWasCollected: true,
+                    collectedEvidence: true,
+                  }
+                : {}),
+            };
             if (manaFromTreasureSpent === true) {
               castEv.manaFromTreasureSpent = true;
             }
@@ -5766,6 +5806,39 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: cardInHand,
           xValue,
           alternateCostId,
+          fromZone: 'hand',
+          castFromHand: true,
+          // Persist mana/payment metadata for deterministic replay / intervening-if.
+          manaSpentTotal,
+          manaSpentBreakdown: { ...manaConsumption.consumed },
+          ...(convergeValue > 0
+            ? {
+                convergeValue,
+                manaColorsSpent: Object.entries(manaConsumption.consumed)
+                  .filter(([color, amount]) => color !== 'colorless' && amount > 0)
+                  .map(([color]) => color),
+              }
+            : {}),
+          ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0
+            ? {
+                convokeTappedCreatures: convokeTappedCreatures.slice(),
+                manaFromCreaturesSpent: convokeTappedCreatures.length,
+              }
+            : {}),
+          ...(additionalCostPaid === true
+            ? {
+                additionalCostWasPaid: true,
+                paidAdditionalCost: true,
+                additionalCostPaid: true,
+              }
+            : {}),
+          ...(evidenceCollected === true
+            ? {
+                evidenceCollected: true,
+                evidenceWasCollected: true,
+                collectedEvidence: true,
+              }
+            : {}),
           ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
         });
       } catch (e) {

@@ -152,6 +152,7 @@ function ensureStateZonesForPlayers(game: any) {
     stateAny.lifeGainedThisTurn = stateAny.lifeGainedThisTurn || {};
     stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
     stateAny.cardsDrawnThisTurn = stateAny.cardsDrawnThisTurn || {};
+    stateAny.spellsCastThisTurn = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
     stateAny.spellsCastFromHandThisTurn = stateAny.spellsCastFromHandThisTurn || {};
     stateAny.noncreatureSpellsCastThisTurn = stateAny.noncreatureSpellsCastThisTurn || {};
     stateAny.damageTakenThisTurnByPlayer = stateAny.damageTakenThisTurnByPlayer || {};
@@ -161,6 +162,7 @@ function ensureStateZonesForPlayers(game: any) {
     stateAny.countersPutThisTurnByPermanentId = stateAny.countersPutThisTurnByPermanentId || {};
     stateAny.plusOneCountersPutThisTurnByPermanentId = stateAny.plusOneCountersPutThisTurnByPermanentId || {};
     stateAny.creaturesThatDealtDamageToPlayer = stateAny.creaturesThatDealtDamageToPlayer || {};
+    stateAny.linkedExiles = Array.isArray(stateAny.linkedExiles) ? stateAny.linkedExiles : [];
 
     // Newer per-turn trackers used by recognized templates.
     stateAny.spellWasWarpedThisTurn = stateAny.spellWasWarpedThisTurn || {};
@@ -182,6 +184,12 @@ function ensureStateZonesForPlayers(game: any) {
 
     // Per-turn trackers that are reset with deterministic defaults in nextTurn.
     stateAny.playedCardFromExileThisTurn = stateAny.playedCardFromExileThisTurn || {};
+    stateAny.playedFromExileThisTurn = stateAny.playedFromExileThisTurn || {};
+    stateAny.cardsPlayedFromExileThisTurn = stateAny.cardsPlayedFromExileThisTurn || {};
+    stateAny.castFromExileThisTurn = stateAny.castFromExileThisTurn || {};
+    stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+    stateAny.playedLandFromGraveyardThisTurn = stateAny.playedLandFromGraveyardThisTurn || {};
+    stateAny.playedLandFromExileThisTurn = stateAny.playedLandFromExileThisTurn || {};
     stateAny.completedDungeonThisTurn = stateAny.completedDungeonThisTurn || {};
     stateAny.dungeonCompletedThisTurn = stateAny.dungeonCompletedThisTurn || {};
     stateAny.cycleCountThisTurn = stateAny.cycleCountThisTurn || {};
@@ -217,6 +225,11 @@ function ensureStateZonesForPlayers(game: any) {
     stateAny.descendedThisTurn = stateAny.descendedThisTurn || {};
     stateAny.permanentLeftBattlefieldThisTurn = stateAny.permanentLeftBattlefieldThisTurn || {};
     stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
+
+    // Combat trackers used by recognized intervening-if templates.
+    stateAny.creaturesAttackedThisTurn = stateAny.creaturesAttackedThisTurn || {};
+    stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
+    stateAny.attackersDeclaredThisCombatByPlayer = stateAny.attackersDeclaredThisCombatByPlayer || {};
 
     stateAny.attackedPlayersLastTurnByPlayer = stateAny.attackedPlayersLastTurnByPlayer || {};
     stateAny.attackedYouLastTurnByPlayer = stateAny.attackedYouLastTurnByPlayer || {};

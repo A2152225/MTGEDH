@@ -1029,21 +1029,175 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           (e as any).xValue
         );
 
-        // Intervening-if support: "if mana from a Treasure was spent to cast it".
-        // Persisted events can carry positive-only evidence; apply it to the newly created stack item.
+        // Intervening-if support: persist replay-stable cast/payment metadata onto the new stack item.
         try {
-          if ((e as any).manaFromTreasureSpent === true) {
-            const stackArr = (ctx.state.stack || []) as any[];
-            if (stackArr.length > stackLengthBefore && stackArr.length > 0) {
-              const topStackItem = stackArr[stackArr.length - 1];
-              (topStackItem as any).manaFromTreasureSpent = true;
+          const stackArr = (ctx.state.stack || []) as any[];
+          if (stackArr.length > stackLengthBefore && stackArr.length > 0) {
+            const topStackItem = stackArr[stackArr.length - 1];
+
+            const applyToStackItem = (key: string, value: any) => {
+              (topStackItem as any)[key] = value;
               if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
-                (topStackItem as any).card.manaFromTreasureSpent = true;
+                (topStackItem as any).card[key] = value;
               }
+            };
+
+            // Provenance
+            if (typeof (e as any).fromZone === 'string' && (e as any).fromZone) {
+              applyToStackItem('fromZone', (e as any).fromZone);
+            }
+            if ((e as any).castFromHand === true) {
+              applyToStackItem('castFromHand', true);
+              applyToStackItem('source', 'hand');
+            }
+            if ((e as any).castWithoutPayingManaCost === true) {
+              applyToStackItem('castWithoutPayingManaCost', true);
+            }
+
+            // Alternate-cost identifier
+            const alt =
+              (e as any).alternateCostId ??
+              (e as any).alternate_cost_id ??
+              (e as any).card?.alternateCostId ??
+              (e as any).card?.card?.alternateCostId;
+            if (alt) {
+              applyToStackItem('alternateCostId', alt);
+              const altLower = String(alt || '').toLowerCase().trim();
+              // Best-effort boolean flags for common alternate cost templates.
+              applyToStackItem('prowlCostWasPaid', altLower === 'prowl');
+              applyToStackItem('surgeCostWasPaid', altLower === 'surge');
+              applyToStackItem('madnessCostWasPaid', altLower === 'madness');
+              applyToStackItem('spectacleCostWasPaid', altLower === 'spectacle');
+            }
+
+            // Mana/payment metadata
+            if (typeof (e as any).manaSpentTotal === 'number') {
+              applyToStackItem('manaSpentTotal', (e as any).manaSpentTotal);
+            }
+            if ((e as any).manaSpentBreakdown && typeof (e as any).manaSpentBreakdown === 'object') {
+              applyToStackItem('manaSpentBreakdown', { ...(e as any).manaSpentBreakdown });
+            }
+            if (typeof (e as any).convergeValue === 'number') {
+              applyToStackItem('convergeValue', (e as any).convergeValue);
+            }
+            if (Array.isArray((e as any).manaColorsSpent)) {
+              applyToStackItem('manaColorsSpent', (e as any).manaColorsSpent.slice());
+            }
+            if (Array.isArray((e as any).convokeTappedCreatures)) {
+              applyToStackItem('convokeTappedCreatures', (e as any).convokeTappedCreatures.slice());
+            }
+            if (typeof (e as any).manaFromCreaturesSpent === 'number') {
+              applyToStackItem('manaFromCreaturesSpent', (e as any).manaFromCreaturesSpent);
+            }
+
+            // Positive-only evidence flags
+            if ((e as any).manaFromTreasureSpent === true) {
+              applyToStackItem('manaFromTreasureSpent', true);
+            }
+            if ((e as any).additionalCostWasPaid === true || (e as any).paidAdditionalCost === true || (e as any).additionalCostPaid === true) {
+              applyToStackItem('additionalCostWasPaid', true);
+              applyToStackItem('paidAdditionalCost', true);
+              applyToStackItem('additionalCostPaid', true);
+            }
+            if ((e as any).evidenceCollected === true || (e as any).evidenceWasCollected === true || (e as any).collectedEvidence === true) {
+              applyToStackItem('evidenceCollected', true);
+              applyToStackItem('evidenceWasCollected', true);
+              applyToStackItem('collectedEvidence', true);
             }
           }
         } catch {
           // best-effort only
+        }
+        break;
+      }
+
+      case "crewVehicle": {
+        try {
+          const pid = String((e as any).playerId || '').trim();
+          const vehicleId = String((e as any).vehicleId || (e as any).sourceId || '').trim();
+          const crewerIdsRaw = (e as any).crewerIds;
+          const crewerIds = Array.isArray(crewerIdsRaw)
+            ? crewerIdsRaw.map((id: any) => String(id ?? '')).filter((x: string) => x.length > 0)
+            : [];
+
+          const battlefield = (ctx.state.battlefield || []) as any[];
+          const vehicle = battlefield.find((p: any) => p && String(p.id) === vehicleId);
+          if (!vehicle) break;
+
+          // Mark vehicle as crewed until end of turn.
+          (vehicle as any).crewed = true;
+          (vehicle as any).grantedTypes = Array.isArray((vehicle as any).grantedTypes) ? (vehicle as any).grantedTypes : [];
+          if (!(vehicle as any).grantedTypes.includes('Creature')) {
+            (vehicle as any).grantedTypes.push('Creature');
+          }
+
+          // Tap the chosen crewers and record which creature subtypes crewed it.
+          const crewedTypesLower: string[] = [];
+          for (const crewerId of crewerIds) {
+            const crewer = battlefield.find((p: any) => p && String(p.id) === String(crewerId));
+            if (!crewer) continue;
+            (crewer as any).tapped = true;
+
+            const typeLine = String((crewer as any)?.card?.type_line || '');
+            const dashIndex = typeLine.indexOf('—');
+            if (dashIndex >= 0) {
+              const subtypes = typeLine.substring(dashIndex + 1).trim();
+              for (const t of subtypes.split(/\s+/)) {
+                const lower = String(t || '').toLowerCase().trim();
+                if (lower) crewedTypesLower.push(lower);
+              }
+            }
+          }
+
+          // Intervening-if support fields (best-effort today, but now deterministic when this event exists).
+          (vehicle as any).crewedByCreatureCountThisTurn = crewerIds.length;
+          if (crewedTypesLower.length > 0) {
+            (vehicle as any).crewedByCreatureTypesThisTurn = Array.from(new Set(crewedTypesLower));
+            (vehicle as any).crewedBySubtypesThisTurn = (vehicle as any).crewedByCreatureTypesThisTurn;
+          }
+
+          // Intervening-if support: track that this player tapped a nonland permanent this turn.
+          if (pid) {
+            const stateAny = ctx.state as any;
+            stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+            stateAny.tappedNonlandPermanentThisTurnByPlayer[pid] = true;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(crewVehicle): failed', err);
+        }
+        break;
+      }
+
+      case "enlist": {
+        try {
+          const pid = String((e as any).playerId || '').trim();
+          const attackerId = String((e as any).attackerId || (e as any).sourceId || '').trim();
+          const enlistedCreatureId = String((e as any).enlistedCreatureId || '').trim();
+          if (!attackerId || !enlistedCreatureId) break;
+
+          const battlefield = (ctx.state.battlefield || []) as any[];
+          const attacker = battlefield.find((p: any) => p && String(p.id) === attackerId);
+          const enlisted = battlefield.find((p: any) => p && String(p.id) === enlistedCreatureId);
+          if (!attacker || !enlisted) break;
+
+          // Tap the enlisted creature and record that enlist was used.
+          (enlisted as any).tapped = true;
+          (attacker as any).enlistedThisCombat = true;
+          (attacker as any).enlistedCreatureThisCombat = true;
+          (attacker as any).enlistedCreatureIdThisCombat = enlistedCreatureId;
+
+          // Intervening-if support: track that this player tapped a nonland permanent this turn.
+          if (pid) {
+            const stateAny = ctx.state as any;
+            stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+            stateAny.tappedNonlandPermanentThisTurnByPlayer[pid] = true;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(enlist): failed', err);
         }
         break;
       }
@@ -1492,6 +1646,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
             stateAny.mustAttackThisCombatByPermanentId = {};
 
+            // Per-combat tracker used by intervening-if templates like
+            // "if this creature attacked or blocked this combat".
+            stateAny.attackedOrBlockedThisCombatByPermanentId = {};
+
+            // Per-combat snapshot used by intervening-if templates like
+            // "if a Pirate and a Vehicle attacked this combat".
+            stateAny.attackersDeclaredThisCombatByPlayer = stateAny.attackersDeclaredThisCombatByPlayer || {};
+            if (playerId) stateAny.attackersDeclaredThisCombatByPlayer[playerId] = [];
+
+            // Per-turn tracker used by intervening-if templates like
+            // "if no creatures attacked this turn".
+            stateAny.creaturesAttackedThisTurn = stateAny.creaturesAttackedThisTurn || {};
+
             for (const atk of attackers) {
               const attackerId = String(atk?.attackerId || atk?.creatureId || "").trim();
               if (!attackerId) continue;
@@ -1523,6 +1690,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
               const perm = battlefield.find((p: any) => p?.id === attackerId);
               if (!perm) continue;
+
+              // Per-combat marker for this attacker.
+              stateAny.attackedOrBlockedThisCombatByPermanentId[attackerId] = true;
+
+              // Per-combat snapshot entry for this attacker.
+              if (playerId && Array.isArray(stateAny.attackersDeclaredThisCombatByPlayer?.[playerId])) {
+                stateAny.attackersDeclaredThisCombatByPlayer[playerId].push({
+                  id: attackerId,
+                  name: String((perm as any)?.card?.name ?? (perm as any)?.name ?? ''),
+                  type_line: String((perm as any)?.card?.type_line ?? ''),
+                });
+              }
 
               // Track "they were attacked this turn by an Assassin you controlled".
               // Conservative: only set true on positive evidence.
@@ -1577,6 +1756,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const targetPermanentId = (atk as any)?.targetPermanentId;
               (perm as any).attacking = defendingPlayer || targetPermanentId || true;
 
+              // Match live combat: mark that this permanent attacked this turn.
+              (perm as any).attackedThisTurn = true;
+
+              // Track total creatures attacked this turn for the attacking player.
+              try {
+                const stateAny = ctx.state as any;
+                const attackerPid = String((e as any).playerId || '').trim();
+                if (attackerPid) {
+                  stateAny.creaturesAttackedThisTurn = stateAny.creaturesAttackedThisTurn || {};
+                  stateAny.creaturesAttackedThisTurn[attackerPid] = (stateAny.creaturesAttackedThisTurn[attackerPid] || 0) + 1;
+                }
+              } catch {
+                /* ignore */
+              }
+
               // Attacking creatures tap unless they have vigilance.
               // Keep replay deterministic and aligned with live combat logic.
               const hasVigilance = permanentHasKeyword(perm, 'vigilance');
@@ -1607,6 +1801,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const blockers = (e as any).blockers as Array<{ blockerId: string; attackerId: string }> || [];
         try {
           const battlefield = ctx.state.battlefield || [];
+          const stateAny = ctx.state as any;
+
+          stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
+
           // Clear previous blockers
           for (const perm of battlefield) {
             if (perm) {
@@ -1620,10 +1818,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const attacker = battlefield.find((p: any) => p.id === blk.attackerId);
             if (blocker) {
               (blocker as any).blocking = blk.attackerId;
+
+              // Intervening-if support: blocker "blocked this turn" and "attacked or blocked this combat".
+              (blocker as any).blockedThisTurn = true;
+              stateAny.attackedOrBlockedThisCombatByPermanentId[String(blk.blockerId)] = true;
             }
             if (attacker) {
               (attacker as any).blockedBy = (attacker as any).blockedBy || [];
               (attacker as any).blockedBy.push(blk.blockerId);
+
+              // Intervening-if support: attacker "was blocked this turn".
+              (attacker as any).wasBlockedThisTurn = true;
             }
           }
           ctx.bumpSeq();

@@ -2329,6 +2329,27 @@ export function nextTurn(ctx: GameContext) {
       // best-effort only
     }
 
+    // Clear per-turn/per-combat per-permanent trackers used by intervening-if evaluation.
+    // These must not leak across turns.
+    try {
+      const battlefield = ((ctx as any).state.battlefield || []) as any[];
+      for (const perm of battlefield) {
+        if (!perm) continue;
+
+        // Crew: per-turn support fields written by the persisted 'crewVehicle' event.
+        if ((perm as any).crewedByCreatureCountThisTurn !== undefined) delete (perm as any).crewedByCreatureCountThisTurn;
+        if ((perm as any).crewedByCreatureTypesThisTurn !== undefined) delete (perm as any).crewedByCreatureTypesThisTurn;
+        if ((perm as any).crewedBySubtypesThisTurn !== undefined) delete (perm as any).crewedBySubtypesThisTurn;
+
+        // Enlist: per-combat support fields written by the persisted 'enlist' event.
+        if ((perm as any).enlistedThisCombat) (perm as any).enlistedThisCombat = false;
+        if ((perm as any).enlistedCreatureThisCombat) (perm as any).enlistedCreatureThisCombat = false;
+        if ((perm as any).enlistedCreatureIdThisCombat) delete (perm as any).enlistedCreatureIdThisCombat;
+      }
+    } catch {
+      // best-effort only
+    }
+
     // Derive team maps from player objects when present (team formats / Alchemy).
     // Do not invent team assignments when none exist.
     try {

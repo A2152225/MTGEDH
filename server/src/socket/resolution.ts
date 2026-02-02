@@ -6283,10 +6283,169 @@ async function handleTargetSelectionResponse(
   }
 
   // ========================================================================
+  // CREW (Vehicle activated ability)
+  // These are enqueued as TARGET_SELECTION steps with crewAbility metadata.
+  // ========================================================================
+  const stepAny = step as any;
+  if (stepAny?.crewAbility === true) {
+    const vehicleId = String(stepAny?.vehicleId || step.sourceId || '').trim();
+    const crewPower = Number(stepAny?.crewPower || 0);
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const vehicle = battlefield.find((p: any) => p && String(p.id) === vehicleId);
+    if (!vehicle || String(vehicle.controller || '') !== String(pid)) {
+      debugWarn(1, `[Resolution] crewAbility: vehicle not found/controlled: ${vehicleId}`);
+      return;
+    }
+
+    // Validate selected crewers are still legal and total power is sufficient.
+    let totalPower = 0;
+    const chosenCrewers: any[] = [];
+    for (const crewerId of selections) {
+      const crewer = battlefield.find((p: any) => p && String(p.id) === String(crewerId));
+      if (!crewer) {
+        debugWarn(1, `[Resolution] crewAbility: crewer missing: ${crewerId}`);
+        return;
+      }
+      if (String(crewer.controller || '') !== String(pid)) {
+        debugWarn(1, `[Resolution] crewAbility: crewer not controlled by player: ${crewerId}`);
+        return;
+      }
+      const tl = String(crewer.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) {
+        debugWarn(1, `[Resolution] crewAbility: crewer not a creature: ${crewerId}`);
+        return;
+      }
+      if (crewer.tapped) {
+        debugWarn(1, `[Resolution] crewAbility: crewer already tapped: ${crewerId}`);
+        return;
+      }
+      if (String(crewerId) === String(vehicleId)) {
+        debugWarn(1, `[Resolution] crewAbility: vehicle cannot crew itself: ${crewerId}`);
+        return;
+      }
+      chosenCrewers.push(crewer);
+      totalPower += getEffectivePower(crewer);
+    }
+
+    if (crewPower > 0 && totalPower < crewPower) {
+      emitToPlayer(io, pid as any, 'error', {
+        code: 'INSUFFICIENT_POWER',
+        message: `Selected creatures have total power ${totalPower}, need ${crewPower}+ to crew.`,
+      });
+      return;
+    }
+
+    // Apply via applyEvent for determinism (replay uses the same path).
+    if (typeof (game as any).applyEvent === 'function') {
+      (game as any).applyEvent({
+        type: 'crewVehicle',
+        playerId: pid,
+        vehicleId,
+        crewerIds: selections,
+      });
+    }
+
+    // Persist for replay.
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'crewVehicle', {
+        playerId: pid,
+        vehicleId,
+        crewerIds: selections,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    const vehicleName = String(vehicle?.card?.name || 'Vehicle');
+    const crewerNames = chosenCrewers.map((c: any) => String(c?.card?.name || 'Creature')).filter(Boolean);
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} crews ${vehicleName}${crewerNames.length ? ` with ${crewerNames.join(', ')}` : ''}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
+  // ENLIST (attacks trigger)
+  // These are enqueued as TARGET_SELECTION steps with enlistChoice metadata.
+  // ========================================================================
+  if (stepAny?.enlistChoice === true) {
+    const attackerId = String(stepAny?.enlistAttackerId || step.sourceId || '').trim();
+    const enlistedCreatureId = String(selections?.[0] || '').trim();
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const attacker = battlefield.find((p: any) => p && String(p.id) === attackerId);
+    const enlisted = battlefield.find((p: any) => p && String(p.id) === enlistedCreatureId);
+
+    if (!attacker || String(attacker.controller || '') !== String(pid)) {
+      debugWarn(1, `[Resolution] enlistChoice: attacker not found/controlled: ${attackerId}`);
+      return;
+    }
+    if (!enlisted || String(enlisted.controller || '') !== String(pid)) {
+      debugWarn(1, `[Resolution] enlistChoice: enlisted creature not found/controlled: ${enlistedCreatureId}`);
+      return;
+    }
+    const tl = String(enlisted.card?.type_line || '').toLowerCase();
+    if (!tl.includes('creature')) {
+      debugWarn(1, `[Resolution] enlistChoice: selected permanent is not a creature: ${enlistedCreatureId}`);
+      return;
+    }
+    if (enlisted.tapped) {
+      debugWarn(1, `[Resolution] enlistChoice: creature already tapped: ${enlistedCreatureId}`);
+      return;
+    }
+    if (enlisted.attacking) {
+      debugWarn(1, `[Resolution] enlistChoice: creature is attacking: ${enlistedCreatureId}`);
+      return;
+    }
+    if (String(enlistedCreatureId) === String(attackerId)) {
+      debugWarn(1, `[Resolution] enlistChoice: attacker cannot enlist itself: ${enlistedCreatureId}`);
+      return;
+    }
+
+    if (typeof (game as any).applyEvent === 'function') {
+      (game as any).applyEvent({
+        type: 'enlist',
+        playerId: pid,
+        attackerId,
+        enlistedCreatureId,
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'enlist', {
+        playerId: pid,
+        attackerId,
+        enlistedCreatureId,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    const attackerName = String(attacker?.card?.name || 'Attacker');
+    const enlistedName = String(enlisted?.card?.name || 'Creature');
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} enlists ${enlistedName} for ${attackerName}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
   // SACRIFICE SELECTION (Grave Pact / Dictate of Erebos variants, etc.)
   // These are enqueued as TARGET_SELECTION steps with sacrificeSelection metadata.
   // ========================================================================
-  const stepAny = step as any;
   if (stepAny?.sacrificeSelection === true) {
     const permanentType = String(stepAny?.sacrificePermanentType || 'permanent');
     const sourceName = String(stepAny?.sacrificeSourceName || step.sourceName || 'Effect');
@@ -9855,6 +10014,9 @@ async function handleCascadeResponse(
         type: "castSpell",
         playerId: pid,
         card: { ...hitCard },
+        // Cascade casts from exile without paying its mana cost.
+        fromZone: 'exile',
+        castWithoutPayingManaCost: true,
       });
     }
     
@@ -9863,7 +10025,9 @@ async function handleCascadeResponse(
         playerId: pid, 
         cardId: hitCard.id, 
         card: hitCard, 
-        cascade: true 
+        cascade: true,
+        fromZone: 'exile',
+        castWithoutPayingManaCost: true,
       });
     } catch {
       // ignore persistence failures

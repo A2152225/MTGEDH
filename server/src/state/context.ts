@@ -187,6 +187,14 @@ export function createContext(gameId: string): GameContext {
   (state as any).countersPutThisTurnByPermanentId = {};
   (state as any).plusOneCountersPutThisTurnByPermanentId = {};
   (state as any).creaturesThatDealtDamageToPlayer = {};
+  (state as any).linkedExiles = [];
+
+  // Combat trackers used by recognized intervening-if templates.
+  // - creaturesAttackedThisTurn is per-turn and cleared at end of turn.
+  // - attackedOrBlockedThisCombatByPermanentId is per-combat and reset on declare attackers.
+  (state as any).creaturesAttackedThisTurn = {};
+  (state as any).attackedOrBlockedThisCombatByPermanentId = {};
+  (state as any).attackersDeclaredThisCombatByPlayer = {};
 
   // Per-turn / per-cycle trackers used by recognized intervening-if templates.
   // These are safe defaults; state modules update them on positive evidence.
@@ -210,6 +218,12 @@ export function createContext(gameId: string): GameContext {
   (state as any).evidenceCollectedThisTurnByPlayer = {};
   (state as any).evidenceCollectedThisTurnByPlayerCounts = {};
   (state as any).playedCardFromExileThisTurn = {};
+  (state as any).playedFromExileThisTurn = {};
+  (state as any).cardsPlayedFromExileThisTurn = {};
+  (state as any).castFromExileThisTurn = {};
+  (state as any).castFromGraveyardThisTurn = {};
+  (state as any).playedLandFromGraveyardThisTurn = {};
+  (state as any).playedLandFromExileThisTurn = {};
   (state as any).discardedCardThisTurn = (state as any).discardedCardThisTurn || {};
   (state as any).anyPlayerDiscardedCardThisTurn = typeof (state as any).anyPlayerDiscardedCardThisTurn === 'boolean'
     ? (state as any).anyPlayerDiscardedCardThisTurn

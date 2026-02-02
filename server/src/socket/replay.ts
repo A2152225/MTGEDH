@@ -560,6 +560,10 @@ function getEventSummary(event: any): string {
       return "Counter(s) updated";
     case "sacrificePermanent":
       return "Sacrificed permanent";
+    case "crewVehicle":
+      return `${event.playerId || 'Player'} crewed a Vehicle`;
+    case "enlist":
+      return `${event.playerId || 'Player'} enlisted a creature`;
     case "reorderHand":
       return `${event.playerId || 'Player'} reordered hand`;
     case "shuffleHand":

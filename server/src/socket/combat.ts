@@ -948,6 +948,25 @@ export async function executeDeclareAttackers(
     stateAny.attackedDefendingPlayersThisCombatByPlayer[String(playerId)] = [];
     stateAny.mustAttackThisCombatByPermanentId = {};
 
+    // Reset per-combat enlist markers so extra combats don't inherit prior combat state.
+    // These flags are written by the persisted 'enlist' event and must be cleared when a new combat begins.
+    const bf = Array.isArray(battlefield) ? battlefield : [];
+    for (const perm of bf) {
+      if (!perm) continue;
+      if ((perm as any).enlistedThisCombat) (perm as any).enlistedThisCombat = false;
+      if ((perm as any).enlistedCreatureThisCombat) (perm as any).enlistedCreatureThisCombat = false;
+      if ((perm as any).enlistedCreatureIdThisCombat) delete (perm as any).enlistedCreatureIdThisCombat;
+    }
+
+    // Per-combat tracker used by intervening-if templates like
+    // "if this creature attacked or blocked this combat".
+    stateAny.attackedOrBlockedThisCombatByPermanentId = {};
+
+    // Per-combat snapshot used by intervening-if templates like
+    // "if a Pirate and a Vehicle attacked this combat".
+    stateAny.attackersDeclaredThisCombatByPlayer = stateAny.attackersDeclaredThisCombatByPlayer || {};
+    stateAny.attackersDeclaredThisCombatByPlayer[String(playerId)] = [];
+
     // Per-turn; do not reset here.
     stateAny.attackedByAssassinThisTurnByPlayer = stateAny.attackedByAssassinThisTurnByPlayer || {};
     stateAny.attackedByAssassinThisTurnByPlayer[String(playerId)] =
@@ -970,6 +989,24 @@ export async function executeDeclareAttackers(
     const targetPlayerId = attacker.targetPlayerId || attacker.defendingPlayerId;
     (creature as any).attacking = targetPlayerId || attacker.targetPermanentId;
     (creature as any).attackedThisTurn = true;
+
+    try {
+      const stateAny = game.state as any;
+      stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
+      stateAny.attackedOrBlockedThisCombatByPermanentId[String(attacker.creatureId)] = true;
+
+      stateAny.attackersDeclaredThisCombatByPlayer = stateAny.attackersDeclaredThisCombatByPlayer || {};
+      stateAny.attackersDeclaredThisCombatByPlayer[String(playerId)] = Array.isArray(stateAny.attackersDeclaredThisCombatByPlayer[String(playerId)])
+        ? stateAny.attackersDeclaredThisCombatByPlayer[String(playerId)]
+        : [];
+      stateAny.attackersDeclaredThisCombatByPlayer[String(playerId)].push({
+        id: String(attacker.creatureId),
+        name: String((creature as any)?.card?.name ?? (creature as any)?.name ?? ''),
+        type_line: String((creature as any)?.card?.type_line ?? ''),
+      });
+    } catch {
+      // best-effort only
+    }
 
     // Track who was attacked (player-only, not planeswalkers).
     try {
@@ -1098,6 +1135,66 @@ export async function executeDeclareAttackers(
     });
   } catch (e) {
     debugWarn(1, '[combat] Failed to persist declareAttackers event:', e);
+  }
+
+  // Enlist (702.153): as each enlisted creature attacks, its controller may tap another creature.
+  // We model this via optional Resolution Queue TARGET_SELECTION steps and persist the resulting
+  // enlist action as its own event so replay is deterministic.
+  try {
+    for (const attackerId of attackerIds) {
+      const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
+      if (!attacker) continue;
+      const oracleText = String((attacker as any)?.card?.oracle_text || '');
+      if (!/\benlist\b/i.test(oracleText)) continue;
+
+      // Valid enlisted creatures: another untapped, nonattacking creature you control.
+      const valid = battlefield
+        .filter((p: any) => {
+          if (!p) return false;
+          if (String(p.controller || '') !== String(playerId)) return false;
+          if (String(p.id) === String(attackerId)) return false;
+          const tl = String(p.card?.type_line || '').toLowerCase();
+          if (!tl.includes('creature')) return false;
+          if (p.tapped) return false;
+          if (p.attacking) return false;
+          return true;
+        })
+        .map((p: any) => ({
+          id: String(p.id),
+          label: `${p.card?.name || 'Creature'} (${getEffectivePower(p)}/${getEffectiveToughness(p)})`,
+          description: String(p.card?.type_line || 'Creature'),
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
+
+      if (valid.length === 0) continue;
+
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.enlistChoice === true && String(s?.sourceId) === String(attackerId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: playerId as any,
+          sourceId: attackerId,
+          sourceName: String((attacker as any)?.card?.name || 'Enlist'),
+          sourceImage: (attacker as any)?.card?.image_uris?.small || (attacker as any)?.card?.image_uris?.normal,
+          description: 'Enlist — You may tap another untapped nonattacking creature you control.',
+          mandatory: false,
+          validTargets: valid,
+          targetTypes: ['enlist_creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'creature to tap for enlist',
+
+          // Custom payload consumed by socket/resolution.ts
+          enlistChoice: true,
+          enlistAttackerId: attackerId,
+        } as any);
+      }
+    }
+  } catch (e) {
+    debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
   }
 
   // Broadcast chat message
@@ -2163,9 +2260,28 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         (blockerCreature as any).blocking = (blockerCreature as any).blocking || [];
         (blockerCreature as any).blocking.push(blocker.attackerId);
 
+        // Intervening-if support:
+        // - the blocker "blocked this turn" (per-turn)
+        // - the blocker "attacked or blocked this combat" (per-combat)
+        try {
+          (blockerCreature as any).blockedThisTurn = true;
+          const stateAny = game.state as any;
+          stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
+          stateAny.attackedOrBlockedThisCombatByPermanentId[String(blocker.blockerId)] = true;
+        } catch {
+          // best-effort only
+        }
+
         // Mark the attacker as being blocked
         (attackerCreature as any).blockedBy = (attackerCreature as any).blockedBy || [];
         (attackerCreature as any).blockedBy.push(blocker.blockerId);
+
+        // Intervening-if support: "if it was blocked this turn" (per-turn, attacker-side)
+        try {
+          (attackerCreature as any).wasBlockedThisTurn = true;
+        } catch {
+          // best-effort only
+        }
       }
 
       // Use game's declareBlockers method if available
