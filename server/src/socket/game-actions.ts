@@ -5362,6 +5362,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // ======================================================================
       const poolBeforePayment = { ...getOrInitManaPool(game.state, playerId) } as any;
       const producedNonSnowByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      const producedSnowByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      const producedTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      const producedNonTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
       if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
@@ -5414,6 +5417,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
           const typeLineLower = String(((permanent as any).card || {})?.type_line || '').toLowerCase();
           const isSnowSource = /\bsnow\b/.test(typeLineLower);
+          const isTreasureSource = /\btreasure\b/.test(typeLineLower);
           
           // Add mana to player's mana pool (already initialized via getOrInitManaPool above)
           const manaColorMap: Record<string, string> = {
@@ -5448,9 +5452,15 @@ export function registerGameActions(io: Server, socket: Socket) {
                   (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
                   // Snow-vs-non-snow tracking: treat bonus mana as produced by this source.
                   if (isSnowSource) {
-                    // We only record *required snow spent* later; for non-snow, keep an upper bound we can safely subtract.
+                    producedSnowByColor[bonusPoolKey] = (producedSnowByColor[bonusPoolKey] || 0) + bonus.amount;
                   } else {
                     producedNonSnowByColor[bonusPoolKey] = (producedNonSnowByColor[bonusPoolKey] || 0) + bonus.amount;
+                  }
+                  // Treasure-vs-non-treasure tracking (for replay-stable "mana from a Treasure" checks).
+                  if (isTreasureSource) {
+                    producedTreasureByColor[bonusPoolKey] = (producedTreasureByColor[bonusPoolKey] || 0) + bonus.amount;
+                  } else {
+                    producedNonTreasureByColor[bonusPoolKey] = (producedNonTreasureByColor[bonusPoolKey] || 0) + bonus.amount;
                   }
                   debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
                 }
@@ -5461,8 +5471,15 @@ export function registerGameActions(io: Server, socket: Socket) {
           const poolKey = manaColorMap[mana];
           if (poolKey && manaAmount > 0) {
             (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
-            if (!isSnowSource) {
+            if (isSnowSource) {
+              producedSnowByColor[poolKey] = (producedSnowByColor[poolKey] || 0) + manaAmount;
+            } else {
               producedNonSnowByColor[poolKey] = (producedNonSnowByColor[poolKey] || 0) + manaAmount;
+            }
+            if (isTreasureSource) {
+              producedTreasureByColor[poolKey] = (producedTreasureByColor[poolKey] || 0) + manaAmount;
+            } else {
+              producedNonTreasureByColor[poolKey] = (producedNonTreasureByColor[poolKey] || 0) + manaAmount;
             }
             debug(2, `[castSpellFromHand] Added ${manaAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
@@ -5492,6 +5509,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Be conservative: only record positive evidence when we can directly see a Treasure used as a payment source.
       // (Do NOT set false, because floating mana in the pool may have been produced by a Treasure earlier.)
       let manaFromTreasureSpent: true | undefined;
+      let manaFromTreasureSpentKnown: boolean | undefined;
       try {
         if (Array.isArray(payment) && payment.length > 0) {
           const battlefield = (game.state.battlefield || []) as any[];
@@ -5508,6 +5526,77 @@ export function registerGameActions(io: Server, socket: Socket) {
         // best-effort only
       }
 
+      // Derive replay-stable known/boolean for Treasure spend when possible.
+      // - Deterministic true: treasure mana was required based on consumption and non-treasure availability.
+      // - Deterministic false: all spent mana came from non-treasure production this cast, with no pre-existing pool used.
+      try {
+        const consumed = (manaConsumption as any)?.consumed;
+        if (consumed && typeof consumed === 'object') {
+          const keys: Array<'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless'> = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+
+          if (manaSpentTotal === 0) {
+            manaFromTreasureSpentKnown = true;
+          } else {
+            let forcedTrue = false;
+            let sawInconsistent = false;
+
+            for (const k of keys) {
+              const used = Number((consumed as any)[k] || 0);
+              if (used <= 0) continue;
+
+              const pre = Number((poolBeforePayment as any)?.[k] || 0);
+              const nonTreasureNew = Number((producedNonTreasureByColor as any)?.[k] || 0);
+              const treasureNew = Number((producedTreasureByColor as any)?.[k] || 0);
+              const requiredTreasure = Math.max(0, used - pre - nonTreasureNew);
+              if (requiredTreasure > 0) {
+                if (treasureNew > 0) {
+                  forcedTrue = true;
+                  break;
+                }
+                sawInconsistent = true;
+              }
+            }
+
+            if (forcedTrue) {
+              manaFromTreasureSpentKnown = true;
+              manaFromTreasureSpent = true;
+            } else if (!sawInconsistent) {
+              let sawSpend = false;
+              let canProveNoTreasure = true;
+              for (const k of keys) {
+                const used = Number((consumed as any)[k] || 0);
+                if (used <= 0) continue;
+                sawSpend = true;
+
+                const pre = Number((poolBeforePayment as any)?.[k] || 0);
+                if (pre > 0) {
+                  canProveNoTreasure = false;
+                  break;
+                }
+                const treasureNew = Number((producedTreasureByColor as any)?.[k] || 0);
+                if (treasureNew > 0) {
+                  canProveNoTreasure = false;
+                  break;
+                }
+                const nonTreasureNew = Number((producedNonTreasureByColor as any)?.[k] || 0);
+                if (nonTreasureNew < used) {
+                  canProveNoTreasure = false;
+                  break;
+                }
+              }
+
+              if (!sawSpend) {
+                manaFromTreasureSpentKnown = true;
+              } else if (canProveNoTreasure) {
+                manaFromTreasureSpentKnown = true;
+              }
+            }
+          }
+        }
+      } catch {
+        // best-effort only
+      }
+
       // Intervening-if support: snow mana spent.
       // We can only safely assert snow mana was spent when it was *forced* based on:
       // - deterministic consumption amounts, and
@@ -5515,6 +5604,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       // This yields a replay-stable lower bound that never creates false negatives.
       let snowManaSpentByColor: Record<string, number> | undefined;
       let snowManaColorsSpent: string[] | undefined;
+      let snowManaSpentKnown: boolean | undefined;
+      let snowManaSpent: boolean | undefined;
+      let snowManaOfSpellColorsSpentKnown: boolean | undefined;
+      let snowManaOfSpellColorsSpent: boolean | undefined;
       try {
         const consumed = (manaConsumption as any)?.consumed;
         if (consumed && typeof consumed === 'object') {
@@ -5541,6 +5634,144 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (Object.keys(byColor).length > 0) {
             snowManaSpentByColor = byColor;
             snowManaColorsSpent = Array.from(colorCodes);
+          }
+
+          // Derive deterministic outcome for generic: "if {S} was spent to cast it" / "if snow mana was spent...".
+          // We only set a boolean when we can prove it replay-stably.
+          // - If our lower-bound computation proves snow was required, that's deterministically true.
+          // - If no mana was spent, that's deterministically false.
+          // - Otherwise, we can sometimes prove false when all spent mana was newly produced, non-snow, and
+          //   there was no pre-existing floating mana for those colors.
+          const lowerBoundTotal = Object.values(byColor).reduce((sum, v) => sum + (typeof v === 'number' ? v : 0), 0);
+          if (lowerBoundTotal > 0) {
+            snowManaSpentKnown = true;
+            snowManaSpent = true;
+          } else if (manaSpentTotal === 0) {
+            snowManaSpentKnown = true;
+            snowManaSpent = false;
+          } else {
+            let sawSpend = false;
+            let canProveNoSnow = true;
+            for (const k of keys) {
+              const used = Number((consumed as any)[k] || 0);
+              if (used <= 0) continue;
+              sawSpend = true;
+
+              const pre = Number((poolBeforePayment as any)?.[k] || 0);
+              if (pre > 0) {
+                canProveNoSnow = false;
+                break;
+              }
+
+              const snowNew = Number((producedSnowByColor as any)?.[k] || 0);
+              const nonSnowNew = Number((producedNonSnowByColor as any)?.[k] || 0);
+
+              // If any snow mana was produced for a spent color, we can't deterministically prove it wasn't used.
+              if (snowNew > 0) {
+                canProveNoSnow = false;
+                break;
+              }
+
+              // All spent mana for this key must be accounted for by non-snow produced during this cast.
+              if (nonSnowNew < used) {
+                canProveNoSnow = false;
+                break;
+              }
+            }
+
+            if (!sawSpend) {
+              snowManaSpentKnown = true;
+              snowManaSpent = false;
+            } else if (canProveNoSnow) {
+              snowManaSpentKnown = true;
+              snowManaSpent = false;
+            }
+          }
+
+          // Derive deterministic outcome for: "if {S} of any of that spell's colors was spent to cast it".
+          // This can only be decided when snow provenance is replay-stable:
+          // - the spent mana for each spell color did not come from pre-existing floating mana, and
+          // - that color's newly-produced mana isn't a mix of snow and non-snow.
+          const card = cardInHand as any;
+          const rawColors: any[] = Array.isArray(card?.colors)
+            ? card.colors
+            : Array.isArray(card?.color_identity)
+              ? card.color_identity
+              : Array.isArray(card?.colorIdentity)
+                ? card.colorIdentity
+                : [];
+          const spellColorCodes = new Set(
+            rawColors.map((c: any) => String(c || '').toUpperCase()).filter((c: any) => ['W', 'U', 'B', 'R', 'G'].includes(c))
+          );
+
+          // Colorless spells are deterministically false for this clause.
+          if (spellColorCodes.size === 0) {
+            snowManaOfSpellColorsSpentKnown = true;
+            snowManaOfSpellColorsSpent = false;
+          } else {
+            const codeToKey: Record<string, 'white' | 'blue' | 'black' | 'red' | 'green'> = {
+              W: 'white',
+              U: 'blue',
+              B: 'black',
+              R: 'red',
+              G: 'green',
+            };
+
+            // If our lower-bound computation proves snow was required for any spell color, the clause is true.
+            let forcedTrue = false;
+            if (snowManaSpentByColor) {
+              for (const code of Array.from(spellColorCodes)) {
+                const k = codeToKey[code];
+                const n = Number((snowManaSpentByColor as any)[k] || 0);
+                if (n > 0) {
+                  forcedTrue = true;
+                  break;
+                }
+              }
+            }
+            if (forcedTrue) {
+              snowManaOfSpellColorsSpentKnown = true;
+              snowManaOfSpellColorsSpent = true;
+            } else {
+              let unknown = false;
+              let anySnowForSpellColor = false;
+
+              for (const code of Array.from(spellColorCodes)) {
+                const k = codeToKey[code];
+                const used = Number((consumed as any)[k] || 0);
+                if (used <= 0) continue;
+
+                const pre = Number((poolBeforePayment as any)?.[k] || 0);
+                if (pre > 0) {
+                  unknown = true;
+                  continue;
+                }
+
+                const snowNew = Number((producedSnowByColor as any)?.[k] || 0);
+                const nonSnowNew = Number((producedNonSnowByColor as any)?.[k] || 0);
+
+                if (snowNew > 0 && nonSnowNew > 0) {
+                  unknown = true;
+                  continue;
+                }
+                if (snowNew > 0 && nonSnowNew <= 0) {
+                  anySnowForSpellColor = true;
+                  continue;
+                }
+                if (snowNew <= 0 && nonSnowNew > 0) {
+                  // deterministically non-snow for this spell color
+                  continue;
+                }
+
+                // Spent mana without any accounted production for this color.
+                unknown = true;
+              }
+
+              if (!unknown) {
+                snowManaOfSpellColorsSpentKnown = true;
+                snowManaOfSpellColorsSpent = anySnowForSpellColor;
+              }
+            }
           }
         }
       } catch {
@@ -5624,6 +5855,12 @@ export function registerGameActions(io: Server, socket: Socket) {
               castFromHand: true,
               manaSpentTotal,
               manaSpentBreakdown: { ...manaConsumption.consumed },
+              ...(manaFromTreasureSpentKnown === true
+                ? {
+                    manaFromTreasureSpentKnown: true,
+                    manaFromTreasureSpent: manaFromTreasureSpent === true,
+                  }
+                : {}),
               ...(bargainResolved === true && typeof wasBargained === 'boolean'
                 ? {
                     bargainResolved: true,
@@ -5634,6 +5871,18 @@ export function registerGameActions(io: Server, socket: Socket) {
                 ? {
                     snowManaSpentByColor: { ...snowManaSpentByColor },
                     ...(snowManaColorsSpent && snowManaColorsSpent.length > 0 ? { snowManaColorsSpent: snowManaColorsSpent.slice() } : {}),
+                  }
+                : {}),
+              ...(snowManaSpentKnown === true && typeof snowManaSpent === 'boolean'
+                ? {
+                    snowManaSpentKnown: true,
+                    snowManaSpent,
+                  }
+                : {}),
+              ...(snowManaOfSpellColorsSpentKnown === true && typeof snowManaOfSpellColorsSpent === 'boolean'
+                ? {
+                    snowManaOfSpellColorsSpentKnown: true,
+                    snowManaOfSpellColorsSpent,
                   }
                 : {}),
               ...(convergeValue > 0
@@ -5666,7 +5915,10 @@ export function registerGameActions(io: Server, socket: Socket) {
                 : {}),
             };
             if (manaFromTreasureSpent === true) {
-              castEv.manaFromTreasureSpent = true;
+              // Preserve positive-only evidence when we don't have a replay-stable known/boolean.
+              if (manaFromTreasureSpentKnown !== true) {
+                castEv.manaFromTreasureSpent = true;
+              }
             }
             game.applyEvent(castEv);
             
@@ -5726,7 +5978,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
 
               // Intervening-if support: "if mana from a Treasure was spent to cast it".
-              if (manaFromTreasureSpent === true) {
+              if (manaFromTreasureSpentKnown === true) {
+                (topStackItem as any).manaFromTreasureSpentKnown = true;
+                (topStackItem as any).manaFromTreasureSpent = manaFromTreasureSpent === true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.manaFromTreasureSpentKnown = true;
+                  (topStackItem as any).card.manaFromTreasureSpent = manaFromTreasureSpent === true;
+                }
+              } else if (manaFromTreasureSpent === true) {
                 (topStackItem as any).manaFromTreasureSpent = true;
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.manaFromTreasureSpent = true;
@@ -5744,6 +6003,26 @@ export function registerGameActions(io: Server, socket: Socket) {
                   if (snowManaColorsSpent && snowManaColorsSpent.length > 0) {
                     (topStackItem as any).card.snowManaColorsSpent = snowManaColorsSpent.slice();
                   }
+                }
+              }
+
+              // Intervening-if support: deterministic outcome for "if {S} was spent ..." when known.
+              if (snowManaSpentKnown === true && typeof snowManaSpent === 'boolean') {
+                (topStackItem as any).snowManaSpentKnown = true;
+                (topStackItem as any).snowManaSpent = snowManaSpent;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.snowManaSpentKnown = true;
+                  (topStackItem as any).card.snowManaSpent = snowManaSpent;
+                }
+              }
+
+              // Intervening-if support: deterministic outcome for "{S} of any of that spell's colors" when known.
+              if (snowManaOfSpellColorsSpentKnown === true && typeof snowManaOfSpellColorsSpent === 'boolean') {
+                (topStackItem as any).snowManaOfSpellColorsSpentKnown = true;
+                (topStackItem as any).snowManaOfSpellColorsSpent = snowManaOfSpellColorsSpent;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.snowManaOfSpellColorsSpentKnown = true;
+                  (topStackItem as any).card.snowManaOfSpellColorsSpent = snowManaOfSpellColorsSpent;
                 }
               }
 

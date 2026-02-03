@@ -364,6 +364,73 @@ function normalizeColorToken(token: string): string | null {
   return null;
 }
 
+type ManaSpentBreakdownResolution = {
+  amounts: {
+    white: number | null;
+    blue: number | null;
+    black: number | null;
+    red: number | null;
+    green: number | null;
+    colorless: number | null;
+  };
+  complete: boolean;
+};
+
+function resolveManaSpentBreakdown(source: any): ManaSpentBreakdownResolution | null {
+  if (!source) return null;
+  const breakdown = source?.manaSpentBreakdown ?? source?.card?.manaSpentBreakdown;
+  if (!breakdown || typeof breakdown !== 'object') return null;
+
+  const total = parseMaybeNumber(source?.manaSpentTotal ?? source?.card?.manaSpentTotal);
+  const keys: Array<keyof ManaSpentBreakdownResolution['amounts']> = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+
+  const amounts: ManaSpentBreakdownResolution['amounts'] = {
+    white: null,
+    blue: null,
+    black: null,
+    red: null,
+    green: null,
+    colorless: null,
+  };
+
+  let unknown = false;
+  let sumKnown = 0;
+
+  for (const k of keys) {
+    if (!Object.prototype.hasOwnProperty.call(breakdown, k)) continue;
+    const n = parseMaybeNumber((breakdown as any)[k]);
+    if (n === null) {
+      unknown = true;
+      continue;
+    }
+    amounts[k] = n;
+    sumKnown += n;
+  }
+
+  let complete = false;
+  if (!unknown && total !== null && sumKnown === total) {
+    complete = true;
+    for (const k of keys) {
+      if (amounts[k] === null) amounts[k] = 0;
+    }
+  }
+
+  return { amounts, complete };
+}
+
+function getManaSpentAmountForToken(source: any, token: string): number | null {
+  const resolved = resolveManaSpentBreakdown(source);
+  if (!resolved) return null;
+
+  const t = String(token || '').trim().toLowerCase();
+  if (!t) return null;
+
+  if (t === 'c' || t === 'colorless') return resolved.amounts.colorless;
+  const color = normalizeColorToken(t);
+  if (!color) return null;
+  return (resolved.amounts as any)[color] ?? null;
+}
+
 function getManaColorsSpentFromSource(source: any): string[] | null {
   if (!source) return null;
   const v = source?.manaColorsSpent ?? source?.card?.manaColorsSpent ?? source?.manaSpentColors ?? source?.card?.manaSpentColors;
@@ -3821,6 +3888,17 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it's at least one of the chosen colors" (best-effort)
   if (/^if\s+it'?s\s+at\s+least\s+one\s+of\s+the\s+chosen\s+colors$/i.test(clause)) {
+    const normalizeColor = (raw: unknown): string | null => {
+      const s = String(raw ?? '').trim().toLowerCase();
+      if (!s) return null;
+      if (s === 'w' || s === 'white') return 'w';
+      if (s === 'u' || s === 'blue') return 'u';
+      if (s === 'b' || s === 'black') return 'b';
+      if (s === 'r' || s === 'red') return 'r';
+      if (s === 'g' || s === 'green') return 'g';
+      return null;
+    };
+
     const chosenRaw =
       (refs as any)?.chosenColors ??
       (refs as any)?.card?.chosenColors ??
@@ -3831,19 +3909,30 @@ function evaluateInterveningIfClauseInternal(
       (sourcePermanent as any)?.chosenColor ??
       (sourcePermanent as any)?.card?.chosenColor;
 
-    const chosen: string[] = Array.isArray(chosenRaw)
-      ? chosenRaw.map((c: any) => String(c || '').toLowerCase()).filter(Boolean)
-      : [String(chosenRaw || '').toLowerCase()].filter(Boolean);
+    const chosenTokens: unknown[] = Array.isArray(chosenRaw) ? chosenRaw : [chosenRaw];
+    const chosen = chosenTokens.map(normalizeColor).filter(Boolean) as string[];
     if (!chosen.length) return null;
 
     const itColorsRaw =
       (refs as any)?.colors ??
       (refs as any)?.card?.colors ??
+      (refs as any)?.color_identity ??
+      (refs as any)?.card?.color_identity ??
+      (refs as any)?.colorIdentity ??
+      (refs as any)?.card?.colorIdentity ??
       (sourcePermanent as any)?.colors ??
-      (sourcePermanent as any)?.card?.colors;
+      (sourcePermanent as any)?.card?.colors ??
+      (sourcePermanent as any)?.color_identity ??
+      (sourcePermanent as any)?.card?.color_identity ??
+      (sourcePermanent as any)?.colorIdentity ??
+      (sourcePermanent as any)?.card?.colorIdentity;
+
+    // If we have an explicit array (including empty), we can be deterministic.
     if (!Array.isArray(itColorsRaw)) return null;
-    const itColors = itColorsRaw.map((c: any) => String(c || '').toLowerCase()).filter(Boolean);
-    if (!itColors.length) return null;
+    const itColors = (itColorsRaw as unknown[]).map(normalizeColor).filter(Boolean) as string[];
+
+    // Known colorless (empty colors array) => definitely not one of the chosen colors.
+    if (itColors.length === 0) return false;
 
     return itColors.some((c: string) => chosen.includes(c));
   }
@@ -4477,8 +4566,15 @@ function evaluateInterveningIfClauseInternal(
   // "if it was bargained" (best-effort)
   if (/^if\s+it\s+was\s+bargained$/i.test(clause)) {
     if (!sourcePermanent) return null;
+    const resolved = (sourcePermanent as any)?.bargainResolved ?? (sourcePermanent as any)?.card?.bargainResolved;
     const v = (sourcePermanent as any)?.wasBargained ?? (sourcePermanent as any)?.card?.wasBargained;
-    return typeof v === "boolean" ? v : null;
+
+    // Deterministic only when explicitly marked resolved.
+    if (resolved === true && typeof v === 'boolean') return v;
+
+    // Positive-only evidence path.
+    if (v === true) return true;
+    return null;
   }
 
   // "if it was cast" (best-effort)
@@ -4511,7 +4607,9 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it/that spell was foretold"
   if (/^if\s+(?:it|that\s+spell)\s+was\s+foretold$/i.test(clause)) {
-    return isCastFromForetell(sourcePermanent);
+    const isThatSpell = /\bthat\s+spell\b/i.test(clause);
+    const src = isThatSpell ? getTriggeringStackItemForInterveningIf() ?? sourcePermanent : sourcePermanent;
+    return isCastFromForetell(src);
   }
 
   // "if {R} was spent to cast it" / "if red mana was spent to cast this spell" etc.
@@ -4523,9 +4621,7 @@ function evaluateInterveningIfClauseInternal(
       if (!groups.every((c) => c === groups[0])) return null;
       const normalized = normalizeColorToken(groups[0]);
       if (!normalized) return null;
-      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
-      if (!breakdown || typeof breakdown !== "object") return null;
-      const amount = parseMaybeNumber((breakdown as any)[normalized]);
+      const amount = getManaSpentAmountForToken(sourcePermanent, normalized);
       if (amount === null) return null;
       return amount >= groups.length;
     }
@@ -4535,9 +4631,7 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const groups = Array.from(String(m[1]).matchAll(/\{c\}/gi));
       if (!groups.length) return null;
-      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
-      if (!breakdown || typeof breakdown !== "object") return null;
-      const amount = parseMaybeNumber((breakdown as any).colorless);
+      const amount = getManaSpentAmountForToken(sourcePermanent, 'colorless');
       if (amount === null) return null;
       return amount >= groups.length;
     }
@@ -4547,17 +4641,19 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const color = normalizeColorToken(m[1]);
       if (!color) return null;
+      const amount = getManaSpentAmountForToken(sourcePermanent, color);
+      if (typeof amount === 'number') return amount > 0;
+
+      // Positive-only fallback: if we have an explicit lower-bound list, honor it.
       const spent = getManaColorsSpentFromSource(sourcePermanent);
-      if (!spent) return null;
-      return spent.includes(color);
+      if (spent?.includes(color)) return true;
+      return null;
     }
   }
   {
     const m = clause.match(/^if\s+\{c\}\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
     if (m) {
-      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
-      if (!breakdown || typeof breakdown !== "object") return null;
-      const amount = parseMaybeNumber((breakdown as any).colorless);
+      const amount = getManaSpentAmountForToken(sourcePermanent, 'colorless');
       if (amount === null) return null;
       return amount > 0;
     }
@@ -4565,9 +4661,7 @@ function evaluateInterveningIfClauseInternal(
   {
     const m = clause.match(/^if\s+\{c\}\s+(?:wasn't|was\s+not)\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
     if (m) {
-      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
-      if (!breakdown || typeof breakdown !== "object") return null;
-      const amount = parseMaybeNumber((breakdown as any).colorless);
+      const amount = getManaSpentAmountForToken(sourcePermanent, 'colorless');
       if (amount === null) return null;
       return amount === 0;
     }
@@ -4580,6 +4674,11 @@ function evaluateInterveningIfClauseInternal(
 
       const item = getTriggeringStackItemForInterveningIf();
       const src: any = item || sourcePermanent;
+
+      const snowKnown = src?.snowManaSpentKnown ?? src?.card?.snowManaSpentKnown;
+      const snowSpent = src?.snowManaSpent ?? src?.card?.snowManaSpent;
+      if (snowKnown === true && typeof snowSpent === 'boolean' && snowSpent === false) return false;
+
       const snowByColor =
         src?.snowManaSpentByColor ??
         src?.snowSpentByColor ??
@@ -4603,6 +4702,11 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const item = getTriggeringStackItemForInterveningIf();
       const src: any = item || sourcePermanent;
+
+      const snowKnown = src?.snowManaSpentKnown ?? src?.card?.snowManaSpentKnown;
+      const snowSpent = src?.snowManaSpent ?? src?.card?.snowManaSpent;
+      if (snowKnown === true && typeof snowSpent === 'boolean') return snowSpent;
+
       const snowByColor =
         src?.snowManaSpentByColor ??
         src?.snowSpentByColor ??
@@ -4622,6 +4726,11 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const item = getTriggeringStackItemForInterveningIf();
       const src: any = item || sourcePermanent;
+
+      const snowKnown = src?.snowManaSpentKnown ?? src?.card?.snowManaSpentKnown;
+      const snowSpent = src?.snowManaSpent ?? src?.card?.snowManaSpent;
+      if (snowKnown === true && typeof snowSpent === 'boolean') return snowSpent;
+
       const snowByColor =
         src?.snowManaSpentByColor ??
         src?.snowSpentByColor ??
@@ -4641,17 +4750,18 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const color = normalizeColorToken(m[1]);
       if (!color) return null;
+      const amount = getManaSpentAmountForToken(sourcePermanent, color);
+      if (typeof amount === 'number') return amount > 0;
+
       const spent = getManaColorsSpentFromSource(sourcePermanent);
-      if (!spent) return null;
-      return spent.includes(color);
+      if (spent?.includes(color)) return true;
+      return null;
     }
   }
   {
     const m = clause.match(/^if\s+colorless\s+mana\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
     if (m) {
-      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
-      if (!breakdown || typeof breakdown !== "object") return null;
-      const amount = parseMaybeNumber((breakdown as any).colorless);
+      const amount = getManaSpentAmountForToken(sourcePermanent, 'colorless');
       if (amount === null) return null;
       return amount > 0;
     }
@@ -4659,9 +4769,7 @@ function evaluateInterveningIfClauseInternal(
   {
     const m = clause.match(/^if\s+colorless\s+mana\s+(?:wasn't|was\s+not)\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
     if (m) {
-      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
-      if (!breakdown || typeof breakdown !== "object") return null;
-      const amount = parseMaybeNumber((breakdown as any).colorless);
+      const amount = getManaSpentAmountForToken(sourcePermanent, 'colorless');
       if (amount === null) return null;
       return amount === 0;
     }
@@ -4671,9 +4779,18 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       const n = parseCountToken(m[1]);
       if (n === null) return null;
+
+      const resolved = resolveManaSpentBreakdown(sourcePermanent);
+      if (resolved) {
+        const colorsSpent = ['white', 'blue', 'black', 'red', 'green'].filter((k) => (resolved.amounts as any)[k] !== null && (resolved.amounts as any)[k] > 0);
+        if (resolved.complete) return new Set(colorsSpent).size >= n;
+        if (new Set(colorsSpent).size >= n) return true;
+      }
+
+      // Positive-only fallback: if we have an explicit lower-bound list, honor it.
       const spent = getManaColorsSpentFromSource(sourcePermanent);
-      if (!spent) return null;
-      return new Set(spent).size >= n;
+      if (spent && new Set(spent).size >= n) return true;
+      return null;
     }
   }
 
@@ -4683,24 +4800,19 @@ function evaluateInterveningIfClauseInternal(
     if (m) {
       if (!sourcePermanent) return null;
 
-      const breakdown = (sourcePermanent as any)?.manaSpentBreakdown ?? (sourcePermanent as any)?.card?.manaSpentBreakdown;
-      if (breakdown && typeof breakdown === 'object') {
-        const colorKeys = ['white', 'blue', 'black', 'red', 'green'];
-        let allKnown = true;
+      const resolved = resolveManaSpentBreakdown(sourcePermanent);
+      if (resolved) {
+        const colorKeys: Array<keyof ManaSpentBreakdownResolution['amounts']> = ['white', 'blue', 'black', 'red', 'green'];
         for (const k of colorKeys) {
-          const n = parseMaybeNumber((breakdown as any)[k]);
-          if (n === null) {
-            allKnown = false;
-            continue;
-          }
-          if (n > 0) return false;
+          const v = resolved.amounts[k];
+          if (typeof v === 'number' && v > 0) return false;
         }
-        if (allKnown) return true;
+        if (resolved.complete) return true;
       }
 
+      // Positive-only fallback: if we explicitly tracked any colored spend, we can conclude false.
       const spent = getManaColorsSpentFromSource(sourcePermanent);
-      if (spent) return spent.length === 0;
-
+      if (spent && spent.length > 0) return false;
       return null;
     }
   }
@@ -4744,8 +4856,17 @@ function evaluateInterveningIfClauseInternal(
     /^if\s+mana\s+from\s+a\s+treasure\s+was\s+spent\s+to\s+cast\s+it\s+or\s+activate\s+it$/i.test(clause)
   ) {
     if (!sourcePermanent) return null;
-    const v = (sourcePermanent as any)?.manaFromTreasureSpent ?? (sourcePermanent as any)?.card?.manaFromTreasureSpent;
-    return typeof v === "boolean" ? v : null;
+    const item = getTriggeringStackItemForInterveningIf();
+    const src: any = item || sourcePermanent;
+    const known = src?.manaFromTreasureSpentKnown ?? src?.card?.manaFromTreasureSpentKnown;
+    const v = src?.manaFromTreasureSpent ?? src?.card?.manaFromTreasureSpent;
+
+    // Deterministic only when explicitly marked known.
+    if (known === true && typeof v === 'boolean') return v;
+
+    // Preserve positive-only evidence path.
+    if (v === true) return true;
+    return null;
   }
 
   // ===== Counter / modification checks =====
@@ -7449,7 +7570,33 @@ function evaluateInterveningIfClauseInternal(
   // "if life was paid to activate it" (best-effort; requires explicit refs)
   if (/^if\s+life\s+was\s+paid\s+to\s+activate\s+it$/i.test(clause)) {
     const raw = (refs as any)?.lifeWasPaidToActivateIt ?? (refs as any)?.lifePaidToActivateIt;
-    return typeof raw === 'boolean' ? raw : null;
+    if (typeof raw === 'boolean') return raw;
+
+    // Positive-only fallback: if the triggering stack item contains explicit activated-ability
+    // cost text that *requires* paying life (e.g., "Pay 2 life:" or "{T}, Pay X life:"),
+    // we can conclude true.
+    //
+    // Keep null for ambiguous costs like "Pay 2 life or {B}:" (choice-dependent).
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+    const abilityTextRaw = String(
+      (item as any)?.abilityText ??
+        (item as any)?.activatedAbilityText ??
+        (item as any)?.description ??
+        ''
+    ).trim();
+    if (!abilityTextRaw) return null;
+
+    const colonIdx = abilityTextRaw.indexOf(':');
+    if (colonIdx <= 0) return null;
+    const costPart = abilityTextRaw.slice(0, colonIdx).toLowerCase();
+
+    // If the cost is presented as a choice, we can't know whether life was paid.
+    if (/\bor\b/i.test(costPart)) return null;
+    if (/\bmay\s+pay\b/i.test(costPart)) return null;
+
+    if (/\bpay\s+([0-9]+|x)\s+life\b/i.test(costPart)) return true;
+    return null;
   }
 
   // "if that spell's mana cost or that ability's activation cost contains {X}"
@@ -7457,12 +7604,21 @@ function evaluateInterveningIfClauseInternal(
     const raw = (refs as any)?.costContainsX ?? (refs as any)?.manaCostContainsX;
     if (typeof raw === 'boolean') return raw;
 
-    const stack = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
-    const sid = String((refs as any)?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringStackItemId ?? '').trim();
-    const item = sid ? stack.find((s: any) => String(s?.id || '') === sid) : null;
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+
+    // Spell mana cost path.
     const manaCost = String(item?.card?.mana_cost ?? item?.card?.manaCost ?? '').toLowerCase();
-    if (!manaCost) return null;
-    return manaCost.includes('{x}');
+    if (manaCost) return manaCost.includes('{x}');
+
+    // Activated ability activation-cost path (best-effort): only treat as cost text
+    // when the text clearly starts with a cost like "{2}{G}{G}:" or "{X}, {T}:".
+    const abilityTextRaw = String((item as any)?.abilityText ?? (item as any)?.activatedAbilityText ?? (item as any)?.description ?? '').trim();
+    if (!abilityTextRaw.startsWith('{')) return null;
+    const colonIdx = abilityTextRaw.indexOf(':');
+    if (colonIdx <= 0) return null;
+    const costPart = abilityTextRaw.slice(0, colonIdx).toLowerCase();
+    return costPart.includes('{x}');
   }
 
   // "if one or more players being attacked are poisoned"
@@ -7497,17 +7653,33 @@ function evaluateInterveningIfClauseInternal(
   // "if that spell targets only this creature" (best-effort: uses triggering stack item targets)
   if (/^if\s+that\s+spell\s+targets\s+only\s+this\s+creature$/i.test(clause)) {
     if (!sourcePermanent) return null;
-    const stackItem = (refs as any)?.stackItem;
-    const stackId =
-      refs?.triggeringStackItemId ??
-      (sourcePermanent as any)?.triggeringStackItemId ??
-      (sourcePermanent as any)?.triggeringSpellStackItemId;
-    const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
-    const item = stackItem ?? (stackId ? stack.find((it: any) => it && String(it.id) === String(stackId)) : null);
+    const item = getTriggeringStackItemForInterveningIf();
     if (!item) return null;
 
-    const thisId = String((sourcePermanent as any).id || '');
+    const thisId = String((sourcePermanent as any).id || '').trim();
     if (!thisId) return null;
+
+    const extractTargetId = (t: any): string | null => {
+      if (t == null) return null;
+      if (typeof t === 'string' || typeof t === 'number') {
+        const s = String(t).trim();
+        if (!s || s === 'undefined' || s === 'null') return null;
+        return s;
+      }
+      if (typeof t === 'object') {
+        const raw =
+          (t as any).id ??
+          (t as any).targetId ??
+          (t as any).permanentId ??
+          (t as any).playerId ??
+          (t as any).sourceId;
+        if (raw == null) return null;
+        const s = String(raw).trim();
+        if (!s || s === 'undefined' || s === 'null') return null;
+        return s;
+      }
+      return null;
+    };
 
     const targets: any[] | null = Array.isArray((item as any).targets)
       ? (item as any).targets
@@ -7516,14 +7688,22 @@ function evaluateInterveningIfClauseInternal(
         : null;
 
     if (targets) {
-      const ids = targets.map((t: any) => String(t?.id ?? t)).filter(Boolean);
+      const ids: string[] = [];
+      for (const t of targets) {
+        const tid = extractTargetId(t);
+        if (!tid) return null;
+        ids.push(tid);
+      }
+
       if (!ids.includes(thisId)) return false;
-      return ids.length === 1;
+      return ids.every((id) => id === thisId);
     }
 
     const single = (item as any).targetId ?? (item as any).target;
     if (single !== undefined && single !== null) {
-      return String(single?.id ?? single) === thisId;
+      const tid = extractTargetId(single);
+      if (!tid) return null;
+      return tid === thisId;
     }
 
     return null;
@@ -8575,21 +8755,26 @@ function evaluateInterveningIfClauseInternal(
     const chosenName = String((refs as any)?.chosenName ?? (refs as any)?.chosenCreatureName ?? (refs as any)?.card?.chosenName ?? '').trim();
     if (!chosenName) return null;
     const chosenLower = normalizeText(chosenName).toLowerCase();
-
-    const stackId = String((refs as any)?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringStackItemId ?? '');
-    const stack = (ctx as any).state?.stack;
     const battlefield = (ctx as any).state?.battlefield;
-    if (!stackId || !Array.isArray(stack) || !Array.isArray(battlefield)) return null;
-    const item = stack.find((s: any) => String(s?.id || '') === stackId);
-    const targets = item?.targets;
-    if (!Array.isArray(targets)) return null;
+
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item || !Array.isArray(battlefield)) return null;
+
+    const targets: any[] | null = Array.isArray((item as any).targets)
+      ? ((item as any).targets as any[])
+      : Array.isArray((item as any).targetIds)
+        ? ((item as any).targetIds as any[])
+        : null;
+    const single = (item as any).targetId ?? (item as any).target;
+    const allTargets: any[] | null = targets ?? (single != null ? [single] : null);
+    if (!Array.isArray(allTargets)) return null;
 
     const playerIds = new Set(
       Array.isArray((ctx as any).state?.players) ? ((ctx as any).state.players as any[]).map((p: any) => String(p?.id ?? '')).filter(Boolean) : []
     );
 
     let sawAll = true;
-    for (const t of targets) {
+    for (const t of allTargets) {
       const tid = String(typeof t === 'string' ? t : (t as any)?.id ?? (t as any)?.targetId ?? (t as any)?.permanentId ?? '').trim();
       if (!tid) {
         sawAll = false;
@@ -8620,21 +8805,29 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it targets one or more other permanents you control"
   if (/^if\s+it\s+targets\s+one\s+or\s+more\s+other\s+permanents\s+you\s+control$/i.test(clause)) {
-    const stackId = String((refs as any)?.triggeringStackItemId ?? (sourcePermanent as any)?.triggeringStackItemId ?? '');
-    const stack = (ctx as any).state?.stack;
     const battlefield = (ctx as any).state?.battlefield;
-    if (!stackId || !Array.isArray(stack) || !Array.isArray(battlefield)) return null;
-    const item = stack.find((s: any) => String(s?.id || '') === stackId);
-    const targets = item?.targets;
-    if (!Array.isArray(targets)) return null;
+    if (!Array.isArray(battlefield)) return null;
+
+    const item = getTriggeringStackItemForInterveningIf();
+    if (!item) return null;
+
+    const targets: any[] | null = Array.isArray((item as any).targets)
+      ? ((item as any).targets as any[])
+      : Array.isArray((item as any).targetIds)
+        ? ((item as any).targetIds as any[])
+        : null;
+    const single = (item as any).targetId ?? (item as any).target;
+    const allTargets: any[] | null = targets ?? (single != null ? [single] : null);
+    if (!Array.isArray(allTargets)) return null;
 
     const playerIds = new Set(
       Array.isArray((ctx as any).state?.players) ? ((ctx as any).state.players as any[]).map((p: any) => String(p?.id ?? '')).filter(Boolean) : []
     );
 
-    const sourceId = String((sourcePermanent as any)?.id ?? '');
+    const sourceId = String((sourcePermanent as any)?.id ?? '').trim();
+    if (!sourceId) return null;
     let sawAll = true;
-    for (const t of targets) {
+    for (const t of allTargets) {
       const tid = String(typeof t === 'string' ? t : (t as any)?.id ?? (t as any)?.targetId ?? (t as any)?.permanentId ?? '').trim();
       if (!tid) {
         sawAll = false;
@@ -9715,15 +9908,30 @@ function evaluateInterveningIfClauseInternal(
         : null);
     if (!item) return null;
 
-    const spent = parseMaybeNumber((item as any)?.manaSpentTotal ?? (item as any)?.manaSpent ?? (item as any)?.manaSpentAmount);
+    const spent = sumManaSpentTotal(item);
     const mv = parseMaybeNumber((item as any)?.card?.manaValue ?? (item as any)?.card?.cmc ?? (item as any)?.manaValue);
     if (spent === null || mv === null) return null;
     return spent < mv;
   }
   if (/^if\s+that\s+spell\s+was\s+kicked$/i.test(clause)) {
-    if (!sourcePermanent) return null;
-    const wasKicked = (sourcePermanent as any)?.wasKicked === true || (sourcePermanent as any)?.card?.wasKicked === true;
-    return wasKicked;
+    const item = getTriggeringStackItemForInterveningIf() ?? sourcePermanent;
+    if (!item) return null;
+
+    const rawBool = (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked;
+    if (typeof rawBool === 'boolean') return rawBool;
+
+    // Some implementations track "times kicked" rather than a boolean.
+    // Only use positive evidence to avoid replay-unsafe false negatives.
+    const count =
+      (item as any)?.kickerPaidCount ??
+      (item as any)?.timesKicked ??
+      (item as any)?.kickedTimes ??
+      (item as any)?.card?.kickerPaidCount ??
+      (item as any)?.card?.timesKicked ??
+      (item as any)?.card?.kickedTimes;
+    if (typeof count === 'number') return count > 0 ? true : null;
+
+    return null;
   }
 
   // Alternate cost / casting metadata templates
@@ -9858,26 +10066,32 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it was kicked twice" (best-effort; depends on kicker count metadata)
   if (/^if\s+it\s+was\s+kicked\s+twice$/i.test(clause)) {
-    if (!sourcePermanent) return null;
+    const item = getTriggeringStackItemForInterveningIf() ?? sourcePermanent;
+    if (!item) return null;
+
     const rawCount =
-      (sourcePermanent as any)?.kickerPaidCount ??
-      (sourcePermanent as any)?.timesKicked ??
-      (sourcePermanent as any)?.kickedTimes ??
-      (sourcePermanent as any)?.card?.kickerPaidCount ??
-      (sourcePermanent as any)?.card?.timesKicked ??
-      (sourcePermanent as any)?.card?.kickedTimes;
+      (item as any)?.kickerPaidCount ??
+      (item as any)?.timesKicked ??
+      (item as any)?.kickedTimes ??
+      (item as any)?.card?.kickerPaidCount ??
+      (item as any)?.card?.timesKicked ??
+      (item as any)?.card?.kickedTimes;
     const count = parseMaybeNumber(rawCount);
-    if (count !== null) return count >= 2;
+    if (count !== null) return count >= 2 ? true : null;
 
     const rawBool =
-      (sourcePermanent as any)?.wasKickedTwice ??
-      (sourcePermanent as any)?.kickedTwice ??
-      (sourcePermanent as any)?.card?.wasKickedTwice ??
-      (sourcePermanent as any)?.card?.kickedTwice;
+      (item as any)?.wasKickedTwice ??
+      (item as any)?.kickedTwice ??
+      (item as any)?.card?.wasKickedTwice ??
+      (item as any)?.card?.kickedTwice;
     if (typeof rawBool === 'boolean') return rawBool;
 
-    const wasKicked = (sourcePermanent as any)?.wasKicked === true || (sourcePermanent as any)?.card?.wasKicked === true;
-    return wasKicked ? null : false;
+    const rawWasKicked = (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked;
+    if (rawWasKicked === false) return false;
+
+    // Positive-only fallback: kicked implies "maybe kicked twice", but cannot prove.
+    if (rawWasKicked === true) return null;
+    return null;
   }
 
   // Inga and Esika-style: "if three or more mana from creatures was spent to cast it"
@@ -9919,34 +10133,55 @@ function evaluateInterveningIfClauseInternal(
       item?.card?.additionalCostWasPaid ??
       item?.card?.paidAdditionalCost ??
       item?.card?.additionalCostPaid;
-    return typeof raw === 'boolean' ? raw : null;
+
+    // Positive-only: only return true when explicitly tracked.
+    if (raw === true) return true;
+    return null;
   }
 
   // "if at least three mana of the same color was spent to cast it"
   if (/^if\s+at\s+least\s+three\s+mana\s+of\s+the\s+same\s+color\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {
     const item = getTriggeringStackItemForInterveningIf();
     if (!item) return null;
+
+    // Preferred: use canonical breakdown + completeness inference.
+    const resolved = resolveManaSpentBreakdown(item);
+    if (resolved) {
+      const colorKeys: Array<keyof ManaSpentBreakdownResolution['amounts']> = ['white', 'blue', 'black', 'red', 'green'];
+      let max = 0;
+      for (const k of colorKeys) {
+        const v = resolved.amounts[k];
+        if (typeof v === 'number' && v > max) max = v;
+      }
+      if (max >= 3) return true;
+      return resolved.complete ? false : null;
+    }
+
+    // Fallback for older shapes: treat as positive-only evidence.
     const breakdown =
-      (item as any)?.manaSpentBreakdown ??
       (item as any)?.manaSpentByColor ??
       (item as any)?.card?.manaSpentBreakdown ??
       (item as any)?.card?.manaSpentByColor;
     if (!breakdown || typeof breakdown !== 'object') return null;
-
     const keys = ['white', 'blue', 'black', 'red', 'green', 'w', 'u', 'b', 'r', 'g'];
-    let max = 0;
     for (const k of keys) {
       const n = parseMaybeNumber((breakdown as any)[k]);
-      if (n === null) continue;
-      if (n > max) max = n;
+      if (n !== null && n >= 3) return true;
     }
-    return max >= 3;
+    return null;
   }
 
   // "if {S} of any of that spell's colors was spent to cast it" (best-effort; snow-vs-nonsnow spend is rarely tracked)
   if (/^if\s+\{s\}\s+of\s+any\s+of\s+that\s+spell'?s\s+colors\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {
     const item = getTriggeringStackItemForInterveningIf();
     if (!item) return null;
+
+    // Preferred: deterministic boolean when cast pipeline could prove it.
+    const known =
+      (item as any)?.snowManaOfSpellColorsSpentKnown ??
+      (item as any)?.card?.snowManaOfSpellColorsSpentKnown;
+    const val = (item as any)?.snowManaOfSpellColorsSpent ?? (item as any)?.card?.snowManaOfSpellColorsSpent;
+    if (known === true && typeof val === 'boolean') return val;
 
     const card = (item as any)?.card;
     const colors: any[] = Array.isArray(card?.colors) ? card.colors : Array.isArray(card?.color_identity) ? card.color_identity : [];
@@ -11938,13 +12173,43 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+at\s+least\s+one\s+other\s+wall\s+creature\s+is\s+blocking\s+that\s+creature\s+and\s+no\s+non-wall\s+creatures\s+are\s+blocking\s+that\s+creature$/i.test(clause)) {
     const thatId = String((refs as any)?.thatCreatureId ?? '').trim();
     if (!thatId) return null;
-    const blockerIds: string[] = Array.isArray((refs as any)?.blockingCreatureIds) ? (refs as any).blockingCreatureIds : [];
-    if (!blockerIds.length) return null;
 
-    let anyWall = false;
+    const blockerIds: string[] = Array.isArray((refs as any)?.blockingCreatureIds) ? (refs as any).blockingCreatureIds : [];
+
+    // Fallback: compute current blockers from battlefield state if explicit refs weren't provided.
+    const computedBlockerIds: string[] = [];
+    if (!blockerIds.length) {
+      const that = findBattlefieldPermanent(ctx, thatId);
+      const blockedBy = (that as any)?.blockedBy;
+      if (Array.isArray(blockedBy)) {
+        for (const bid of blockedBy) {
+          const id = String(bid ?? '').trim();
+          if (id) computedBlockerIds.push(id);
+        }
+      } else {
+        const battlefield = (ctx as any).state?.battlefield;
+        if (!Array.isArray(battlefield)) return null;
+        for (const p of battlefield) {
+          if (!p) continue;
+          const raw = (p as any)?.blocking;
+          if (!raw) continue;
+          const ids = Array.isArray(raw) ? raw : [raw];
+          if (ids.some((x: any) => String(x ?? '') === thatId)) {
+            const id = String((p as any)?.id ?? '').trim();
+            if (id) computedBlockerIds.push(id);
+          }
+        }
+      }
+    }
+
+    const finalBlockerIds = blockerIds.length ? blockerIds : computedBlockerIds;
+    if (!finalBlockerIds.length) return null;
+
+    const excludeId = String((sourcePermanent as any)?.id ?? '').trim();
+    let anyOtherWall = false;
     let anyNonWall = false;
     let sawAll = true;
-    for (const bid of blockerIds) {
+    for (const bid of finalBlockerIds) {
       const b = findBattlefieldPermanent(ctx, bid);
       if (!b) {
         sawAll = false;
@@ -11952,12 +12217,19 @@ function evaluateInterveningIfClauseInternal(
       }
       const tl = String(b?.card?.type_line || '').toLowerCase();
       if (!tl.includes('creature')) continue;
-      if (typeLineHasWord(tl, 'wall')) anyWall = true;
-      else anyNonWall = true;
+      if (typeLineHasWord(tl, 'wall')) {
+        if (!excludeId || String((b as any)?.id ?? '') !== excludeId) anyOtherWall = true;
+      } else {
+        anyNonWall = true;
+      }
     }
-    if (!anyWall) return sawAll ? false : null;
+
+    // Any known non-wall blocker makes the clause false.
     if (anyNonWall) return false;
-    return true;
+    // Without a known "other" wall, we can only return false if we fully observed all blockers.
+    if (!anyOtherWall) return sawAll ? false : null;
+    // To return true, we must know that all blockers are walls (unknown blockers could be non-walls).
+    return sawAll ? true : null;
   }
 
   // "if a Giant" (best-effort shorthand; assumes it refers to a referenced creature)
@@ -11983,7 +12255,51 @@ function evaluateInterveningIfClauseInternal(
   // "if it doesn't share a keyword or ability word with a permanent you control or a card in your graveyard" (best-effort)
   if (/^if\s+it\s+doesn'?t\s+share\s+a\s+keyword\s+or\s+ability\s+word\s+with\s+a\s+permanent\s+you\s+control\s+or\s+a\s+card\s+in\s+your\s+graveyard$/i.test(clause)) {
     const v = (refs as any)?.itSharesKeywordOrAbilityWordWithYourPermanentOrGraveyardCard;
-    return typeof v === 'boolean' ? !v : null;
+
+    // Deterministic when a higher-level engine check recorded the outcome.
+    if (typeof v === 'boolean') return !v;
+
+    // Best-effort negative evidence: if we can prove that "it" shares a keyword with something you control
+    // (or in your graveyard), then this clause is definitely false.
+    const itId = String(
+      (refs as any)?.itPermanentId ?? (refs as any)?.itCreatureId ?? (refs as any)?.thatCreatureId ?? (refs as any)?.thatPermanentId ?? ''
+    ).trim();
+    const itPerm = itId ? findBattlefieldPermanent(ctx, itId) : sourcePermanent;
+    const itCard = (itPerm as any)?.card ?? itPerm;
+    const rawKeywords = (itCard as any)?.keywords ?? (refs as any)?.itKeywords ?? (refs as any)?.stackItem?.card?.keywords;
+    const itKeywords: string[] = Array.isArray(rawKeywords)
+      ? (rawKeywords as any[]).map((k: any) => String(k || '').toLowerCase().trim()).filter(Boolean)
+      : [];
+    if (!itKeywords.length) return null;
+    const itSet = new Set(itKeywords);
+
+    const hasShared = (raw: any): boolean => {
+      if (!Array.isArray(raw)) return false;
+      for (const k of raw) {
+        const kk = String(k || '').toLowerCase().trim();
+        if (kk && itSet.has(kk)) return true;
+      }
+      return false;
+    };
+
+    const battlefield = (ctx as any).state?.battlefield;
+    if (Array.isArray(battlefield)) {
+      for (const p of battlefield) {
+        if (!p || String(p.controller || '') !== String(controllerId)) continue;
+        const kws = (p as any)?.card?.keywords ?? (p as any)?.keywords;
+        if (hasShared(kws)) return false;
+      }
+    }
+
+    const graveyard = getGraveyard(ctx, controllerId);
+    if (Array.isArray(graveyard)) {
+      for (const c of graveyard) {
+        const kws = (c as any)?.keywords;
+        if (hasShared(kws)) return false;
+      }
+    }
+
+    return null;
   }
 
   // "if it shares a mana value with one or more uncrossed digits in the chosen number" (best-effort)

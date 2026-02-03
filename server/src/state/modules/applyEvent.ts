@@ -1117,6 +1117,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (Array.isArray((e as any).snowManaColorsSpent)) {
               applyToStackItem('snowManaColorsSpent', (e as any).snowManaColorsSpent.slice());
             }
+            if ((e as any).snowManaSpentKnown === true && typeof (e as any).snowManaSpent === 'boolean') {
+              applyToStackItem('snowManaSpentKnown', true);
+              applyToStackItem('snowManaSpent', (e as any).snowManaSpent);
+            }
+            if ((e as any).snowManaOfSpellColorsSpentKnown === true && typeof (e as any).snowManaOfSpellColorsSpent === 'boolean') {
+              applyToStackItem('snowManaOfSpellColorsSpentKnown', true);
+              applyToStackItem('snowManaOfSpellColorsSpent', (e as any).snowManaOfSpellColorsSpent);
+            }
             if (typeof (e as any).convergeValue === 'number') {
               applyToStackItem('convergeValue', (e as any).convergeValue);
             }
@@ -1133,6 +1141,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // Positive-only evidence flags
             if ((e as any).manaFromTreasureSpent === true) {
               applyToStackItem('manaFromTreasureSpent', true);
+            }
+            if ((e as any).manaFromTreasureSpentKnown === true && typeof (e as any).manaFromTreasureSpent === 'boolean') {
+              applyToStackItem('manaFromTreasureSpentKnown', true);
+              applyToStackItem('manaFromTreasureSpent', (e as any).manaFromTreasureSpent);
             }
             if ((e as any).additionalCostWasPaid === true || (e as any).paidAdditionalCost === true || (e as any).additionalCostPaid === true) {
               applyToStackItem('additionalCostWasPaid', true);

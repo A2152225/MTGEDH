@@ -4,6 +4,20 @@ One todo per `(best-effort)` marker in `server/src/state/modules/triggers/interv
 
 Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 
+## Post-list improvements
+
+- [x] Deterministic generic snow spend: Added replay-stable `snowManaSpentKnown`/`snowManaSpent` on `castSpell` events + stack items to reduce `null` for clauses like "if {S} was spent to cast it" / "if snow mana was spent to cast it" when we can prove the outcome.
+- [x] Deterministic Treasure spend: Added replay-stable `manaFromTreasureSpentKnown`/`manaFromTreasureSpent` when Treasure mana is provably required (or provably not used) without relying on floating pool provenance.
+- [x] Deterministic color-spend from partial breakdown: For clauses like "if {R} was spent to cast it", "if N or more colors of mana were spent", and "if no colored mana was spent", prefer `manaSpentBreakdown` and infer missing colors as 0 only when `manaSpentTotal` matches the sum of known breakdown entries; otherwise keep `null` (and treat `manaColorsSpent` as positive-only evidence).
+- [x] Positive-only guardrails: Updated Bargain and additional-cost clauses to only return `false` when a replay-stable "resolved" flag exists (otherwise treat `true` as positive evidence and keep `null` for unknown/negative evidence).
+- [x] Deterministic spent-total fallback: The clause "if the amount of mana spent to cast it was less than its mana value" now uses `manaSpentBreakdown` (via `sumManaSpentTotal`) when `manaSpentTotal` is absent, reducing `null` on replay streams that only persisted the breakdown.
+- [x] Replay-safe kicker metadata: Tightened kicker templates (notably "if that spell was kicked" and "if it was kicked twice") to prefer the triggering stack item and to avoid returning `false` when kick metadata is simply untracked.
+- [x] Foretell stack-item preference: "if that spell was foretold" now reads from the triggering stack item (when available) instead of the source permanent, reducing `null` in trigger-resolution contexts.
+- [x] Cost-contains-{X} stack metadata: "if that spell's mana cost or that ability's activation cost contains {X}" now uses the triggering stack item (and can parse activated ability cost when the stack item description is in explicit "{...}:" form), staying conservative when the cost text is not available.
+- [x] Targeting stackItem preference: Targeting-based clauses (e.g. "if it targets a creature you control with the chosen name" / "if it targets one or more other permanents you control") now prefer `refs.stackItem` via `getTriggeringStackItemForInterveningIf()`, avoiding unnecessary `null` when `state.stack` isnt available in the evaluation context.
+- [x] Life-paid-to-activate-it stack metadata: "if life was paid to activate it" now treats explicit activated-ability cost text on the triggering stack item (e.g., "Pay 2 life:" / "{T}, Pay X life:") as positive evidence, while staying conservative (`null`) for ambiguous choice costs like "Pay 2 life or {B}:".
+- [x] Targets-only-this-creature safety: "if that spell targets only this creature" now uses `getTriggeringStackItemForInterveningIf()` and returns `null` when any target is unknown/unstable (instead of accidentally treating `undefined`/missing ids as real targets), while still returning deterministic `true/false` when all targets are known.
+
 ## Items
 
 ### Item 1
@@ -21,18 +35,13 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Use `state.linkedExiles` (exiledCardName / exiledCard.name) as authoritative; only fall back to zone scans when needed.
 
 ### Item 3
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L2377
-- Comment: // Graveyard-order templates (best-effort). Assumes graveyard arrays append new cards (top is end).
-- Nearby check: `if (/^if\s+this\s+card\s+is\s+in\s+your\s+graveyard\s+and\s+it'?s\s+your\s+turn$/i.test(clause)) {`
-- Plan: TBD
-
+ Status: [x]
 ### Item 4
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L3742
 - Comment: // "if it's at least one of the chosen colors" (best-effort)
 - Nearby check: `if (/^if\s+it'?s\s+at\s+least\s+one\s+of\s+the\s+chosen\s+colors$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when chosen color(s) are explicitly present on `refs`/`source` (`chosenColor`/`chosenColors`) and the object's colors are explicitly present (`colors` or `color_identity`/`colorIdentity`). Normalizes both names and WUBRG letters. Returns deterministic `false` when colors are known but empty (colorless). Returns `null` when either chosen colors or object colors are untracked.
 
 ### Item 5
 - Status: [x]
@@ -49,7 +58,7 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when the source object includes replay-stable cast provenance (`fromZone` / `castSourceZone` / `source`) or the boolean `castFromGraveyard` flag. Replay now derives these from persisted `castSpell.fromZone`.
 
 ### Item 7
-- Status: [~]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L4313
 - Comment: // "if this creature wasn't kicked" / "if this creature was not kicked" (best-effort)
 - Nearby check: `if (/^if\s+this\s+creature\s+was\s+not\s+kicked$/i.test(clause) || /^if\s+this\s+creature\s+wasn'?t\s+kicked$/i.test(clause)) {`
@@ -91,18 +100,18 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when per-turn tracking exists at `state.addedManaWithThisAbilityThisTurn[playerId][abilityKey]` (where `abilityKey` is `${permanentId}:${abilityId}` when available, or a permanent-scoped boolean when explicitly recorded). Evidence is recorded via persisted events (`activateManaAbility` and mana-like `activateBattlefieldAbility`) and replayed in `applyEvent`. If tracking is absent or the ability identity is unknown, returns `null` conservatively.
 
 ### Item 13
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6350
 - Comment: // "if you planeswalked to Unyaro this turn" (best-effort)
 - Nearby check: `if (/^if\s+you\s+planeswalked\s+to\s+unyaro\s+this\s+turn$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic `false` when Planechase is not enabled via `state.houseRules.enablePlanechase === true`. When enabled, uses per-turn tracker `state.planeswalkedToThisTurn[playerId]` (or `planeswalkedToPlanesThisTurn`) to check for an entry equal to `unyaro`. Returns `null` only if the tracker shape is unavailable.
 
 ### Item 14
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6364
 - Comment: // "if two or more players have lost the game" (best-effort)
 - Nearby check: `if (/^if\s+two\s+or\s+more\s+players\s+have\s+lost\s+the\s+game$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when either `state.playersLostCount` is present, or `ctx.inactive` is a Set of defeated players, or `state.players` contains replay-stable loss flags (`hasLost`/`eliminated`). Returns `null` only when none of these are available.
 
 ### Item 15
 - Status: [x]
@@ -217,7 +226,7 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Finds a unique battlefield permanent matching `<Name>`. Deterministic `true` when at least N matching exiled cards are found. Deterministic `false` only when exile zones are fully tracked (every player has a `zones[playerId].exile` array) and fewer than N matches exist; otherwise returns `null` to avoid replay-unsafe false negatives. For linked-exile cards, prefers counting `state.linkedExiles` entries by `exilingPermanentId`.
 
 ### Item 31
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7432
 - Comment: // "if <Name> dealt damage to another creature this turn" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+(.+?)\s+dealt\s+damage\s+to\s+another\s+creature\s+this\s+turn$/i);`
@@ -231,7 +240,7 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic via replay-stable per-turn ETB id tracker `state.creaturesEnteredBattlefieldThisTurnIdsByController` (and/or `enteredThisTurn` flags). Returns `null` only if controller/id are missing.
 
 ### Item 33
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7477
 - Comment: // "if this creature didn't attack or come under your control this turn" (best-effort)
 - Nearby check: `if (/^if\s+this\s+creature\s+didn'?t\s+attack\s+or\s+come\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {`
@@ -252,7 +261,7 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic via replay-stable per-turn tracker `state.creaturesDiedThisTurnByControllerSubtype` (returns `null` only if the tracker is unavailable).
 
 ### Item 36
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7545
 - Comment: // "if <Name> entered this turn" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+(.+?)\s+entered\s+this\s+turn$/i);`
@@ -301,7 +310,7 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Improved: if refs supplies an explicit `itPermanentId`/`itCreatureId`, then (a) battlefield presence => `true` (didn't die), and (b) `state.creaturesDiedThisTurnIds` inclusion => `false` (did die). Otherwise remains refs-driven and returns `null` when ambiguous (e.g. bounced/exiled).
 
 ### Item 43
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7682
 - Comment: // "if it wasn't sacrificed" (best-effort)
 - Nearby check: `if (/^if\s+it\s+wasn'?t\s+sacrificed$/i.test(clause)) {`
@@ -518,11 +527,16 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when cast metadata exists: checks `manaSpentBreakdown` / `manaSpentByColor` on the triggering stack item.
 
 ### Item 74
-- Status: [~]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L9093
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L9968
 - Comment: // "if {S} of any of that spell's colors was spent to cast it" (best-effort)
 - Nearby check: `if (/^if\s+\{s\}\s+of\s+any\s+of\s+that\s+spell'?s\s+colors\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {`
-- Plan: Now partially supported: server records positive-only `snowManaSpentByColor`/`snowManaColorsSpent` onto the castSpell event + stack item when snow mana is *forced* (lower bound derived from deterministic consumption vs non-snow availability). Still returns `null` when snow provenance could have come from floating mana.
+- Plan: Partially supported (replay-safe positive-only):
+	- Returns `true` when the triggering stack item explicitly tracks snow spend for one of the spell’s colors (`snowManaSpentByColor` or `snowManaColorsSpent`).
+	- Returns `false` for colorless spells.
+	- Now also supports deterministic `false`/`true` in some casts via `snowManaOfSpellColorsSpentKnown/snowManaOfSpellColorsSpent` when the cast pipeline can prove snow provenance for the spell’s colors (no pre-existing pool use and no snow/non-snow mixing for those colors).
+	- Returns `null` when provenance is ambiguous (e.g., pre-existing floating mana for a spell color, or mixed snow+non-snow production for a spell color).
+	- Regression tests: server/tests/snow-mana-spent-of-spells-colors.intervening-if.test.ts
 
 ### Item 75
 - Status: [x]
@@ -539,11 +553,16 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic using `sourcePermanent` presence; returns `null` conservatively when the engine cannot provide the source permanent.
 
 ### Item 77
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L10514
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L11402
 - Comment: // "if you both own and control <X> and a creature named <Y>" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+you\s+both\s+own\s+and\s+control\s+(this\s+creature|[a-z0-9][a-z0-9'â€™\- ]+)\s+and\s+a\s+creature\s+named\s+(.+)$/i);`
-- Plan: Partially deterministic. Returns `false` if either side has no battlefield candidates or you control none of them; returns `true` if both sides have at least one permanent you control with explicit `owner === you`. Returns `null` only when you control a candidate but its `owner` metadata is missing/unknown.
+- Plan: Deterministic with battlefield/ownership metadata:
+	- Evaluates both sides against current battlefield candidates.
+	- Returns `false` when either side has no candidates you control.
+	- Returns `true` only when both sides have at least one permanent you both own (`owner === you`) and control.
+	- Returns `null` when you control a candidate but its `owner` metadata is missing.
+	- Regression tests: server/tests/own-and-control-both-sides.intervening-if.test.ts
 
 ### Item 78
 - Status: [x]
@@ -574,39 +593,56 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic using soul counter count on source + mana value of triggering stack item; returns `null` when stack/refs are missing.
 
 ### Item 82
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L10873
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L11782
 - Comment: // --- Remaining hard / card-specific / replacement-effect templates (best-effort) ---
 - Nearby check: `if (/^if\s+you\s+would\s+draw\s+a\s+card$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic only when explicit replacement-effect context provides refs:
+	- Uses `refs.wouldDrawCard` (boolean) to decide; otherwise returns `null`.
+	- Regression tests: server/tests/would-draw-a-card.intervening-if.test.ts
 
 ### Item 83
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L11052
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L11959
 - Comment: // "if at least one other Wall creature is blocking that creature and no non-Wall creatures are blocking that creature" (best-effort)
 - Nearby check: `if (/^if\s+at\s+least\s+one\s+other\s+wall\s+creature\s+is\s+blocking\s+that\s+creature\s+and\s+no\s+non-wall\s+creatures\s+are\s+blocking\s+that\s+creature$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Replay-safe blocker classification:
+	- Requires `refs.thatCreatureId`.
+	- Uses `refs.blockingCreatureIds` when available; otherwise computes blockers from battlefield (`that.blockedBy` or blocker `blocking` arrays).
+	- Returns `false` if any known non-Wall blocker exists.
+	- Returns `true` only when all blockers are known and all are Walls, and at least one is an “other” Wall (not the source).
+	- Regression tests: server/tests/other-wall-blocking-only.intervening-if.test.ts
 
 ### Item 84
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L11098
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L12005
 - Comment: // "if it doesn't share a keyword or ability word with a permanent you control or a card in your graveyard" (best-effort)
 - Nearby check: `if (/^if\s+it\s+doesn'?t\s+share\s+a\s+keyword\s+or\s+ability\s+word\s+with\s+a\s+permanent\s+you\s+control\s+or\s+a\s+card\s+in\s+your\s+graveyard$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when explicit refs exist; otherwise best-effort negative evidence:
+	- If `refs.itSharesKeywordOrAbilityWordWithYourPermanentOrGraveyardCard` is boolean, invert it.
+	- Otherwise, returns `false` if a shared keyword is provable via `card.keywords` on a permanent you control / a graveyard card.
+	- Returns `null` when not enough metadata exists to prove “doesn’t share”.
+	- Regression tests: server/tests/doesnt-share-keyword-with-controlled-or-graveyard.intervening-if.test.ts
 
 ### Item 85
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L11104
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L12011
 - Comment: // "if it shares a mana value with one or more uncrossed digits in the chosen number" (best-effort)
 - Nearby check: `if (/^if\s+it\s+shares\s+a\s+mana\s+value\s+with\s+one\s+or\s+more\s+uncrossed\s+digits\s+in\s+the\s+chosen\s+number$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic with explicit chosen-number refs:
+	- Requires `refs.uncrossedDigits` (number[]).
+	- Mana value comes from `refs.itsManaValue` or from the triggering stack item id.
+	- Regression tests: server/tests/shares-mana-value-with-uncrossed-digits.intervening-if.test.ts
 
 ### Item 86
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L11132
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L12039
 - Comment: // "if its power is greater than this creature's power or its toughness is greater than this creature's toughness" (best-effort)
 - Nearby check: `if (/^if\s+its\s+power\s+is\s+greater\s+than\s+this\s+creature'?s\s+power\s+or\s+its\s+toughness\s+is\s+greater\s+than\s+this\s+creature'?s\s+toughness$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic from battlefield P/T when referenced creature id is known:
+	- Requires `sourcePermanent` plus `refs.itCreatureId` or `refs.thatCreatureId`.
+	- Uses computed power/toughness helpers; returns `null` when any value can’t be computed.
+	- Regression tests: server/tests/it-power-or-toughness-greater-than-this.intervening-if.test.ts
 
 ### Item 87
 - Status: [x]
