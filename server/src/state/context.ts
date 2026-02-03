@@ -195,6 +195,7 @@ export function createContext(gameId: string): GameContext {
   (state as any).creaturesAttackedThisTurn = {};
   (state as any).attackedOrBlockedThisCombatByPermanentId = {};
   (state as any).attackersDeclaredThisCombatByPlayer = {};
+  (state as any).blockersDeclaredThisCombatByPlayer = {};
 
   // Per-turn / per-cycle trackers used by recognized intervening-if templates.
   // These are safe defaults; state modules update them on positive evidence.

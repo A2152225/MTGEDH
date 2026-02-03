@@ -964,8 +964,27 @@ export async function executeDeclareAttackers(
 
     // Per-combat snapshot used by intervening-if templates like
     // "if a Pirate and a Vehicle attacked this combat".
-    stateAny.attackersDeclaredThisCombatByPlayer = stateAny.attackersDeclaredThisCombatByPlayer || {};
-    stateAny.attackersDeclaredThisCombatByPlayer[String(playerId)] = [];
+    {
+      const players = Array.isArray((game.state as any)?.players) ? ((game.state as any).players as any[]) : [];
+      const ids = players
+        .map((p: any) => String(p?.id ?? p?.playerId ?? '').trim())
+        .filter((id: string) => Boolean(id));
+
+      // Reset per-combat snapshots so extra combats are evaluated correctly.
+      stateAny.attackersDeclaredThisCombatByPlayer = {};
+      stateAny.blockersDeclaredThisCombatByPlayer = {};
+      for (const pid of ids) {
+        stateAny.attackersDeclaredThisCombatByPlayer[pid] = [];
+        stateAny.blockersDeclaredThisCombatByPlayer[pid] = [];
+      }
+      const fallbackPid = String(playerId);
+      if (fallbackPid && !stateAny.attackersDeclaredThisCombatByPlayer[fallbackPid]) {
+        stateAny.attackersDeclaredThisCombatByPlayer[fallbackPid] = [];
+      }
+      if (fallbackPid && !stateAny.blockersDeclaredThisCombatByPlayer[fallbackPid]) {
+        stateAny.blockersDeclaredThisCombatByPlayer[fallbackPid] = [];
+      }
+    }
 
     // Per-turn; do not reset here.
     stateAny.attackedByAssassinThisTurnByPlayer = stateAny.attackedByAssassinThisTurnByPlayer || {};
@@ -2268,6 +2287,22 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           const stateAny = game.state as any;
           stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
           stateAny.attackedOrBlockedThisCombatByPermanentId[String(blocker.blockerId)] = true;
+
+          // Per-combat snapshot used by intervening-if templates like
+          // "if it was attacking or blocking alone".
+          stateAny.blockersDeclaredThisCombatByPlayer = stateAny.blockersDeclaredThisCombatByPlayer || {};
+          stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)] = Array.isArray(stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)])
+            ? stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)]
+            : [];
+          const list = stateAny.blockersDeclaredThisCombatByPlayer[String(playerId)];
+          const bid = String(blocker.blockerId);
+          if (bid && !list.some((e: any) => String(e?.id ?? e?.creatureId ?? e).trim() === bid)) {
+            list.push({
+              id: bid,
+              name: String((blockerCreature as any)?.card?.name ?? (blockerCreature as any)?.name ?? ''),
+              type_line: String((blockerCreature as any)?.card?.type_line ?? ''),
+            });
+          }
         } catch {
           // best-effort only
         }

@@ -1652,8 +1652,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
             // Per-combat snapshot used by intervening-if templates like
             // "if a Pirate and a Vehicle attacked this combat".
-            stateAny.attackersDeclaredThisCombatByPlayer = stateAny.attackersDeclaredThisCombatByPlayer || {};
-            if (playerId) stateAny.attackersDeclaredThisCombatByPlayer[playerId] = [];
+            {
+              const players = Array.isArray((ctx.state as any)?.players) ? ((ctx.state as any).players as any[]) : [];
+              const ids = players
+                .map((p: any) => String(p?.id ?? p?.playerId ?? '').trim())
+                .filter((id: string) => Boolean(id));
+
+              // Reset per-combat snapshots so extra combats are evaluated correctly.
+              stateAny.attackersDeclaredThisCombatByPlayer = {};
+              stateAny.blockersDeclaredThisCombatByPlayer = {};
+              for (const pid of ids) {
+                stateAny.attackersDeclaredThisCombatByPlayer[pid] = [];
+                stateAny.blockersDeclaredThisCombatByPlayer[pid] = [];
+              }
+              if (playerId && !stateAny.attackersDeclaredThisCombatByPlayer[playerId]) stateAny.attackersDeclaredThisCombatByPlayer[playerId] = [];
+              if (playerId && !stateAny.blockersDeclaredThisCombatByPlayer[playerId]) stateAny.blockersDeclaredThisCombatByPlayer[playerId] = [];
+            }
 
             // Per-turn tracker used by intervening-if templates like
             // "if no creatures attacked this turn".
@@ -1802,6 +1816,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const battlefield = ctx.state.battlefield || [];
           const stateAny = ctx.state as any;
+          const playerId = String((e as any).playerId || '').trim();
 
           stateAny.attackedOrBlockedThisCombatByPermanentId = stateAny.attackedOrBlockedThisCombatByPermanentId || {};
 
@@ -1822,6 +1837,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               // Intervening-if support: blocker "blocked this turn" and "attacked or blocked this combat".
               (blocker as any).blockedThisTurn = true;
               stateAny.attackedOrBlockedThisCombatByPermanentId[String(blk.blockerId)] = true;
+
+              // Per-combat snapshot entry for this blocker.
+              if (playerId) {
+                stateAny.blockersDeclaredThisCombatByPlayer = stateAny.blockersDeclaredThisCombatByPlayer || {};
+                stateAny.blockersDeclaredThisCombatByPlayer[playerId] = Array.isArray(stateAny.blockersDeclaredThisCombatByPlayer[playerId])
+                  ? stateAny.blockersDeclaredThisCombatByPlayer[playerId]
+                  : [];
+                const list = stateAny.blockersDeclaredThisCombatByPlayer[playerId];
+                const bid = String(blk.blockerId || '').trim();
+                if (bid && !list.some((e: any) => String(e?.id ?? e?.creatureId ?? e).trim() === bid)) {
+                  list.push({
+                    id: bid,
+                    name: String((blocker as any)?.card?.name ?? (blocker as any)?.name ?? ''),
+                    type_line: String((blocker as any)?.card?.type_line ?? ''),
+                  });
+                }
+              }
             }
             if (attacker) {
               (attacker as any).blockedBy = (attacker as any).blockedBy || [];
