@@ -35,25 +35,25 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: TBD
 
 ### Item 5
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L4173
 - Comment: // "if it entered from your graveyard or you cast it from your graveyard" (best-effort)
 - Nearby check: `if (/^if\s+it\s+entered\s+from\s+your\s+graveyard\s+or\s+you\s+cast\s+it\s+from\s+your\s+graveyard$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when the source object carries `enteredFromZone` and/or replay-stable cast provenance (`fromZone` / `castSourceZone` / `source`). Live casting now plumbs `castSourceZone` and replay applies `fromZone` onto the stack item.
 
 ### Item 6
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L4187
 - Comment: // "if it was cast from your graveyard" / "if this spell was cast from your graveyard" (best-effort)
 - Nearby check: `if (/^if\s+(?:it|this\s+spell)\s+was\s+cast\s+from\s+your\s+graveyard$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when the source object includes replay-stable cast provenance (`fromZone` / `castSourceZone` / `source`) or the boolean `castFromGraveyard` flag. Replay now derives these from persisted `castSpell.fromZone`.
 
 ### Item 7
-- Status: [ ]
+- Status: [~]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L4313
 - Comment: // "if this creature wasn't kicked" / "if this creature was not kicked" (best-effort)
 - Nearby check: `if (/^if\s+this\s+creature\s+was\s+not\s+kicked$/i.test(clause) || /^if\s+this\s+creature\s+wasn'?t\s+kicked$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when cast/payment metadata includes `wasKicked` (boolean). Also supports positive-only kick count evidence (`kickerPaidCount` / `timesKicked` / `kickedTimes` > 0) to conclude the clause is false. Still returns `null` when we cannot safely conclude not-kicked.
 
 ### Item 8
 - Status: [ ]
@@ -63,11 +63,11 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: TBD
 
 ### Item 9
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L4335
 - Comment: // "if it was cast" (best-effort)
 - Nearby check: `if (/^if\s+it\s+was\s+cast$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when `enteredFromCast/wasCast` is present; otherwise returns `true` when replay-stable cast provenance exists (`castSourceZone`/`fromZone`/`source` or any `castFrom*` boolean). Returns `null` conservatively when cast provenance is not tracked.
 
 ### Item 10
 - Status: [ ]
@@ -112,25 +112,25 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: TBD
 
 ### Item 16
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6412
 - Comment: // "if there are no nonbasic land cards in your library" (best-effort)
 - Nearby check: `if (/^if\s+there\s+are\s+no\s+nonbasic\s+land\s+cards\s+in\s+your\s+library$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when `zones[playerId].library` is tracked as an array (including empty). Returns `false` if any card has a land type line without "basic"; returns `null` only when library contents/type lines are unknown.
 
 ### Item 17
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6431
 - Comment: // "if there are five colors among permanents you control" (best-effort)
 - Nearby check: `if (/^if\s+there\s+are\s+five\s+colors\s+among\s+permanents\s+you\s+control$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when permanent card data includes `colors` or `color_identity` (or a single `color`). Returns `null` only when one or more controlled permanents have unknown color info.
 
 ### Item 18
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6454
 - Comment: // "if there are five or more mana values among cards in your graveyard" (best-effort)
 - Nearby check: `if (/^if\s+there\s+are\s+five\s+or\s+more\s+mana\s+values\s+among\s+cards\s+in\s+your\s+graveyard$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when the graveyard array is tracked and cards have mana value/cmc info. Treats an empty graveyard as `false` (0 distinct mana values). Returns `null` only when mana values are unknown for one or more cards.
 
 ### Item 19
 - Status: [ ]
@@ -291,14 +291,14 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7646
 - Comment: // "if it had a counter on it" (best-effort)
 - Nearby check: `if (/^if\s+it\s+had\s+a\s+counter\s+on\s+it$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Improved: if refs supplies an explicit object snapshot (e.g. `refs.itPermanent` / `refs.thatCreature`) with a `counters` map, uses it deterministically; otherwise falls back to resolving an explicit `itPermanentId`/`itCreatureId` on the battlefield. Still best-effort (no reliable LKI once it leaves).
 
 ### Item 42
 - Status: [ ]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7672
 - Comment: // "if it didn't die" (best-effort)
 - Nearby check: `if (/^if\s+it\s+didn'?t\s+die$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Improved: if refs supplies an explicit `itPermanentId`/`itCreatureId`, then (a) battlefield presence => `true` (didn't die), and (b) `state.creaturesDiedThisTurnIds` inclusion => `false` (did die). Otherwise remains refs-driven and returns `null` when ambiguous (e.g. bounced/exiled).
 
 ### Item 43
 - Status: [ ]
@@ -518,11 +518,11 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when cast metadata exists: checks `manaSpentBreakdown` / `manaSpentByColor` on the triggering stack item.
 
 ### Item 74
-- Status: [!]
+- Status: [~]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L9093
 - Comment: // "if {S} of any of that spell's colors was spent to cast it" (best-effort)
 - Nearby check: `if (/^if\s+\{s\}\s+of\s+any\s+of\s+that\s+spell'?s\s+colors\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause)) {`
-- Plan: Blocked: requires persisting snow-vs-nonsnow spend (e.g. `snowManaSpentByColor` or `snowManaColorsSpent`) during cast and replay.
+- Plan: Now partially supported: server records positive-only `snowManaSpentByColor`/`snowManaColorsSpent` onto the castSpell event + stack item when snow mana is *forced* (lower bound derived from deterministic consumption vs non-snow availability). Still returns `null` when snow provenance could have come from floating mana.
 
 ### Item 75
 - Status: [x]
@@ -543,7 +543,7 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Source: server/src/state/modules/triggers/intervening-if.ts#L10514
 - Comment: // "if you both own and control <X> and a creature named <Y>" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+you\s+both\s+own\s+and\s+control\s+(this\s+creature|[a-z0-9][a-z0-9'â€™\- ]+)\s+and\s+a\s+creature\s+named\s+(.+)$/i);`
-- Plan: TBD
+- Plan: Partially deterministic. Returns `false` if either side has no battlefield candidates or you control none of them; returns `true` if both sides have at least one permanent you control with explicit `owner === you`. Returns `null` only when you control a candidate but its `owner` metadata is missing/unknown.
 
 ### Item 78
 - Status: [x]

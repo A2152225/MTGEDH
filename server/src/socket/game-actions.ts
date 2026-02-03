@@ -5270,6 +5270,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // ======================================================================
       // Handle mana payment: tap permanents to generate mana (adds to pool)
       // ======================================================================
+      const poolBeforePayment = { ...getOrInitManaPool(game.state, playerId) } as any;
+      const producedNonSnowByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+
       if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
@@ -5318,6 +5321,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // Tap the permanent
           (permanent as any).tapped = true;
+
+          const typeLineLower = String(((permanent as any).card || {})?.type_line || '').toLowerCase();
+          const isSnowSource = /\bsnow\b/.test(typeLineLower);
           
           // Add mana to player's mana pool (already initialized via getOrInitManaPool above)
           const manaColorMap: Record<string, string> = {
@@ -5350,6 +5356,12 @@ export function registerGameActions(io: Server, socket: Socket) {
                 const bonusPoolKey = manaColorMap[bonus.color];
                 if (bonusPoolKey) {
                   (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
+                  // Snow-vs-non-snow tracking: treat bonus mana as produced by this source.
+                  if (isSnowSource) {
+                    // We only record *required snow spent* later; for non-snow, keep an upper bound we can safely subtract.
+                  } else {
+                    producedNonSnowByColor[bonusPoolKey] = (producedNonSnowByColor[bonusPoolKey] || 0) + bonus.amount;
+                  }
                   debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
                 }
               }
@@ -5359,6 +5371,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           const poolKey = manaColorMap[mana];
           if (poolKey && manaAmount > 0) {
             (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
+            if (!isSnowSource) {
+              producedNonSnowByColor[poolKey] = (producedNonSnowByColor[poolKey] || 0) + manaAmount;
+            }
             debug(2, `[castSpellFromHand] Added ${manaAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
         }
@@ -5397,6 +5412,45 @@ export function registerGameActions(io: Server, socket: Socket) {
               manaFromTreasureSpent = true;
               break;
             }
+          }
+        }
+      } catch {
+        // best-effort only
+      }
+
+      // Intervening-if support: snow mana spent.
+      // We can only safely assert snow mana was spent when it was *forced* based on:
+      // - deterministic consumption amounts, and
+      // - non-snow mana availability (existing pool + non-snow produced this cast).
+      // This yields a replay-stable lower bound that never creates false negatives.
+      let snowManaSpentByColor: Record<string, number> | undefined;
+      let snowManaColorsSpent: string[] | undefined;
+      try {
+        const consumed = (manaConsumption as any)?.consumed;
+        if (consumed && typeof consumed === 'object') {
+          const byColor: Record<string, number> = {};
+          const colorCodes = new Set<string>();
+          const keys: Array<'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless'> = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+
+          for (const k of keys) {
+            const used = Number((consumed as any)[k] || 0);
+            if (used <= 0) continue;
+            const pre = Number((poolBeforePayment as any)?.[k] || 0);
+            const nonSnowNew = Number((producedNonSnowByColor as any)?.[k] || 0);
+            const requiredSnow = Math.max(0, used - pre - nonSnowNew);
+            if (requiredSnow > 0) {
+              byColor[k] = requiredSnow;
+              if (k === 'white') colorCodes.add('W');
+              else if (k === 'blue') colorCodes.add('U');
+              else if (k === 'black') colorCodes.add('B');
+              else if (k === 'red') colorCodes.add('R');
+              else if (k === 'green') colorCodes.add('G');
+            }
+          }
+
+          if (Object.keys(byColor).length > 0) {
+            snowManaSpentByColor = byColor;
+            snowManaColorsSpent = Array.from(colorCodes);
           }
         }
       } catch {
@@ -5480,6 +5534,12 @@ export function registerGameActions(io: Server, socket: Socket) {
               castFromHand: true,
               manaSpentTotal,
               manaSpentBreakdown: { ...manaConsumption.consumed },
+              ...(snowManaSpentByColor
+                ? {
+                    snowManaSpentByColor: { ...snowManaSpentByColor },
+                    ...(snowManaColorsSpent && snowManaColorsSpent.length > 0 ? { snowManaColorsSpent: snowManaColorsSpent.slice() } : {}),
+                  }
+                : {}),
               ...(convergeValue > 0
                 ? {
                     convergeValue,
@@ -5574,6 +5634,20 @@ export function registerGameActions(io: Server, socket: Socket) {
                 (topStackItem as any).manaFromTreasureSpent = true;
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.manaFromTreasureSpent = true;
+                }
+              }
+
+              // Intervening-if support: snow mana spent (positive-only lower bound).
+              if (snowManaSpentByColor) {
+                (topStackItem as any).snowManaSpentByColor = { ...snowManaSpentByColor };
+                if (snowManaColorsSpent && snowManaColorsSpent.length > 0) {
+                  (topStackItem as any).snowManaColorsSpent = snowManaColorsSpent.slice();
+                }
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.snowManaSpentByColor = { ...snowManaSpentByColor };
+                  if (snowManaColorsSpent && snowManaColorsSpent.length > 0) {
+                    (topStackItem as any).card.snowManaColorsSpent = snowManaColorsSpent.slice();
+                  }
                 }
               }
 

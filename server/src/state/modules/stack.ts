@@ -10625,6 +10625,10 @@ export function castSpell(
   }
 
   const spellManaValue = cardManaValue(card, xValue);
+
+  // Provenance metadata for intervening-if templates.
+  // This is authoritative when we actually removed the card from a zone above.
+  const castSourceZone = castFromGraveyard ? 'graveyard' : castFromExile ? 'exile' : 'hand';
   
   // Add to stack
   const stackItem: any = {
@@ -10635,7 +10639,26 @@ export function castSpell(
     targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
     xValue,
     manaValue: spellManaValue,
+    fromZone: castSourceZone,
+    castSourceZone,
+    source: castSourceZone,
+    castFromHand: castSourceZone === 'hand',
+    castFromExile: castSourceZone === 'exile',
+    castFromGraveyard: castSourceZone === 'graveyard',
   };
+
+  try {
+    if (stackItem.card && typeof stackItem.card === 'object') {
+      stackItem.card.fromZone = castSourceZone;
+      stackItem.card.castSourceZone = castSourceZone;
+      stackItem.card.source = castSourceZone;
+      stackItem.card.castFromHand = castSourceZone === 'hand';
+      stackItem.card.castFromExile = castSourceZone === 'exile';
+      stackItem.card.castFromGraveyard = castSourceZone === 'graveyard';
+    }
+  } catch {
+    // best-effort only
+  }
 
   // Turn-tracking for intervening-if templates like "if you've committed a crime this turn".
   // Conservative: only record `true` when we have positive evidence.

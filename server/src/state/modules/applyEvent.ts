@@ -1016,6 +1016,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
 
+        // Turn-tracking: persisted castSpell events can carry `fromZone`.
+        // Use this as authoritative positive evidence during replay.
+        try {
+          const pid = String((e as any).playerId || '').trim();
+          const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
+          if (pid && fromZone === 'graveyard') {
+            const stateAny = (ctx.state as any) as any;
+            stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+            stateAny.castFromGraveyardThisTurn[pid] = true;
+          }
+          if (pid && fromZone === 'exile') {
+            const stateAny = (ctx.state as any) as any;
+            stateAny.castFromExileThisTurn = stateAny.castFromExileThisTurn || {};
+            stateAny.castFromExileThisTurn[pid] = true;
+          }
+        } catch {
+          // best-effort only
+        }
+
         const stackLengthBefore = ctx.state.stack?.length || 0;
 
         // Prefer full card object for replay (contains all card data)
@@ -1044,11 +1063,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
             // Provenance
             if (typeof (e as any).fromZone === 'string' && (e as any).fromZone) {
-              applyToStackItem('fromZone', (e as any).fromZone);
+              const fromZone = String((e as any).fromZone);
+              const fromZoneLower = fromZone.toLowerCase().trim();
+              applyToStackItem('fromZone', fromZone);
+              applyToStackItem('castSourceZone', fromZone);
+              applyToStackItem('source', fromZone);
+
+              if (fromZoneLower === 'hand') {
+                applyToStackItem('castFromHand', true);
+              }
+              if (fromZoneLower === 'exile') {
+                applyToStackItem('castFromExile', true);
+              }
+              if (fromZoneLower === 'graveyard') {
+                applyToStackItem('castFromGraveyard', true);
+              }
             }
             if ((e as any).castFromHand === true) {
               applyToStackItem('castFromHand', true);
               applyToStackItem('source', 'hand');
+              applyToStackItem('castSourceZone', 'hand');
             }
             if ((e as any).castWithoutPayingManaCost === true) {
               applyToStackItem('castWithoutPayingManaCost', true);
@@ -1076,6 +1110,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
             if ((e as any).manaSpentBreakdown && typeof (e as any).manaSpentBreakdown === 'object') {
               applyToStackItem('manaSpentBreakdown', { ...(e as any).manaSpentBreakdown });
+            }
+            if ((e as any).snowManaSpentByColor && typeof (e as any).snowManaSpentByColor === 'object') {
+              applyToStackItem('snowManaSpentByColor', { ...(e as any).snowManaSpentByColor });
+            }
+            if (Array.isArray((e as any).snowManaColorsSpent)) {
+              applyToStackItem('snowManaColorsSpent', (e as any).snowManaColorsSpent.slice());
             }
             if (typeof (e as any).convergeValue === 'number') {
               applyToStackItem('convergeValue', (e as any).convergeValue);

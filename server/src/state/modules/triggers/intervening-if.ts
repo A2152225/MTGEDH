@@ -4359,23 +4359,92 @@ function evaluateInterveningIfClauseInternal(
   // "if it was kicked"
   if (/^if\s+it\s+was\s+kicked$/i.test(clause)) {
     if (!sourcePermanent) return null;
-    const wasKicked = sourcePermanent?.wasKicked === true || sourcePermanent?.card?.wasKicked === true;
-    return wasKicked;
+    const v =
+      (refs as any)?.wasKicked ??
+      (refs as any)?.card?.wasKicked ??
+      (sourcePermanent as any)?.wasKicked ??
+      (sourcePermanent as any)?.card?.wasKicked;
+    if (typeof v === 'boolean') return v;
+
+    // Some implementations track "times kicked" rather than a boolean.
+    // Only use positive evidence to avoid replay-unsafe false negatives.
+    const count =
+      (refs as any)?.kickerPaidCount ??
+      (refs as any)?.timesKicked ??
+      (refs as any)?.kickedTimes ??
+      (refs as any)?.card?.kickerPaidCount ??
+      (refs as any)?.card?.timesKicked ??
+      (refs as any)?.card?.kickedTimes ??
+      (sourcePermanent as any)?.kickerPaidCount ??
+      (sourcePermanent as any)?.timesKicked ??
+      (sourcePermanent as any)?.kickedTimes ??
+      (sourcePermanent as any)?.card?.kickerPaidCount ??
+      (sourcePermanent as any)?.card?.timesKicked ??
+      (sourcePermanent as any)?.card?.kickedTimes;
+    if (typeof count === 'number') return count > 0 ? true : null;
+
+    return null;
   }
 
   // "if this creature wasn't kicked" / "if this creature was not kicked" (best-effort)
   if (/^if\s+this\s+creature\s+was\s+not\s+kicked$/i.test(clause) || /^if\s+this\s+creature\s+wasn'?t\s+kicked$/i.test(clause)) {
     if (!sourcePermanent) return null;
-    const v = (sourcePermanent as any)?.wasKicked ?? (sourcePermanent as any)?.card?.wasKicked;
+    const v =
+      (refs as any)?.wasKicked ??
+      (refs as any)?.card?.wasKicked ??
+      (sourcePermanent as any)?.wasKicked ??
+      (sourcePermanent as any)?.card?.wasKicked;
     if (typeof v === 'boolean') return !v;
+
+    const count =
+      (refs as any)?.kickerPaidCount ??
+      (refs as any)?.timesKicked ??
+      (refs as any)?.kickedTimes ??
+      (refs as any)?.card?.kickerPaidCount ??
+      (refs as any)?.card?.timesKicked ??
+      (refs as any)?.card?.kickedTimes ??
+      (sourcePermanent as any)?.kickerPaidCount ??
+      (sourcePermanent as any)?.timesKicked ??
+      (sourcePermanent as any)?.kickedTimes ??
+      (sourcePermanent as any)?.card?.kickerPaidCount ??
+      (sourcePermanent as any)?.card?.timesKicked ??
+      (sourcePermanent as any)?.card?.kickedTimes;
+    if (typeof count === 'number') {
+      // If we have positive evidence it was kicked at least once, this clause is false.
+      if (count > 0) return false;
+      // Otherwise (0) we don't assume not-kicked unless explicitly tracked.
+      return null;
+    }
+
     return null;
   }
 
   // "if it was kicked with its {..} kicker" (recognize but we don't track which kicker)
   if (/^if\s+it\s+was\s+kicked\s+with\s+its\s+(?:\{[^}]+\})+\s+kicker$/i.test(clause)) {
     if (!sourcePermanent) return null;
-    const wasKicked = sourcePermanent?.wasKicked === true || sourcePermanent?.card?.wasKicked === true;
-    return wasKicked ? true : null;
+    const v =
+      (refs as any)?.wasKicked ??
+      (refs as any)?.card?.wasKicked ??
+      (sourcePermanent as any)?.wasKicked ??
+      (sourcePermanent as any)?.card?.wasKicked;
+    if (v === true) return true;
+
+    const count =
+      (refs as any)?.kickerPaidCount ??
+      (refs as any)?.timesKicked ??
+      (refs as any)?.kickedTimes ??
+      (refs as any)?.card?.kickerPaidCount ??
+      (refs as any)?.card?.timesKicked ??
+      (refs as any)?.card?.kickedTimes ??
+      (sourcePermanent as any)?.kickerPaidCount ??
+      (sourcePermanent as any)?.timesKicked ??
+      (sourcePermanent as any)?.kickedTimes ??
+      (sourcePermanent as any)?.card?.kickerPaidCount ??
+      (sourcePermanent as any)?.card?.timesKicked ??
+      (sourcePermanent as any)?.card?.kickedTimes;
+    if (typeof count === 'number' && count > 0) return true;
+
+    return null;
   }
 
   // "if it was bargained" (best-effort)
@@ -4388,8 +4457,29 @@ function evaluateInterveningIfClauseInternal(
   // "if it was cast" (best-effort)
   if (/^if\s+it\s+was\s+cast$/i.test(clause)) {
     if (!sourcePermanent) return null;
-    const v = (sourcePermanent as any)?.enteredFromCast ?? (sourcePermanent as any)?.wasCast ?? (sourcePermanent as any)?.card?.enteredFromCast ?? (sourcePermanent as any)?.card?.wasCast;
-    return typeof v === "boolean" ? v : null;
+    const v =
+      (sourcePermanent as any)?.enteredFromCast ??
+      (sourcePermanent as any)?.wasCast ??
+      (sourcePermanent as any)?.card?.enteredFromCast ??
+      (sourcePermanent as any)?.card?.wasCast;
+    if (typeof v === 'boolean') return v;
+
+    // If we at least know the source zone of the cast, that's enough to conclude it was cast.
+    const sourceZone =
+      (sourcePermanent as any)?.castSourceZone ??
+      (sourcePermanent as any)?.fromZone ??
+      (sourcePermanent as any)?.source ??
+      (sourcePermanent as any)?.card?.castSourceZone ??
+      (sourcePermanent as any)?.card?.fromZone ??
+      (sourcePermanent as any)?.card?.source;
+    if (typeof sourceZone === 'string' && sourceZone.trim().length > 0) return true;
+
+    const fromHand = (sourcePermanent as any)?.castFromHand ?? (sourcePermanent as any)?.card?.castFromHand;
+    const fromExile = (sourcePermanent as any)?.castFromExile ?? (sourcePermanent as any)?.card?.castFromExile;
+    const fromGraveyard = (sourcePermanent as any)?.castFromGraveyard ?? (sourcePermanent as any)?.card?.castFromGraveyard;
+    if (typeof fromHand === 'boolean' || typeof fromExile === 'boolean' || typeof fromGraveyard === 'boolean') return true;
+
+    return null;
   }
 
   // "if it/that spell was foretold"
@@ -4458,21 +4548,64 @@ function evaluateInterveningIfClauseInternal(
   {
     const m = clause.match(/^if\s+((?:\{s\}){2,})\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
     if (m) {
-      // We don't currently track snow-vs-nonsnow mana payment.
-      return null;
+      const groups = Array.from(String(m[1]).matchAll(/\{s\}/gi));
+      if (!groups.length) return null;
+
+      const item = getTriggeringStackItemForInterveningIf();
+      const src: any = item || sourcePermanent;
+      const snowByColor =
+        src?.snowManaSpentByColor ??
+        src?.snowSpentByColor ??
+        src?.manaSpentSnowByColor ??
+        src?.card?.snowManaSpentByColor;
+      if (!snowByColor || typeof snowByColor !== 'object') return null;
+
+      const keys = ['white', 'blue', 'black', 'red', 'green', 'colorless', 'w', 'u', 'b', 'r', 'g', 'c'];
+      let total = 0;
+      for (const k of keys) {
+        const n = parseMaybeNumber((snowByColor as any)[k]);
+        if (n === null) continue;
+        total += n;
+      }
+
+      return total >= groups.length ? true : null;
     }
   }
   {
     const m = clause.match(/^if\s+\{s\}\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
     if (m) {
-      // We don't currently track snow-vs-nonsnow mana payment.
+      const item = getTriggeringStackItemForInterveningIf();
+      const src: any = item || sourcePermanent;
+      const snowByColor =
+        src?.snowManaSpentByColor ??
+        src?.snowSpentByColor ??
+        src?.manaSpentSnowByColor ??
+        src?.card?.snowManaSpentByColor;
+      if (!snowByColor || typeof snowByColor !== 'object') return null;
+      const keys = ['white', 'blue', 'black', 'red', 'green', 'colorless', 'w', 'u', 'b', 'r', 'g', 'c'];
+      for (const k of keys) {
+        const n = parseMaybeNumber((snowByColor as any)[k]);
+        if (n !== null && n > 0) return true;
+      }
       return null;
     }
   }
   {
     const m = clause.match(/^if\s+snow\s+mana\s+was\s+spent\s+to\s+cast\s+(?:this\s+spell|it)$/i);
     if (m) {
-      // We don't currently track snow-vs-nonsnow mana payment.
+      const item = getTriggeringStackItemForInterveningIf();
+      const src: any = item || sourcePermanent;
+      const snowByColor =
+        src?.snowManaSpentByColor ??
+        src?.snowSpentByColor ??
+        src?.manaSpentSnowByColor ??
+        src?.card?.snowManaSpentByColor;
+      if (!snowByColor || typeof snowByColor !== 'object') return null;
+      const keys = ['white', 'blue', 'black', 'red', 'green', 'colorless', 'w', 'u', 'b', 'r', 'g', 'c'];
+      for (const k of keys) {
+        const n = parseMaybeNumber((snowByColor as any)[k]);
+        if (n !== null && n > 0) return true;
+      }
       return null;
     }
   }
@@ -6466,8 +6599,8 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+there\s+are\s+no\s+nonbasic\s+land\s+cards\s+in\s+your\s+library$/i.test(clause)) {
     const zones = (ctx as any).state?.zones;
     const z = zones?.[controllerId];
-    const lib: any[] = Array.isArray(z?.library) ? z.library : [];
-    if (!Array.isArray(lib) || lib.length === 0) return null;
+    const lib: any[] = z?.library;
+    if (!Array.isArray(lib)) return null;
     let sawUnknown = false;
     for (const c of lib) {
       const tl = c?.type_line ?? c?.card?.type_line;
@@ -6489,15 +6622,26 @@ function evaluateInterveningIfClauseInternal(
     let sawUnknown = false;
     for (const p of battlefield) {
       if (!p || String(p.controller ?? '') !== String(controllerId)) continue;
-      const raw = (p as any)?.card?.colors ?? (p as any)?.colors;
-      if (!Array.isArray(raw)) {
-        sawUnknown = true;
-        continue;
-      }
-      for (const c of raw) {
-        const t = String(c || '').toLowerCase();
-        const norm = normalizeColorToken(t);
-        if (norm) colors.add(norm);
+      const raw =
+        (p as any)?.card?.colors ??
+        (p as any)?.card?.color_identity ??
+        (p as any)?.colors ??
+        (p as any)?.color_identity;
+      if (Array.isArray(raw)) {
+        for (const c of raw) {
+          const t = String(c || '').toLowerCase();
+          const norm = normalizeColorToken(t);
+          if (norm) colors.add(norm);
+        }
+      } else {
+        const color = (p as any)?.card?.color;
+        if (typeof color === 'string' && color.trim()) {
+          const norm = normalizeColorToken(color);
+          if (norm) colors.add(norm);
+          else sawUnknown = true;
+        } else {
+          sawUnknown = true;
+        }
       }
       if (colors.size >= 5) return true;
     }
@@ -6507,7 +6651,8 @@ function evaluateInterveningIfClauseInternal(
   // "if there are five or more mana values among cards in your graveyard" (best-effort)
   if (/^if\s+there\s+are\s+five\s+or\s+more\s+mana\s+values\s+among\s+cards\s+in\s+your\s+graveyard$/i.test(clause)) {
     const gy = getGraveyard(ctx, controllerId);
-    if (!Array.isArray(gy) || gy.length === 0) return null;
+    if (!Array.isArray(gy)) return null;
+    if (gy.length === 0) return false;
     const vals = new Set<number>();
     let sawUnknown = false;
     for (const c of gy) {
@@ -7860,6 +8005,30 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it had a counter on it" (best-effort)
   if (/^if\s+it\s+had\s+a\s+counter\s+on\s+it$/i.test(clause)) {
+    // First preference: explicit object snapshots passed in refs.
+    const refObjCandidates: any[] = [];
+    try {
+      const r: any = refs as any;
+      if (r?.itPermanent) refObjCandidates.push(r.itPermanent);
+      if (r?.itCreature) refObjCandidates.push(r.itCreature);
+      if (r?.thatPermanent) refObjCandidates.push(r.thatPermanent);
+      if (r?.thatCreature) refObjCandidates.push(r.thatCreature);
+      if (r?.it) refObjCandidates.push(r.it);
+      if (r?.that) refObjCandidates.push(r.that);
+    } catch {
+      // ignore
+    }
+
+    for (const obj of refObjCandidates) {
+      const counters = (obj as any)?.counters ?? (obj as any)?.card?.counters;
+      if (!counters || typeof counters !== 'object') continue;
+      const total: number = (Object.values(counters as Record<string, unknown>) as unknown[]).reduce<number>(
+        (sum: number, v: unknown) => sum + (typeof v === 'number' ? v : 0),
+        0
+      );
+      return total > 0;
+    }
+
     // Prefer the object we're evaluating this clause on when it has explicit counter tracking.
     // (In the audit probe, refs contains unrelated `thatCreatureId` fields that would otherwise mislead this clause.)
     const hasCountersOnSource =
@@ -7875,7 +8044,7 @@ function evaluateInterveningIfClauseInternal(
       (hasCountersOnSource ? sourcePermanent : (typeof fallbackId === 'string' && fallbackId ? findBattlefieldPermanent(ctx, fallbackId) : null)) ??
       sourcePermanent;
     if (!perm) return null;
-    const counters = (perm as any)?.counters;
+    const counters = (perm as any)?.counters ?? (perm as any)?.card?.counters;
     if (!counters || typeof counters !== 'object') return null;
     const total: number = (Object.values(counters as Record<string, unknown>) as unknown[]).reduce<number>(
       (sum: number, v: unknown) => sum + (typeof v === 'number' ? v : 0),
@@ -7886,6 +8055,29 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it didn't die" (best-effort)
   if (/^if\s+it\s+didn'?t\s+die$/i.test(clause)) {
+    // Optional: if the trigger system supplies a concrete "it" id, we can use
+    // replay-stable evidence to reduce nulls.
+    const itId = String(
+      (refs as any)?.itPermanentId ??
+        (refs as any)?.itCreatureId ??
+        (refs as any)?.thatPermanentId ??
+        (refs as any)?.thatCreatureId ??
+        ''
+    ).trim();
+
+    if (itId) {
+      // Positive evidence: still on the battlefield => it didn't die.
+      const stillOnBattlefield = findBattlefieldPermanent(ctx, itId);
+      if (stillOnBattlefield) return true;
+
+      // Negative evidence (creatures only): if we recorded this creature as dying this turn,
+      // then "it didn't die" is definitively false.
+      const diedIds: any = (ctx as any).state?.creaturesDiedThisTurnIds;
+      if (Array.isArray(diedIds) && diedIds.includes(itId)) return false;
+
+      // Otherwise ambiguous (could have been bounced/exiled, etc.)
+    }
+
     const died =
       (refs as any)?.itDied ??
       (refs as any)?.died ??
@@ -9220,7 +9412,7 @@ function evaluateInterveningIfClauseInternal(
 
   // Alternate cost / casting metadata templates
   // These typically refer to the triggering spell/ability on the stack.
-  const getTriggeringStackItemForInterveningIf = (): any | null => {
+  function getTriggeringStackItemForInterveningIf(): any | null {
     const fromRefs = (refs as any)?.stackItem;
     if (fromRefs) return fromRefs;
 
@@ -9231,7 +9423,7 @@ function evaluateInterveningIfClauseInternal(
     if (!stackId) return null;
     const stack: any[] = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack : [];
     return stack.find((it: any) => it && String(it.id) === String(stackId)) ?? null;
-  };
+  }
 
   // "if evidence was collected"
   if (/^if\s+evidence\s+was\s+collected$/i.test(clause)) {
@@ -9461,12 +9653,13 @@ function evaluateInterveningIfClauseInternal(
           ]);
         if (n !== null && n > 0) return true;
       }
-      return false;
+      // Positive-only: absence here doesn't prove non-snow spend, because floating mana may have been snow.
+      return null;
     }
 
     const snowColorsSpent = (item as any)?.snowManaColorsSpent ?? (item as any)?.snowColorsSpent ?? (item as any)?.card?.snowManaColorsSpent;
     if (Array.isArray(snowColorsSpent)) {
-      return snowColorsSpent.some((c: any) => colorSet.has(String(c || '').toUpperCase()));
+      return snowColorsSpent.some((c: any) => colorSet.has(String(c || '').toUpperCase())) ? true : null;
     }
 
     return null;
@@ -10767,7 +10960,7 @@ function evaluateInterveningIfClauseInternal(
     if (landCount < 4) return false;
 
     const titania = findBattlefieldPermanentsByName(ctx, 'titania');
-    if (!titania.length) return null;
+    if (!titania.length) return false;
     let sawOwner = false;
     for (const p of titania) {
       if (!p) continue;
@@ -10877,12 +11070,31 @@ function evaluateInterveningIfClauseInternal(
       const battlefield = (ctx as any).state?.battlefield;
       if (!Array.isArray(battlefield)) return null;
 
-      const isOwnedAndControlledByYou = (p: any): boolean | null => {
-        if (!p) return null;
-        if (String(p.controller || '') !== String(controllerId)) return false;
-        const owner = (p as any).owner;
-        if (typeof owner !== 'string') return null;
-        return String(owner) === String(controllerId);
+      const evalSide = (candidates: any[]): boolean | null => {
+        if (!candidates.length) return false;
+
+        let anyControlled = false;
+        let anyOwnedAndControlled = false;
+        let sawUnknownOwner = false;
+
+        for (const p of candidates) {
+          if (!p) continue;
+          if (String(p.controller || '') !== String(controllerId)) continue;
+          anyControlled = true;
+          const owner = (p as any).owner;
+          if (typeof owner !== 'string') {
+            sawUnknownOwner = true;
+            continue;
+          }
+          if (String(owner) === String(controllerId)) {
+            anyOwnedAndControlled = true;
+            break;
+          }
+        }
+
+        if (anyOwnedAndControlled) return true;
+        if (!anyControlled) return false;
+        return sawUnknownOwner ? null : false;
       };
 
       const leftCandidates: any[] = [];
@@ -10892,15 +11104,15 @@ function evaluateInterveningIfClauseInternal(
       } else {
         leftCandidates.push(...findBattlefieldPermanentsByName(ctx, leftRaw));
       }
-      if (!leftCandidates.length) return null;
-
       const rightCandidates = findBattlefieldPermanentsByName(ctx, rightNameLower);
-      if (!rightCandidates.length) return null;
 
-      const leftVals = leftCandidates.map(isOwnedAndControlledByYou);
-      const rightVals = rightCandidates.map(isOwnedAndControlledByYou);
-      if (leftVals.some((v) => v === null) || rightVals.some((v) => v === null)) return null;
-      return leftVals.some((v) => v === true) && rightVals.some((v) => v === true);
+      const leftVal = evalSide(leftCandidates);
+      if (leftVal === false) return false;
+      const rightVal = evalSide(rightCandidates);
+      if (rightVal === false) return false;
+
+      if (leftVal === true && rightVal === true) return true;
+      return null;
     }
   }
 
