@@ -7524,22 +7524,27 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+that\s+player\s+didn'?t\s+cast\s+a\s+spell\s+this\s+turn$/i.test(clause)) {
     const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
     if (!thatPlayerId) return null;
-    const spells = (ctx as any).state?.spellsCastThisTurn;
-    if (!Array.isArray(spells)) return null;
-    return !spells.some((s: any) => String(s?.casterId ?? s?.controller ?? '') === thatPlayerId);
+    return getSpellsCastThisTurnByPlayerCount(ctx, thatPlayerId) === 0;
   }
 
   // "if that player didn't cast a creature spell this turn"
   if (/^if\s+that\s+player\s+didn'?t\s+cast\s+a\s+creature\s+spell\s+this\s+turn$/i.test(clause)) {
     const thatPlayerId = String((refs as any)?.thatPlayerId ?? (refs as any)?.referencedPlayerId ?? (refs as any)?.theirPlayerId ?? '').trim();
     if (!thatPlayerId) return null;
-    const spells = (ctx as any).state?.spellsCastThisTurn;
-    if (!Array.isArray(spells)) return null;
-    return !spells.some((s: any) => {
-      if (String(s?.casterId ?? s?.controller ?? '') !== thatPlayerId) return false;
-      const tl = String(s?.card?.type_line ?? '').toLowerCase();
-      return tl.includes('creature');
-    });
+    const spells = getSpellsCastThisTurn(ctx).filter((s: any) => String(s?.casterId ?? s?.controller ?? '') === thatPlayerId);
+    if (spells.length === 0) return true;
+
+    let sawUnknownType = false;
+    for (const s of spells) {
+      const tl = String(s?.card?.type_line ?? s?.type_line ?? '').toLowerCase();
+      if (!tl) {
+        sawUnknownType = true;
+        continue;
+      }
+      if (tl.includes('creature')) return false;
+    }
+
+    return sawUnknownType ? null : true;
   }
 
   // "if that opponent has more life than another of your opponents"
@@ -7623,15 +7628,60 @@ function evaluateInterveningIfClauseInternal(
 
   // "if one or more players being attacked are poisoned"
   if (/^if\s+one\s+or\s+more\s+players\s+being\s+attacked\s+are\s+poisoned$/i.test(clause)) {
+    // Prefer per-combat tracking. This is replay-stable and treats attacks on planeswalkers/battles
+    // as attacks on their controller (i.e., the defending player).
+    const tracked = (ctx as any).state?.attackedDefendingPlayersThisCombatByPlayer;
+    if (tracked && typeof tracked === 'object') {
+      const attacked = new Set<string>();
+      let sawAnyList = false;
+      for (const v of Object.values(tracked as any)) {
+        if (!Array.isArray(v)) continue;
+        sawAnyList = true;
+        for (const pid of v) {
+          const id = String(pid || '').trim();
+          if (id) attacked.add(id);
+        }
+      }
+
+      if (!sawAnyList) return null;
+      if (attacked.size === 0) return false;
+      return Array.from(attacked).some((pid) => getPoisonCounters(ctx, pid) > 0);
+    }
+
+    // Fallback: derive attacked players from battlefield attacker objects.
+    // If attackers are aiming at a permanent id (planeswalker/battle), resolve its controller.
     const battlefield = (ctx as any).state?.battlefield;
     if (!Array.isArray(battlefield)) return null;
+
     const attacked = new Set<string>();
+    let sawAttacker = false;
+    let sawUnknown = false;
+
     for (const p of battlefield) {
+      if (!p) continue;
       const a = (p as any)?.attacking;
-      if (typeof a === 'string' && a) attacked.add(String(a));
+      if (typeof a !== 'string' || !a) continue;
+
+      sawAttacker = true;
+      const target = String(a).trim();
+      if (!target) continue;
+
+      if (target.startsWith('perm_')) {
+        const targetPerm = battlefield.find((q: any) => q && String(q?.id ?? '').trim() === target);
+        const controller = String((targetPerm as any)?.controller ?? '').trim();
+        if (controller) attacked.add(controller);
+        else sawUnknown = true;
+      } else {
+        attacked.add(target);
+      }
     }
-    if (attacked.size === 0) return false;
-    return Array.from(attacked).some((pid) => getPoisonCounters(ctx, pid) > 0);
+
+    if (attacked.size > 0) {
+      if (Array.from(attacked).some((pid) => getPoisonCounters(ctx, pid) > 0)) return true;
+      return sawUnknown ? null : false;
+    }
+
+    return sawAttacker && sawUnknown ? null : false;
   }
 
   // "if you attacked with exactly one other creature this combat"
@@ -11583,33 +11633,64 @@ function evaluateInterveningIfClauseInternal(
 
     const getAttackTargetId = (p: any): string | null => {
       const v = (p as any).attackingTargetId ?? (p as any).attackedPlayerId ?? (p as any).defendingPlayerId;
-      if (typeof v === 'string' && v) return v;
-      if (typeof (p as any).attacking === 'string' && (p as any).attacking) return (p as any).attacking;
+      if (typeof v === 'string' && v) return String(v).trim();
+      if (typeof (p as any).attacking === 'string' && (p as any).attacking) return String((p as any).attacking).trim();
       return null;
     };
 
     const sourceTarget = getAttackTargetId(sourcePermanent);
     if (sourceTarget !== thatPlayerId) return null;
 
-    let countToThatPlayer = 0;
+    // Prefer per-combat declared-attacker tracking when available, since it provides a complete list of attackers.
+    // This lets us safely answer `true` even when there are other attackers (as long as none attack that player).
+    try {
+      const declaredMap = (ctx as any).state?.attackersDeclaredThisCombatByPlayer;
+      const declaredRaw = declaredMap && typeof declaredMap === 'object' ? (declaredMap as any)[String(controllerId)] : null;
+      if (Array.isArray(declaredRaw) && declaredRaw.length > 0) {
+        const attackerIds = declaredRaw
+          .map((a: any) => String((a as any)?.id ?? a ?? '').trim())
+          .filter((id: string) => Boolean(id));
+
+        if (attackerIds.includes(sourceId)) {
+          for (const attackerId of attackerIds) {
+            if (attackerId === sourceId) continue;
+            const perm = battlefield.find((p: any) => p && String(p?.id ?? '').trim() === attackerId);
+            if (!perm) return null;
+            const t = getAttackTargetId(perm);
+            if (!t) return null;
+            if (t === thatPlayerId) return false;
+          }
+
+          return true;
+        }
+      }
+    } catch {
+      // best-effort only; fall through to battlefield scan
+    }
+
+    // Fallback: scan battlefield for other attackers that clearly attack that player.
     let sawAttackerWithUnknownTarget = false;
     for (const p of battlefield) {
       if (!p) continue;
-      const tl = String(p?.card?.type_line || '').toLowerCase();
-      if (!tl.includes('creature')) continue;
-      const isAttacking = (p as any).attacking === true || (p as any).isAttacking === true || typeof (p as any).attacking === 'string' || typeof (p as any).attackingTargetId === 'string';
+      const pid = String((p as any)?.id ?? '').trim();
+      if (pid && pid === sourceId) continue;
+
+      const isAttacking =
+        (p as any).attacking === true ||
+        (p as any).isAttacking === true ||
+        typeof (p as any).attacking === 'string' ||
+        typeof (p as any).attackingTargetId === 'string';
       if (!isAttacking) continue;
+
       const t = getAttackTargetId(p);
       if (!t) {
         sawAttackerWithUnknownTarget = true;
         continue;
       }
-      if (t === thatPlayerId) countToThatPlayer++;
+      if (t === thatPlayerId) return false;
     }
 
-    if (countToThatPlayer >= 2) return false;
-    if (countToThatPlayer === 1) return true;
-    return sawAttackerWithUnknownTarget ? null : false;
+    return sawAttackerWithUnknownTarget ? null : true;
   }
 
   // "if you both own and control <X> and a creature named <Y>" (best-effort)
