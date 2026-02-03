@@ -4755,6 +4755,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Broadcast mana pool update to ensure client sees the new floating mana
       broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+
+      // Intervening-if support: mark that this ability produced mana this turn (best-effort).
+      try {
+        const stateAny = game.state as any;
+        stateAny.addedManaWithThisAbilityThisTurn = stateAny.addedManaWithThisAbilityThisTurn || {};
+        stateAny.addedManaWithThisAbilityThisTurn[String(pid)] = stateAny.addedManaWithThisAbilityThisTurn[String(pid)] || {};
+        const permKey = String(permanentId);
+        const abilityKeyRaw = abilityId != null ? String(abilityId) : '';
+        const k = abilityKeyRaw ? `${permKey}:${abilityKeyRaw}` : permKey;
+        (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
+      } catch {}
       
       appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", { playerId: pid, permanentId, abilityId, manaColor });
       
@@ -5958,6 +5969,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             mandatory: true,
             selectionKind: 'any_color',
             permanentId,
+            abilityId,
             cardName,
             amount: totalAmount,
           } as any);
@@ -6053,6 +6065,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 mandatory: true,
                 selectionKind: 'any_color',
                 permanentId,
+                abilityId,
                 cardName,
                 amount: finalTotal,
               } as any);
@@ -6134,6 +6147,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }
+
+    // Intervening-if support: if this activation was a mana ability and we didn't early-return
+    // for a later color-choice step, then mana was added immediately.
+    try {
+      if (isManaAbility) {
+        const stateAny = game.state as any;
+        stateAny.addedManaWithThisAbilityThisTurn = stateAny.addedManaWithThisAbilityThisTurn || {};
+        stateAny.addedManaWithThisAbilityThisTurn[String(pid)] = stateAny.addedManaWithThisAbilityThisTurn[String(pid)] || {};
+        const permKey = String(permanentId);
+        const abilityKeyRaw = abilityId != null ? String(abilityId) : '';
+        const k = abilityKeyRaw ? `${permKey}:${abilityKeyRaw}` : permKey;
+        (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
+      }
+    } catch {}
     
     appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
       playerId: pid, 

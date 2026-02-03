@@ -84,11 +84,11 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when `state.tokenCounters` or `state.tokenCounterCount` exists as an object. Uses the tracked numeric value for the player; if tracking exists but the player has no entry, treats it as 0 (returns `false`). Returns `null` only when token-counter tracking is absent.
 
 ### Item 12
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6331
 - Comment: // "if you haven't added mana with this ability this turn" (best-effort)
 - Nearby check: `if (/^if\s+you\s+haven'?t\s+added\s+mana\s+with\s+this\s+ability\s+this\s+turn$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when per-turn tracking exists at `state.addedManaWithThisAbilityThisTurn[playerId][abilityKey]` (where `abilityKey` is `${permanentId}:${abilityId}` when available, or a permanent-scoped boolean when explicitly recorded). Evidence is recorded via persisted events (`activateManaAbility` and mana-like `activateBattlefieldAbility`) and replayed in `applyEvent`. If tracking is absent or the ability identity is unknown, returns `null` conservatively.
 
 ### Item 13
 - Status: [ ]
@@ -105,11 +105,11 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: TBD
 
 ### Item 15
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6386
 - Comment: // "if your opponents control no permanents with bounty counters on them" (best-effort)
 - Nearby check: `if (/^if\s+your\s+opponents\s+control\s+no\s+permanents\s+with\s+bounty\s+counters\s+on\s+them$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when the battlefield array is tracked and counters tracking exists on-battlefield (at least one permanent has a `counters` object). Returns `false` if any opponent-controlled permanent has `bounty > 0`; otherwise `true`. Returns `null` when opponents are unknown or when counters tracking is entirely absent.
 
 ### Item 16
 - Status: [x]
@@ -133,88 +133,88 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when the graveyard array is tracked and cards have mana value/cmc info. Treats an empty graveyard as `false` (0 distinct mana values). Returns `null` only when mana values are unknown for one or more cards.
 
 ### Item 19
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6472
 - Comment: // "if Rasputin started the turn untapped" (best-effort)
 - Nearby check: `if (/^if\s+rasputin\s+started\s+the\s+turn\s+untapped$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when `nextTurn` snapshots per-permanent untapped-at-turn-begin state into `state.permanentUntappedAtTurnBegin[permanentId]`. Clause evaluation prefers the triggering `sourcePermanent.id` and returns `true/false` from the snapshot (missing key under an existing snapshot ⇒ `false`). Returns `null` only when no snapshot exists and no explicit boolean is present.
 
 ### Item 20
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6483
 - Comment: // "if there are one or more oil counters on Glistening Extractor" (best-effort)
 - Nearby check: `if (/^if\s+there\s+are\s+one\s+or\s+more\s+oil\s+counters\s+on\s+glistening\s+extractor$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic only when counters tracking is present on the battlefield (at least one permanent has a `counters` object). When tracking exists, reads the Extractor's oil counter count (missing/omitted counters object is treated as 0) and returns `true/false`. Returns `null` when counters tracking is entirely absent.
 
 ### Item 21
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7021
 - Comment: // "if that creature was a Horror" (best-effort)
 - Nearby check: `if (/^if\s+that\s+creature\s+was\s+a\s+horror$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when a replay-stable referenced creature object snapshot is available in `refs` (e.g., `refs.thatCreature`/`refs.that`) with a known `type_line`. Falls back to battlefield lookup by `refs.thatCreatureId` when the creature is still present. Returns `null` when the referenced creature/type_line is unknown.
 
 ### Item 22
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7191
 - Comment: // "if this creature is monstrous" (best-effort)
 - Nearby check: `if (/^if\s+this\s+creature\s+is\s+monstrous$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic only when the source permanent carries an explicit monstrous boolean flag (e.g., `permanent.monstrous` / `permanent.isMonstrous`). Returns `null` when that status is not tracked on the permanent.
 
 ### Item 23
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7205
 - Comment: // "if this creature regenerated this turn" (best-effort)
 - Nearby check: `if (/^if\s+this\s+creature\s+regenerated\s+this\s+turn$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when either `refs.regeneratedThisTurn` / `refs.wasRegeneratedThisTurn` is explicitly provided, or when the source permanent carries an explicit boolean flag (e.g., `permanent.regeneratedThisTurn` / `permanent.wasRegeneratedThisTurn`). Returns `null` when no explicit tracking exists.
 
 ### Item 24
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7216
 - Comment: // "if this creature is suspected" (best-effort)
 - Nearby check: `if (/^if\s+this\s+creature\s+is\s+suspected$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic only when the source permanent carries an explicit suspected boolean flag (e.g., `permanent.suspected` / `permanent.isSuspected`). Returns `null` when that status is not tracked on the permanent.
 
 ### Item 25
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L7230
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L4829
 - Comment: // "if it's not suspected" (best-effort)
-- Nearby check: `if (/^if\s+it'?s\s+not\s+suspected$/i.test(clause)) {`
-- Plan: TBD
+- Nearby check: `if (/^if\s+(?:it'?s\s+not|it\s+is\s+not|it\s+isn'?t|this\s+creature\s+is\s+not|this\s+creature\s+isn'?t)\s+suspected$/i.test(clause)) {`
+- Plan: Deterministic only when the source permanent carries an explicit suspected boolean flag (e.g., `permanent.suspected` / `permanent.isSuspected`). Returns `!suspected` when present; returns `null` when that status is not tracked on the permanent.
 
 ### Item 26
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7241
 - Comment: // "if a creature or planeswalker an opponent controlled was dealt excess damage this turn" (best-effort)
 - Nearby check: `if (/^if\s+a\s+creature\s+or\s+planeswalker\s+an\s+opponent\s+controlled\s+was\s+dealt\s+excess\s+damage\s+this\s+turn$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic only when replay-stable excess-damage tracking exists (e.g., `state.excessDamageThisTurnByCreatureId`/`state.excessDamageThisTurnByPermanentId` is present, or opponent permanents carry an explicit boolean `wasDealtExcessDamageThisTurn`). Returns `true` if any opponent-controlled creature/planeswalker is marked; returns `false` only when the tracker exists but no marked opponent permanents are found; returns `null` when tracking is absent or opponents are unknown.
 
 ### Item 27
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L7284
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L7582
 - Comment: // Counters-based artifacts (best-effort)
 - Nearby check: `if (/^if\s+this\s+artifact\s+has\s+loyalty\s+counters\s+on\s+it$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic only when counters tracking is present on the battlefield (at least one permanent has a `counters` object). When tracking exists, treats a missing/omitted counters object as 0 and returns `true/false` based on the source artifact's loyalty/charge counter count; returns `null` when counters tracking is entirely absent.
 
 ### Item 28
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L7342
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L7657
 - Comment: // "if this card is exiled with an <counter> counter on it" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+this\s+card\s+is\s+exiled\s+with\s+an?\s+([a-z\-]+)\s+counter\s+on\s+it$/i);`
-- Plan: TBD
+- Plan: Deterministic only when counters tracking exists somewhere in the game state (battlefield or any exile zone contains at least one `counters` object). When tracking exists, treats a missing/omitted counters object as 0 and returns `true/false` from the exiled card's counter count (including a fallback to `sourcePermanent.card.counters` when present). Returns `null` when counters tracking is entirely absent.
 
 ### Item 29
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L7357
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L7726
 - Comment: // "if three or more cards have been exiled with this artifact" (best-effort)
 - Nearby check: `if (/^if\s+three\s+or\s+more\s+cards\s+have\s+been\s+exiled\s+with\s+this\s+artifact$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic `true` when at least 3 matching exiled cards are found. Deterministic `false` only when exile zones are fully tracked (every player has a `zones[playerId].exile` array) and fewer than 3 matches exist. For linked-exile cards (per `detectLinkedExileEffect`), prefers `state.linkedExiles` as authoritative and counts entries by `exilingPermanentId`.
 
 ### Item 30
-- Status: [ ]
-- Source: server/src/state/modules/triggers/intervening-if.ts#L7376
+- Status: [x]
+- Source: server/src/state/modules/triggers/intervening-if.ts#L7770
 - Comment: // "if there are N or more cards exiled with <Name>" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+there\s+are\s+([a-z0-9]+)\s+or\s+more\s+cards\s+exiled\s+with\s+(.+)$/i);`
-- Plan: TBD
+- Plan: Finds a unique battlefield permanent matching `<Name>`. Deterministic `true` when at least N matching exiled cards are found. Deterministic `false` only when exile zones are fully tracked (every player has a `zones[playerId].exile` array) and fewer than N matches exist; otherwise returns `null` to avoid replay-unsafe false negatives. For linked-exile cards, prefers counting `state.linkedExiles` entries by `exilingPermanentId`.
 
 ### Item 31
 - Status: [ ]
@@ -259,42 +259,42 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Improved: prefers `sourcePermanent` when its name matches (avoids multi-copy ambiguity) and falls back to per-type ETB id trackers (`*EnteredBattlefieldThisTurnIdsByController`) when present. Still best-effort for lands / cases with missing tracking.
 
 ### Item 37
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7563
 - Comment: // "if <Name> has counters on it" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+(.+?)\s+has\s+counters\s+on\s+it$/i);`
-- Plan: Improved: prefers `sourcePermanent` when its name matches; otherwise requires a unique battlefield match. Still `null` if counter map is absent.
+- Plan: Improved: if the named permanent has an explicit `counters` map, deterministically returns `true/false`. If it omits the counters map, returns deterministic `false` only when there is replay-stable evidence counters tracking exists elsewhere on the battlefield; otherwise keeps `null`.
 
 ### Item 38
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7586
 - Comment: // "if he/she/it was cast" and "if this <thing> was cast" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+(?:he|she|it|this\s+(?:spell|creature|card))\s+was\s+cast$/i);`
-- Plan: Improved: treats `castSourceZone` as positive evidence (set when resolving a stack item into a permanent). Still best-effort overall (absence is not authoritative).
+- Plan: Improved: returns `true` on replay-stable positive evidence (`castSourceZone`/`source`/`fromZone` strings or any `castFrom*`/`wasCastFromSuspend` flag presence). Returns `false` only from explicit booleans (e.g. refs/fields). Otherwise `null`.
 
 ### Item 39
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7600
 - Comment: // "if <Name> is a creature" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+(.+?)\s+is\s+a\s+creature$/i);`
 - Plan: Improved: prefers `sourcePermanent` when its name matches; otherwise requires a unique battlefield match. Uses `type_line` or `card.types` when available.
 
 ### Item 40
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7618
 - Comment: // "if <Name> is in exile with an <counter> counter on it" (best-effort)
 - Nearby check: `const m = clause.match(/^if\s+(.+?)\s+is\s+in\s+exile\s+with\s+an?\s+([a-z\-]+)\s+counter\s+on\s+it$/i);`
-- Plan: Improved: supports an optional refs-provided explicit exile id (e.g. `refs.exiledCardId`) as a disambiguation hint; otherwise searches exile zones by name and returns `true` if ANY matching exiled object has the counter, `false` if all deterministically have 0, `null` only when counter data is missing.
+- Plan: Improved: supports an optional refs-provided explicit exile id (e.g. `refs.exiledCardId`) as a disambiguation hint; otherwise searches exile zones by name and returns `true` if ANY matching exiled object has the counter. Returns deterministic `false` only when exile zones are fully tracked (for “not found”) or when counters are deterministically 0 (treats missing counters maps as 0 only when there is evidence counters tracking exists elsewhere). Otherwise `null`.
 
 ### Item 41
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7646
 - Comment: // "if it had a counter on it" (best-effort)
 - Nearby check: `if (/^if\s+it\s+had\s+a\s+counter\s+on\s+it$/i.test(clause)) {`
 - Plan: Improved: if refs supplies an explicit object snapshot (e.g. `refs.itPermanent` / `refs.thatCreature`) with a `counters` map, uses it deterministically; otherwise falls back to resolving an explicit `itPermanentId`/`itCreatureId` on the battlefield. Still best-effort (no reliable LKI once it leaves).
 
 ### Item 42
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L7672
 - Comment: // "if it didn't die" (best-effort)
 - Nearby check: `if (/^if\s+it\s+didn'?t\s+die$/i.test(clause)) {`

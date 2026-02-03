@@ -1990,6 +1990,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const permId = (e as any).permanentId;
         const manaColor = (e as any).manaColor;
         try {
+          // Replay-stable per-turn tracking for intervening-if templates like
+          // "if you haven't added mana with this ability this turn".
+          try {
+            const stateAny = ctx.state as any;
+            const playerId = (e as any).playerId;
+            const abilityId = (e as any).abilityId;
+            const playerKey = playerId != null ? String(playerId) : '';
+            const permKey = permId != null ? String(permId) : '';
+            const abilityKeyRaw = abilityId != null ? String(abilityId) : '';
+            if (playerKey && permKey) {
+              stateAny.addedManaWithThisAbilityThisTurn = stateAny.addedManaWithThisAbilityThisTurn || {};
+              stateAny.addedManaWithThisAbilityThisTurn[playerKey] = stateAny.addedManaWithThisAbilityThisTurn[playerKey] || {};
+
+              // Prefer an ability-specific key when available; otherwise fall back to permanent id.
+              const k = abilityKeyRaw ? `${permKey}:${abilityKeyRaw}` : permKey;
+              (stateAny.addedManaWithThisAbilityThisTurn[playerKey] as any)[k] = true;
+            }
+          } catch {
+            // best-effort only
+          }
+
           if (permId) {
             const battlefield = ctx.state.battlefield || [];
             const perm = battlefield.find((p: any) => p.id === permId);
@@ -2015,6 +2036,42 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(activateManaAbility): failed", err);
+        }
+        break;
+      }
+
+      case "activateBattlefieldAbility": {
+        // Best-effort replay hook: this event is emitted for both mana and non-mana activations.
+        // We only use it for replay-stable evidence tracking.
+        try {
+          const stateAny = ctx.state as any;
+          const playerId = (e as any).playerId;
+          const permId = (e as any).permanentId;
+          const abilityId = (e as any).abilityId;
+          const abilityText = String((e as any).abilityText || '');
+
+          // Detect mana ability (mirrors socket-side checks): produces mana and doesn't target.
+          const isManaAbility =
+            /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
+            !/target/i.test(abilityText);
+
+          if (!isManaAbility) break;
+
+          const playerKey = playerId != null ? String(playerId) : '';
+          const permKey = permId != null ? String(permId) : '';
+          const abilityKeyRaw = abilityId != null ? String(abilityId) : '';
+          if (playerKey && permKey) {
+            stateAny.addedManaWithThisAbilityThisTurn = stateAny.addedManaWithThisAbilityThisTurn || {};
+            stateAny.addedManaWithThisAbilityThisTurn[playerKey] = stateAny.addedManaWithThisAbilityThisTurn[playerKey] || {};
+            const k = abilityKeyRaw ? `${permKey}:${abilityKeyRaw}` : permKey;
+            (stateAny.addedManaWithThisAbilityThisTurn[playerKey] as any)[k] = true;
+          }
+
+          try {
+            if (typeof ctx.bumpSeq === 'function') ctx.bumpSeq();
+          } catch {}
+        } catch (err) {
+          debugWarn(1, 'applyEvent(activateBattlefieldAbility): failed', err);
         }
         break;
       }

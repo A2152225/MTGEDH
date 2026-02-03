@@ -2427,6 +2427,19 @@ export function nextTurn(ctx: GameContext) {
       // best-effort only
     }
 
+    // Clear per-turn mana-ability usage tracking (for intervening-if templates like
+    // "if you haven't added mana with this ability this turn").
+    // Initialize per-player objects so missing keys are provably "not yet".
+    try {
+      const stateAny = (ctx as any).state as any;
+      stateAny.addedManaWithThisAbilityThisTurn = {};
+      for (const pid of players) {
+        stateAny.addedManaWithThisAbilityThisTurn[String(pid)] = {};
+      }
+    } catch {
+      // best-effort only
+    }
+
     // Remove expired goad effects at the start of this player's turn (Rule 701.15a)
     try {
       const battlefield = (ctx as any).state.battlefield || [];
@@ -2434,6 +2447,21 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.battlefield = updatedBattlefield;
     } catch (err) {
       debugWarn(1, `${ts()} [nextTurn] Failed to remove expired goads:`, err);
+    }
+
+    // Snapshot "started the turn untapped" per permanent (before untap step runs).
+    // This is replay-stable because it is derived from authoritative state at nextTurn.
+    try {
+      const stateAny = (ctx as any).state as any;
+      const battlefield = Array.isArray(stateAny?.battlefield) ? (stateAny.battlefield as any[]) : [];
+      stateAny.permanentUntappedAtTurnBegin = {};
+      for (const p of battlefield) {
+        const id = p?.id;
+        if (!id) continue;
+        stateAny.permanentUntappedAtTurnBegin[String(id)] = !(p as any).tapped;
+      }
+    } catch {
+      // best-effort only
     }
 
     // Reset to beginning of turn
