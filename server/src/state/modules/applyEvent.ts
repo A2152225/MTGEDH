@@ -1144,6 +1144,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               applyToStackItem('evidenceWasCollected', true);
               applyToStackItem('collectedEvidence', true);
             }
+
+            // Bargain (explicit, replay-stable boolean if present)
+            const rawWasBargained =
+              (e as any).wasBargained ??
+              (e as any).bargained ??
+              (e as any).card?.wasBargained ??
+              (e as any).card?.card?.wasBargained;
+            if (typeof rawWasBargained === 'boolean') {
+              applyToStackItem('wasBargained', rawWasBargained);
+              if ((e as any).bargainResolved === true) {
+                applyToStackItem('bargainResolved', true);
+              }
+            }
           }
         } catch {
           // best-effort only

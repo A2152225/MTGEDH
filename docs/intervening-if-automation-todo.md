@@ -56,11 +56,11 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when cast/payment metadata includes `wasKicked` (boolean). Also supports positive-only kick count evidence (`kickerPaidCount` / `timesKicked` / `kickedTimes` > 0) to conclude the clause is false. Still returns `null` when we cannot safely conclude not-kicked.
 
 ### Item 8
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L4328
 - Comment: // "if it was bargained" (best-effort)
 - Nearby check: `if (/^if\s+it\s+was\s+bargained$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when the source object carries an explicit boolean `wasBargained` (stored on the stack item and its `card`). Casting from hand now prompts an optional Bargain sacrifice (artifact/enchantment/token) via Resolution Queue and persists `wasBargained` through `castSpell` events and replay. Returns `null` when Bargain choice is untracked.
 
 ### Item 9
 - Status: [x]
@@ -70,18 +70,18 @@ Legend: [ ] not started, [~] in progress, [x] done, [!] blocked
 - Plan: Deterministic when `enteredFromCast/wasCast` is present; otherwise returns `true` when replay-stable cast provenance exists (`castSourceZone`/`fromZone`/`source` or any `castFrom*` boolean). Returns `null` conservatively when cast provenance is not tracked.
 
 ### Item 10
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L5015
 - Comment: // "if all nonland permanents you control are white" (best-effort)
 - Nearby check: `if (/^if\s+all\s+nonland\s+permanents\s+you\s+control\s+are\s+white$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when the battlefield is tracked as an array. Returns `false` if any controlled nonland permanent is known nonwhite, `true` if all are known white (or there are none), and `null` only when a controlled nonland permanent has unknown color data and no known nonwhite permanent exists.
 
 ### Item 11
-- Status: [ ]
+- Status: [x]
 - Source: server/src/state/modules/triggers/intervening-if.ts#L6324
 - Comment: // "if you have four token counters" (best-effort)
 - Nearby check: `if (/^if\s+you\s+have\s+four\s+token\s+counters$/i.test(clause)) {`
-- Plan: TBD
+- Plan: Deterministic when `state.tokenCounters` or `state.tokenCounterCount` exists as an object. Uses the tracked numeric value for the player; if tracking exists but the player has no entry, treats it as 0 (returns `false`). Returns `null` only when token-counter tracking is absent.
 
 ### Item 12
 - Status: [ ]

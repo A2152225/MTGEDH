@@ -487,6 +487,8 @@ export interface AdditionalCostPaymentStep extends BaseResolutionStep {
   readonly costType: 'discard' | 'sacrifice';
   readonly amount: number;
   readonly filter?: string;
+  /** Optional keyword identifier for additional-cost-like prompts (e.g. 'bargain'). */
+  readonly additionalCostKeyword?: string;
   readonly title: string;
   readonly imageUrl?: string;
   readonly availableCards?: readonly { id: string; name: string; imageUrl?: string; typeLine?: string }[];
