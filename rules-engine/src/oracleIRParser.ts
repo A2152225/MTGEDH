@@ -151,6 +151,9 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       .replace(/\+\s*1\s*\/\s*\+\s*1/g, '+1/+1')
       .replace(/\-\s*1\s*\/\s*\-\s*1/g, '-1/-1');
 
+    // Oracle text often says "an additional <counter> counter".
+    counterType = counterType.replace(/^additional\s+/i, '');
+
     // Drop trailing words like "counter"/"counters" if they sneak in.
     counterType = counterType.replace(/\bcounters?\b/gi, '').trim();
     if (!counterType) return undefined;
@@ -494,6 +497,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         .replace(/\s+/g, ' ')
         .replace(/\+\s*1\s*\/\s*\+\s*1/g, '+1/+1')
         .replace(/\-\s*1\s*\/\s*\-\s*1/g, '-1/-1');
+      counterType = counterType.replace(/^additional\s+/i, '');
       counterType = counterType.replace(/\bcounters?\b/gi, '').trim();
       if (!counterType) return undefined;
       return { [counterType]: n };

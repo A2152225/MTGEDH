@@ -128,6 +128,15 @@ describe('Oracle IR Parser', () => {
     expect(String(create.token || '').toLowerCase()).toContain('soldier');
   });
 
+  it('parses create-token with "an additional" counter wording', () => {
+    const text = 'Create a Treasure token with an additional +1/+1 counter on it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.withCounters).toEqual({ '+1/+1': 1 });
+  });
+
   it('applies follow-up "enters tapped" clauses to the previous create-token step', () => {
     const text = 'Create a Treasure token. It enters tapped.';
     const ir = parseOracleTextToIR(text);
@@ -232,6 +241,16 @@ describe('Oracle IR Parser', () => {
     const create = steps.find(s => s.kind === 'create_token') as any;
     expect(create).toBeTruthy();
     expect(create.withCounters).toEqual({ '+1/+1': 2 });
+  });
+
+  it('applies follow-up "enters with an additional" counter wording', () => {
+    const text = 'Create a Treasure token. It enters with an additional +1/+1 counter on it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.withCounters).toEqual({ '+1/+1': 1 });
   });
 
   it('supports follow-up "enter the battlefield" phrasing for tapped + counters', () => {
