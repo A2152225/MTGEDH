@@ -1,13 +1,13 @@
 {
   "meta": {
     "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
-    "generatedAt": "2026-02-03T18:20:02.818Z",
+    "generatedAt": "2026-02-04T00:51:16.051Z",
     "cardNameCount": 33395,
     "printingsCount": 34255,
     "totalInterveningIfClausesFound": 706,
     "recognizedCount": 706,
-    "recognizedDecidableCount": 701,
-    "recognizedNullCount": 5,
+    "recognizedDecidableCount": 689,
+    "recognizedNullCount": 17,
     "fallbackCount": 0,
     "unknownCount": 0
   },
@@ -559,7 +559,7 @@
         "Ultros, Obnoxious Octopus"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if it's the first combat phase of the turn",
@@ -1274,8 +1274,7 @@
         "Deceit",
         "Emptiness"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if {G}{G} was spent to cast it",
@@ -1286,7 +1285,7 @@
         "Wistfulness"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if {R} was spent to cast it",
@@ -1296,8 +1295,7 @@
         "Gruul Scrapper",
         "Steamcore Weird"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if {R}{R} was spent to cast it",
@@ -1307,8 +1305,7 @@
         "Catharsis",
         "Vibrance"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if {U}{U} was spent to cast it",
@@ -1318,8 +1315,7 @@
         "Deceit",
         "Wistfulness"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if {W}{W} was spent to cast it",
@@ -1329,8 +1325,7 @@
         "Catharsis",
         "Emptiness"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if 4 or more damage was dealt to it this turn",
@@ -1757,8 +1752,7 @@
         "Bloodstone Goblin",
         "Hallar, the Firefletcher"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if the amount of mana spent to cast it was less than its mana value",
@@ -2240,8 +2234,7 @@
       "exampleCards": [
         "Shrieking Grotesque"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if {C} was spent to cast it",
@@ -2250,8 +2243,7 @@
       "exampleCards": [
         "Drowner of Truth // Drowned Jungle"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if {C} wasn't spent to cast it",
@@ -2260,8 +2252,7 @@
       "exampleCards": [
         "Wumpus Aberration"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if {G} was spent to cast it",
@@ -2271,7 +2262,7 @@
         "Tin Street Hooligan"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if {S} of any of that spell's colors was spent to cast it",
@@ -2290,8 +2281,7 @@
       "exampleCards": [
         "Ogre Savant"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if {W} was spent to cast it",
@@ -2300,8 +2290,7 @@
       "exampleCards": [
         "Revenant Patriarch"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if a +1/+1 counter was put on a permanent under your control this turn",
@@ -5567,8 +5556,7 @@
       "exampleCards": [
         "Inga and Esika"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if Tolsimir attacked this combat",
@@ -8120,7 +8108,7 @@
         "Ultros, Obnoxious Octopus"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if it's the first combat phase of the turn",
@@ -8815,17 +8803,6 @@
       "sampleResult": true
     },
     {
-      "clause": "if {B}{B} was spent to cast it",
-      "clauseLower": "if {b}{b} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Deceit",
-        "Emptiness"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
       "clause": "if {G}{G} was spent to cast it",
       "clauseLower": "if {g}{g} was spent to cast it",
       "count": 2,
@@ -8834,51 +8811,7 @@
         "Wistfulness"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if {R} was spent to cast it",
-      "clauseLower": "if {r} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Gruul Scrapper",
-        "Steamcore Weird"
-      ],
-      "evaluation": "recognized",
       "sampleResult": true
-    },
-    {
-      "clause": "if {R}{R} was spent to cast it",
-      "clauseLower": "if {r}{r} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Catharsis",
-        "Vibrance"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if {U}{U} was spent to cast it",
-      "clauseLower": "if {u}{u} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Deceit",
-        "Wistfulness"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if {W}{W} was spent to cast it",
-      "clauseLower": "if {w}{w} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Catharsis",
-        "Emptiness"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
     },
     {
       "clause": "if 4 or more damage was dealt to it this turn",
@@ -9296,17 +9229,6 @@
       ],
       "evaluation": "recognized",
       "sampleResult": false
-    },
-    {
-      "clause": "if that spell was kicked",
-      "clauseLower": "if that spell was kicked",
-      "count": 2,
-      "exampleCards": [
-        "Bloodstone Goblin",
-        "Hallar, the Firefletcher"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
     },
     {
       "clause": "if the amount of mana spent to cast it was less than its mana value",
@@ -9782,36 +9704,6 @@
       "sampleResult": true
     },
     {
-      "clause": "if {B} was spent to cast it",
-      "clauseLower": "if {b} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Shrieking Grotesque"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if {C} was spent to cast it",
-      "clauseLower": "if {c} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Drowner of Truth // Drowned Jungle"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if {C} wasn't spent to cast it",
-      "clauseLower": "if {c} wasn't spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Wumpus Aberration"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
       "clause": "if {G} was spent to cast it",
       "clauseLower": "if {g} was spent to cast it",
       "count": 1,
@@ -9819,7 +9711,7 @@
         "Tin Street Hooligan"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if {S} of any of that spell's colors was spent to cast it",
@@ -9830,26 +9722,6 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
-    },
-    {
-      "clause": "if {U} was spent to cast it",
-      "clauseLower": "if {u} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Ogre Savant"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if {W} was spent to cast it",
-      "clauseLower": "if {w} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Revenant Patriarch"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
     },
     {
       "clause": "if a +1/+1 counter was put on a permanent under your control this turn",
@@ -10070,6 +9942,116 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
+    },
+    {
+      "clause": "if a player is the monarch",
+      "clauseLower": "if a player is the monarch",
+      "count": 1,
+      "exampleCards": [
+        "Fioran Reformist"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a player was dealt 6 or more combat damage this turn",
+      "clauseLower": "if a player was dealt 6 or more combat damage this turn",
+      "count": 1,
+      "exampleCards": [
+        "Sidequest: Play Blitzball // World Champion, Celestial Weapon"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a player was dealt combat damage by a Zombie this turn",
+      "clauseLower": "if a player was dealt combat damage by a zombie this turn",
+      "count": 1,
+      "exampleCards": [
+        "Lost Monarch of Ifnir"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if a player would planeswalk as a result of rolling the planar die",
+      "clauseLower": "if a player would planeswalk as a result of rolling the planar die",
+      "count": 1,
+      "exampleCards": [
+        "Fixed Point in Time"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a source would deal damage",
+      "clauseLower": "if a source would deal damage",
+      "count": 1,
+      "exampleCards": [
+        "Approach My Molten Realm"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if a source would deal damage to that player or a permanent that player controls",
+      "clauseLower": "if a source would deal damage to that player or a permanent that player controls",
+      "count": 1,
+      "exampleCards": [
+        "Lightning, Army of One"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if all lands on the battlefield are Islands",
+      "clauseLower": "if all lands on the battlefield are islands",
+      "count": 1,
+      "exampleCards": [
+        "Quicksilver Fountain"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if all nonland permanents you control are white",
+      "clauseLower": "if all nonland permanents you control are white",
+      "count": 1,
+      "exampleCards": [
+        "Zealots en-Dal"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if an artifact or creature was put into a graveyard from the battlefield this turn",
+      "clauseLower": "if an artifact or creature was put into a graveyard from the battlefield this turn",
+      "count": 1,
+      "exampleCards": [
+        "Ichor Shade"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if an Assassin crewed it this turn",
+      "clauseLower": "if an assassin crewed it this turn",
+      "count": 1,
+      "exampleCards": [
+        "Adrestia"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
+      "clause": "if an Aura you controlled was attached to it",
+      "clauseLower": "if an aura you controlled was attached to it",
+      "count": 1,
+      "exampleCards": [
+        "Dawn Evangel"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
     }
   ],
   "topRecognizedNull": [
@@ -10083,6 +10065,111 @@
         "Jaded Sell-Sword",
         "Marut",
         "Mastermind Plum"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {B}{B} was spent to cast it",
+      "clauseLower": "if {b}{b} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Deceit",
+        "Emptiness"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {R} was spent to cast it",
+      "clauseLower": "if {r} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Gruul Scrapper",
+        "Steamcore Weird"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {R}{R} was spent to cast it",
+      "clauseLower": "if {r}{r} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Catharsis",
+        "Vibrance"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {U}{U} was spent to cast it",
+      "clauseLower": "if {u}{u} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Deceit",
+        "Wistfulness"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {W}{W} was spent to cast it",
+      "clauseLower": "if {w}{w} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Catharsis",
+        "Emptiness"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if that spell was kicked",
+      "clauseLower": "if that spell was kicked",
+      "count": 2,
+      "exampleCards": [
+        "Bloodstone Goblin",
+        "Hallar, the Firefletcher"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {B} was spent to cast it",
+      "clauseLower": "if {b} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Shrieking Grotesque"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {C} was spent to cast it",
+      "clauseLower": "if {c} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Drowner of Truth // Drowned Jungle"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {C} wasn't spent to cast it",
+      "clauseLower": "if {c} wasn't spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Wumpus Aberration"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {U} was spent to cast it",
+      "clauseLower": "if {u} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Ogre Savant"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if {W} was spent to cast it",
+      "clauseLower": "if {w} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Revenant Patriarch"
       ],
       "evaluation": "recognized"
     },
@@ -10110,6 +10197,15 @@
       "count": 1,
       "exampleCards": [
         "Vazi, Keen Negotiator"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if three or more mana from creatures was spent to cast it",
+      "clauseLower": "if three or more mana from creatures was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Inga and Esika"
       ],
       "evaluation": "recognized"
     },

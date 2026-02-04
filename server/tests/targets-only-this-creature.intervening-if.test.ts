@@ -62,4 +62,22 @@ describe('Intervening-if: if that spell targets only this creature', () => {
       } as any)
     ).toBe(null);
   });
+
+  it('can evaluate without sourcePermanent when refs provides thisCreatureId', () => {
+    const ctx = { state: {} } as any;
+
+    expect(
+      evaluateInterveningIfClause(ctx, 'p1', clause, null as any, {
+        thisCreatureId: 'perm_src',
+        stackItem: { targets: ['perm_src'] },
+      } as any)
+    ).toBe(true);
+
+    expect(
+      evaluateInterveningIfClause(ctx, 'p1', clause, null as any, {
+        thisCreatureId: 'perm_src',
+        stackItem: { targets: ['perm_other'] },
+      } as any)
+    ).toBe(false);
+  });
 });

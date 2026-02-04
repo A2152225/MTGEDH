@@ -101,5 +101,27 @@ describe('Intervening-if: targeting clauses prefer refs.stackItem', () => {
         { stackItem: { targets: ['perm_missing'] } } as any
       )
     ).toBe(null);
+
+    // Works without sourcePermanent when refs provides the source permanent id.
+    expect(
+      evaluateInterveningIfClause(
+        g,
+        'p1',
+        'if it targets one or more other permanents you control',
+        null as any,
+        { sourcePermanentId: 'perm_src', stackItem: { targets: ['perm_other'] } } as any
+      )
+    ).toBe(true);
+
+    // Without sourcePermanent, still excludes itself.
+    expect(
+      evaluateInterveningIfClause(
+        g,
+        'p1',
+        'if it targets one or more other permanents you control',
+        null as any,
+        { sourcePermanentId: 'perm_src', stackItem: { targets: ['perm_src'] } } as any
+      )
+    ).toBe(false);
   });
 });

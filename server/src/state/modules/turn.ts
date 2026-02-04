@@ -2546,41 +2546,53 @@ export function nextTurn(ctx: GameContext) {
       const stateAny = (ctx as any).state as any;
       const spells = Array.isArray(stateAny.spellsCastThisTurn) ? stateAny.spellsCastThisTurn : [];
 
-      // "No spells were cast last turn" is safe to answer deterministically.
-      stateAny.spellsCastLastTurnCount = spells.length;
+      // Some tests (and some legacy paths) pre-seed last-turn snapshot fields directly.
+      // If we have no spells in the per-turn list, avoid clobbering explicit snapshots.
+      const hasExplicitLastTurnSnapshot =
+        typeof stateAny.spellsCastLastTurnByActivePlayerCount === 'number' ||
+        typeof stateAny.spellsCastLastTurnCount === 'number';
 
-      // Preserve per-player counts when spell objects have casterId.
-      // If attribution is incomplete, leave the breakdown as null to avoid false negatives.
-      const playersAll = Array.isArray(stateAny.players) ? (stateAny.players as any[]) : [];
-      const counts: Record<string, number> = {};
-      for (const p of playersAll) {
-        const pid = (p as any)?.id;
-        if (pid) counts[String(pid)] = 0;
-      }
-
-      let attributionUnknown = false;
-      for (const s of spells) {
-        const casterId = (s as any)?.casterId;
-        if (!casterId) {
-          attributionUnknown = true;
-          continue;
-        }
-        const key = String(casterId);
-        counts[key] = (counts[key] || 0) + 1;
-      }
-
-      if (!attributionUnknown) {
-        stateAny.spellsCastLastTurnByPlayerCounts = counts;
-        if (typeof current === 'string' && current) {
-          stateAny.spellsCastLastTurnByActivePlayerCount = counts[String(current)] || 0;
-        }
+      if (spells.length === 0 && hasExplicitLastTurnSnapshot) {
+        stateAny.spellsCastThisTurn = [];
+        debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
       } else {
-        stateAny.spellsCastLastTurnByPlayerCounts = null;
-        stateAny.spellsCastLastTurnByActivePlayerCount = undefined;
-      }
 
-      stateAny.spellsCastThisTurn = [];
-      debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
+        // "No spells were cast last turn" is safe to answer deterministically.
+        stateAny.spellsCastLastTurnCount = spells.length;
+
+        // Preserve per-player counts when spell objects have casterId.
+        // If attribution is incomplete, leave the breakdown as null to avoid false negatives.
+        const playersAll = Array.isArray(stateAny.players) ? (stateAny.players as any[]) : [];
+        const counts: Record<string, number> = {};
+        for (const p of playersAll) {
+          const pid = (p as any)?.id;
+          if (pid) counts[String(pid)] = 0;
+        }
+
+        let attributionUnknown = false;
+        for (const s of spells) {
+          const casterId = (s as any)?.casterId;
+          if (!casterId) {
+            attributionUnknown = true;
+            continue;
+          }
+          const key = String(casterId);
+          counts[key] = (counts[key] || 0) + 1;
+        }
+
+        if (!attributionUnknown) {
+          stateAny.spellsCastLastTurnByPlayerCounts = counts;
+          if (typeof current === 'string' && current) {
+            stateAny.spellsCastLastTurnByActivePlayerCount = counts[String(current)] || 0;
+          }
+        } else {
+          stateAny.spellsCastLastTurnByPlayerCounts = null;
+          stateAny.spellsCastLastTurnByActivePlayerCount = undefined;
+        }
+
+        stateAny.spellsCastThisTurn = [];
+        debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
+      }
     } catch {
       // best-effort only
     }
