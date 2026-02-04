@@ -48,8 +48,218 @@ import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
+import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
+import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
+
+function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): number | null {
+  if (!q) return null;
+  if (q.kind === 'number') return Number.isFinite(q.value) ? q.value : null;
+  if (q.kind === 'x') return typeof xValue === 'number' && Number.isFinite(xValue) ? xValue : null;
+  return null;
+}
+
+function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID, state: any): PlayerID[] {
+  switch (who.kind) {
+    case 'you':
+      return [caster];
+    case 'each_player':
+      return Array.isArray(state?.players)
+        ? state.players.map((p: any) => p?.id).filter(Boolean)
+        : [];
+    case 'each_opponent':
+      return Array.isArray(state?.players)
+        ? state.players
+            .map((p: any) => p?.id)
+            .filter((id: any) => id && String(id) !== String(caster))
+        : [];
+    default:
+      return [];
+  }
+}
+
+function parseCommonArtifactTokenOptions(tokenText: string):
+  | { name: string; options: any }
+  | null {
+  const lower = String(tokenText || '').toLowerCase();
+  if (!lower) return null;
+
+  if (lower.includes('treasure')) {
+    return {
+      name: 'Treasure',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Treasure',
+        abilities: ['{T}, Sacrifice this artifact: Add one mana of any color.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('clue')) {
+    return {
+      name: 'Clue',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Clue',
+        abilities: ['{2}, Sacrifice this artifact: Draw a card.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('food')) {
+    return {
+      name: 'Food',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Food',
+        abilities: ['{2}, {T}, Sacrifice this artifact: You gain 3 life.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('blood')) {
+    return {
+      name: 'Blood',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Blood',
+        abilities: ['{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  return null;
+}
+
+function applyOracleIRFallbackForUncategorizedSpell(
+  ctx: GameContext,
+  oracleText: string,
+  caster: PlayerID,
+  spellName: string,
+  xValue?: number,
+  sourcePermanentId?: string
+): number {
+  try {
+    const text = String(oracleText || '').trim();
+    if (!text) return 0;
+
+    // Quick prefilter to keep this conservative and cheap.
+    const lower = text.toLowerCase();
+    const mightHaveSupported =
+      lower.includes('draw') ||
+      lower.includes('gain') ||
+      lower.includes('lose') ||
+      (lower.includes('create') && lower.includes('token'));
+    if (!mightHaveSupported) return 0;
+
+    const ir = parseOracleTextToIR(text);
+    const steps: OracleEffectStep[] = [];
+    for (const ab of ir.abilities || []) {
+      for (const s of ab.steps || []) steps.push(s as any);
+    }
+
+    let applied = 0;
+    for (const step of steps) {
+      if (!step || step.kind === 'unknown') continue;
+      // If this step is optional, it requires a player choice. Skip for now.
+      if ((step as any).optional) continue;
+
+      switch (step.kind) {
+        case 'draw': {
+          const count = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!count || count <= 0) break;
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          for (const pid of playerIds) {
+            executeSpellEffect(
+              ctx,
+              { kind: 'DrawCards', playerId: pid, count } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        case 'gain_life': {
+          const amount = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!amount || amount <= 0) break;
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          for (const pid of playerIds) {
+            executeSpellEffect(
+              ctx,
+              { kind: 'GainLife', playerId: pid, amount } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        case 'lose_life': {
+          const amount = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!amount || amount <= 0) break;
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          for (const pid of playerIds) {
+            executeSpellEffect(
+              ctx,
+              { kind: 'LoseLife', playerId: pid, amount } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        case 'create_token': {
+          const count = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!count || count <= 0) break;
+
+          // To avoid double-applying against existing creature-token parsing,
+          // only auto-handle common artifact tokens here.
+          const tokenInfo = parseCommonArtifactTokenOptions(step.token);
+          if (!tokenInfo) break;
+
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          for (const pid of playerIds) {
+            executeSpellEffect(
+              ctx,
+              {
+                kind: 'CreateToken',
+                controller: pid,
+                name: tokenInfo.name,
+                count,
+                options: tokenInfo.options,
+              } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (applied > 0) {
+      debug(2, `[oracleIR] Fallback applied ${applied} step(s) for ${spellName}`);
+    }
+    return applied;
+  } catch (err) {
+    debugWarn(2, `[oracleIR] Fallback failed for ${spellName}:`, err);
+    return 0;
+  }
+}
 
 /**
  * Mapping of irregular plural creature types to their singular forms.
@@ -7260,6 +7470,19 @@ export function resolveTopOfStack(ctx: GameContext) {
           debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${power}/${toughness} ${tokenName} for ${targetControllerForTokenCreation}`);
         }
       }
+    }
+
+    // Oracle IR fallback: if we couldn't categorize/resolve this spell, try best-effort
+    // automation for a small, choice-free subset of effects.
+    if (!spellSpec) {
+      applyOracleIRFallbackForUncategorizedSpell(
+        ctx,
+        oracleText,
+        controller as PlayerID,
+        effectiveCard.name || 'spell',
+        spellXValue,
+        String((item as any).source || (item as any).permanentId || '')
+      );
     }
     
     // Handle Dispatch and similar metalcraft spells

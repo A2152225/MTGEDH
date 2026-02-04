@@ -872,6 +872,26 @@ export {
   type OracleTextParseResult,
 } from './oracleTextParser';
 
+// Oracle Effect IR (best-effort structured effect parsing)
+export {
+  type OracleQuantity,
+  type OraclePlayerSelector,
+  type OracleObjectSelector,
+  type OracleZone,
+  type OracleEffectStep,
+  type OracleIRAbility,
+  type OracleIRResult,
+} from './oracleIR';
+
+export { parseOracleTextToIR } from './oracleIRParser';
+
+export {
+  applyOracleIRStepsToGameState,
+  type OracleIRExecutionContext,
+  type OracleIRExecutionOptions,
+  type OracleIRExecutionResult,
+} from './oracleIRExecutor';
+
 // Permanent Ability Discovery (integrates oracleTextParser for battlefield permanents)
 export {
   discoverPermanentAbilities,
