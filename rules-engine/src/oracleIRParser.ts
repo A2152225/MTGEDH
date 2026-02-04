@@ -136,6 +136,39 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     }
   }
 
+  // Add mana (deterministic only)
+  {
+    // Examples: "Add {R}{R}{R}." / "Add {2}{C}." / "Add {G}."
+    // We intentionally avoid parsing "Add {R} or {G}" etc. (player choice).
+    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*$/i);
+    if (m) {
+      const mana = String(m[2] || '').trim();
+      if (mana && !/\bor\b/i.test(clause)) {
+        return withMeta({ kind: 'add_mana', who: parsePlayerSelector(m[1]), mana, raw: rawClause });
+      }
+    }
+  }
+
+  // Scry
+  {
+    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?scry\s+(a|an|\d+|x|[a-z]+)\b/i);
+    if (m) {
+      const who = parsePlayerSelector(m[1]);
+      const amount = parseQuantity(m[2]);
+      return withMeta({ kind: 'scry', who, amount, raw: rawClause });
+    }
+  }
+
+  // Surveil
+  {
+    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?surveil\s+(a|an|\d+|x|[a-z]+)\b/i);
+    if (m) {
+      const who = parsePlayerSelector(m[1]);
+      const amount = parseQuantity(m[2]);
+      return withMeta({ kind: 'surveil', who, amount, raw: rawClause });
+    }
+  }
+
   // Discard
   {
     const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?discards?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
@@ -147,6 +180,20 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     const m2 = clause.match(/^discard\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (m2) {
       return withMeta({ kind: 'discard', who: { kind: 'you' }, amount: parseQuantity(m2[1]), raw: rawClause });
+    }
+  }
+
+  // Mill
+  {
+    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?mills?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    if (m) {
+      const who = parsePlayerSelector(m[1]);
+      const amount = parseQuantity(m[2]);
+      return withMeta({ kind: 'mill', who, amount, raw: rawClause });
+    }
+    const m2 = clause.match(/^mill\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    if (m2) {
+      return withMeta({ kind: 'mill', who: { kind: 'you' }, amount: parseQuantity(m2[1]), raw: rawClause });
     }
   }
 

@@ -222,6 +222,30 @@ export function applyOracleIRStepsToGameState(
         break;
       }
 
+      case 'add_mana': {
+        skippedSteps.push(step);
+        log.push(`Skipped add mana (server-only): ${step.raw}`);
+        break;
+      }
+
+      case 'scry': {
+        skippedSteps.push(step);
+        log.push(`Skipped scry (requires player choice): ${step.raw}`);
+        break;
+      }
+
+      case 'surveil': {
+        skippedSteps.push(step);
+        log.push(`Skipped surveil (requires player choice): ${step.raw}`);
+        break;
+      }
+
+      case 'mill': {
+        skippedSteps.push(step);
+        log.push(`Skipped mill (not supported by executor yet): ${step.raw}`);
+        break;
+      }
+
       case 'gain_life': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {

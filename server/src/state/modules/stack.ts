@@ -1,7 +1,7 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, addTokenCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements } from "./game-state-effects.js";
 import { 
   detectKeywords, 
   getAttackTriggerKeywords, 
@@ -136,13 +136,61 @@ function parseCommonArtifactTokenOptions(tokenText: string):
   return null;
 }
 
+function resolveDealDamageTargetToPlayerIds(targetText: string, caster: PlayerID, state: any): PlayerID[] {
+  const t = String(targetText || '').trim().toLowerCase();
+  if (!t) return [];
+
+  if (t === 'you') return [caster];
+  if (t === 'each player') {
+    return Array.isArray(state?.players) ? state.players.map((p: any) => p?.id).filter(Boolean) : [];
+  }
+  if (t === 'each opponent') {
+    return Array.isArray(state?.players)
+      ? state.players
+          .map((p: any) => p?.id)
+          .filter((id: any) => id && String(id) !== String(caster))
+      : [];
+  }
+
+  // Conservatively ignore other targets (e.g., "any target", "target creature", etc.).
+  return [];
+}
+
+function parseDeterministicManaToPool(manaText: string): { W: number; U: number; B: number; R: number; G: number; C: number } | null {
+  const s = String(manaText || '').trim();
+  if (!s) return null;
+  // Avoid choice/complex symbols like {R/G}, {2/R}, {P}, {S}, etc.
+  if (/[\/]|\b(or|either)\b/i.test(s)) return null;
+
+  const out = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  const regex = /\{([^}]+)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(s)) !== null) {
+    const sym = String(match[1] || '').trim().toUpperCase();
+    if (!sym) continue;
+    if (sym === 'W' || sym === 'U' || sym === 'B' || sym === 'R' || sym === 'G' || sym === 'C') {
+      (out as any)[sym]++;
+      continue;
+    }
+    if (/^\d+$/.test(sym)) {
+      out.C += parseInt(sym, 10);
+      continue;
+    }
+    return null;
+  }
+
+  const total = out.W + out.U + out.B + out.R + out.G + out.C;
+  return total > 0 ? out : null;
+}
+
 function applyOracleIRFallbackForUncategorizedSpell(
   ctx: GameContext,
   oracleText: string,
   caster: PlayerID,
   spellName: string,
   xValue?: number,
-  sourcePermanentId?: string
+  sourcePermanentId?: string,
+  sourceId?: string
 ): number {
   try {
     const text = String(oracleText || '').trim();
@@ -152,8 +200,16 @@ function applyOracleIRFallbackForUncategorizedSpell(
     const lower = text.toLowerCase();
     const mightHaveSupported =
       lower.includes('draw') ||
+      (lower.includes('add') && lower.includes('{')) ||
+      lower.includes('scry') ||
+      lower.includes('surveil') ||
       lower.includes('gain') ||
       lower.includes('lose') ||
+      lower.includes('discard') ||
+      lower.includes('mill') ||
+      lower.includes('damage') ||
+      lower.includes('deal') ||
+      lower.includes('sacrifice') ||
       (lower.includes('create') && lower.includes('token'));
     if (!mightHaveSupported) return 0;
 
@@ -170,6 +226,31 @@ function applyOracleIRFallbackForUncategorizedSpell(
       if ((step as any).optional) continue;
 
       switch (step.kind) {
+        case 'add_mana': {
+          const manaPoolDelta = parseDeterministicManaToPool((step as any).mana);
+          if (!manaPoolDelta) break;
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          if (playerIds.length === 0) break;
+
+          for (const pid of playerIds) {
+            const stateAny: any = (ctx as any).state;
+            stateAny.manaPool = stateAny.manaPool || {};
+            stateAny.manaPool[pid] = stateAny.manaPool[pid] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+            const pool = stateAny.manaPool[pid];
+            for (const k of ['W', 'U', 'B', 'R', 'G', 'C']) {
+              const delta = Math.max(0, Number((manaPoolDelta as any)?.[k] ?? 0));
+              if (!delta) continue;
+              if (typeof pool[k] !== 'number') pool[k] = 0;
+              pool[k] += delta;
+            }
+            if (typeof (ctx as any).bumpSeq === 'function') {
+              (ctx as any).bumpSeq();
+            }
+            debug(2, `[oracleIR] ${spellName}: added mana to ${pid}'s pool`);
+            applied++;
+          }
+          break;
+        }
         case 'draw': {
           const count = resolveOracleQuantityToNumber(step.amount, xValue);
           if (!count || count <= 0) break;
@@ -178,6 +259,66 @@ function applyOracleIRFallbackForUncategorizedSpell(
             executeSpellEffect(
               ctx,
               { kind: 'DrawCards', playerId: pid, count } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        case 'scry': {
+          const count = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!count || count <= 0) break;
+          const gameId = (ctx as any).gameId as string | undefined;
+          const isReplaying = !!(ctx as any).isReplaying;
+          if (!gameId || gameId === 'unknown' || isReplaying) break;
+
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          for (const pid of playerIds) {
+            // Avoid duplicates for the same source.
+            try {
+              const existing = ResolutionQueueManager
+                .getStepsForPlayer(gameId, pid as any)
+                .find(s => s.type === ResolutionStepType.SCRY && (s as any)?.sourceId && sourceId && String((s as any).sourceId) === String(sourceId));
+              if (existing) continue;
+            } catch {
+              // ignore
+            }
+
+            executeSpellEffect(
+              ctx,
+              { kind: 'QueueScry', playerId: pid, count, sourceId } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        case 'surveil': {
+          const count = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!count || count <= 0) break;
+          const gameId = (ctx as any).gameId as string | undefined;
+          const isReplaying = !!(ctx as any).isReplaying;
+          if (!gameId || gameId === 'unknown' || isReplaying) break;
+
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          for (const pid of playerIds) {
+            // Avoid duplicates for the same source.
+            try {
+              const existing = ResolutionQueueManager
+                .getStepsForPlayer(gameId, pid as any)
+                .find(s => s.type === ResolutionStepType.SURVEIL && (s as any)?.sourceId && sourceId && String((s as any).sourceId) === String(sourceId));
+              if (existing) continue;
+            } catch {
+              // ignore
+            }
+
+            executeSpellEffect(
+              ctx,
+              { kind: 'QueueSurveil', playerId: pid, count, sourceId } as any,
               caster,
               spellName,
               sourcePermanentId
@@ -210,6 +351,182 @@ function applyOracleIRFallbackForUncategorizedSpell(
             executeSpellEffect(
               ctx,
               { kind: 'LoseLife', playerId: pid, amount } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        case 'sacrifice': {
+          // Sacrifice is almost always a player choice; support only the common edict template "sacrifice a creature".
+          const whatText = String((step.what as any)?.text || '').trim().toLowerCase();
+          if (!whatText) break;
+          if (!(whatText === 'a creature' || whatText === 'one creature' || whatText === 'a creature you control')) break;
+
+          const gameId = (ctx as any).gameId as string | undefined;
+          const isReplaying = !!(ctx as any).isReplaying;
+          if (!gameId || gameId === 'unknown' || isReplaying) break;
+
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          if (playerIds.length === 0) break;
+
+          const battlefield = (ctx as any).state?.battlefield || [];
+          const players = (ctx as any).state?.players || [];
+          const turnOrder: PlayerID[] = Array.isArray(players) ? players.map((p: any) => p?.id).filter((id: any) => typeof id === 'string') : [];
+          const activePlayerId: PlayerID =
+            (ctx as any).state?.turnPlayer ||
+            (ctx as any).state?.activePlayerId ||
+            turnOrder[(ctx as any).state?.activePlayerIndex || 0] ||
+            caster;
+
+          const configs: any[] = [];
+          for (const pid of playerIds) {
+            // Avoid duplicates for the same source.
+            try {
+              const existing = ResolutionQueueManager
+                .getStepsForPlayer(gameId, pid as any)
+                .find(s => s.type === ResolutionStepType.UPKEEP_SACRIFICE && (s as any)?.sourceId && sourceId && String((s as any).sourceId) === String(sourceId));
+              if (existing) continue;
+            } catch {
+              // ignore
+            }
+
+            const creatures = Array.isArray(battlefield)
+              ? battlefield
+                  .filter((p: any) =>
+                    p &&
+                    String(p.controller || '') === String(pid) &&
+                    String(p.card?.type_line || '').toLowerCase().includes('creature')
+                  )
+                  .map((p: any) => ({
+                    id: p.id,
+                    name: p.card?.name || p.id,
+                    imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                    typeLine: p.card?.type_line,
+                    power: p.basePower,
+                    toughness: p.baseToughness,
+                  }))
+              : [];
+
+            if (creatures.length === 0) continue;
+
+            configs.push({
+              type: ResolutionStepType.UPKEEP_SACRIFICE,
+              playerId: pid,
+              sourceId,
+              sourceName: spellName,
+              description: `${spellName}: Choose a creature to sacrifice.`,
+              mandatory: true,
+              hasCreatures: true,
+              creatures,
+              allowSourceSacrifice: false,
+              edictSacrifice: true,
+              sourceController: caster,
+              reason: 'spell_effect',
+            });
+          }
+
+          if (configs.length === 0) break;
+
+          try {
+            if (turnOrder.length > 0) {
+              ResolutionQueueManager.addStepsWithAPNAP(gameId, configs as any, turnOrder as any, activePlayerId as any);
+            } else {
+              for (const cfg of configs) ResolutionQueueManager.addStep(gameId, cfg);
+            }
+            applied += configs.length;
+          } catch (err) {
+            debugWarn(1, `[oracleIR] Failed to queue sacrifice step(s) for ${spellName}:`, err);
+          }
+          break;
+        }
+        case 'deal_damage': {
+          const dmg = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!dmg || dmg <= 0) break;
+
+          const targetText = (step.target as any)?.text;
+          const playerIds = resolveDealDamageTargetToPlayerIds(String(targetText || ''), caster, (ctx as any).state);
+          if (playerIds.length === 0) break;
+
+          for (const pid of playerIds) {
+            executeSpellEffect(
+              ctx,
+              { kind: 'DamagePlayer', playerId: pid, amount: dmg } as any,
+              caster,
+              spellName,
+              sourcePermanentId
+            );
+            applied++;
+          }
+          break;
+        }
+        case 'discard': {
+          // Discard requires user selection, so use the Resolution Queue.
+          const count = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!count || count <= 0) break;
+
+          const gameId = (ctx as any).gameId as string | undefined;
+          const isReplaying = !!(ctx as any).isReplaying;
+          if (!gameId || gameId === 'unknown' || isReplaying) break;
+
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          if (playerIds.length === 0) break;
+
+          const zonesByPlayer = (ctx as any).state?.zones || {};
+          for (const pid of playerIds) {
+            const zones = zonesByPlayer?.[pid];
+            const handCards = Array.isArray(zones?.hand) ? (zones.hand as any[]) : [];
+            const handOptions = handCards
+              .filter((c: any) => c && c.id)
+              .map((c: any) => ({
+                id: String(c.id),
+                label: String(c.name || 'Unknown'),
+                imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
+              }));
+
+            if (handOptions.length === 0) continue;
+
+            // Avoid duplicates for the same source.
+            try {
+              const existing = ResolutionQueueManager
+                .getStepsForPlayer(gameId, pid as any)
+                .find(s => s.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.sourceId && sourceId && String((s as any).sourceId) === String(sourceId));
+              if (existing) continue;
+            } catch {
+              // ignore
+            }
+
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.DISCARD_SELECTION,
+              playerId: pid as any,
+              sourceId: sourceId,
+              sourceName: spellName,
+              description: `${spellName}: Discard ${count} card(s).`,
+              mandatory: true,
+              hand: handOptions,
+              discardCount: Math.min(count, handOptions.length),
+              currentHandSize: handOptions.length,
+              maxHandSize: Math.max(0, handOptions.length - count),
+              reason: 'spell_effect',
+            } as any);
+
+            applied++;
+          }
+          break;
+        }
+        case 'mill': {
+          const count = resolveOracleQuantityToNumber(step.amount, xValue);
+          if (!count || count <= 0) break;
+
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          if (playerIds.length === 0) break;
+
+          for (const pid of playerIds) {
+            executeSpellEffect(
+              ctx,
+              { kind: 'MillCards', playerId: pid, count } as any,
               caster,
               spellName,
               sourcePermanentId
@@ -7482,6 +7799,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         effectiveCard.name || 'spell',
         spellXValue,
         String((item as any).source || (item as any).permanentId || '')
+        ,
+        String((item as any).id || (card as any)?.id || '')
       );
     }
     
@@ -9387,6 +9706,7 @@ function executeSpellEffect(
     case 'QueueScry': {
       const playerId = (effect as any).playerId as PlayerID;
       const count = Math.max(0, Number((effect as any).count ?? 0));
+      const sourceId = (effect as any).sourceId as string | undefined;
       const gameId = (ctx as any).gameId;
       const isReplaying = !!(ctx as any).isReplaying;
       if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
@@ -9396,6 +9716,7 @@ function executeSpellEffect(
           playerId,
           description: `${spellName}: Scry ${count}`,
           mandatory: true,
+          sourceId,
           sourceName: spellName,
           scryCount: count,
         } as any);
@@ -9408,6 +9729,7 @@ function executeSpellEffect(
     case 'QueueSurveil': {
       const playerId = (effect as any).playerId as PlayerID;
       const count = Math.max(0, Number((effect as any).count ?? 0));
+      const sourceId = (effect as any).sourceId as string | undefined;
       const gameId = (ctx as any).gameId;
       const isReplaying = !!(ctx as any).isReplaying;
       if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
@@ -9417,6 +9739,7 @@ function executeSpellEffect(
           playerId,
           description: `${spellName}: Surveil ${count}`,
           mandatory: true,
+          sourceId,
           sourceName: spellName,
           surveilCount: count,
         } as any);
@@ -9617,6 +9940,10 @@ function executeSpellEffect(
       const count = Math.max(0, Number((effect as any).count ?? 0));
       if (!playerId || count <= 0) break;
 
+      const { finalCount } = applyMillReplacements(ctx, count, String(caster), String(playerId));
+      const millCount = Math.max(0, Number(finalCount ?? count));
+      if (millCount <= 0) break;
+
       const ctxLibraries = (ctx as any).libraries as Map<string, any[]> | undefined;
       let lib: any[] | undefined;
       if (ctxLibraries && typeof ctxLibraries.get === 'function') {
@@ -9628,11 +9955,18 @@ function executeSpellEffect(
       z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
 
       if (lib && Array.isArray(lib)) {
-        for (let i = 0; i < count && lib.length > 0; i++) {
+        for (let i = 0; i < millCount && lib.length > 0; i++) {
           const milled = lib.shift();
           if (milled) {
             z.graveyard.push({ ...milled, zone: 'graveyard' });
             recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), milled, { fromBattlefield: false });
+
+            // Check for graveyard triggers (e.g., Eldrazi shuffle).
+            try {
+              checkGraveyardTrigger(ctx, milled, String(playerId));
+            } catch {
+              // best-effort
+            }
           }
         }
         if (ctxLibraries && typeof ctxLibraries.set === 'function') {
@@ -9641,7 +9975,7 @@ function executeSpellEffect(
         z.libraryCount = lib.length;
         z.graveyardCount = z.graveyard.length;
         ctx.bumpSeq();
-        debug(2, `[resolveSpell] ${spellName} milled ${count} card(s) for ${playerId}`);
+        debug(2, `[resolveSpell] ${spellName} milled ${millCount} card(s) for ${playerId}`);
       }
       break;
     }

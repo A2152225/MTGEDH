@@ -37,6 +37,39 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'add_mana';
+      readonly who: OraclePlayerSelector;
+      /** Raw mana string, e.g. "{R}{R}{R}" or "{2}{C}" */
+      readonly mana: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'scry';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'surveil';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'mill';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'discard';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;

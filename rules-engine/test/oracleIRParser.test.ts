@@ -45,6 +45,44 @@ describe('Oracle IR Parser', () => {
     expect(move.to).toBe('battlefield');
   });
 
+  it('parses mill clauses into IR steps', () => {
+    const text = 'Each opponent mills two cards.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const mill = steps.find(s => s.kind === 'mill') as any;
+    expect(mill).toBeTruthy();
+    expect(mill.who).toEqual({ kind: 'each_opponent' });
+    expect(mill.amount).toEqual({ kind: 'number', value: 2 });
+  });
+
+  it('parses scry and surveil clauses into IR steps', () => {
+    const text = 'Scry 2. Then surveil 1.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const scry = steps.find(s => s.kind === 'scry') as any;
+    expect(scry).toBeTruthy();
+    expect(scry.who).toEqual({ kind: 'you' });
+    expect(scry.amount).toEqual({ kind: 'number', value: 2 });
+
+    const surveil = steps.find(s => s.kind === 'surveil') as any;
+    expect(surveil).toBeTruthy();
+    expect(surveil.who).toEqual({ kind: 'you' });
+    expect(surveil.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses deterministic add mana clauses into IR steps', () => {
+    const text = 'Add {R}{R}{R}.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const addMana = steps.find(s => s.kind === 'add_mana') as any;
+    expect(addMana).toBeTruthy();
+    expect(addMana.who).toEqual({ kind: 'you' });
+    expect(addMana.mana).toBe('{R}{R}{R}');
+  });
+
   it('marks "You may" clauses as optional', () => {
     const text = 'You may draw a card.';
     const ir = parseOracleTextToIR(text);
