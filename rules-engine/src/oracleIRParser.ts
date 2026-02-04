@@ -451,6 +451,79 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
 
   const steps: OracleEffectStep[] = [];
 
+  const tryParseCreateTokenFollowupModifier = (rawClause: string): {
+    entersTapped?: true;
+    withCounters?: Record<string, number>;
+  } | null => {
+    const normalized = normalizeClauseForParse(rawClause);
+    const clause = normalizeOracleText(normalized.clause);
+    if (!clause) return null;
+
+    // Only treat as a follow-up modifier if the whole clause is an "enters" sentence
+    // referring to the immediately previous created token(s).
+    const subjectMatch = clause.match(/^(it|they|that token|those tokens|the token|the tokens)\s+enter(?:s)?\b\s*(.*)$/i);
+    if (!subjectMatch) return null;
+
+    const rest = String(subjectMatch[2] || '').trim();
+    if (!rest) return null;
+
+    const out: { entersTapped?: true; withCounters?: Record<string, number> } = {};
+
+    // Reject clearly out-of-scope variants for now (would need additional targeting/attack plumbing).
+    if (/\battacking\b/i.test(rest)) return null;
+    if (/\buntapped\b/i.test(rest)) return null;
+
+    // Detect a conservative "with N <counter> counters on it/them" segment.
+    let countersSegment: string | undefined;
+    const withCounters = ((): Record<string, number> | undefined => {
+      const s = rest;
+      if (!/\bwith\b/i.test(s) || !/\bcounters?\b/i.test(s)) return undefined;
+      const m = s.match(/\bwith\s+(a|an|\d+|x|[a-z]+)\s+([^,.]+?)\s+counters?\s+on\s+(?:it|them)\b/i);
+      if (!m) return undefined;
+      countersSegment = m[0];
+      if (/\bof your choice\b/i.test(m[0])) return undefined;
+
+      const qty = parseQuantity(m[1]);
+      if (qty.kind !== 'number') return undefined;
+      const n = Math.max(0, qty.value | 0);
+      if (n <= 0) return undefined;
+
+      let counterType = String(m[2] || '').trim();
+      if (!counterType) return undefined;
+      counterType = counterType
+        .replace(/\s+/g, ' ')
+        .replace(/\+\s*1\s*\/\s*\+\s*1/g, '+1/+1')
+        .replace(/\-\s*1\s*\/\s*\-\s*1/g, '-1/-1');
+      counterType = counterType.replace(/\bcounters?\b/gi, '').trim();
+      if (!counterType) return undefined;
+      return { [counterType]: n };
+    })();
+
+    // Tapped can appear alone or combined with counters: "tapped and with ..." / "with ... and tapped".
+    if (/\btapped\b/i.test(rest)) out.entersTapped = true;
+    if (withCounters) out.withCounters = withCounters;
+
+    // If there are no modifiers, this isn't a recognized follow-up.
+    if (!out.entersTapped && !out.withCounters) return null;
+
+    // Conservativeness: ensure the rest of the clause contains only
+    // "(the battlefield) tapped (and) (with ... counters on it/them)" in any order.
+    {
+      let leftover = rest;
+      if (countersSegment) leftover = leftover.replace(countersSegment, ' ');
+      leftover = leftover
+        .replace(/\bthe battlefield\b/gi, ' ')
+        .replace(/\btapped\b/gi, ' ')
+        .replace(/\band\b/gi, ' ')
+        .replace(/[(),]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (leftover) return null;
+    }
+
+    return out;
+  };
+
   const tryParseImpulseExileTop = (idx: number): { step: OracleEffectStep; consumed: number } | null => {
     const first = String(clauses[idx] || '').trim();
     const second = String(clauses[idx + 1] || '').trim();
@@ -584,22 +657,48 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     };
   };
 
+  let lastCreateTokenStepIndexes: number[] | null = null;
+
   for (let i = 0; i < clauses.length; ) {
+    // Follow-up modifiers like "It enters tapped." should apply to the immediately
+    // previous create_token step(s), and should not produce standalone IR steps.
+    if (lastCreateTokenStepIndexes && lastCreateTokenStepIndexes.length > 0) {
+      const mod = tryParseCreateTokenFollowupModifier(clauses[i]);
+      if (mod) {
+        for (const idx of lastCreateTokenStepIndexes) {
+          const prev: any = steps[idx];
+          if (!prev || prev.kind !== 'create_token') continue;
+          steps[idx] = {
+            ...prev,
+            ...(mod.entersTapped ? { entersTapped: true } : {}),
+            ...(mod.withCounters ? { withCounters: { ...(prev.withCounters || {}), ...mod.withCounters } } : {}),
+          } as any;
+        }
+        i += 1;
+        continue;
+      }
+    }
+
     const impulse = tryParseImpulseExileTop(i);
     if (impulse) {
       steps.push(impulse.step);
+      lastCreateTokenStepIndexes = null;
       i += impulse.consumed;
       continue;
     }
 
     const multiCreate = tryParseMultiCreateTokensClause(clauses[i]);
     if (multiCreate) {
+      const startIdx = steps.length;
       steps.push(...multiCreate);
+      lastCreateTokenStepIndexes = Array.from({ length: multiCreate.length }, (_, off) => startIdx + off);
       i += 1;
       continue;
     }
 
-    steps.push(parseEffectClauseToStep(clauses[i]));
+    const next = parseEffectClauseToStep(clauses[i]);
+    steps.push(next);
+    lastCreateTokenStepIndexes = next.kind === 'create_token' ? [steps.length - 1] : null;
     i += 1;
   }
 

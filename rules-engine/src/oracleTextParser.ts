@@ -255,7 +255,11 @@ const INSTEAD_PATTERN = /If\s+(.+?)\s+would\s+(.+?),\s+(.+?)\s+instead\.?/i;
  * "Enters with" or "Enters as" clause pattern
  * For modifiers affecting how permanents enter the battlefield
  */
-const ENTERS_WITH_PATTERN = /(.+?)\s+enters the battlefield\s+(.+)$/i;
+// Strictly match a standalone "X enters the battlefield <modifier>" sentence.
+// We intentionally do NOT match multi-sentence merged lines like
+// "Create a token. It enters the battlefield ..."; those should be handled
+// by the IR parser as spell instructions with follow-up modifiers.
+const ENTERS_WITH_PATTERN = /^([^.;]+?)\s+enters the battlefield\s+([^.;]+?)[.;]?$/i;
 const ENTERS_AS_PATTERN = /^As\s+(.+?)\s+enters the battlefield,\s+(.+)$/i;
 
 /**

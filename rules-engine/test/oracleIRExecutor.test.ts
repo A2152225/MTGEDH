@@ -111,6 +111,112 @@ describe('Oracle IR Executor', () => {
     expect(token.tapped).toBe(true);
   });
 
+  it('creates a tapped token when oracle uses a follow-up "enters tapped" clause', () => {
+    const ir = parseOracleTextToIR('Create a Treasure token. It enters tapped.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(1);
+    const token = result.state.battlefield[0] as any;
+    expect(token.isToken).toBe(true);
+    expect(token.tapped).toBe(true);
+  });
+
+  it('creates multiple tapped tokens when oracle uses a follow-up "They enter tapped" clause', () => {
+    const ir = parseOracleTextToIR('Create two Treasure tokens. They enter tapped.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(2);
+    for (const perm of result.state.battlefield as any[]) {
+      expect(perm.isToken).toBe(true);
+      expect(perm.tapped).toBe(true);
+      expect(String(perm.card?.name || '').toLowerCase()).toContain('treasure');
+    }
+  });
+
+  it('creates tapped tokens for multi-token creation with follow-up "They enter tapped" clause', () => {
+    const ir = parseOracleTextToIR('Create a Treasure token and a Clue token. They enter tapped.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(2);
+    const names = result.state.battlefield.map((p: any) => String(p?.card?.name || '').toLowerCase());
+    expect(names.some(n => n.includes('treasure'))).toBe(true);
+    expect(names.some(n => n.includes('clue'))).toBe(true);
+    for (const perm of result.state.battlefield as any[]) {
+      expect(perm.isToken).toBe(true);
+      expect(perm.tapped).toBe(true);
+    }
+  });
+
+  it('creates multiple tokens with counters when oracle uses plural follow-up counters wording', () => {
+    const ir = parseOracleTextToIR('Create two Treasure tokens. They enter with two +1/+1 counters on them.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(2);
+    for (const perm of result.state.battlefield as any[]) {
+      expect(perm.isToken).toBe(true);
+      expect(perm.counters?.['+1/+1']).toBe(2);
+    }
+  });
+
+  it('creates multiple tapped tokens with counters for combined plural follow-up modifiers', () => {
+    const ir = parseOracleTextToIR(
+      'Create two Treasure tokens. They enter tapped and with two +1/+1 counters on them.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(2);
+    for (const perm of result.state.battlefield as any[]) {
+      expect(perm.isToken).toBe(true);
+      expect(perm.tapped).toBe(true);
+      expect(perm.counters?.['+1/+1']).toBe(2);
+    }
+  });
+
+  it('creates multiple tapped tokens for semicolon + lowercase follow-up wording', () => {
+    const ir = parseOracleTextToIR('Create two Treasure tokens; they enter tapped.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(2);
+    for (const perm of result.state.battlefield as any[]) {
+      expect(perm.isToken).toBe(true);
+      expect(perm.tapped).toBe(true);
+      expect(String(perm.card?.name || '').toLowerCase()).toContain('treasure');
+    }
+  });
+
+  it('creates multiple tokens with a shield counter for plural follow-up singular counter wording', () => {
+    const ir = parseOracleTextToIR('Create two Treasure tokens. They enter with a shield counter on them.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(2);
+    for (const perm of result.state.battlefield as any[]) {
+      expect(perm.isToken).toBe(true);
+      expect(perm.counters?.shield).toBe(1);
+    }
+  });
+
   it('creates a token with counters when oracle specifies counters', () => {
     const ir = parseOracleTextToIR(
       'Create a 1/1 white Soldier creature token with two +1/+1 counters on it.',
@@ -124,6 +230,36 @@ describe('Oracle IR Executor', () => {
     expect(result.state.battlefield.length).toBe(1);
     const token = result.state.battlefield[0] as any;
     expect(token.isToken).toBe(true);
+    expect(token.counters?.['+1/+1']).toBe(2);
+  });
+
+  it('creates a token with counters when oracle uses a follow-up "enters with counters" clause', () => {
+    const ir = parseOracleTextToIR('Create a Treasure token. It enters with two +1/+1 counters on it.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(1);
+    const token = result.state.battlefield[0] as any;
+    expect(token.isToken).toBe(true);
+    expect(token.counters?.['+1/+1']).toBe(2);
+  });
+
+  it('creates a tapped token with counters for combined follow-up modifiers', () => {
+    const ir = parseOracleTextToIR(
+      'Create a Treasure token. It enters the battlefield tapped and with two +1/+1 counters on it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(1);
+    const token = result.state.battlefield[0] as any;
+    expect(token.isToken).toBe(true);
+    expect(token.tapped).toBe(true);
     expect(token.counters?.['+1/+1']).toBe(2);
   });
 

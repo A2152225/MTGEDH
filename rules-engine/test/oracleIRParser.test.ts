@@ -128,6 +128,134 @@ describe('Oracle IR Parser', () => {
     expect(String(create.token || '').toLowerCase()).toContain('soldier');
   });
 
+  it('applies follow-up "enters tapped" clauses to the previous create-token step', () => {
+    const text = 'Create a Treasure token. It enters tapped.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const creates = steps.filter(s => s.kind === 'create_token') as any[];
+    expect(creates).toHaveLength(1);
+    expect(creates[0].entersTapped).toBe(true);
+
+    // The follow-up clause should not appear as an unknown step.
+    const unknowns = steps.filter(s => s.kind === 'unknown') as any[];
+    expect(unknowns.some(u => String(u.raw || '').toLowerCase().includes('enters tapped'))).toBe(false);
+  });
+
+  it('applies follow-up "those tokens enter tapped" to multi-token creation', () => {
+    const text = 'Create a Treasure token and a Clue token. Those tokens enter tapped.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const creates = steps.filter(s => s.kind === 'create_token') as any[];
+    expect(creates).toHaveLength(2);
+    expect(String(creates[0].token || '').toLowerCase()).toContain('treasure');
+    expect(String(creates[1].token || '').toLowerCase()).toContain('clue');
+    expect(creates[0].entersTapped).toBe(true);
+    expect(creates[1].entersTapped).toBe(true);
+  });
+
+  it('applies follow-up "they enter tapped" (Bloomburrow-style) to the previous create-token step(s)', () => {
+    const text = 'Create two Treasure tokens. They enter tapped.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const creates = steps.filter(s => s.kind === 'create_token') as any[];
+    expect(creates).toHaveLength(1);
+    expect(creates[0].entersTapped).toBe(true);
+
+    // The follow-up clause should not appear as an unknown step.
+    const unknowns = steps.filter(s => s.kind === 'unknown') as any[];
+    expect(unknowns.some(u => String(u.raw || '').toLowerCase().includes('they enter tapped'))).toBe(false);
+  });
+
+  it('applies follow-up "they enter tapped" to multi-token creation', () => {
+    const text = 'Create a Treasure token and a Clue token. They enter tapped.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const creates = steps.filter(s => s.kind === 'create_token') as any[];
+    expect(creates).toHaveLength(2);
+    expect(String(creates[0].token || '').toLowerCase()).toContain('treasure');
+    expect(String(creates[1].token || '').toLowerCase()).toContain('clue');
+    expect(creates[0].entersTapped).toBe(true);
+    expect(creates[1].entersTapped).toBe(true);
+  });
+
+  it('applies follow-up plural "they enter with counters" wording', () => {
+    const text = 'Create two Treasure tokens. They enter with two +1/+1 counters on them.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.withCounters).toEqual({ '+1/+1': 2 });
+  });
+
+  it('supports combined plural follow-up modifiers (tapped and with counters)', () => {
+    const text = 'Create two Treasure tokens. They enter tapped and with two +1/+1 counters on them.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.entersTapped).toBe(true);
+    expect(create.withCounters).toEqual({ '+1/+1': 2 });
+  });
+
+  it('supports semicolon + lowercase follow-up wording (they enter tapped)', () => {
+    const text = 'Create two Treasure tokens; they enter tapped.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.amount).toEqual({ kind: 'number', value: 2 });
+    expect(create.entersTapped).toBe(true);
+  });
+
+  it('supports plural follow-up with singular counter wording (a shield counter)', () => {
+    const text = 'Create two Treasure tokens. They enter with a shield counter on them.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.withCounters).toEqual({ shield: 1 });
+  });
+
+  it('applies follow-up "enters with counters" clauses to the previous create-token step', () => {
+    const text = 'Create a Treasure token. It enters with two +1/+1 counters on it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.withCounters).toEqual({ '+1/+1': 2 });
+  });
+
+  it('supports follow-up "enter the battlefield" phrasing for tapped + counters', () => {
+    const text = 'Create a Treasure token. It enters the battlefield tapped and with two +1/+1 counters on it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.entersTapped).toBe(true);
+    expect(create.withCounters).toEqual({ '+1/+1': 2 });
+  });
+
+  it('supports follow-up counters then tapped order', () => {
+    const text = 'Create a Treasure token. It enters with two +1/+1 counters on it and tapped.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const create = steps.find(s => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.entersTapped).toBe(true);
+    expect(create.withCounters).toEqual({ '+1/+1': 2 });
+  });
+
   it('parses exile and return/move zone clauses', () => {
     const text = 'Exile target creature. Return it to the battlefield under your control at the beginning of the next end step.';
     const ir = parseOracleTextToIR(text);
