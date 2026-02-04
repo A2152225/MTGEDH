@@ -14,7 +14,26 @@ describe('Intervening-if: Bargain', () => {
   it('"if it was bargained" respects explicit boolean metadata', () => {
     const g: any = { state: {} };
     expect(evaluateInterveningIfClause(g, 'p1', 'if it was bargained', { wasBargained: true } as any)).toBe(true);
-    expect(evaluateInterveningIfClause(g, 'p1', 'if it was bargained', { wasBargained: false } as any)).toBe(false);
+    // Without an explicit "resolved" marker, false is not replay-stable.
+    expect(evaluateInterveningIfClause(g, 'p1', 'if it was bargained', { wasBargained: false } as any)).toBe(null);
+
+    // Deterministic false only when explicitly resolved.
+    expect(
+      evaluateInterveningIfClause(g, 'p1', 'if it was bargained', { bargainResolved: true, wasBargained: false } as any)
+    ).toBe(false);
+  });
+
+  it('"if it was bargained" can evaluate from refs.stackItem when sourcePermanent is missing', () => {
+    const g: any = { state: {} };
+    expect(
+      evaluateInterveningIfClause(
+        g,
+        'p1',
+        'if it was bargained',
+        undefined as any,
+        { stackItem: { bargainResolved: true, wasBargained: false } } as any
+      )
+    ).toBe(false);
   });
 
   it('applyEvent(castSpell) persists wasBargained onto the new stack item', () => {

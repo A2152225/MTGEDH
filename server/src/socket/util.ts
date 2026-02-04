@@ -2672,6 +2672,22 @@ export function consumeManaFromPool(
       debug(2, `${logPrefix} Unspent mana remaining in pool: ${remainingMana}`);
     }
   }
+
+  // Treasure provenance: maintain a conservative lower bound of Treasure-produced mana
+  // remaining in this pool. We pessimistically decrement by all mana spent, which keeps
+  // the lower bound <= actual Treasure mana (replay-safe, avoids false positives).
+  try {
+    const lb = (pool as any).treasureManaLowerBound;
+    if (lb && typeof lb === 'object') {
+      for (const k of ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const) {
+        const used = Number((consumed as any)[k] || 0);
+        if (!Number.isFinite(used) || used <= 0) continue;
+        lb[k] = Math.max(0, Number(lb[k] || 0) - used);
+      }
+    }
+  } catch {
+    // best-effort only
+  }
   
   // Return only the mana color properties for the remaining pool
   const remaining: Record<string, number> = {};
@@ -2680,6 +2696,111 @@ export function consumeManaFromPool(
   }
   
   return { consumed, remaining };
+}
+
+type ManaPoolColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+
+function getOrInitTreasureManaLowerBound(gameState: any, playerId: string): Record<ManaPoolColorKey, number> {
+  const pool = getOrInitManaPool(gameState, String(playerId)) as any;
+  pool.treasureManaLowerBound = pool.treasureManaLowerBound || {
+    white: 0,
+    blue: 0,
+    black: 0,
+    red: 0,
+    green: 0,
+    colorless: 0,
+  };
+  return pool.treasureManaLowerBound as Record<ManaPoolColorKey, number>;
+}
+
+/**
+ * Best-effort, replay-safe lower-bound tracking for how much mana in the pool could
+ * have been produced by Treasures.
+ *
+ * This is intentionally conservative:
+ * - We only ever increment when we directly see a Treasure produce mana.
+ * - We may decrement aggressively during spending so we never over-claim Treasure provenance.
+ */
+export function recordTreasureManaProduced(
+  gameState: any,
+  playerId: string,
+  poolKey: ManaPoolColorKey,
+  amount: number
+): void {
+  const n = Number(amount || 0);
+  if (!Number.isFinite(n) || n <= 0) return;
+  const lb = getOrInitTreasureManaLowerBound(gameState, playerId);
+  lb[poolKey] = Number(lb[poolKey] || 0) + n;
+}
+
+export function snapshotTreasureManaLowerBound(gameState: any, playerId: string): Record<ManaPoolColorKey, number> {
+  const lb = getOrInitTreasureManaLowerBound(gameState, playerId);
+  return { ...lb };
+}
+
+export function applyManaSpendToTreasureLowerBound(
+  gameState: any,
+  playerId: string,
+  consumed: Record<string, number> | null | undefined
+): void {
+  if (!consumed || typeof consumed !== 'object') return;
+  const lb = getOrInitTreasureManaLowerBound(gameState, playerId);
+  const keys: ManaPoolColorKey[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+  for (const k of keys) {
+    const used = Number((consumed as any)[k] || 0);
+    if (!Number.isFinite(used) || used <= 0) continue;
+    lb[k] = Math.max(0, Number(lb[k] || 0) - used);
+  }
+}
+
+/**
+ * Derive a replay-stable boolean for "mana from a Treasure was spent".
+ *
+ * We only return a known result when:
+ * - No mana was spent at all => deterministically false.
+ * - Treasure mana was *forced* based on a lower bound of Treasure-produced mana
+ *   present in the pool at the moment of payment.
+ */
+export function deriveManaFromTreasureSpent(
+  gameState: any,
+  playerId: string,
+  opts: {
+    poolBeforePayment: Record<string, number> | null | undefined;
+    consumed: Record<string, number> | null | undefined;
+    treasureLowerBoundBeforePayment?: Record<string, number> | null | undefined;
+  }
+): { manaFromTreasureSpentKnown?: true; manaFromTreasureSpent?: boolean } {
+  const consumed = opts.consumed;
+  if (!consumed || typeof consumed !== 'object') return {};
+
+  const keys: ManaPoolColorKey[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+  const spentTotal = keys.reduce((sum, k) => sum + Number((consumed as any)[k] || 0), 0);
+
+  if (spentTotal <= 0) {
+    return { manaFromTreasureSpentKnown: true, manaFromTreasureSpent: false };
+  }
+
+  const poolBefore = (opts.poolBeforePayment && typeof opts.poolBeforePayment === 'object')
+    ? opts.poolBeforePayment
+    : {};
+  const treasureLB = (opts.treasureLowerBoundBeforePayment && typeof opts.treasureLowerBoundBeforePayment === 'object')
+    ? (opts.treasureLowerBoundBeforePayment as any)
+    : snapshotTreasureManaLowerBound(gameState, playerId);
+
+  for (const k of keys) {
+    const used = Number((consumed as any)[k] || 0);
+    if (!Number.isFinite(used) || used <= 0) continue;
+
+    const before = Number((poolBefore as any)[k] || 0);
+    const lb = Number((treasureLB as any)[k] || 0);
+    const maxNonTreasure = Math.max(0, before - lb);
+    const minTreasureSpent = Math.max(0, used - maxNonTreasure);
+    if (minTreasureSpent > 0) {
+      return { manaFromTreasureSpentKnown: true, manaFromTreasureSpent: true };
+    }
+  }
+
+  return {};
 }
 
 /**

@@ -2,38 +2,36 @@ import { describe, expect, it } from 'vitest';
 
 import { evaluateInterveningIfClause } from '../src/state/modules/triggers/intervening-if';
 
-describe("Intervening-if: 'if mana from a Treasure was spent to cast it'", () => {
-  const clause = 'if mana from a Treasure was spent to cast it';
+describe("Intervening-if: 'if its additional cost was paid'", () => {
+  const clause = 'if its additional cost was paid';
 
-  it('returns true when deterministic spend is known true', () => {
+  it('returns true when additional-cost payment is known true', () => {
     const ctx: any = { state: {} };
     const refs: any = {
       stackItem: {
-        manaFromTreasureSpentKnown: true,
-        manaFromTreasureSpent: true,
+        additionalCostPaidKnown: true,
+        additionalCostPaid: true,
       },
     };
     expect(evaluateInterveningIfClause(ctx, 'p1', clause, {} as any, refs)).toBe(true);
-    expect(evaluateInterveningIfClause(ctx, 'p1', clause, undefined as any, refs)).toBe(true);
   });
 
-  it('returns false when deterministic spend is known false', () => {
+  it('returns false when additional-cost payment is known false', () => {
     const ctx: any = { state: {} };
     const refs: any = {
       stackItem: {
-        manaFromTreasureSpentKnown: true,
-        manaFromTreasureSpent: false,
+        additionalCostPaidKnown: true,
+        additionalCostPaid: false,
       },
     };
     expect(evaluateInterveningIfClause(ctx, 'p1', clause, {} as any, refs)).toBe(false);
-    expect(evaluateInterveningIfClause(ctx, 'p1', clause, undefined as any, refs)).toBe(false);
   });
 
   it('returns true for positive-only evidence without known flag', () => {
     const ctx: any = { state: {} };
     const refs: any = {
       stackItem: {
-        manaFromTreasureSpent: true,
+        additionalCostPaid: true,
       },
     };
     expect(evaluateInterveningIfClause(ctx, 'p1', clause, {} as any, refs)).toBe(true);
@@ -43,7 +41,7 @@ describe("Intervening-if: 'if mana from a Treasure was spent to cast it'", () =>
     const ctx: any = { state: {} };
     const refs: any = {
       stackItem: {
-        manaFromTreasureSpent: false,
+        additionalCostPaid: false,
       },
     };
     expect(evaluateInterveningIfClause(ctx, 'p1', clause, {} as any, refs)).toBe(null);

@@ -1146,7 +1146,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               applyToStackItem('manaFromTreasureSpentKnown', true);
               applyToStackItem('manaFromTreasureSpent', (e as any).manaFromTreasureSpent);
             }
-            if ((e as any).additionalCostWasPaid === true || (e as any).paidAdditionalCost === true || (e as any).additionalCostPaid === true) {
+            // Additional cost payment metadata (deterministic when explicitly known).
+            if ((e as any).additionalCostPaidKnown === true && typeof (e as any).additionalCostPaid === 'boolean') {
+              const v = (e as any).additionalCostPaid;
+              applyToStackItem('additionalCostPaidKnown', true);
+              applyToStackItem('additionalCostPaid', v);
+              // Keep legacy aliases in sync.
+              applyToStackItem('additionalCostWasPaid', v);
+              applyToStackItem('paidAdditionalCost', v);
+            } else if ((e as any).additionalCostWasPaid === true || (e as any).paidAdditionalCost === true || (e as any).additionalCostPaid === true) {
+              // Positive-only evidence.
               applyToStackItem('additionalCostWasPaid', true);
               applyToStackItem('paidAdditionalCost', true);
               applyToStackItem('additionalCostPaid', true);
@@ -2061,6 +2070,29 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const permId = (e as any).permanentId;
           const abilityId = (e as any).abilityId;
           const abilityText = String((e as any).abilityText || '');
+
+          // Intervening-if support: if we persisted deterministic Treasure spend metadata for this activation,
+          // attach it to the matching ability stack item when present.
+          try {
+            const known = (e as any).manaFromTreasureSpentKnown === true && typeof (e as any).manaFromTreasureSpent === 'boolean';
+            if (known) {
+              const stack = Array.isArray((stateAny as any).stack) ? (stateAny as any).stack : (Array.isArray(ctx.state.stack) ? ctx.state.stack : []);
+              if (Array.isArray(stack) && stack.length > 0) {
+                for (let i = stack.length - 1; i >= 0; i--) {
+                  const item = stack[i];
+                  if (!item || String(item.type || '') !== 'ability') continue;
+                  if (playerId != null && String(item.controller) !== String(playerId)) continue;
+                  if (permId != null && String(item.source) !== String(permId)) continue;
+                  if (abilityText && String(item.description || '') !== abilityText) continue;
+                  (item as any).manaFromTreasureSpentKnown = true;
+                  (item as any).manaFromTreasureSpent = Boolean((e as any).manaFromTreasureSpent);
+                  break;
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
 
           // Detect mana ability (mirrors socket-side checks): produces mana and doesn't target.
           const isManaAbility =

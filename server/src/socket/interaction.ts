@@ -2,7 +2,7 @@ import { enqueueEdictCreatureSacrificeStep } from './sacrifice-resolution.js';
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
@@ -1922,6 +1922,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Check if this permanent has mana abilities (intrinsic or granted by effects like Cryptolith Rite)
     // If so, add the produced mana to the player's mana pool
     const isBasic = typeLine.includes("basic");
+    const isTreasureSource = /\btreasure\b/.test(typeLine);
     
     // ========================================================================
     // Check for devotion-based or creature-count-based mana abilities FIRST
@@ -1994,6 +1995,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const totalAmount = baseAmount * effectiveMultiplier;
         const poolKey = colorToPoolKey[devotionMana.color] || 'green';
         (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+        if (isTreasureSource) {
+          try {
+            recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);
+          } catch {}
+        }
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -2078,6 +2084,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         } else {
           const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
           (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+          if (isTreasureSource) {
+            try {
+              recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);
+            } catch {}
+          }
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -2194,6 +2205,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             for (const manaColor of produces) {
               const poolKey = colorToPoolKey[manaColor] || 'colorless';
               (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
+              if (isTreasureSource) {
+                try {
+                  recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, effectiveMultiplier);
+                } catch {}
+              }
               manaAdded.push(`{${manaColor}}`);
             }
             
@@ -2274,11 +2290,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             for (const extra of extraMana) {
               const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
               (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
+              if (isTreasureSource) {
+                try {
+                  recordTreasureManaProduced(game.state, String(pid), String(extraPoolKey) as any, extra.amount);
+                } catch {}
+              }
               totalAmount += extra.amount;
             }
             
             // Add the base mana (after multiplier)
             (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
+            if (isTreasureSource) {
+              try {
+                recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, baseAmount * effectiveMultiplier);
+              } catch {}
+            }
             
             // Generate descriptive message
             let message = `${getPlayerName(game, pid)} tapped ${cardName}`;

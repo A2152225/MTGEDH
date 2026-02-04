@@ -5899,13 +5899,24 @@ export function registerGameActions(io: Server, socket: Socket) {
                     manaFromCreaturesSpent: convokeTappedCreatures.length,
                   }
                 : {}),
-              ...(additionalCostPaid === true
+              ...(additionalCost && typeof additionalCostPaid === 'boolean'
                 ? {
-                    additionalCostWasPaid: true,
-                    paidAdditionalCost: true,
-                    additionalCostPaid: true,
+                    additionalCostPaidKnown: true,
+                    additionalCostPaid: additionalCostPaid === true,
+                    ...(additionalCostPaid === true
+                      ? {
+                          additionalCostWasPaid: true,
+                          paidAdditionalCost: true,
+                        }
+                      : {}),
                   }
-                : {}),
+                : additionalCostPaid === true
+                  ? {
+                      additionalCostWasPaid: true,
+                      paidAdditionalCost: true,
+                      additionalCostPaid: true,
+                    }
+                  : {}),
               ...(evidenceCollected === true
                 ? {
                     evidenceCollected: true,
@@ -6027,8 +6038,24 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
 
               // Intervening-if support: "if its additional cost was paid".
-              // Be conservative: only set `true` on positive evidence.
-              if (additionalCostPaid === true) {
+              // Deterministic when we know the spell had an additional cost.
+              if (additionalCost && typeof additionalCostPaid === 'boolean') {
+                (topStackItem as any).additionalCostPaidKnown = true;
+                (topStackItem as any).additionalCostPaid = additionalCostPaid === true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.additionalCostPaidKnown = true;
+                  (topStackItem as any).card.additionalCostPaid = additionalCostPaid === true;
+                }
+                if (additionalCostPaid === true) {
+                  (topStackItem as any).additionalCostWasPaid = true;
+                  (topStackItem as any).paidAdditionalCost = true;
+                  if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                    (topStackItem as any).card.additionalCostWasPaid = true;
+                    (topStackItem as any).card.paidAdditionalCost = true;
+                  }
+                }
+              } else if (additionalCostPaid === true) {
+                // Legacy positive-only evidence.
                 (topStackItem as any).additionalCostWasPaid = true;
                 (topStackItem as any).paidAdditionalCost = true;
                 (topStackItem as any).additionalCostPaid = true;
@@ -6110,8 +6137,24 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
 
               // Intervening-if support: "if its additional cost was paid".
-              // Be conservative: only set `true` on positive evidence.
-              if (additionalCostPaid === true) {
+              // Deterministic when we know the spell had an additional cost.
+              if (additionalCost && typeof additionalCostPaid === 'boolean') {
+                (topStackItem as any).additionalCostPaidKnown = true;
+                (topStackItem as any).additionalCostPaid = additionalCostPaid === true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.additionalCostPaidKnown = true;
+                  (topStackItem as any).card.additionalCostPaid = additionalCostPaid === true;
+                }
+                if (additionalCostPaid === true) {
+                  (topStackItem as any).additionalCostWasPaid = true;
+                  (topStackItem as any).paidAdditionalCost = true;
+                  if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                    (topStackItem as any).card.additionalCostWasPaid = true;
+                    (topStackItem as any).card.paidAdditionalCost = true;
+                  }
+                }
+              } else if (additionalCostPaid === true) {
+                // Legacy positive-only evidence.
                 (topStackItem as any).additionalCostWasPaid = true;
                 (topStackItem as any).paidAdditionalCost = true;
                 (topStackItem as any).additionalCostPaid = true;
@@ -6206,13 +6249,24 @@ export function registerGameActions(io: Server, socket: Socket) {
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
               xValue,
               ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
-              ...(additionalCostPaid === true
+              ...(additionalCost && typeof additionalCostPaid === 'boolean'
                 ? {
-                    additionalCostWasPaid: true,
-                    paidAdditionalCost: true,
-                    additionalCostPaid: true,
+                    additionalCostPaidKnown: true,
+                    additionalCostPaid: additionalCostPaid === true,
+                    ...(additionalCostPaid === true
+                      ? {
+                          additionalCostWasPaid: true,
+                          paidAdditionalCost: true,
+                        }
+                      : {}),
                   }
-                : {}),
+                : additionalCostPaid === true
+                  ? {
+                      additionalCostWasPaid: true,
+                      paidAdditionalCost: true,
+                      additionalCostPaid: true,
+                    }
+                  : {}),
               ...(evidenceCollected === true
                 ? {
                     evidenceCollected: true,
@@ -6300,13 +6354,24 @@ export function registerGameActions(io: Server, socket: Socket) {
                 manaFromCreaturesSpent: convokeTappedCreatures.length,
               }
             : {}),
-          ...(additionalCostPaid === true
+          ...(additionalCost && typeof additionalCostPaid === 'boolean'
             ? {
-                additionalCostWasPaid: true,
-                paidAdditionalCost: true,
-                additionalCostPaid: true,
+                additionalCostPaidKnown: true,
+                additionalCostPaid: additionalCostPaid === true,
+                ...(additionalCostPaid === true
+                  ? {
+                      additionalCostWasPaid: true,
+                      paidAdditionalCost: true,
+                    }
+                  : {}),
               }
-            : {}),
+            : additionalCostPaid === true
+              ? {
+                  additionalCostWasPaid: true,
+                  paidAdditionalCost: true,
+                  additionalCostPaid: true,
+                }
+              : {}),
           ...(evidenceCollected === true
             ? {
                 evidenceCollected: true,

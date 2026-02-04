@@ -1,13 +1,13 @@
 {
   "meta": {
     "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
-    "generatedAt": "2026-01-28T16:20:54.732Z",
+    "generatedAt": "2026-02-03T18:20:02.818Z",
     "cardNameCount": 33395,
     "printingsCount": 34255,
     "totalInterveningIfClausesFound": 706,
     "recognizedCount": 706,
-    "recognizedDecidableCount": 706,
-    "recognizedNullCount": 0,
+    "recognizedDecidableCount": 701,
+    "recognizedNullCount": 5,
     "fallbackCount": 0,
     "unknownCount": 0
   },
@@ -688,8 +688,7 @@
         "Marut",
         "Mastermind Plum"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if there are seven or more cards in your graveyard",
@@ -1253,7 +1252,7 @@
         "Exile into Darkness"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if your team controls another Warrior",
@@ -3641,8 +3640,7 @@
       "exampleCards": [
         "Archangel of Wrath"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if it was kicked with its {1}{G} kicker",
@@ -3971,8 +3969,7 @@
       "exampleCards": [
         "Graven Archfiend"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if its madness cost was paid",
@@ -4181,8 +4178,7 @@
       "exampleCards": [
         "Vazi, Keen Negotiator"
       ],
-      "evaluation": "recognized",
-      "sampleResult": true
+      "evaluation": "recognized"
     },
     {
       "clause": "if Managorger Phoenix is in your graveyard",
@@ -4202,7 +4198,7 @@
         "Simic, Value Engine"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if Moss-Pit Skeleton is in your graveyard",
@@ -4242,7 +4238,7 @@
         "Titan Hunter"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if no mana was spent to cast that spell",
@@ -4562,7 +4558,7 @@
         "Breena, the Demagogue"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if that player attacked you during their last turn",
@@ -5681,8 +5677,7 @@
       "exampleCards": [
         "Creepy Puppeteer"
       ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "evaluation": "recognized"
     },
     {
       "clause": "if you both own and control Gisela and a creature named Bruna",
@@ -7212,7 +7207,7 @@
         "Glorious Enforcer"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if you have three or fewer cards in hand",
@@ -7302,7 +7297,7 @@
         "Unyaro"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if you revealed a Dragon card or controlled a Dragon as you cast this spell",
@@ -8244,20 +8239,6 @@
       "sampleResult": true
     },
     {
-      "clause": "if mana from a Treasure was spent to cast it",
-      "clauseLower": "if mana from a treasure was spent to cast it",
-      "count": 5,
-      "exampleCards": [
-        "Alchemist's Talent",
-        "Hired Hexblade",
-        "Jaded Sell-Sword",
-        "Marut",
-        "Mastermind Plum"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
       "clause": "if there are seven or more cards in your graveyard",
       "clauseLower": "if there are seven or more cards in your graveyard",
       "count": 5,
@@ -8819,7 +8800,7 @@
         "Exile into Darkness"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if your team controls another Warrior",
@@ -10079,9 +10060,69 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
+    },
+    {
+      "clause": "if a player has more cards in hand than each other player",
+      "clauseLower": "if a player has more cards in hand than each other player",
+      "count": 1,
+      "exampleCards": [
+        "Sokenzan Renegade"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
     }
   ],
-  "topRecognizedNull": [],
+  "topRecognizedNull": [
+    {
+      "clause": "if mana from a Treasure was spent to cast it",
+      "clauseLower": "if mana from a treasure was spent to cast it",
+      "count": 5,
+      "exampleCards": [
+        "Alchemist's Talent",
+        "Hired Hexblade",
+        "Jaded Sell-Sword",
+        "Marut",
+        "Mastermind Plum"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if it was kicked twice",
+      "clauseLower": "if it was kicked twice",
+      "count": 1,
+      "exampleCards": [
+        "Archangel of Wrath"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if its additional cost was paid",
+      "clauseLower": "if its additional cost was paid",
+      "count": 1,
+      "exampleCards": [
+        "Graven Archfiend"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if mana from a Treasure was spent to cast it or activate it",
+      "clauseLower": "if mana from a treasure was spent to cast it or activate it",
+      "count": 1,
+      "exampleCards": [
+        "Vazi, Keen Negotiator"
+      ],
+      "evaluation": "recognized"
+    },
+    {
+      "clause": "if you attacked with exactly one other creature this combat",
+      "clauseLower": "if you attacked with exactly one other creature this combat",
+      "count": 1,
+      "exampleCards": [
+        "Creepy Puppeteer"
+      ],
+      "evaluation": "recognized"
+    }
+  ],
   "topFallback": [],
   "topUnknown": []
 }

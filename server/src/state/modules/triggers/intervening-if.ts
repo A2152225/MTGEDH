@@ -1831,19 +1831,28 @@ function evaluateInterveningIfClauseInternal(
 
   // "...if a land entered the battlefield under your control this turn..." (landfall-adjacent)
   if (/^if\s+a\s+land\s+(?:you\s+control\s+)?entered(?:\s+the\s+battlefield)?\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
-    const n = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
-    return n === null ? null : n > 0;
+    const map = (ctx as any).state?.landsEnteredBattlefieldThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    const n = (map as any)[String(controllerId)];
+    if (typeof n !== 'number') return null;
+    return n > 0;
   }
 
   // "if you had a land enter the battlefield under your control this turn" (Wandering Troubadour)
   if (/^if\s+you\s+had\s+a\s+land\s+enter\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn$/i.test(clause)) {
-    const n = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
-    return n === null ? null : n > 0;
+    const map = (ctx as any).state?.landsEnteredBattlefieldThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    const n = (map as any)[String(controllerId)];
+    if (typeof n !== 'number') return null;
+    return n > 0;
   }
 
   // "if a land entered the battlefield under your control this turn and you control a prime number of lands"
   if (/^if\s+a\s+land\s+entered\s+the\s+battlefield\s+under\s+your\s+control\s+this\s+turn\s+and\s+you\s+control\s+a\s+prime\s+number\s+of\s+lands$/i.test(clause)) {
-    const n = getLandsEnteredBattlefieldThisTurn(ctx, controllerId);
+    const map = (ctx as any).state?.landsEnteredBattlefieldThisTurn;
+    if (!map || typeof map !== 'object') return null;
+    const n = (map as any)[String(controllerId)];
+    if (typeof n !== 'number') return null;
     if (n <= 0) return false;
     return isPrimeNumber(countByPermanentType(ctx, controllerId, 'land'));
   }
@@ -3873,7 +3882,7 @@ function evaluateInterveningIfClauseInternal(
 
   // "if <Name> was kicked" (best-effort; avoid matching "if it was kicked" which has its own handler)
   {
-    const m = clause.match(/^if\s+(?!it\b)(?!this\s+spell\b)(?!this\s+card\b)(.+?)\s+was\s+kicked$/i);
+    const m = clause.match(/^if\s+(?!it\b)(?!this\s+spell\b)(?!this\s+card\b)(?!that\s+spell\b)(?!that\s+card\b)(.+?)\s+was\s+kicked$/i);
     if (m) {
       const token = String(m[1] || '').trim();
       if (!token) return null;
@@ -4474,12 +4483,13 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it was kicked"
   if (/^if\s+it\s+was\s+kicked$/i.test(clause)) {
-    if (!sourcePermanent) return null;
-    const v =
-      (refs as any)?.wasKicked ??
-      (refs as any)?.card?.wasKicked ??
-      (sourcePermanent as any)?.wasKicked ??
-      (sourcePermanent as any)?.card?.wasKicked;
+    const explicit = (refs as any)?.wasKicked ?? (refs as any)?.card?.wasKicked;
+    if (typeof explicit === 'boolean') return explicit;
+
+    const item = (refs as any)?.stackItem ?? sourcePermanent;
+    if (!item) return null;
+
+    const v = (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked;
     if (typeof v === 'boolean') return v;
 
     // Some implementations track "times kicked" rather than a boolean.
@@ -4491,12 +4501,12 @@ function evaluateInterveningIfClauseInternal(
       (refs as any)?.card?.kickerPaidCount ??
       (refs as any)?.card?.timesKicked ??
       (refs as any)?.card?.kickedTimes ??
-      (sourcePermanent as any)?.kickerPaidCount ??
-      (sourcePermanent as any)?.timesKicked ??
-      (sourcePermanent as any)?.kickedTimes ??
-      (sourcePermanent as any)?.card?.kickerPaidCount ??
-      (sourcePermanent as any)?.card?.timesKicked ??
-      (sourcePermanent as any)?.card?.kickedTimes;
+      (item as any)?.kickerPaidCount ??
+      (item as any)?.timesKicked ??
+      (item as any)?.kickedTimes ??
+      (item as any)?.card?.kickerPaidCount ??
+      (item as any)?.card?.timesKicked ??
+      (item as any)?.card?.kickedTimes;
     if (typeof count === 'number') return count > 0 ? true : null;
 
     return null;
@@ -4504,12 +4514,13 @@ function evaluateInterveningIfClauseInternal(
 
   // "if this creature wasn't kicked" / "if this creature was not kicked" (best-effort)
   if (/^if\s+this\s+creature\s+was\s+not\s+kicked$/i.test(clause) || /^if\s+this\s+creature\s+wasn'?t\s+kicked$/i.test(clause)) {
-    if (!sourcePermanent) return null;
-    const v =
-      (refs as any)?.wasKicked ??
-      (refs as any)?.card?.wasKicked ??
-      (sourcePermanent as any)?.wasKicked ??
-      (sourcePermanent as any)?.card?.wasKicked;
+    const explicit = (refs as any)?.wasKicked ?? (refs as any)?.card?.wasKicked;
+    if (typeof explicit === 'boolean') return !explicit;
+
+    const item = (refs as any)?.stackItem ?? sourcePermanent;
+    if (!item) return null;
+
+    const v = (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked;
     if (typeof v === 'boolean') return !v;
 
     const count =
@@ -4519,12 +4530,12 @@ function evaluateInterveningIfClauseInternal(
       (refs as any)?.card?.kickerPaidCount ??
       (refs as any)?.card?.timesKicked ??
       (refs as any)?.card?.kickedTimes ??
-      (sourcePermanent as any)?.kickerPaidCount ??
-      (sourcePermanent as any)?.timesKicked ??
-      (sourcePermanent as any)?.kickedTimes ??
-      (sourcePermanent as any)?.card?.kickerPaidCount ??
-      (sourcePermanent as any)?.card?.timesKicked ??
-      (sourcePermanent as any)?.card?.kickedTimes;
+      (item as any)?.kickerPaidCount ??
+      (item as any)?.timesKicked ??
+      (item as any)?.kickedTimes ??
+      (item as any)?.card?.kickerPaidCount ??
+      (item as any)?.card?.timesKicked ??
+      (item as any)?.card?.kickedTimes;
     if (typeof count === 'number') {
       // If we have positive evidence it was kicked at least once, this clause is false.
       if (count > 0) return false;
@@ -4537,12 +4548,13 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it was kicked with its {..} kicker" (recognize but we don't track which kicker)
   if (/^if\s+it\s+was\s+kicked\s+with\s+its\s+(?:\{[^}]+\})+\s+kicker$/i.test(clause)) {
-    if (!sourcePermanent) return null;
-    const v =
-      (refs as any)?.wasKicked ??
-      (refs as any)?.card?.wasKicked ??
-      (sourcePermanent as any)?.wasKicked ??
-      (sourcePermanent as any)?.card?.wasKicked;
+    const explicit = (refs as any)?.wasKicked ?? (refs as any)?.card?.wasKicked;
+    if (explicit === true) return true;
+
+    const item = (refs as any)?.stackItem ?? sourcePermanent;
+    if (!item) return null;
+
+    const v = (item as any)?.wasKicked ?? (item as any)?.card?.wasKicked;
     if (v === true) return true;
 
     const count =
@@ -4552,12 +4564,12 @@ function evaluateInterveningIfClauseInternal(
       (refs as any)?.card?.kickerPaidCount ??
       (refs as any)?.card?.timesKicked ??
       (refs as any)?.card?.kickedTimes ??
-      (sourcePermanent as any)?.kickerPaidCount ??
-      (sourcePermanent as any)?.timesKicked ??
-      (sourcePermanent as any)?.kickedTimes ??
-      (sourcePermanent as any)?.card?.kickerPaidCount ??
-      (sourcePermanent as any)?.card?.timesKicked ??
-      (sourcePermanent as any)?.card?.kickedTimes;
+      (item as any)?.kickerPaidCount ??
+      (item as any)?.timesKicked ??
+      (item as any)?.kickedTimes ??
+      (item as any)?.card?.kickerPaidCount ??
+      (item as any)?.card?.timesKicked ??
+      (item as any)?.card?.kickedTimes;
     if (typeof count === 'number' && count > 0) return true;
 
     return null;
@@ -4565,9 +4577,12 @@ function evaluateInterveningIfClauseInternal(
 
   // "if it was bargained" (best-effort)
   if (/^if\s+it\s+was\s+bargained$/i.test(clause)) {
-    if (!sourcePermanent) return null;
-    const resolved = (sourcePermanent as any)?.bargainResolved ?? (sourcePermanent as any)?.card?.bargainResolved;
-    const v = (sourcePermanent as any)?.wasBargained ?? (sourcePermanent as any)?.card?.wasBargained;
+    const item = (refs as any)?.stackItem;
+    const src = item || sourcePermanent;
+    if (!src) return null;
+
+    const resolved = (src as any)?.bargainResolved ?? (src as any)?.card?.bargainResolved;
+    const v = (src as any)?.wasBargained ?? (src as any)?.card?.wasBargained;
 
     // Deterministic only when explicitly marked resolved.
     if (resolved === true && typeof v === 'boolean') return v;
@@ -4577,30 +4592,43 @@ function evaluateInterveningIfClauseInternal(
     return null;
   }
 
-  // "if it was cast" (best-effort)
-  if (/^if\s+it\s+was\s+cast$/i.test(clause)) {
-    if (!sourcePermanent) return null;
+  // "if it/this <thing>/that spell was cast" (best-effort)
+  if (
+    /^if\s+it\s+was\s+cast$/i.test(clause) ||
+    /^if\s+this\s+(?:spell|creature|permanent|artifact|enchantment|planeswalker|instant|sorcery|card)\s+was\s+cast$/i.test(clause) ||
+    /^if\s+that\s+spell\s+was\s+cast$/i.test(clause)
+  ) {
+    const explicit = (refs as any)?.wasCast ?? (refs as any)?.card?.wasCast;
+    if (typeof explicit === 'boolean') return explicit;
+
+    const item = (refs as any)?.stackItem ?? sourcePermanent;
+    if (!item) return null;
+
     const v =
-      (sourcePermanent as any)?.enteredFromCast ??
-      (sourcePermanent as any)?.wasCast ??
-      (sourcePermanent as any)?.card?.enteredFromCast ??
-      (sourcePermanent as any)?.card?.wasCast;
+      (item as any)?.enteredFromCast ??
+      (item as any)?.wasCast ??
+      (item as any)?.card?.enteredFromCast ??
+      (item as any)?.card?.wasCast;
     if (typeof v === 'boolean') return v;
 
     // If we at least know the source zone of the cast, that's enough to conclude it was cast.
     const sourceZone =
-      (sourcePermanent as any)?.castSourceZone ??
-      (sourcePermanent as any)?.fromZone ??
-      (sourcePermanent as any)?.source ??
-      (sourcePermanent as any)?.card?.castSourceZone ??
-      (sourcePermanent as any)?.card?.fromZone ??
-      (sourcePermanent as any)?.card?.source;
+      (item as any)?.castSourceZone ??
+      (item as any)?.fromZone ??
+      (item as any)?.source ??
+      (item as any)?.card?.castSourceZone ??
+      (item as any)?.card?.fromZone ??
+      (item as any)?.card?.source;
     if (typeof sourceZone === 'string' && sourceZone.trim().length > 0) return true;
 
-    const fromHand = (sourcePermanent as any)?.castFromHand ?? (sourcePermanent as any)?.card?.castFromHand;
-    const fromExile = (sourcePermanent as any)?.castFromExile ?? (sourcePermanent as any)?.card?.castFromExile;
-    const fromGraveyard = (sourcePermanent as any)?.castFromGraveyard ?? (sourcePermanent as any)?.card?.castFromGraveyard;
+    const fromHand = (item as any)?.castFromHand ?? (item as any)?.card?.castFromHand;
+    const fromExile = (item as any)?.castFromExile ?? (item as any)?.card?.castFromExile;
+    const fromGraveyard = (item as any)?.castFromGraveyard ?? (item as any)?.card?.castFromGraveyard;
     if (typeof fromHand === 'boolean' || typeof fromExile === 'boolean' || typeof fromGraveyard === 'boolean') return true;
+
+    // Presence of a foretell-cast flag (even false) implies a cast happened.
+    const fromForetell = (item as any)?.castFromForetell ?? (item as any)?.card?.castFromForetell;
+    if (typeof fromForetell === 'boolean') return true;
 
     return null;
   }
@@ -4646,7 +4674,7 @@ function evaluateInterveningIfClauseInternal(
 
       // Positive-only fallback: if we have an explicit lower-bound list, honor it.
       const spent = getManaColorsSpentFromSource(sourcePermanent);
-      if (spent?.includes(color)) return true;
+      if (Array.isArray(spent)) return spent.includes(color);
       return null;
     }
   }
@@ -4754,7 +4782,7 @@ function evaluateInterveningIfClauseInternal(
       if (typeof amount === 'number') return amount > 0;
 
       const spent = getManaColorsSpentFromSource(sourcePermanent);
-      if (spent?.includes(color)) return true;
+      if (Array.isArray(spent)) return spent.includes(color);
       return null;
     }
   }
@@ -4855,9 +4883,9 @@ function evaluateInterveningIfClauseInternal(
     /^if\s+mana\s+from\s+a\s+treasure\s+was\s+spent\s+to\s+cast\s+it$/i.test(clause) ||
     /^if\s+mana\s+from\s+a\s+treasure\s+was\s+spent\s+to\s+cast\s+it\s+or\s+activate\s+it$/i.test(clause)
   ) {
-    if (!sourcePermanent) return null;
     const item = getTriggeringStackItemForInterveningIf();
     const src: any = item || sourcePermanent;
+    if (!src) return null;
     const known = src?.manaFromTreasureSpentKnown ?? src?.card?.manaFromTreasureSpentKnown;
     const v = src?.manaFromTreasureSpent ?? src?.card?.manaFromTreasureSpent;
 
@@ -5410,11 +5438,8 @@ function evaluateInterveningIfClauseInternal(
     if (wantsThisTurn) {
       const a = stateAny?.completedDungeonThisTurn;
       const b = stateAny?.dungeonCompletedThisTurn;
-      const hasTracking = (a && typeof a === 'object') || (b && typeof b === 'object');
       const thisTurn = a?.[controllerId] ?? b?.[controllerId];
       if (typeof thisTurn === 'boolean') return thisTurn;
-      // If tracking exists but this player has no entry, treat as "didn't complete a dungeon this turn".
-      if (thisTurn === undefined && hasTracking) return false;
       // If we don't have per-turn tracking, we can't safely answer the "this turn" variant.
       return null;
     }
@@ -6475,12 +6500,8 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.castFromExileThisTurn?.[controllerId];
     if (typeof raw === 'boolean') return !raw;
     if (typeof raw === 'number') return raw === 0;
-    const hasAnyTracker =
-      (stateAny?.playedFromExileThisTurn && typeof stateAny.playedFromExileThisTurn === 'object') ||
-      (stateAny?.playedCardFromExileThisTurn && typeof stateAny.playedCardFromExileThisTurn === 'object') ||
-      (stateAny?.cardsPlayedFromExileThisTurn && typeof stateAny.cardsPlayedFromExileThisTurn === 'object') ||
-      (stateAny?.castFromExileThisTurn && typeof stateAny.castFromExileThisTurn === 'object');
-    return hasAnyTracker ? true : null;
+    // Replay-safe: missing tracking / missing per-player entry => unknown.
+    return null;
   }
 
   // "if you played a card from exile this turn"
@@ -6493,12 +6514,8 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.castFromExileThisTurn?.[controllerId];
     if (typeof raw === 'boolean') return raw;
     if (typeof raw === 'number') return raw > 0;
-    const hasAnyTracker =
-      (stateAny?.playedFromExileThisTurn && typeof stateAny.playedFromExileThisTurn === 'object') ||
-      (stateAny?.playedCardFromExileThisTurn && typeof stateAny.playedCardFromExileThisTurn === 'object') ||
-      (stateAny?.cardsPlayedFromExileThisTurn && typeof stateAny.cardsPlayedFromExileThisTurn === 'object') ||
-      (stateAny?.castFromExileThisTurn && typeof stateAny.castFromExileThisTurn === 'object');
-    return hasAnyTracker ? false : null;
+    // Replay-safe: missing tracking / missing per-player entry => unknown.
+    return null;
   }
 
   // "if you cycled two or more cards this turn"
@@ -7130,7 +7147,8 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+you\s+cast\s+two\s+or\s+more\s+spells\s+last\s+turn$/i.test(clause)) {
     const counts = getSpellsCastLastTurnByPlayerCounts(ctx);
     if (!counts) return null;
-    const n = typeof counts[controllerId] === 'number' ? counts[controllerId] : 0;
+    const n = (counts as any)[String(controllerId)];
+    if (typeof n !== 'number') return null;
     return n >= 2;
   }
 
@@ -7138,8 +7156,9 @@ function evaluateInterveningIfClauseInternal(
   if (/^if\s+you\s+cast\s+no\s+spells\s+last\s+turn$/i.test(clause)) {
     const counts = getSpellsCastLastTurnByPlayerCounts(ctx);
     if (counts) {
-      const n = typeof counts[controllerId] === 'number' ? counts[controllerId] : 0;
-      return n === 0;
+      const n = (counts as any)[String(controllerId)];
+      if (typeof n === 'number') return n === 0;
+      // Replay-safe: don't assume 0 just because the container exists.
     }
 
     const last = getSpellsCastLastTurnCount(ctx);
@@ -7149,14 +7168,18 @@ function evaluateInterveningIfClauseInternal(
   // "if you lost life last turn"
   if (/^if\s+you\s+lost\s+life\s+last\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
-    const counts =
-      (stateAny?.lifeLostLastTurnByPlayerCounts && typeof stateAny.lifeLostLastTurnByPlayerCounts === 'object'
-        ? stateAny.lifeLostLastTurnByPlayerCounts
-        : null) ??
-      (stateAny?.lifeLostLastTurnByPlayer && typeof stateAny.lifeLostLastTurnByPlayer === 'object' ? stateAny.lifeLostLastTurnByPlayer : null) ??
-      (stateAny?.lifeLostLastTurn && typeof stateAny.lifeLostLastTurn === 'object' ? stateAny.lifeLostLastTurn : null);
-    const n = counts && typeof (counts as any)[controllerId] === 'number' ? (counts as any)[controllerId] : 0;
-    return n > 0;
+    const candidates: any[] = [
+      stateAny?.lifeLostLastTurnByPlayerCounts,
+      stateAny?.lifeLostLastTurnByPlayer,
+      stateAny?.lifeLostLastTurn,
+    ].filter((x) => x && typeof x === 'object');
+
+    for (const counts of candidates) {
+      const raw = (counts as any)[String(controllerId)];
+      if (typeof raw === 'boolean') return raw;
+      if (typeof raw === 'number') return raw > 0;
+    }
+    return null;
   }
 
   // "if you drew a card last turn" (Mine Is the Only Truth)
@@ -7182,6 +7205,8 @@ function evaluateInterveningIfClauseInternal(
     if (unknown) return null;
     if (!opps.length) return false;
 
+    let sawUnknown = false;
+
     for (const oid of opps) {
       const raw = (counts as any)[String(oid)];
       if (typeof raw === 'boolean') {
@@ -7192,10 +7217,10 @@ function evaluateInterveningIfClauseInternal(
         if (raw > 0) return true;
         continue;
       }
-      // Container exists but this opponent has no entry: treat as 0.
+      sawUnknown = true;
     }
 
-    return false;
+    return sawUnknown ? null : false;
   }
 
   // Delirium: "if there are four or more card types among cards in your graveyard"
@@ -8213,8 +8238,7 @@ function evaluateInterveningIfClauseInternal(
 
   // "if a creature died under an opponent's control this turn"
   if (/^if\s+a\s+creature\s+died\s+under\s+an\s+opponent's\s+control\s+this\s+turn$/i.test(clause)) {
-    const controllerId = String((sourcePermanent as any)?.controller ?? (sourcePermanent as any)?.card?.controller ?? '').trim();
-    if (!controllerId) return null;
+    const pid = String(controllerId);
     const diedMap = (ctx as any).state?.creaturesDiedThisTurnByController;
     if (!diedMap || typeof diedMap !== 'object') return null;
 
@@ -8222,7 +8246,7 @@ function evaluateInterveningIfClauseInternal(
     if (!players) return null;
     const opponentIds = players
       .map((p: any) => String(p?.id ?? ''))
-      .filter((id: string) => id && id !== controllerId);
+      .filter((id: string) => id && id !== pid);
     if (opponentIds.length === 0) return false;
 
     for (const oppId of opponentIds) {
@@ -8236,13 +8260,12 @@ function evaluateInterveningIfClauseInternal(
   {
     const m = clause.match(/^if\s+(?:another\s+)?an?\s+([a-z\-]+)\s+died\s+under\s+your\s+control\s+this\s+turn$/i);
     if (m) {
-      const controllerId = String((sourcePermanent as any)?.controller ?? (sourcePermanent as any)?.card?.controller ?? '').trim();
-      if (!controllerId) return null;
+      const pid = String(controllerId);
       const map = (ctx as any).state?.creaturesDiedThisTurnByControllerSubtype;
       if (!map || typeof map !== 'object') return null;
 
       const subtypeLower = toLower(m[1]);
-      const byController = (map as any)[String(controllerId)];
+      const byController = (map as any)[String(pid)];
       if (!byController || typeof byController !== 'object') return false;
       const v = (byController as any)[String(subtypeLower)];
       if (typeof v === 'number') return v >= 1;
@@ -10172,10 +10195,13 @@ function evaluateInterveningIfClauseInternal(
     return spent > pow;
   }
 
-  // "if its additional cost was paid" (positive-only: true when explicitly tracked)
+  // "if its additional cost was paid" (deterministic when `...Known` is available; otherwise positive-only)
   if (/^if\s+its\s+additional\s+cost\s+was\s+paid$/i.test(clause)) {
     const item = getTriggeringStackItemForInterveningIf();
     if (!item) return null;
+    const known =
+      (item as any)?.additionalCostPaidKnown ??
+      (item as any)?.card?.additionalCostPaidKnown;
     const raw =
       item?.additionalCostWasPaid ??
       item?.paidAdditionalCost ??
@@ -10184,7 +10210,10 @@ function evaluateInterveningIfClauseInternal(
       item?.card?.paidAdditionalCost ??
       item?.card?.additionalCostPaid;
 
-    // Positive-only: only return true when explicitly tracked.
+    // Deterministic: if we explicitly know the spell had an additional cost, treat boolean values as final.
+    if (known === true && typeof raw === 'boolean') return raw;
+
+    // Positive-only fallback: only return true when explicitly tracked.
     if (raw === true) return true;
     return null;
   }

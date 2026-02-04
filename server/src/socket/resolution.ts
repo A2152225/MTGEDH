@@ -3785,8 +3785,19 @@ async function handleStepResponse(
       const cardName = String(stepData.cardName || step.sourceName || '');
       const abilityId = stepData.abilityId;
 
-      const { getOrInitManaPool, broadcastManaPoolUpdate } = await import('./util.js');
+      const { getOrInitManaPool, broadcastManaPoolUpdate, recordTreasureManaProduced } = await import('./util.js');
       const manaPool = getOrInitManaPool(game.state, pid) as any;
+
+      // Treasure provenance tracking for replay-stable "mana from a Treasure" clauses.
+      let isTreasureSource = false;
+      try {
+        const battlefield = game.state?.battlefield || [];
+        const perm = battlefield.find((p: any) => p && String(p.id) === String(permanentId));
+        const typeLineLower = String((perm as any)?.card?.type_line || '').toLowerCase();
+        isTreasureSource = /\btreasure\b/.test(typeLineLower);
+      } catch {
+        // best-effort only
+      }
 
       const codeToPoolKey: Record<string, keyof typeof manaPool> = {
         W: 'white',
@@ -3867,6 +3878,11 @@ async function handleStepResponse(
           const poolKey = codeToPoolKey[color];
           if (poolKey) {
             manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+            if (isTreasureSource) {
+              try {
+                recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
+              } catch {}
+            }
           }
         }
 
@@ -3914,6 +3930,11 @@ async function handleStepResponse(
         }
 
         manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+        if (isTreasureSource) {
+          try {
+            recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
+          } catch {}
+        }
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -4059,8 +4080,18 @@ async function handleStepResponse(
         break;
       }
 
-      const { getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+      const {
+        getOrInitManaPool,
+        calculateTotalAvailableMana,
+        validateManaPayment,
+        consumeManaFromPool,
+        deriveManaFromTreasureSpent,
+        snapshotTreasureManaLowerBound,
+      } = await import('./util.js');
       const pool = getOrInitManaPool(game.state, pid) as any;
+
+      const poolBeforePayment = { ...pool };
+      const treasureLowerBoundBeforePayment = snapshotTreasureManaLowerBound(game.state, String(pid));
 
       const parsedCost = stepData.parsedCost;
       const phyrexianCosts: any[] = Array.isArray(stepData.phyrexianCosts) ? stepData.phyrexianCosts : [];
@@ -4144,7 +4175,12 @@ async function handleStepResponse(
         });
       }
 
-      consumeManaFromPool(pool, manaToConsume.colors, manaToConsume.generic);
+      const manaConsumption = consumeManaFromPool(pool, manaToConsume.colors, manaToConsume.generic);
+      const treasureMeta = deriveManaFromTreasureSpent(game.state, String(pid), {
+        poolBeforePayment,
+        consumed: (manaConsumption as any)?.consumed,
+        treasureLowerBoundBeforePayment,
+      });
 
       // Tap as part of cost (if not already tapped).
       if (requiresTap && !(perm as any).tapped) {
@@ -4173,6 +4209,11 @@ async function handleStepResponse(
           sourceName: cardName,
           description: abilityText,
         } as any;
+
+        if (treasureMeta.manaFromTreasureSpentKnown === true && typeof treasureMeta.manaFromTreasureSpent === 'boolean') {
+          stackItem.manaFromTreasureSpentKnown = true;
+          stackItem.manaFromTreasureSpent = treasureMeta.manaFromTreasureSpent;
+        }
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
@@ -4209,6 +4250,12 @@ async function handleStepResponse(
           cardName,
           abilityText,
           phyrexianLifePaid: totalLifeToPay,
+          ...(treasureMeta.manaFromTreasureSpentKnown === true && typeof treasureMeta.manaFromTreasureSpent === 'boolean'
+            ? {
+                manaFromTreasureSpentKnown: true,
+                manaFromTreasureSpent: treasureMeta.manaFromTreasureSpent,
+              }
+            : {}),
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(activateBattlefieldAbility) failed:', e);

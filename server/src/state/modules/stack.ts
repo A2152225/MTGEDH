@@ -5764,12 +5764,22 @@ export function resolveTopOfStack(ctx: GameContext) {
       const needsManaAbilityRef = /\bmana ability\b/i.test(textForEval);
       const needsSingleTargetRef = /\bsingle\s+target\b/i.test(textForEval) || /\btargets?\s+only\s+a\s+single\b/i.test(textForEval);
       const needsCardTypeShareRef = /\bshares\s+a\s+card\s+type\s+with\s+the\s+exiled\s+card\b/i.test(textForEval);
+      const needsDamageSourceRefs = /\bany\s+of\s+that\s+damage\s+was\s+dealt\s+by\s+a\s+warrior\b/i.test(textForEval);
       const activatedAbilityIsManaAbility = (item as any).activatedAbilityIsManaAbility;
       const triggeringStackItemId = (item as any).triggeringStackItemId;
 
+      const damageSourcePermanentIds = Array.isArray((item as any).damageSourcePermanentIds)
+        ? (item as any).damageSourcePermanentIds
+        : undefined;
+      const damageIncludedWarriorSource = (item as any).damageIncludedWarriorSource;
+      const wantsDamageSourceRefs =
+        needsDamageSourceRefs ||
+        Array.isArray(damageSourcePermanentIds) ||
+        typeof damageIncludedWarriorSource === 'boolean';
+
       const battlefield = (ctx as any).state?.battlefield || [];
       const sourcePerm = battlefield.find((p: any) => p?.id === (item as any).source);
-      const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef || needsSingleTargetRef || needsCardTypeShareRef)
+      const refs = (needsThatPlayerRef || needsTheirTurnRef || needsManaAbilityRef || needsSingleTargetRef || needsCardTypeShareRef || wantsDamageSourceRefs)
         ? {
             ...(thatPlayerId && (needsThatPlayerRef || needsTheirTurnRef)
               ? {
@@ -5783,6 +5793,16 @@ export function resolveTopOfStack(ctx: GameContext) {
               : {}),
             ...((needsSingleTargetRef || needsCardTypeShareRef) && triggeringStackItemId
               ? { triggeringStackItemId: String(triggeringStackItemId) }
+              : {}),
+            ...(wantsDamageSourceRefs && Array.isArray(damageSourcePermanentIds)
+              ? {
+                  damageSourcePermanentIds,
+                  damageSourceCreatureIds: damageSourcePermanentIds,
+                  damageSourceIds: damageSourcePermanentIds,
+                }
+              : {}),
+            ...(wantsDamageSourceRefs && typeof damageIncludedWarriorSource === 'boolean'
+              ? { damageIncludedWarriorSource }
               : {}),
           }
         : undefined;
@@ -9482,18 +9502,31 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
     try {
       const synthetic = `Whenever ~ deals damage to a player, ${text}`;
       const needsThatPlayerRef = /\bthat player\b/i.test(synthetic);
+
+      // Some intervening-if templates need to know the damage source(s) (e.g.,
+      // "if any of that damage was dealt by a Warrior"). For this trigger family,
+      // the damage source is always the same as the trigger source.
+      const sourceTypeLine = String(sourcePerm?.card?.type_line || '').toLowerCase();
+      const damageIncludedWarriorSource = typeLineHasAllWords(sourceTypeLine, 'warrior');
+      const damageSourcePermanentIds = [String(sourcePerm.id)];
+
+      const refs: any = {
+        damageSourcePermanentIds,
+        damageSourceCreatureIds: damageSourcePermanentIds,
+        damageSourceIds: damageSourcePermanentIds,
+        damageIncludedWarriorSource,
+      };
+      if (needsThatPlayerRef) {
+        refs.thatPlayerId = String(damagedPlayerId);
+        refs.referencedPlayerId = String(damagedPlayerId);
+        refs.theirPlayerId = String(damagedPlayerId);
+      }
       const ok = isInterveningIfSatisfied(
         ctx as any,
         String(sourcePerm.controller),
         synthetic,
         sourcePerm,
-        needsThatPlayerRef
-          ? {
-              thatPlayerId: String(damagedPlayerId),
-              referencedPlayerId: String(damagedPlayerId),
-              theirPlayerId: String(damagedPlayerId),
-            }
-          : undefined
+        refs
       );
       if (ok === false) continue;
     } catch {
@@ -9514,6 +9547,10 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
       targets: [],
       targetPlayer: String(damagedPlayerId),
       defendingPlayer: String(damagedPlayerId),
+      // Persist damage-source context so resolution-time intervening-if checks can
+      // be deterministic for templates like "if any of that damage was dealt by a Warrior".
+      damageSourcePermanentIds: [String(sourcePerm.id)],
+      damageIncludedWarriorSource: typeLineHasAllWords(String(sourcePerm?.card?.type_line || '').toLowerCase(), 'warrior'),
       card: sourcePerm.card,
     } as any);
   }
