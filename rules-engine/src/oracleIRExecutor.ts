@@ -1,5 +1,5 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
-import { createTokens, createTokensByName, parseTokenCreationFromText } from './tokenCreation';
+import { createTokens, createTokensByName, parseTokenCreationFromText, COMMON_TOKENS } from './tokenCreation';
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from './oracleIR';
 
 export interface OracleIRExecutionOptions {
@@ -96,9 +96,22 @@ function addTokensToBattlefield(
   amount: number,
   tokenHint: string,
   clauseRaw: string,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { state: GameState; log: string[] } {
   const log: string[] = [];
+
+  const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
+
+  const resolveCommonTokenKey = (name: string): string | null => {
+    const raw = String(name || '').trim();
+    if (!raw) return null;
+    if ((COMMON_TOKENS as any)[raw]) return raw;
+    const lower = raw.toLowerCase();
+    const key = Object.keys(COMMON_TOKENS).find(k => k.toLowerCase() === lower);
+    return key || null;
+  };
 
   const hintedName = tokenHint
     .replace(/\btoken(s)?\b/gi, '')
@@ -107,20 +120,30 @@ function addTokensToBattlefield(
     .trim();
 
   if (hintedName) {
-    const common = createTokensByName(
-      hintedName,
-      Math.max(1, amount | 0),
-      controllerId,
-      state.battlefield || [],
-      ctx.sourceId,
-      ctx.sourceName
-    );
-    if (common) {
-      const tokensToAdd = common.tokens.map(t => t.token);
-      return {
-        state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
-        log: [...common.log],
-      };
+    const commonKey = resolveCommonTokenKey(hintedName);
+    if (commonKey) {
+      const count = Math.max(1, amount | 0);
+      const result = hasOverrides
+        ? createTokens(
+            {
+              characteristics: { ...COMMON_TOKENS[commonKey], entersTapped: entersTapped || undefined },
+              count,
+              controllerId,
+              sourceId: ctx.sourceId,
+              sourceName: ctx.sourceName,
+              withCounters,
+            },
+            state.battlefield || []
+          )
+        : createTokensByName(commonKey, count, controllerId, state.battlefield || [], ctx.sourceId, ctx.sourceName);
+
+      if (result) {
+        const tokensToAdd = result.tokens.map(t => t.token);
+        return {
+          state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
+          log: [...result.log],
+        };
+      }
     }
   }
 
@@ -132,31 +155,40 @@ function addTokensToBattlefield(
 
   const count = Math.max(1, amount | 0);
 
-  // If token name maps to a common token, use that path.
-  const commonParsed = createTokensByName(
-    tokenParse.characteristics.name,
-    count,
-    controllerId,
-    state.battlefield || [],
-    ctx.sourceId,
-    ctx.sourceName
-  );
-  if (commonParsed) {
-    const tokensToAdd = commonParsed.tokens.map(t => t.token);
-    return {
-      state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
-      log: [...commonParsed.log],
-    };
+  // If token name maps to a common token and there are no overrides, use that path.
+  if (!hasOverrides) {
+    const commonKey = resolveCommonTokenKey(tokenParse.characteristics.name);
+    if (commonKey) {
+      const commonParsed = createTokensByName(
+        commonKey,
+        count,
+        controllerId,
+        state.battlefield || [],
+        ctx.sourceId,
+        ctx.sourceName
+      );
+      if (commonParsed) {
+        const tokensToAdd = commonParsed.tokens.map(t => t.token);
+        return {
+          state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
+          log: [...commonParsed.log],
+        };
+      }
+    }
   }
 
   // Otherwise, create from characteristics.
   const created = createTokens(
     {
-      characteristics: tokenParse.characteristics,
+      characteristics: {
+        ...tokenParse.characteristics,
+        entersTapped: entersTapped ?? tokenParse.characteristics.entersTapped,
+      },
       count,
       controllerId,
       sourceId: ctx.sourceId,
       sourceName: ctx.sourceName,
+      withCounters,
     },
     state.battlefield || []
   );
@@ -197,6 +229,12 @@ export function applyOracleIRStepsToGameState(
     }
 
     switch (step.kind) {
+      case 'impulse_exile_top': {
+        skippedSteps.push(step);
+        log.push(`Skipped impulse exile top (server-only): ${step.raw}`);
+        break;
+      }
+
       case 'draw': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
@@ -311,7 +349,16 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
-        const r = addTokensToBattlefield(nextState, ctx.controllerId, amount, step.token, step.raw, ctx);
+        const r = addTokensToBattlefield(
+          nextState,
+          ctx.controllerId,
+          amount,
+          step.token,
+          step.raw,
+          ctx,
+          (step as any).entersTapped,
+          (step as any).withCounters
+        );
         nextState = r.state;
         log.push(...r.log);
         appliedSteps.push(step);

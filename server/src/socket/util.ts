@@ -488,7 +488,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     }
     
     // Check exile zone for foretell cards and other playable cards
-    const exileZone = (state as any).exile?.[playerId];
+    const exileZone = (zones as any)?.exile ?? (state as any).exile?.[playerId];
     if (Array.isArray(exileZone)) {
       for (const card of exileZone) {
         if (!card || typeof card === "string") continue;
@@ -505,7 +505,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             
             // Check timing for foretell
             const isInstantSpeed = typeLine.includes("instant");
-            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
+            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
             
             if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
               playableIds.push(card.id);
@@ -516,17 +516,32 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         // Check if marked as playable from exile (impulse draw effects, etc.)
         const playableFromExile = (state as any).playableFromExile?.[playerId];
         if (playableFromExile) {
-          const isPlayable = Array.isArray(playableFromExile) 
-            ? playableFromExile.includes(card.id)
+          const entry = Array.isArray(playableFromExile)
+            ? (playableFromExile.includes(card.id) ? true : undefined)
             : playableFromExile[card.id];
+
+          const turnNumber = Number((state as any).turnNumber ?? 0);
+          const isPlayable = typeof entry === 'number'
+            ? entry >= turnNumber
+            : Boolean(entry);
           
           if (isPlayable) {
+            // Lands from exile: highlight if the player can still play a land.
+            if (typeLine.includes('land')) {
+              const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
+              const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
+              if (isMainPhase && stackIsEmpty && isMyTurn && landsPlayedThisTurn < maxLandsPerTurn) {
+                playableIds.push(card.id);
+              }
+              continue;
+            }
+
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaFromString(manaCost);
             
             // Check timing
             const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
+            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
             
             // Check if player can pay the cost (normal or alternate)
             if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {

@@ -3883,7 +3883,7 @@ export function App() {
     });
   };
 
-  const handleExileAbility = (cardId: string, abilityId: string) => {
+  const handleExileAbility = (cardId: string, abilityId: string, card: KnownCardRef) => {
     if (!safeView?.id) return;
 
     if (abilityId === 'foretell-cast') {
@@ -3894,10 +3894,22 @@ export function App() {
       return;
     }
 
+    const isLand = /\bland\b/i.test(String((card as any)?.type_line || (card as any)?.typeLine || ''));
+
+    if (isLand) {
+      socket.emit('playLand', {
+        gameId: safeView.id,
+        cardId,
+        fromZone: 'exile',
+      });
+      return;
+    }
+
     // Most "cast/play from exile" permissions are handled via the normal cast request.
     socket.emit('requestCastSpell', {
       gameId: safeView.id,
       cardId,
+      fromZone: 'exile',
     });
   };
 

@@ -40,7 +40,7 @@ function parseExileAbilities(card: KnownCardRef): ExileAbility[] {
   if (oracleText.includes('foretell')) {
     const match = card.oracle_text?.match(/foretell[^(]*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
     abilities.push({
-      id: 'foretell',
+      id: 'foretell-cast',
       label: 'Foretell',
       description: `Cast from exile for ${match ? match[1] : card.mana_cost || 'cost'}`,
       cost: match ? match[1] : card.mana_cost,
@@ -138,6 +138,9 @@ export function ExileViewModal({
   }, [cardsWithAbilities, filterMode, playableCards, suspendedCards, searchTerm]);
 
   if (!open) return null;
+
+  const selectedIsPlayable = Boolean(selectedCard && playableCards.includes(selectedCard.id));
+  const selectedIsLand = Boolean(selectedCard && /\bland\b/i.test(String(selectedCard.type_line || '')));
 
   return (
     <div
@@ -300,6 +303,23 @@ export function ExileViewModal({
                 )}
               </div>
             ))}
+
+            {canActivate && onActivateAbility && selectedIsPlayable && (
+              <div style={{ padding: 8, backgroundColor: '#1a1a2e', borderRadius: 6, marginBottom: 8, border: '1px solid #22c55e' }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: '#22c55e', marginBottom: 4 }}>
+                  Playable Now
+                </div>
+                <div style={{ fontSize: 12, color: '#ccc', marginBottom: 8 }}>
+                  You have permission to {selectedIsLand ? 'play' : 'cast'} this card from exile.
+                </div>
+                <button
+                  onClick={() => { onActivateAbility(selectedCard.id, 'playable-permission', selectedCard); setSelectedCard(null); }}
+                  style={{ padding: '6px 12px', backgroundColor: '#22c55e', border: 'none', borderRadius: 4, color: '#0b0f0c', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                >
+                  {selectedIsLand ? 'Play Land' : 'Cast Spell'}
+                </button>
+              </div>
+            )}
             
             {parseExileAbilities(selectedCard).length === 0 && (
               <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic', padding: 8 }}>

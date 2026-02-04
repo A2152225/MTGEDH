@@ -72,6 +72,61 @@ describe('Oracle IR Executor', () => {
     expect((token.card?.name || '').toLowerCase()).toContain('treasure');
   });
 
+  it('creates other common artifact tokens (Gold, Powerstone)', () => {
+    const ir = parseOracleTextToIR('Create a Gold token. Create a Powerstone token.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(2);
+    const names = result.state.battlefield.map((p: any) => String(p?.card?.name || '').toLowerCase());
+    expect(names.some(n => n.includes('gold'))).toBe(true);
+    expect(names.some(n => n.includes('powerstone'))).toBe(true);
+  });
+
+  it('creates a tapped token when oracle says tapped', () => {
+    const ir = parseOracleTextToIR('Create a tapped Treasure token.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(1);
+    const token = result.state.battlefield[0] as any;
+    expect(token.isToken).toBe(true);
+    expect(token.tapped).toBe(true);
+  });
+
+  it('creates a tapped token when oracle says "token tapped"', () => {
+    const ir = parseOracleTextToIR('Create a Treasure token tapped.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(1);
+    const token = result.state.battlefield[0] as any;
+    expect(token.isToken).toBe(true);
+    expect(token.tapped).toBe(true);
+  });
+
+  it('creates a token with counters when oracle specifies counters', () => {
+    const ir = parseOracleTextToIR(
+      'Create a 1/1 white Soldier creature token with two +1/+1 counters on it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test' });
+
+    expect(result.state.battlefield.length).toBe(1);
+    const token = result.state.battlefield[0] as any;
+    expect(token.isToken).toBe(true);
+    expect(token.counters?.['+1/+1']).toBe(2);
+  });
+
   it('skips optional steps by default', () => {
     const ir = parseOracleTextToIR('You may draw a card.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];

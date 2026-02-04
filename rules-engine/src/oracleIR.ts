@@ -37,6 +37,22 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'impulse_exile_top';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      /** When the exiled cards can be played until. */
+      readonly duration: 'this_turn' | 'until_end_of_next_turn';
+      /** Whether oracle text granted 'play' (lands + cast) or 'cast' (spells only). */
+      readonly permission: 'play' | 'cast';
+      /** Optional simple condition gating the permission (e.g. "If it's red/nonland..."). */
+      readonly condition?:
+        | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
+        | { readonly kind: 'type'; readonly type: 'land' | 'nonland' };
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'add_mana';
       readonly who: OraclePlayerSelector;
       /** Raw mana string, e.g. "{R}{R}{R}" or "{2}{C}" */
@@ -107,6 +123,10 @@ export type OracleEffectStep =
       readonly amount: OracleQuantity;
       /** Best-effort free text token description (e.g. "1/1 white Soldier creature"). */
       readonly token: string;
+      /** Whether the token enters the battlefield tapped (deterministic). */
+      readonly entersTapped?: boolean;
+      /** Counters the token enters with (deterministic, single-clause only). */
+      readonly withCounters?: Record<string, number>;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

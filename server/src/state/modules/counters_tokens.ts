@@ -307,6 +307,8 @@ export function createToken(
     typeLine?: string;
     abilities?: string[];
     isArtifact?: boolean;
+    entersTapped?: boolean;
+    withCounters?: Record<string, number>;
   },
   skipMirrormindReplacement = false
 ) : string[] {
@@ -457,6 +459,18 @@ export function createToken(
   // Get token image URLs from the token service (pass abilities for exact matching)
   const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities);
   
+  const entersTapped = !!options?.entersTapped;
+  const initialCountersRaw = options?.withCounters;
+  const initialCounters: Record<string, number> = {};
+  if (initialCountersRaw && typeof initialCountersRaw === 'object') {
+    for (const [kRaw, vRaw] of Object.entries(initialCountersRaw)) {
+      const k = String(kRaw || '').trim();
+      const v = Math.floor(Number(vRaw) || 0);
+      if (!k || !v) continue;
+      initialCounters[k] = (initialCounters[k] || 0) + v;
+    }
+  }
+
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     const permanentId = uid("tok");
     createdPermanentIds.push(permanentId);
@@ -464,8 +478,8 @@ export function createToken(
       id: permanentId,
       controller,
       owner: controller,
-      tapped: false,
-      counters: {},
+      tapped: entersTapped,
+      counters: Object.keys(initialCounters).length ? { ...initialCounters } : {},
       basePower,
       baseToughness,
       summoningSickness: true, // Creatures have summoning sickness when they enter

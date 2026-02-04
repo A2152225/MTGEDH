@@ -80,7 +80,7 @@ function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID
 }
 
 function parseCommonArtifactTokenOptions(tokenText: string):
-  | { name: string; options: any }
+  | { name: string; options: any; basePower?: number; baseToughness?: number }
   | null {
   const lower = String(tokenText || '').toLowerCase();
   if (!lower) return null;
@@ -103,7 +103,7 @@ function parseCommonArtifactTokenOptions(tokenText: string):
       options: {
         colors: [],
         typeLine: 'Token Artifact — Clue',
-        abilities: ['{2}, Sacrifice this artifact: Draw a card.'],
+        abilities: ['{2}, Sacrifice this token: Draw a card.'],
         isArtifact: true,
       },
     };
@@ -115,7 +115,166 @@ function parseCommonArtifactTokenOptions(tokenText: string):
       options: {
         colors: [],
         typeLine: 'Token Artifact — Food',
-        abilities: ['{2}, {T}, Sacrifice this artifact: You gain 3 life.'],
+        abilities: ['{2}, {T}, Sacrifice this token: You gain 3 life.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('incubator')) {
+    return {
+      name: 'Incubator',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Incubator',
+        abilities: ['{2}: Transform this artifact.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('lander')) {
+    return {
+      name: 'Lander',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Lander',
+        abilities: [
+          '{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.',
+        ],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('mutagen')) {
+    return {
+      name: 'Mutagen',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Mutagen',
+        abilities: ['{1}, {T}, Sacrifice this token: Put a +1/+1 counter on target creature. Activate only as a sorcery.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('gold')) {
+    return {
+      name: 'Gold',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Gold',
+        abilities: ['Sacrifice this token: Add one mana of any color.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('stoneforged blade')) {
+    return {
+      name: 'Stoneforged Blade',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Equipment',
+        abilities: ['Indestructible', 'Equipped creature gets +5/+5 and has double strike.', 'Equip {0}'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  // This token is commonly created by Toggo, Goblin Weaponsmith.
+  if (/\brock\b/i.test(lower)) {
+    return {
+      name: 'Rock',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Equipment',
+        abilities: [
+          'Equipped creature has "{1}, {T}, Sacrifice Rock: This creature deals 2 damage to any target."',
+          'Equip {1}',
+        ],
+        isArtifact: true,
+      },
+    };
+  }
+
+  // "Sword" is a common generic Equipment token name.
+  if (/\bsword\b/i.test(lower)) {
+    return {
+      name: 'Sword',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Equipment',
+        abilities: ['Equipped creature gets +1/+1', 'Equip {2}'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  // Specific named vehicle token (Pia Nalaar, Chief Mechanic).
+  if (lower.includes('nalaar aetherjet')) {
+    return {
+      name: 'Nalaar Aetherjet',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Vehicle',
+        abilities: [
+          'Flying',
+          'Crew 2 (Tap any number of creatures you control with total power 2 or more: This token becomes an artifact creature until end of turn.)',
+        ],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (/\bvehicle\b/i.test(lower)) {
+    return {
+      name: 'Vehicle',
+      basePower: 3,
+      baseToughness: 2,
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Vehicle',
+        abilities: ['Crew 1 (Tap any number of creatures you control with total power 1 or more: This token becomes an artifact creature until end of turn.)'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('junk')) {
+    return {
+      name: 'Junk',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Junk',
+        abilities: [
+          '{T}, Sacrifice this artifact: Exile the top card of your library. You may play that card this turn. Activate only as a sorcery.',
+        ],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('map')) {
+    return {
+      name: 'Map',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Map',
+        abilities: ['{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery.'],
+        isArtifact: true,
+      },
+    };
+  }
+
+  if (lower.includes('powerstone')) {
+    return {
+      name: 'Powerstone',
+      options: {
+        colors: [],
+        typeLine: 'Token Artifact — Powerstone',
+        abilities: ['{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.'],
         isArtifact: true,
       },
     };
@@ -127,7 +286,7 @@ function parseCommonArtifactTokenOptions(tokenText: string):
       options: {
         colors: [],
         typeLine: 'Token Artifact — Blood',
-        abilities: ['{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card.'],
+        abilities: ['{1}, {T}, Discard a card, Sacrifice this token: Draw a card.'],
         isArtifact: true,
       },
     };
@@ -200,6 +359,7 @@ function applyOracleIRFallbackForUncategorizedSpell(
     const lower = text.toLowerCase();
     const mightHaveSupported =
       lower.includes('draw') ||
+      (lower.includes('exile') && lower.includes('top') && lower.includes('library')) ||
       (lower.includes('add') && lower.includes('{')) ||
       lower.includes('scry') ||
       lower.includes('surveil') ||
@@ -226,6 +386,121 @@ function applyOracleIRFallbackForUncategorizedSpell(
       if ((step as any).optional) continue;
 
       switch (step.kind) {
+        case 'impulse_exile_top': {
+          const count = resolveOracleQuantityToNumber((step as any).amount, xValue);
+          if (!count || count <= 0) break;
+
+          // For now, only support "you" (the caster/controller). Other selectors could be ambiguous.
+          if ((step as any)?.who?.kind && (step as any).who.kind !== 'you') break;
+
+          const duration = (step as any).duration as 'this_turn' | 'until_end_of_next_turn' | undefined;
+          if (!duration) break;
+
+          const permission = (step as any).permission as 'play' | 'cast' | undefined;
+          if (!permission) break;
+          const condition = (step as any).condition as
+            | { kind: 'color'; color: 'W' | 'U' | 'B' | 'R' | 'G' }
+            | { kind: 'type'; type: 'land' | 'nonland' }
+            | undefined;
+
+          const stateAny: any = (ctx as any).state;
+          const libraries: any = (ctx as any).libraries;
+          if (!libraries || typeof libraries.get !== 'function' || typeof libraries.set !== 'function') break;
+
+          const playerIds = resolveOracleWhoToPlayerIds({ kind: 'you' } as any, caster, stateAny);
+          if (playerIds.length === 0) break;
+
+          for (const pid of playerIds) {
+            const lib = libraries.get(pid);
+            if (!Array.isArray(lib) || lib.length === 0) continue;
+
+            const take = Math.min(count, lib.length);
+            const exiledCards: any[] = [];
+            for (let i = 0; i < take; i++) {
+              const topCard = lib.shift();
+              if (topCard) exiledCards.push(topCard);
+            }
+            libraries.set(pid, lib);
+
+            const zones = stateAny.zones?.[pid];
+            if (zones) {
+              zones.libraryCount = lib.length;
+            }
+
+            if (zones) {
+              zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
+            }
+
+            stateAny.playableFromExile = stateAny.playableFromExile || {};
+            stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {};
+
+            stateAny.pendingImpulseDraws = stateAny.pendingImpulseDraws || {};
+            stateAny.pendingImpulseDraws[pid] = stateAny.pendingImpulseDraws[pid] || [];
+
+            const playableUntilTurn =
+              duration === 'this_turn'
+                ? (stateAny.turnNumber || 0)
+                : (stateAny.turnNumber || 0) + 1;
+
+            let grantedCount = 0;
+
+            for (const c of exiledCards) {
+              const typeLineLower = String((c as any)?.type_line || '').toLowerCase();
+              const isLand = typeLineLower.includes('land');
+              const colors = Array.isArray((c as any)?.colors)
+                ? (c as any).colors.map((x: any) => String(x || '').toUpperCase())
+                : [];
+
+              const passesPermissionGate = permission === 'play' ? true : !isLand;
+              let passesConditionGate = true;
+              if (condition) {
+                if (condition.kind === 'type') {
+                  passesConditionGate = condition.type === 'land' ? isLand : !isLand;
+                } else if (condition.kind === 'color') {
+                  passesConditionGate = colors.includes(condition.color);
+                }
+              }
+
+              const grantPermission = passesPermissionGate && passesConditionGate;
+
+              const exiledCard = {
+                ...c,
+                zone: 'exile',
+                exiledBy: spellName,
+                ...(grantPermission ? { canBePlayedBy: pid, playableUntilTurn } : {}),
+              };
+              if (zones && Array.isArray((zones as any).exile)) {
+                (zones as any).exile.push(exiledCard);
+                (zones as any).exileCount = (zones as any).exile.length;
+              }
+
+              if (grantPermission) {
+                // Gate play/cast permissions (impulse draw) by turn number.
+                stateAny.playableFromExile[pid][String(c?.id)] = playableUntilTurn;
+                grantedCount++;
+              }
+
+              stateAny.pendingImpulseDraws[pid].push({
+                cardId: c?.id,
+                cardName: c?.name,
+                exiledBy: spellName,
+                ...(grantPermission ? { playableUntilTurn } : {}),
+              });
+              // Exiling itself is an applied effect, even if no permission was granted.
+              applied += 1;
+            }
+
+            if (typeof (ctx as any).bumpSeq === 'function') {
+              (ctx as any).bumpSeq();
+            }
+
+            debug(
+              2,
+              `[oracleIR] ${spellName}: exiled ${exiledCards.length} top card(s) from ${pid}'s library (impulse, ${duration}, granted=${grantedCount})`
+            );
+          }
+          break;
+        }
         case 'add_mana': {
           const manaPoolDelta = parseDeterministicManaToPool((step as any).mana);
           if (!manaPoolDelta) break;
@@ -553,7 +828,13 @@ function applyOracleIRFallbackForUncategorizedSpell(
                 controller: pid,
                 name: tokenInfo.name,
                 count,
-                options: tokenInfo.options,
+                basePower: (tokenInfo as any).basePower,
+                baseToughness: (tokenInfo as any).baseToughness,
+                options: {
+                  ...(tokenInfo.options || {}),
+                  ...((step as any).entersTapped ? { entersTapped: true } : {}),
+                  ...((step as any).withCounters ? { withCounters: (step as any).withCounters } : {}),
+                },
               } as any,
               caster,
               spellName,

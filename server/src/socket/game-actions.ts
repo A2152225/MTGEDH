@@ -1916,14 +1916,49 @@ export async function requestCastSpellForSocket(
     }
 
     const zones = game.state.zones?.[playerId];
-    if (!zones || !Array.isArray(zones.hand)) {
-      socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+    if (!zones) {
+      socket.emit("error", { code: "NO_ZONES", message: "Zones not found" });
       return;
     }
 
-    const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+    const hand = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : ((zones as any).hand = []);
+    const exile = Array.isArray((zones as any).exile) ? ((zones as any).exile as any[]) : ((zones as any).exile = []);
+
+    let castSourceZone: 'hand' | 'exile' = 'hand';
+    let cardInHand: any = hand.find((c: any) => c && c.id === cardId);
+
+    // Allow starting the cast pipeline from exile for impulse-style effects.
     if (!cardInHand) {
-      socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+      const exiled = exile.find((c: any) => c && c.id === cardId);
+      if (exiled) {
+        const stateAny: any = game.state as any;
+        const turnNumber = Number(stateAny?.turnNumber ?? 0);
+
+        const pfe = stateAny?.playableFromExile?.[playerId];
+        const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
+        const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
+
+        const cardAllows = String(exiled?.canBePlayedBy || '') === String(playerId) &&
+          (typeof exiled?.playableUntilTurn === 'number' ? exiled.playableUntilTurn >= turnNumber : Boolean(exiled?.playableUntilTurn));
+
+        const isForetold = Boolean((exiled as any)?.foretold) || Boolean((exiled as any)?.foretellCost) || Boolean((exiled as any)?.faceDown);
+        if (isForetold) {
+          socket.emit("error", { code: "USE_CAST_FORETOLD", message: "Use the foretell cast action for this card." });
+          return;
+        }
+
+        if (!pfeAllows && !cardAllows) {
+          socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
+          return;
+        }
+
+        cardInHand = exiled;
+        castSourceZone = 'exile';
+      }
+    }
+
+    if (!cardInHand) {
+      socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found" });
       return;
     }
 
@@ -2104,6 +2139,7 @@ export async function requestCastSpellForSocket(
         cardId,
         cardName,
         manaCost,
+        fromZone: castSourceZone,
         playerId,
         faceIndex,
         validTargetIds: valid.map((t: any) => String(t.permanentId)),
@@ -2225,6 +2261,7 @@ export async function requestCastSpellForSocket(
         cardId,
         cardName,
         manaCost,
+        fromZone: castSourceZone,
         playerId,
         faceIndex,
         validTargetIds: validTargetList.map((t: any) => t.id),
@@ -2409,6 +2446,7 @@ export async function requestCastSpellForSocket(
       cardId,
       cardName,
       manaCost,
+      fromZone: castSourceZone,
       playerId,
       faceIndex,
       validTargetIds: [],
@@ -2580,7 +2618,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     gameId: string; 
     cardId: string; 
     selectedFace?: number;
-    fromZone?: 'hand' | 'graveyard';
+    fromZone?: 'hand' | 'graveyard' | 'exile';
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -2619,11 +2657,29 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
+      // Check if player has permission to play from exile (impulse draw effects)
+      if (sourceZone === 'exile') {
+        const stateAny: any = game.state as any;
+        const turnNumber = Number(stateAny?.turnNumber ?? 0);
+        const pfe = stateAny?.playableFromExile?.[playerId];
+        const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
+        const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
+        if (!pfeAllows) {
+          socket.emit("error", {
+            code: "NO_PERMISSION",
+            message: "You don't have permission to play that land from exile",
+          });
+          return;
+        }
+      }
+
       // Find the card in the specified zone
       const zones = game.state?.zones?.[playerId];
-      const zone = sourceZone === 'graveyard' 
+      const zone = sourceZone === 'graveyard'
         ? (Array.isArray(zones?.graveyard) ? zones.graveyard : [])
-        : (Array.isArray(zones?.hand) ? zones.hand : []);
+        : sourceZone === 'exile'
+          ? (Array.isArray((zones as any)?.exile) ? (zones as any).exile : [])
+          : (Array.isArray(zones?.hand) ? zones.hand : []);
       const cardInZone = zone.find((c: any) => c?.id === cardId);
       const cardName = (cardInZone as any)?.name || "";
       const cardImageUrl = (cardInZone as any)?.image_uris?.small || (cardInZone as any)?.image_uris?.normal;
@@ -2673,7 +2729,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               mandatory: true,
               cardId,
               cardName,
-              fromZone: sourceZone === 'graveyard' ? 'graveyard' : 'hand',
+              fromZone: sourceZone,
               title: 'Choose which side to play',
               faces: [
                 {
@@ -3170,14 +3226,48 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
-        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+      if (!zones) {
+        socket.emit("error", { code: "NO_ZONES", message: "Zones not found" });
         return;
       }
 
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      const hand = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : ((zones as any).hand = []);
+      const exile = Array.isArray((zones as any).exile) ? ((zones as any).exile as any[]) : ((zones as any).exile = []);
+
+      let castSourceZone: 'hand' | 'exile' = 'hand';
+      let cardInHand: any = hand.find((c: any) => c && c.id === cardId);
+
       if (!cardInHand) {
-        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        const exiled = exile.find((c: any) => c && c.id === cardId);
+        if (exiled) {
+          const stateAny: any = game.state as any;
+          const turnNumber = Number(stateAny?.turnNumber ?? 0);
+
+          const pfe = stateAny?.playableFromExile?.[playerId];
+          const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
+          const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
+
+          const cardAllows = String(exiled?.canBePlayedBy || '') === String(playerId) &&
+            (typeof exiled?.playableUntilTurn === 'number' ? exiled.playableUntilTurn >= turnNumber : Boolean(exiled?.playableUntilTurn));
+
+          const isForetold = Boolean((exiled as any)?.foretold) || Boolean((exiled as any)?.foretellCost) || Boolean((exiled as any)?.faceDown);
+          if (isForetold) {
+            socket.emit("error", { code: "USE_CAST_FORETOLD", message: "Use the foretell cast action for this card." });
+            return;
+          }
+
+          if (!pfeAllows && !cardAllows) {
+            socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
+            return;
+          }
+
+          cardInHand = exiled;
+          castSourceZone = 'exile';
+        }
+      }
+
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found" });
         return;
       }
 
@@ -3359,6 +3449,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           cardId,
           cardName,
           manaCost,
+          fromZone: castSourceZone,
           playerId,
           faceIndex,
           validTargetIds: validTargetList.map((t: any) => t.id), // Store for validation
@@ -3555,6 +3646,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           cardId,
           cardName,
           manaCost,
+          fromZone: castSourceZone,
           playerId,
           faceIndex,
           validTargetIds: [],
@@ -3705,7 +3797,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = async ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures }: { 
+  const handleCastSpellFromHand = async ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures, fromZone }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
@@ -3714,6 +3806,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     xValue?: number;
     alternateCostId?: string;
     convokeTappedCreatures?: string[];
+    fromZone?: 'hand' | 'exile' | 'graveyard';
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -3729,6 +3822,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       debug(2, `[handleCastSpellFromHand] payment: ${payment ? JSON.stringify(payment) : 'undefined'}`);
       debug(2, `[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
       debug(2, `[handleCastSpellFromHand] playerId: ${playerId}`);
+      if (fromZone) debug(2, `[handleCastSpellFromHand] fromZone: ${fromZone}`);
       if (alternateCostId) debug(2, `[handleCastSpellFromHand] alternateCostId: ${alternateCostId}`);
       if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
         debug(2, `[handleCastSpellFromHand] convokeTappedCreatures: ${JSON.stringify(convokeTappedCreatures)}`);
@@ -3769,23 +3863,77 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Find the card in player's hand
       const zones = game.state.zones?.[playerId];
-      if (!zones || !Array.isArray(zones.hand)) {
+      if (!zones) {
         socket.emit("error", {
-          code: "NO_HAND",
-          message: "Hand not found",
+          code: "NO_ZONES",
+          message: "Zones not found",
         });
         return;
       }
 
-      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      const hand: any[] = Array.isArray((zones as any).hand) ? (zones as any).hand : ((zones as any).hand = []);
+      const exile: any[] = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
+      const graveyard: any[] = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : ((zones as any).graveyard = []);
+
+      let castSourceZone: 'hand' | 'exile' | 'graveyard' = (fromZone as any) || 'hand';
+      let sourceArr: any[] = castSourceZone === 'exile' ? exile : (castSourceZone === 'graveyard' ? graveyard : hand);
+
+      let cardInHand: any = sourceArr.find((c: any) => c && c.id === cardId);
+
+      // If no fromZone was specified, allow auto-detection (hand -> exile -> graveyard)
+      if (!cardInHand && !fromZone) {
+        const inHand = hand.find((c: any) => c && c.id === cardId);
+        if (inHand) {
+          cardInHand = inHand;
+          castSourceZone = 'hand';
+          sourceArr = hand;
+        } else {
+          const inExile = exile.find((c: any) => c && c.id === cardId);
+          if (inExile) {
+            cardInHand = inExile;
+            castSourceZone = 'exile';
+            sourceArr = exile;
+          } else {
+            const inGy = graveyard.find((c: any) => c && c.id === cardId);
+            if (inGy) {
+              cardInHand = inGy;
+              castSourceZone = 'graveyard';
+              sourceArr = graveyard;
+            }
+          }
+        }
+      }
+
       if (!cardInHand) {
         socket.emit("error", {
-          code: "CARD_NOT_IN_HAND",
-          message: "Card not found in hand",
+          code: castSourceZone === 'exile' ? "CARD_NOT_IN_EXILE" : (castSourceZone === 'graveyard' ? "CARD_NOT_IN_GRAVEYARD" : "CARD_NOT_IN_HAND"),
+          message: `Card not found in ${castSourceZone}`,
         });
         return;
+      }
+
+      // Exile-cast permission gate (impulse draw, etc.)
+      if (castSourceZone === 'exile') {
+        const stateAny: any = game.state as any;
+        const turnNumber = Number(stateAny?.turnNumber ?? 0);
+        const pfe = stateAny?.playableFromExile?.[playerId];
+        const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
+        const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
+
+        const cardAllows = String(cardInHand?.canBePlayedBy || '') === String(playerId) &&
+          (typeof cardInHand?.playableUntilTurn === 'number' ? cardInHand.playableUntilTurn >= turnNumber : Boolean(cardInHand?.playableUntilTurn));
+
+        const isForetold = Boolean((cardInHand as any)?.foretold) || Boolean((cardInHand as any)?.foretellCost) || Boolean((cardInHand as any)?.faceDown);
+        if (isForetold) {
+          socket.emit("error", { code: "USE_CAST_FORETOLD", message: "Use the foretell cast action for this card." });
+          return;
+        }
+
+        if (!pfeAllows && !cardAllows) {
+          socket.emit("error", { code: "NO_PERMISSION", message: "You don't have permission to cast that card from exile." });
+          return;
+        }
       }
 
       // Validate card is castable (not a land)
@@ -5851,8 +5999,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               xValue,
               alternateCostId,
               // Provenance / replay-stable metadata for intervening-if templates.
-              fromZone: 'hand',
-              castFromHand: true,
+              fromZone: castSourceZone,
+              castFromHand: castSourceZone === 'hand',
               manaSpentTotal,
               manaSpentBreakdown: { ...manaConsumption.consumed },
               ...(manaFromTreasureSpentKnown === true
@@ -6190,18 +6338,26 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
 
             // Track per-turn "cast from hand" (best-effort)
-            game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
-            game.state.spellsCastFromHandThisTurn[playerId] = (game.state.spellsCastFromHandThisTurn[playerId] || 0) + 1;
-            
-            debug(2, `[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
+            if (castSourceZone === 'hand') {
+              game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
+              game.state.spellsCastFromHandThisTurn[playerId] = (game.state.spellsCastFromHandThisTurn[playerId] || 0) + 1;
+            }
+
+            debug(2, `[castSpell] Player ${playerId} cast ${cardInHand.name} (${cardId}) from ${castSourceZone} via applyEvent`);
           } else {
           // Fallback for legacy game instances without applyEvent
-          // Remove from hand
-          const handCards = zones.hand as any[];
-          const idx = handCards.findIndex((c: any) => c && c.id === cardId);
+          // Remove from source zone
+          const sourceCards = sourceArr;
+          const idx = sourceCards.findIndex((c: any) => c && c.id === cardId);
           if (idx !== -1) {
-            const [removedCard] = handCards.splice(idx, 1);
-            zones.handCount = handCards.length;
+            const [removedCard] = sourceCards.splice(idx, 1);
+            if (castSourceZone === 'hand') {
+              zones.handCount = hand.length;
+            } else if (castSourceZone === 'exile') {
+              (zones as any).exileCount = exile.length;
+            } else if (castSourceZone === 'graveyard') {
+              (zones as any).graveyardCount = graveyard.length;
+            }
             
             // Build target details for display
             const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string; controllerName?: string }> = [];
@@ -6286,8 +6442,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Note: faceIndex is not available in this fallback path
               castAsAdventure: removedCard.layout === 'adventure' ? false : undefined,
               // Track source zone for rebound and other "cast from hand" effects
-              castFromHand: true,
-              source: 'hand',
+              castFromHand: castSourceZone === 'hand',
+              source: castSourceZone,
             };
             
             if (typeof game.pushStack === 'function') {
@@ -6303,11 +6459,13 @@ export function registerGameActions(io: Server, socket: Socket) {
               game.bumpSeq();
             }
             
-            debug(2, `[castSpellFromHand] Player ${playerId} cast ${removedCard.name} (${cardId}) via fallback`);
+            debug(2, `[castSpell] Player ${playerId} cast ${removedCard.name} (${cardId}) from ${castSourceZone} via fallback`);
 
             // Track per-turn "cast from hand" (best-effort)
-            game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
-            game.state.spellsCastFromHandThisTurn[playerId] = (game.state.spellsCastFromHandThisTurn[playerId] || 0) + 1;
+            if (castSourceZone === 'hand') {
+              game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
+              game.state.spellsCastFromHandThisTurn[playerId] = (game.state.spellsCastFromHandThisTurn[playerId] || 0) + 1;
+            }
           }
         }
       } catch (e) {
@@ -6329,8 +6487,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           card: cardInHand,
           xValue,
           alternateCostId,
-          fromZone: 'hand',
-          castFromHand: true,
+          fromZone: castSourceZone,
+          castFromHand: castSourceZone === 'hand',
           // Persist mana/payment metadata for deterministic replay / intervening-if.
           manaSpentTotal,
           manaSpentBreakdown: { ...manaConsumption.consumed },
@@ -6896,6 +7054,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      let pendingFromZone: 'hand' | 'exile' | 'graveyard' | undefined;
+
       // DEBUG: Log incoming parameters
       debug(2, `[completeCastSpell] DEBUG START ========================================`);
       debug(2, `[completeCastSpell] cardId: ${cardId}, effectId: ${effectId}`);
@@ -6912,12 +7072,17 @@ export function registerGameActions(io: Server, socket: Socket) {
         const pendingCast = (game.state as any).pendingSpellCasts[effectId];
         debug(2, `[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
 
+        pendingFromZone = (pendingCast?.fromZone as any) || undefined;
+
         // Mutate metadata is stored on pendingCast; copy it to the actual card object in hand before casting.
         if (String(pendingCast?.forcedAlternateCostId || '') === 'mutate') {
           try {
             const zones = (game.state as any)?.zones?.[playerId];
+            const fromZone = String(pendingCast?.fromZone || 'hand').toLowerCase().trim();
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
-            const cardObj = hand.find((c: any) => c && String(c.id) === String(cardId));
+            const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
+            const sourceArr = fromZone === 'exile' ? exile : hand;
+            const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
             if (cardObj) {
               (cardObj as any).isMutating = true;
               (cardObj as any).mutateTarget = String(pendingCast?.mutateTarget || (pendingCast?.targets?.[0] ?? ''));
@@ -6983,7 +7148,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
-      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId, convokeTappedCreatures });
+      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId, convokeTappedCreatures, fromZone: pendingFromZone });
       
     } catch (err: any) {
       debugError(1, `[completeCastSpell] Error:`, err);

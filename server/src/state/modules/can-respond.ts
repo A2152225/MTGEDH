@@ -715,7 +715,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     
     // Check exile for foretell instants or impulse draw effects
     const stateAny = state as any;
-    const exileZone = stateAny.exile?.[playerId];
+    const exileZone = stateAny?.zones?.[playerId]?.exile ?? stateAny.exile?.[playerId];
     
     if (Array.isArray(exileZone)) {
       for (const card of exileZone as any[]) {
@@ -1391,7 +1391,7 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
     
     if (canPlayFromExile) {
       // Check exile zone for lands
-      const exileZone = (state as any).exile?.[playerId];
+      const exileZone = (state as any)?.zones?.[playerId]?.exile ?? (state as any).exile?.[playerId];
       if (Array.isArray(exileZone)) {
         for (const card of exileZone as any[]) {
           if (!card || typeof card === "string") continue;
@@ -2214,7 +2214,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     
     // Check exile for foretell sorceries or impulse draw effects
     const stateAny = state as any;
-    const exileZone = stateAny.exile?.[playerId];
+    const exileZone = stateAny?.zones?.[playerId]?.exile ?? stateAny.exile?.[playerId];
     
     if (Array.isArray(exileZone)) {
       for (const card of exileZone as any[]) {

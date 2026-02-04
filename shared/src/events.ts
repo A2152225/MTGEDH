@@ -256,7 +256,7 @@ export interface ClientToServerEvents {
   
   // Request to cast a spell - triggers target selection if needed, then payment
   // MTG Rule 601.2: Choose targets (601.2c) before paying costs (601.2h)
-  requestCastSpell: (payload: { gameId: GameID; cardId: string; faceIndex?: number }) => void;
+  requestCastSpell: (payload: { gameId: GameID; cardId: string; faceIndex?: number; fromZone?: 'hand' | 'graveyard' | 'exile' }) => void;
   
   // Complete spell cast with targets and payment (after target selection and payment)
   completeCastSpell: (payload: { 
@@ -275,7 +275,7 @@ export interface ClientToServerEvents {
   resolveCascade: (payload: { gameId: GameID; effectId: string; cast: boolean }) => void;
   
   // Play a land from hand
-  playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number }) => void;
+  playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number; fromZone?: 'hand' | 'graveyard' | 'exile' }) => void;
   
   // Remove a permanent from battlefield
   removePermanent: (payload: { gameId: GameID; permanentId: string; destination?: string }) => void;

@@ -122,6 +122,42 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     return out;
   };
 
+  const parseWithCountersFromClause = (clauseText: string): Record<string, number> | undefined => {
+    const s = normalizeOracleText(clauseText);
+    if (!/\bwith\b/i.test(s) || !/\bcounters?\b/i.test(s)) return undefined;
+
+    // Conservative: only handle a single "with N <counter> counters on it/them" segment.
+    // Examples:
+    // - "with two +1/+1 counters on it"
+    // - "with a shield counter on it"
+    // - "with three oil counters on them"
+    const m = s.match(/\bwith\s+(a|an|\d+|x|[a-z]+)\s+([^,.]+?)\s+counters?\s+on\s+(?:it|them)\b/i);
+    if (!m) return undefined;
+
+    // Skip clearly choice-y variants.
+    if (/\bof your choice\b/i.test(m[0])) return undefined;
+
+    const qty = parseQuantity(m[1]);
+    if (qty.kind !== 'number') return undefined;
+    const n = Math.max(0, qty.value | 0);
+    if (n <= 0) return undefined;
+
+    let counterType = String(m[2] || '').trim();
+    if (!counterType) return undefined;
+
+    // Normalize common +1/+1 spellings.
+    counterType = counterType
+      .replace(/\s+/g, ' ')
+      .replace(/\+\s*1\s*\/\s*\+\s*1/g, '+1/+1')
+      .replace(/\-\s*1\s*\/\s*\-\s*1/g, '-1/-1');
+
+    // Drop trailing words like "counter"/"counters" if they sneak in.
+    counterType = counterType.replace(/\bcounters?\b/gi, '').trim();
+    if (!counterType) return undefined;
+
+    return { [counterType]: n };
+  };
+
   // Draw
   {
     const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?draws?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
@@ -253,17 +289,21 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   // Create token(s)
   {
     const m = clause.match(
-      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?create\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+(?:creature\s+)?token(?:s)?\b/i
+      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?create(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+(tapped\s+)?(.+?)\s+(?:creature\s+)?token(?:s)?\b/i
     );
     if (m) {
       const who = parsePlayerSelector(m[1]);
       const amount = parseQuantity(m[2]);
-      const token = String(m[3] || '').trim();
-      return withMeta({ kind: 'create_token', who, amount, token, raw: rawClause });
+      const entersTapped = Boolean(m[3]) || /\btoken(?:s)?\s+tapped\b/i.test(clause);
+      const token = String(m[4] || '').trim();
+      const withCounters = parseWithCountersFromClause(clause);
+      return withMeta({ kind: 'create_token', who, amount, token, entersTapped: entersTapped || undefined, withCounters, raw: rawClause });
     }
-    const m2 = clause.match(/^create\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+(?:creature\s+)?token(?:s)?\b/i);
+    const m2 = clause.match(/^create(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+(tapped\s+)?(.+?)\s+(?:creature\s+)?token(?:s)?\b/i);
     if (m2) {
-      return withMeta({ kind: 'create_token', who: { kind: 'you' }, amount: parseQuantity(m2[1]), token: String(m2[2] || '').trim(), raw: rawClause });
+      const entersTapped = Boolean(m2[2]) || /\btoken(?:s)?\s+tapped\b/i.test(clause);
+      const withCounters = parseWithCountersFromClause(clause);
+      return withMeta({ kind: 'create_token', who: { kind: 'you' }, amount: parseQuantity(m2[1]), token: String(m2[3] || '').trim(), entersTapped: entersTapped || undefined, withCounters, raw: rawClause });
     }
   }
 
@@ -310,6 +350,85 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   return withMeta({ kind: 'unknown', raw: rawClause });
 }
 
+function tryParseMultiCreateTokensClause(rawClause: string): OracleEffectStep[] | null {
+  const normalized = normalizeClauseForParse(rawClause);
+  const clause = normalized.clause;
+  const sequence = normalized.sequence;
+  const optional = normalized.optional;
+
+  const withMeta = <T extends OracleEffectStep>(step: T, meta: { sequence?: 'then'; optional?: boolean }): T => {
+    const out: any = { ...step };
+    if (meta.sequence) out.sequence = meta.sequence;
+    if (meta.optional) out.optional = meta.optional;
+    return out;
+  };
+
+  const prefix = clause.match(
+    /^(?:(you|each player|each opponent|target player|target opponent)\s+)?create(?:s)?\s+(.+)$/i
+  );
+  if (!prefix) return null;
+
+  const who = parsePlayerSelector(prefix[1]);
+  const rest = String(prefix[2] || '').trim();
+  if (!rest) return null;
+
+  // Detect multiple token specs in a single clause:
+  // e.g. "Create a Treasure token and a Clue token." / "Create two Treasure tokens, a Food token, and a Clue token."
+  // Be conservative: only accept when we can parse at least two explicit "<qty> <desc> token" segments.
+  const tokenRegex =
+    /\b((?:(?!and\b)(?!then\b)(?:a|an|\d+|x|[a-z]+)))\s+(tapped\s+)?(.+?)\s+(?:creature\s+)?token(?:s)?\b(\s+tapped\b)?/gi;
+  const matches: { amount: OracleQuantity; token: string; entersTapped?: boolean }[] = [];
+
+  let m: RegExpExecArray | null;
+  while ((m = tokenRegex.exec(rest)) !== null) {
+    const amount = parseQuantity(m[1]);
+    const entersTapped = Boolean(m[2]) || Boolean(m[4]);
+    const token = String(m[3] || '').trim();
+    if (!token) continue;
+    matches.push({ amount, token, entersTapped: entersTapped || undefined });
+    // Prevent runaway loops on zero-length matches.
+    if (tokenRegex.lastIndex === m.index) tokenRegex.lastIndex++;
+  }
+
+  if (matches.length < 2) return null;
+
+  // Ensure the clause is *only* a list of token creations (comma/and separators),
+  // not something like "Create a Treasure token and draw a card.".
+  {
+    const tokenRegexForReplace = new RegExp(tokenRegex.source, 'gi');
+    const leftover = String(rest)
+      .replace(tokenRegexForReplace, ' ')
+      .replace(/[(),]/g, ' ')
+      .replace(/\b(and|then)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (leftover && /[a-z0-9]/i.test(leftover)) return null;
+  }
+
+  const steps: OracleEffectStep[] = [];
+  for (let idx = 0; idx < matches.length; idx++) {
+    const meta = {
+      sequence: idx === 0 ? sequence : undefined,
+      optional,
+    };
+    steps.push(
+      withMeta(
+        {
+          kind: 'create_token',
+          who,
+          amount: matches[idx].amount,
+          token: matches[idx].token,
+          entersTapped: matches[idx].entersTapped,
+          raw: rawClause,
+        },
+        meta
+      )
+    );
+  }
+
+  return steps;
+}
+
 function inferZoneFromDestination(destination: string): OracleZone {
   const s = String(destination || '').toLowerCase();
   if (/\bhand\b/.test(s)) return 'hand';
@@ -329,7 +448,160 @@ function abilityEffectText(ability: ParsedAbility): string {
 function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
   const effectText = abilityEffectText(ability);
   const clauses = splitIntoClauses(effectText);
-  const steps = clauses.map(parseEffectClauseToStep);
+
+  const steps: OracleEffectStep[] = [];
+
+  const tryParseImpulseExileTop = (idx: number): { step: OracleEffectStep; consumed: number } | null => {
+    const first = String(clauses[idx] || '').trim();
+    const second = String(clauses[idx + 1] || '').trim();
+    if (!first || !second) return null;
+
+    // First clause: "Exile the top card(s) of your library"
+    // Support both explicit quantity and the common implicit "top card".
+    let amount: OracleQuantity | null = null;
+    {
+      const m = first.match(/^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+your\s+library\s*$/i);
+      if (m) {
+        amount = parseQuantity(m[1]);
+      } else if (/^exile\s+the\s+top\s+card\s+of\s+your\s+library\s*$/i.test(first)) {
+        amount = { kind: 'number', value: 1 };
+      }
+    }
+    if (!amount) return null;
+
+    // Second clause: permission window for playing/casting the exiled card(s).
+    // We only emit an impulse step if we can confidently determine the duration.
+    const normalizedSecond = normalizeOracleText(second);
+    let secondToParse = normalizedSecond.trim();
+
+    let condition:
+      | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
+      | { readonly kind: 'type'; readonly type: 'land' | 'nonland' }
+      | undefined;
+
+    // Support: "If it's a red/nonland card, you may cast it this turn."
+    // Also accept common variants like:
+    // - "If that card is red, you may cast it ..."
+    // - "If the exiled card is a nonland card, you may cast that card ..."
+    // - (plural) "If they're nonland cards, you may cast them ..."
+    // Be conservative: only accept a single simple condition we recognize.
+    {
+      const m = secondToParse.match(
+        /^if\s+(?:it|they|that card|those cards|the exiled card)(?:\s+is|(?:'|’)s|(?:'|’)re)\s+(?:a|an)?\s*([^,]+),\s*(.*)$/i
+      );
+      if (m) {
+        const predicate = String(m[1] || '').trim().toLowerCase();
+        const rest = String(m[2] || '').trim();
+
+        // Reject complex predicates for now.
+        if (predicate.includes(' or ') || predicate.includes(' and ')) return null;
+
+        if (predicate.includes('nonland')) {
+          condition = { kind: 'type', type: 'nonland' };
+        } else if (predicate.includes('land')) {
+          condition = { kind: 'type', type: 'land' };
+        } else {
+          const colorMap: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
+            white: 'W',
+            blue: 'U',
+            black: 'B',
+            red: 'R',
+            green: 'G',
+          };
+          const colorWord = predicate.replace(/\bcard\b/g, '').trim();
+          const c = colorMap[colorWord];
+          if (c) condition = { kind: 'color', color: c };
+          else return null;
+        }
+
+        secondToParse = rest;
+      }
+    }
+
+    const lowerSecond = secondToParse.toLowerCase();
+    let duration: 'this_turn' | 'until_end_of_next_turn' | null = null;
+    let permission: 'play' | 'cast' | null = null;
+
+    // "You may play/cast that card this turn"
+    {
+      const m = lowerSecond.match(/^you may (play|cast) (?:that card|those cards|them|it) this turn\s*$/i);
+      if (m) {
+        permission = m[1] as any;
+        duration = 'this_turn';
+      }
+    }
+    // "Until the end of your next turn, you may play/cast that card"
+    if (!duration) {
+      const m = lowerSecond.match(
+        /^until the end of your next turn, you may (play|cast) (?:that card|those cards|them|it)\s*$/i
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_next_turn';
+      }
+    }
+    // "Until end of turn, you may play/cast that card"
+    if (!duration) {
+      const m = lowerSecond.match(/^until end of turn, you may (play|cast) (?:that card|those cards|them|it)\s*$/i);
+      if (m) {
+        permission = m[1] as any;
+        duration = 'this_turn';
+      }
+    }
+    // "You may play/cast that card until the end of your next turn"
+    if (!duration) {
+      const m = lowerSecond.match(
+        /^you may (play|cast) (?:that card|those cards|them|it) until the end of your next turn\s*$/i
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_next_turn';
+      }
+    }
+    // "You may play/cast that card until end of turn"
+    if (!duration) {
+      const m = lowerSecond.match(/^you may (play|cast) (?:that card|those cards|them|it) until end of turn\s*$/i);
+      if (m) {
+        permission = m[1] as any;
+        duration = 'this_turn';
+      }
+    }
+
+    if (!duration) return null;
+    if (!permission) return null;
+
+    return {
+      step: {
+        kind: 'impulse_exile_top',
+        who: { kind: 'you' },
+        amount,
+        duration,
+        permission,
+        condition,
+        raw: `${first}. ${second}.`,
+      },
+      consumed: 2,
+    };
+  };
+
+  for (let i = 0; i < clauses.length; ) {
+    const impulse = tryParseImpulseExileTop(i);
+    if (impulse) {
+      steps.push(impulse.step);
+      i += impulse.consumed;
+      continue;
+    }
+
+    const multiCreate = tryParseMultiCreateTokensClause(clauses[i]);
+    if (multiCreate) {
+      steps.push(...multiCreate);
+      i += 1;
+      continue;
+    }
+
+    steps.push(parseEffectClauseToStep(clauses[i]));
+    i += 1;
+  }
 
   return {
     type: ability.type,
