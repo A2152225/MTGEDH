@@ -166,6 +166,15 @@ export type OracleEffectStep =
       readonly what: OracleObjectSelector;
       readonly to: OracleZone;
       readonly toRaw: string;
+      /**
+       * For moves that put cards onto the battlefield, oracle text can override who controls
+       * the resulting permanents (e.g. "... onto the battlefield under your control").
+       *
+       * When absent, executor uses its default deterministic behavior.
+       */
+      readonly battlefieldController?: OraclePlayerSelector;
+      /** If the move puts cards onto the battlefield tapped (deterministic). */
+      readonly entersTapped?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

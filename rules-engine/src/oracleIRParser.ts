@@ -360,7 +360,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       const what = parseObjectSelector(m[1]);
       const toRaw = String(m[2] || '').trim();
       const to = inferZoneFromDestination(toRaw);
-      return withMeta({ kind: 'move_zone', what, to, toRaw, raw: rawClause });
+      const battlefieldController =
+        to === 'battlefield' && /\bunder\s+your\s+control\b/i.test(toRaw) ? ({ kind: 'you' } as const) : undefined;
+      const entersTapped =
+        to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
+      return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, raw: rawClause });
     }
 
     // Put ... into ... (zone moves)
@@ -370,7 +374,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
         const what = parseObjectSelector(mPut[1]);
         const toRaw = String(mPut[2] || '').trim();
         const to = inferZoneFromDestination(toRaw);
-        return withMeta({ kind: 'move_zone', what, to, toRaw, raw: rawClause });
+        const battlefieldController =
+          to === 'battlefield' && /\bunder\s+your\s+control\b/i.test(toRaw) ? ({ kind: 'you' } as const) : undefined;
+        const entersTapped =
+          to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
+        return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, raw: rawClause });
       }
     }
 
@@ -381,7 +389,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
         const what = parseObjectSelector(mPut[1]);
         const toRaw = String(mPut[2] || '').trim();
         const to = inferZoneFromDestination(toRaw);
-        return withMeta({ kind: 'move_zone', what, to, toRaw, raw: rawClause });
+        const battlefieldController =
+          to === 'battlefield' && /\bunder\s+your\s+control\b/i.test(toRaw) ? ({ kind: 'you' } as const) : undefined;
+        const entersTapped =
+          to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
+        return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, raw: rawClause });
       }
     }
   }

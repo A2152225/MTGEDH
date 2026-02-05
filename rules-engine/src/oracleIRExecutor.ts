@@ -724,9 +724,20 @@ function exileAllMatchingFromGraveyard(
 function putAllMatchingFromGraveyardOntoBattlefield(
   state: GameState,
   playerId: PlayerID,
-  cardType: SimpleCardType
+  cardType: SimpleCardType,
+  entersTapped?: boolean
 ): { state: GameState; log: string[] } {
-  const player = state.players.find(p => p.id === playerId) as any;
+  return putAllMatchingFromGraveyardOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped);
+}
+
+function putAllMatchingFromGraveyardOntoBattlefieldWithController(
+  state: GameState,
+  sourcePlayerId: PlayerID,
+  controllerId: PlayerID,
+  cardType: SimpleCardType,
+  entersTapped?: boolean
+): { state: GameState; log: string[] } {
+  const player = state.players.find(p => p.id === sourcePlayerId) as any;
   if (!player) return { state, log: [] };
 
   const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
@@ -746,9 +757,9 @@ function putAllMatchingFromGraveyardOntoBattlefield(
     const base = cardIdHint ? cardIdHint : `gy-${idx}`;
     return {
       id: `perm-${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      controller: playerId,
-      owner: playerId,
-      tapped: false,
+      controller: controllerId,
+      owner: sourcePlayerId,
+      tapped: Boolean(entersTapped),
       summoningSickness: true,
       counters: {},
       attachments: [],
@@ -757,10 +768,10 @@ function putAllMatchingFromGraveyardOntoBattlefield(
     } as any;
   });
 
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...(p as any), graveyard: kept } as any) : p));
+  const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), graveyard: kept } as any) : p));
   return {
     state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanents] } as any,
-    log: [`${playerId} puts ${moved.length} card(s) from graveyard onto the battlefield`],
+    log: [`${controllerId} puts ${moved.length} card(s) from ${sourcePlayerId}'s graveyard onto the battlefield`],
   };
 }
 
@@ -1231,15 +1242,32 @@ export function applyOracleIRStepsToGameState(
         }
 
         if (parsedEachOpponentsGy) {
-          if (step.to !== 'exile') {
+          if (step.to !== 'exile' && step.to !== 'hand' && step.to !== 'battlefield') {
             skippedSteps.push(step);
             log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
             break;
           }
 
+          if (step.to === 'battlefield' && (step as any).battlefieldController?.kind !== 'you') {
+            skippedSteps.push(step);
+            log.push(`Skipped move zone (battlefield requires explicit control override): ${step.raw}`);
+            break;
+          }
+
           const opponents = (nextState.players as any[]).filter(p => p?.id && p.id !== ctx.controllerId);
           for (const p of opponents) {
-            const r = exileAllMatchingFromGraveyard(nextState, p.id, parsedEachOpponentsGy.cardType);
+            const r =
+              step.to === 'hand'
+                ? returnAllMatchingFromGraveyardToHand(nextState, p.id, parsedEachOpponentsGy.cardType)
+                : step.to === 'battlefield'
+                  ? putAllMatchingFromGraveyardOntoBattlefieldWithController(
+                      nextState,
+                      p.id,
+                      ctx.controllerId,
+                      parsedEachOpponentsGy.cardType,
+                      (step as any).entersTapped
+                    )
+                  : exileAllMatchingFromGraveyard(nextState, p.id, parsedEachOpponentsGy.cardType);
             nextState = r.state;
             log.push(...r.log);
           }
@@ -1265,14 +1293,27 @@ export function applyOracleIRStepsToGameState(
         }
 
         if (parsedEachPlayersGy) {
-          if (step.to !== 'exile') {
+          if (step.to !== 'exile' && step.to !== 'hand' && step.to !== 'battlefield') {
             skippedSteps.push(step);
             log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
             break;
           }
 
           for (const p of nextState.players as any[]) {
-            const r = exileAllMatchingFromGraveyard(nextState, p.id, parsedEachPlayersGy.cardType);
+            const r =
+              step.to === 'hand'
+                ? returnAllMatchingFromGraveyardToHand(nextState, p.id, parsedEachPlayersGy.cardType)
+                : step.to === 'battlefield'
+                  ? (step as any).battlefieldController?.kind === 'you'
+                    ? putAllMatchingFromGraveyardOntoBattlefieldWithController(
+                        nextState,
+                        p.id,
+                        ctx.controllerId,
+                        parsedEachPlayersGy.cardType,
+                        (step as any).entersTapped
+                      )
+                    : putAllMatchingFromGraveyardOntoBattlefield(nextState, p.id, parsedEachPlayersGy.cardType, (step as any).entersTapped)
+                  : exileAllMatchingFromGraveyard(nextState, p.id, parsedEachPlayersGy.cardType);
             nextState = r.state;
             log.push(...r.log);
           }
@@ -1312,7 +1353,12 @@ export function applyOracleIRStepsToGameState(
             break;
           }
           if (step.to === 'battlefield') {
-            const r = putAllMatchingFromGraveyardOntoBattlefield(nextState, ctx.controllerId, parsedFromGraveyard.cardType);
+            const r = putAllMatchingFromGraveyardOntoBattlefield(
+              nextState,
+              ctx.controllerId,
+              parsedFromGraveyard.cardType,
+              (step as any).entersTapped
+            );
             nextState = r.state;
             log.push(...r.log);
             appliedSteps.push(step);
