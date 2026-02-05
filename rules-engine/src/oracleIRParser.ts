@@ -361,7 +361,15 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       const toRaw = String(m[2] || '').trim();
       const to = inferZoneFromDestination(toRaw);
       const battlefieldController =
-        to === 'battlefield' && /\bunder\s+your\s+control\b/i.test(toRaw) ? ({ kind: 'you' } as const) : undefined;
+        to === 'battlefield'
+          ? /\bunder\s+your\s+control\b/i.test(toRaw)
+            ? ({ kind: 'you' } as const)
+            : /\bunder\s+(?:its\s+owner['’]s\s+control|their\s+owners['’]\s+control|their\s+owners['’]s\s+control)\b/i.test(
+                  toRaw
+                )
+              ? ({ kind: 'owner_of_moved_cards' } as const)
+              : undefined
+          : undefined;
       const entersTapped =
         to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
       return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, raw: rawClause });
@@ -375,7 +383,15 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
         const toRaw = String(mPut[2] || '').trim();
         const to = inferZoneFromDestination(toRaw);
         const battlefieldController =
-          to === 'battlefield' && /\bunder\s+your\s+control\b/i.test(toRaw) ? ({ kind: 'you' } as const) : undefined;
+          to === 'battlefield'
+            ? /\bunder\s+your\s+control\b/i.test(toRaw)
+              ? ({ kind: 'you' } as const)
+              : /\bunder\s+(?:its\s+owner['’]s\s+control|their\s+owners['’]\s+control|their\s+owners['’]s\s+control)\b/i.test(
+                    toRaw
+                  )
+                ? ({ kind: 'owner_of_moved_cards' } as const)
+                : undefined
+            : undefined;
         const entersTapped =
           to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
         return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, raw: rawClause });
@@ -390,7 +406,15 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
         const toRaw = String(mPut[2] || '').trim();
         const to = inferZoneFromDestination(toRaw);
         const battlefieldController =
-          to === 'battlefield' && /\bunder\s+your\s+control\b/i.test(toRaw) ? ({ kind: 'you' } as const) : undefined;
+          to === 'battlefield'
+            ? /\bunder\s+your\s+control\b/i.test(toRaw)
+              ? ({ kind: 'you' } as const)
+              : /\bunder\s+(?:its\s+owner['’]s\s+control|their\s+owners['’]\s+control|their\s+owners['’]s\s+control)\b/i.test(
+                    toRaw
+                  )
+                ? ({ kind: 'owner_of_moved_cards' } as const)
+                : undefined
+            : undefined;
         const entersTapped =
           to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
         return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, raw: rawClause });

@@ -11,6 +11,8 @@ export type OraclePlayerSelector =
   | { readonly kind: 'each_opponent' }
   | { readonly kind: 'target_player' }
   | { readonly kind: 'target_opponent' }
+  /** Special-case selector used by move_zone battlefield control overrides. */
+  | { readonly kind: 'owner_of_moved_cards' }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleObjectSelector =
