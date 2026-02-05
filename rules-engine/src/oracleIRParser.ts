@@ -318,6 +318,18 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     if (m) {
       return withMeta({ kind: 'destroy', target: parseObjectSelector(m[1]), raw: rawClause });
     }
+
+    // "Exile <what> from <zone>" (e.g. "Exile all creature cards from your graveyard.")
+    // Parse as a move_zone step so deterministic executor can handle simple non-battlefield zone moves.
+    {
+      const mFrom = clause.match(/^exile\s+(.+?)\s+from\s+(.+)$/i);
+      if (mFrom) {
+        const whatRaw = `${String(mFrom[1] || '').trim()} from ${String(mFrom[2] || '').trim()}`.trim();
+        const what = parseObjectSelector(whatRaw);
+        return withMeta({ kind: 'move_zone', what, to: 'exile', toRaw: 'exile', raw: rawClause });
+      }
+    }
+
     const m2 = clause.match(/^exile\s+(.+)$/i);
     if (m2) {
       return withMeta({ kind: 'exile', target: parseObjectSelector(m2[1]), raw: rawClause });
@@ -349,6 +361,28 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       const toRaw = String(m[2] || '').trim();
       const to = inferZoneFromDestination(toRaw);
       return withMeta({ kind: 'move_zone', what, to, toRaw, raw: rawClause });
+    }
+
+    // Put ... into ... (zone moves)
+    {
+      const mPut = clause.match(/^put\s+(.+?)\s+into\s+(.+)$/i);
+      if (mPut) {
+        const what = parseObjectSelector(mPut[1]);
+        const toRaw = String(mPut[2] || '').trim();
+        const to = inferZoneFromDestination(toRaw);
+        return withMeta({ kind: 'move_zone', what, to, toRaw, raw: rawClause });
+      }
+    }
+
+    // Put ... onto ... (zone moves)
+    {
+      const mPut = clause.match(/^put\s+(.+?)\s+onto\s+(.+)$/i);
+      if (mPut) {
+        const what = parseObjectSelector(mPut[1]);
+        const toRaw = String(mPut[2] || '').trim();
+        const to = inferZoneFromDestination(toRaw);
+        return withMeta({ kind: 'move_zone', what, to, toRaw, raw: rawClause });
+      }
     }
   }
 
@@ -436,12 +470,12 @@ function tryParseMultiCreateTokensClause(rawClause: string): OracleEffectStep[] 
 
 function inferZoneFromDestination(destination: string): OracleZone {
   const s = String(destination || '').toLowerCase();
-  if (/\bhand\b/.test(s)) return 'hand';
-  if (/\bbattlefield\b/.test(s)) return 'battlefield';
-  if (/\bgraveyard\b/.test(s)) return 'graveyard';
+  if (/\bhands?\b/.test(s)) return 'hand';
+  if (/\bbattlefields?\b/.test(s)) return 'battlefield';
+  if (/\bgraveyards?\b/.test(s)) return 'graveyard';
   if (/\bexile\b/.test(s)) return 'exile';
-  if (/\blibrary\b/.test(s)) return 'library';
-  if (/\bstack\b/.test(s)) return 'stack';
+  if (/\blibraries?\b/.test(s)) return 'library';
+  if (/\bstacks?\b/.test(s)) return 'stack';
   if (/\bcommand\b/.test(s) || /\bcommander zone\b/.test(s)) return 'command';
   return 'unknown';
 }
