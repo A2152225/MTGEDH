@@ -457,10 +457,162 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
   const tryParseCreateTokenFollowupModifier = (rawClause: string): {
     entersTapped?: true;
     withCounters?: Record<string, number>;
+    grantsHaste?: 'permanent' | 'until_end_of_turn';
+    grantsAbilitiesUntilEndOfTurn?: readonly string[];
+    atNextEndStep?: 'sacrifice' | 'exile';
+    atEndOfCombat?: 'sacrifice' | 'exile';
   } | null => {
     const normalized = normalizeClauseForParse(rawClause);
     const clause = normalizeOracleText(normalized.clause);
     if (!clause) return null;
+
+    // Haste follow-up: "It/They gain(s) haste (until end of turn)."
+    // Note: Oracle frequently omits duration when the objects are short-lived anyway.
+    {
+      const m = clause.match(
+        /^(it|they|that token|those tokens|the token|the tokens)\s+gain(?:s)?\s+haste(?:\s+until\s+end\s+of\s+turn)?\s*$/i
+      );
+      if (m) {
+        const untilEot = /\buntil\s+end\s+of\s+turn\b/i.test(clause);
+        return { grantsHaste: untilEot ? 'until_end_of_turn' : 'permanent' };
+      }
+    }
+
+    // Keyword follow-up: "It/They gain(s) flying and trample until end of turn."
+    // Conservative: only accept a small set of well-known keyword abilities.
+    {
+      const m = clause.match(
+        /^(it|they|that token|those tokens|the token|the tokens)\s+gain(?:s)?\s+(.+?)\s+until\s+end\s+of\s+turn\s*$/i
+      );
+      if (m) {
+        const abilitiesRaw = String(m[2] || '').trim();
+        if (!abilitiesRaw) return null;
+
+        const allowed = new Set([
+          'flying',
+          'trample',
+          'vigilance',
+          'lifelink',
+          'deathtouch',
+          'reach',
+          'menace',
+          'hexproof',
+          'indestructible',
+          'first strike',
+          'double strike',
+          'haste',
+        ]);
+
+        // Normalize separators: "flying, trample, and haste" -> ["flying", "trample", "haste"]
+        const normalizedAbilities = abilitiesRaw
+          .replace(/\(.*?\)/g, ' ')
+          .replace(/[.;]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const parts = normalizedAbilities
+          .split(/\s*,\s*|\s+and\s+/i)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        if (parts.length === 0) return null;
+
+        const collected: string[] = [];
+        for (const p of parts) {
+          const key = p.toLowerCase();
+          if (!allowed.has(key)) {
+            return null;
+          }
+          if (!collected.includes(key)) collected.push(key);
+        }
+
+        if (collected.length === 0) return null;
+        return { grantsAbilitiesUntilEndOfTurn: collected };
+      }
+    }
+
+    // Delayed next-end-step follow-ups commonly paired with token creation:
+    // - "Sacrifice it/them at the beginning of the next end step."
+    // - "Exile it/them at the beginning of the next end step."
+    // - "Sacrifice/Exile it/them at end of turn." (Oracle shorthand)
+    {
+      const m = clause.match(
+        /^(sacrifice|exile)\s+(it|them|that token|those tokens|the token|the tokens)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\s*$/i
+      );
+      if (m) {
+        const verb = String(m[1] || '').toLowerCase();
+        return { atNextEndStep: verb === 'exile' ? 'exile' : 'sacrifice' };
+      }
+
+      // Triggered-template ordering used by many spells:
+      // "At the beginning of the next end step, sacrifice/exile it/them."
+      const m2 = clause.match(
+        /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step,\s*(sacrifice|exile)\s+(it|them|that token|those tokens|the token|the tokens)\s*$/i
+      );
+      if (m2) {
+        const verb = String(m2[1] || '').toLowerCase();
+        return { atNextEndStep: verb === 'exile' ? 'exile' : 'sacrifice' };
+      }
+
+      // Oracle shorthand:
+      // "Sacrifice/Exile it/them at end of turn." / "At end of turn, sacrifice/exile it/them."
+      const m3 = clause.match(
+        /^(sacrifice|exile)\s+(it|them|that token|those tokens|the token|the tokens)\s+at\s+end\s+of\s+turn\s*$/i
+      );
+      if (m3) {
+        const verb = String(m3[1] || '').toLowerCase();
+        return { atNextEndStep: verb === 'exile' ? 'exile' : 'sacrifice' };
+      }
+
+      const m4 = clause.match(
+        /^at\s+(?:the\s+)?end\s+of\s+turn\s*(?:[,;\-]\s*)?\s*(sacrifice|exile)\s+(it|them|that token|those tokens|the token|the tokens)\s*$/i
+      );
+      if (m4) {
+        const verb = String(m4[1] || '').toLowerCase();
+        return { atNextEndStep: verb === 'exile' ? 'exile' : 'sacrifice' };
+      }
+
+      // Fallback: tolerate minor variations while staying conservative about timing.
+      // Example: "Sacrifice them at the beginning of the next end step"
+      const verb2 = clause.match(/^(sacrifice|exile)\b/i)?.[1]?.toLowerCase();
+      if (verb2 && /\bnext\s+end\s+step\b/i.test(clause) && /\bat\s+the\s+beginning\b/i.test(clause)) {
+        return { atNextEndStep: verb2 === 'exile' ? 'exile' : 'sacrifice' };
+      }
+
+      const verb3 = clause.match(/\b(sacrifice|exile)\b/i)?.[1]?.toLowerCase();
+      if (verb3 && /^at\s+the\s+beginning\b/i.test(clause) && /\bnext\s+end\s+step\b/i.test(clause)) {
+        // Conservatively only accept the known cleanup verbs, and only for the next end step.
+        return { atNextEndStep: verb3 === 'exile' ? 'exile' : 'sacrifice' };
+      }
+    }
+
+    // End-of-combat cleanup follow-ups commonly paired with token creation:
+    // - "Exile those tokens at end of combat."
+    // - "Sacrifice that token at end of combat."
+    // - "At end of combat, exile those tokens."
+    {
+      const m = clause.match(
+        /^(sacrifice|exile)\s+(it|them|that token|those tokens|the token|the tokens)\s+at\s+end\s+of\s+combat\s*$/i
+      );
+      if (m) {
+        const verb = String(m[1] || '').toLowerCase();
+        return { atEndOfCombat: verb === 'exile' ? 'exile' : 'sacrifice' };
+      }
+
+      const m2 = clause.match(
+        /^at\s+end\s+of\s+combat,\s*(sacrifice|exile)\s+(it|them|that token|those tokens|the token|the tokens)\s*$/i
+      );
+      if (m2) {
+        const verb = String(m2[1] || '').toLowerCase();
+        return { atEndOfCombat: verb === 'exile' ? 'exile' : 'sacrifice' };
+      }
+
+      const verb3 = clause.match(/\b(sacrifice|exile)\b/i)?.[1]?.toLowerCase();
+      if (verb3 && /\bend\s+of\s+combat\b/i.test(clause)) {
+        // Conservatively only accept known cleanup verbs and this specific timing.
+        return { atEndOfCombat: verb3 === 'exile' ? 'exile' : 'sacrifice' };
+      }
+    }
 
     // Only treat as a follow-up modifier if the whole clause is an "enters" sentence
     // referring to the immediately previous created token(s).
@@ -676,6 +828,16 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
             ...prev,
             ...(mod.entersTapped ? { entersTapped: true } : {}),
             ...(mod.withCounters ? { withCounters: { ...(prev.withCounters || {}), ...mod.withCounters } } : {}),
+            ...(mod.grantsHaste ? { grantsHaste: mod.grantsHaste } : {}),
+            ...(mod.grantsAbilitiesUntilEndOfTurn
+              ? {
+                  grantsAbilitiesUntilEndOfTurn: Array.from(
+                    new Set([...(prev.grantsAbilitiesUntilEndOfTurn || []), ...mod.grantsAbilitiesUntilEndOfTurn])
+                  ),
+                }
+              : {}),
+            ...(mod.atNextEndStep ? { atNextEndStep: mod.atNextEndStep } : {}),
+            ...(mod.atEndOfCombat ? { atEndOfCombat: mod.atEndOfCombat } : {}),
           } as any;
         }
         i += 1;

@@ -483,6 +483,9 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^if\b/i,            // Conditional modifier: "If you do..."
   /^when\s+you\s+do\b/i,  // Reflexive trigger: "When you do, X happens"
   /^whenever\s+you\s+do\b/i,  // Reflexive trigger: "Whenever you do, X happens"
+  /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\b/i, // Delayed trigger created by a spell/ability
+  /^at\s+end\s+of\s+combat\b/i, // Delayed trigger created by a spell/ability
+  /^at\s+(?:the\s+)?end\s+of\s+turn\b/i, // Oracle shorthand for next end step delayed trigger
   /^create\b/i,        // Token creation as continuation (often follows an effect)
   /^those\b/i,         // Reference to previous objects
   /^that\b/i,          // Reference to previous object/effect: "That creature gains..."
@@ -500,6 +503,7 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^instead\b/i,       // Replacement continuation
   /^draw\b/i,          // Draw as continuation: "Destroy X. Draw a card."
   /^shuffle\b/i,       // Shuffle as continuation: "Search library. Shuffle."
+  /^(?:sacrifice|exile)\s+(?:it|them|that token|those tokens|the token|the tokens)\b/i, // Follow-up cleanup for created/affected objects
 ];
 
 /**

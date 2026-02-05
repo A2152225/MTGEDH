@@ -206,6 +206,218 @@ function processPendingFlickerReturnsAtBeginningOfEndStep(ctx: GameContext, turn
   }
 }
 
+function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
+  try {
+    const stateAny = (ctx as any).state as any;
+    if (!stateAny) return [];
+
+    const currentTurn = Number(stateAny?.turnNumber ?? 0) || 0;
+    const battlefield = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
+
+    const pendingSac: any[] = Array.isArray(stateAny.pendingSacrificeAtNextEndStep)
+      ? stateAny.pendingSacrificeAtNextEndStep
+      : [];
+    const pendingExile: any[] = Array.isArray(stateAny.pendingExileAtNextEndStep)
+      ? stateAny.pendingExileAtNextEndStep
+      : [];
+
+    if (pendingSac.length === 0 && pendingExile.length === 0) return [];
+
+    const remainingSac: any[] = [];
+    const remainingExile: any[] = [];
+
+    type Group = {
+      controllerId: string;
+      sourceName: string;
+      action: 'sacrifice' | 'exile';
+      permanentIds: string[];
+    };
+
+    const groups = new Map<string, Group>();
+    const addToGroup = (entry: any, action: Group['action']) => {
+      const permanentId = String(entry?.permanentId || '').trim();
+      if (!permanentId) return;
+
+      const perm = battlefield.find((p: any) => p?.id === permanentId);
+      if (!perm) {
+        // If the permanent is already gone, drop the entry.
+        return;
+      }
+
+      const controllerId = String(entry?.createdBy || perm?.controller || perm?.owner || '').trim();
+      if (!controllerId) return;
+
+      const sourceName = String(entry?.sourceName || 'Delayed trigger').trim();
+      const key = `${action}|${currentTurn}|${controllerId}|${sourceName}`;
+
+      const existing = groups.get(key);
+      if (existing) {
+        existing.permanentIds.push(permanentId);
+        return;
+      }
+
+      groups.set(key, {
+        controllerId,
+        sourceName,
+        action,
+        permanentIds: [permanentId],
+      });
+    };
+
+    for (const entry of pendingSac) {
+      const fireAt = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      if (fireAt === currentTurn) {
+        addToGroup(entry, 'sacrifice');
+      } else {
+        remainingSac.push(entry);
+      }
+    }
+
+    for (const entry of pendingExile) {
+      const fireAt = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      if (fireAt === currentTurn) {
+        addToGroup(entry, 'exile');
+      } else {
+        remainingExile.push(entry);
+      }
+    }
+
+    stateAny.pendingSacrificeAtNextEndStep = remainingSac;
+    stateAny.pendingExileAtNextEndStep = remainingExile;
+
+    const triggers: any[] = [];
+    for (const group of groups.values()) {
+      const effectText =
+        group.action === 'sacrifice'
+          ? 'Sacrifice them.'
+          : 'Exile them.';
+
+      triggers.push({
+        controllerId: group.controllerId,
+        permanentId: group.permanentIds[0],
+        cardName: group.sourceName,
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        stackItem: {
+          delayedAction: group.action,
+          delayedPermanentIds: group.permanentIds,
+          delayedSourceName: group.sourceName,
+        },
+      });
+    }
+
+    return triggers;
+  } catch (err) {
+    debugWarn(1, '[turn] Failed to dequeue pending next-end-step zone-change triggers:', err);
+    return [];
+  }
+}
+
+function dequeuePendingEndOfCombatZoneChangeTriggers(ctx: GameContext): any[] {
+  try {
+    const stateAny = (ctx as any).state as any;
+    if (!stateAny) return [];
+
+    const currentTurn = Number(stateAny?.turnNumber ?? 0) || 0;
+    const battlefield = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
+
+    const pendingSac: any[] = Array.isArray(stateAny.pendingSacrificeAtEndOfCombat)
+      ? stateAny.pendingSacrificeAtEndOfCombat
+      : [];
+    const pendingExile: any[] = Array.isArray(stateAny.pendingExileAtEndOfCombat)
+      ? stateAny.pendingExileAtEndOfCombat
+      : [];
+
+    if (pendingSac.length === 0 && pendingExile.length === 0) return [];
+
+    const remainingSac: any[] = [];
+    const remainingExile: any[] = [];
+
+    type Group = {
+      controllerId: string;
+      sourceName: string;
+      action: 'sacrifice' | 'exile';
+      permanentIds: string[];
+    };
+
+    const groups = new Map<string, Group>();
+    const addToGroup = (entry: any, action: Group['action']) => {
+      const permanentId = String(entry?.permanentId || '').trim();
+      if (!permanentId) return;
+
+      const perm = battlefield.find((p: any) => p?.id === permanentId);
+      if (!perm) {
+        return;
+      }
+
+      const controllerId = String(entry?.createdBy || perm?.controller || perm?.owner || '').trim();
+      if (!controllerId) return;
+
+      const sourceName = String(entry?.sourceName || 'Delayed trigger').trim();
+      const key = `${action}|${currentTurn}|${controllerId}|${sourceName}`;
+
+      const existing = groups.get(key);
+      if (existing) {
+        existing.permanentIds.push(permanentId);
+        return;
+      }
+
+      groups.set(key, {
+        controllerId,
+        sourceName,
+        action,
+        permanentIds: [permanentId],
+      });
+    };
+
+    for (const entry of pendingSac) {
+      const fireAt = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      if (fireAt === currentTurn) {
+        addToGroup(entry, 'sacrifice');
+      } else {
+        remainingSac.push(entry);
+      }
+    }
+
+    for (const entry of pendingExile) {
+      const fireAt = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      if (fireAt === currentTurn) {
+        addToGroup(entry, 'exile');
+      } else {
+        remainingExile.push(entry);
+      }
+    }
+
+    stateAny.pendingSacrificeAtEndOfCombat = remainingSac;
+    stateAny.pendingExileAtEndOfCombat = remainingExile;
+
+    const triggers: any[] = [];
+    for (const group of groups.values()) {
+      const effectText = group.action === 'sacrifice' ? 'Sacrifice them.' : 'Exile them.';
+
+      triggers.push({
+        controllerId: group.controllerId,
+        permanentId: group.permanentIds[0],
+        cardName: group.sourceName,
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+        stackItem: {
+          delayedAction: group.action,
+          delayedPermanentIds: group.permanentIds,
+          delayedSourceName: group.sourceName,
+        },
+      });
+    }
+
+    return triggers;
+  } catch (err) {
+    debugWarn(1, '[turn] Failed to dequeue pending end-of-combat zone-change triggers:', err);
+    return [];
+  }
+}
+
 /**
  * Queue a damage received trigger for later processing by the socket layer.
  * This is used when a creature with a "whenever this creature is dealt damage" trigger
@@ -3967,12 +4179,15 @@ export function nextStep(ctx: GameContext) {
                     mandatory: trigger.mandatory !== false,
                     imageUrl: trigger.imageUrl,
                     requiresChoice: trigger.requiresChoice,
+                    stackItem: trigger.stackItem,
                   };
                 });
                 
                 // Add all triggers to the stack first (they will be reordered by the player)
                 for (const item of triggerItems) {
+                  const extra = item.stackItem && typeof item.stackItem === 'object' ? item.stackItem : {};
                   (ctx as any).state.stack.push({
+                    ...extra,
                     id: item.id,
                     type: 'triggered_ability',
                     controller: playerId,
@@ -4010,7 +4225,9 @@ export function nextStep(ctx: GameContext) {
               // Single trigger - push directly to stack (no ordering needed)
               const trigger = playerTriggers[0];
               const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              const extra = trigger.stackItem && typeof trigger.stackItem === 'object' ? trigger.stackItem : {};
               (ctx as any).state.stack.push({
+                ...extra,
                 id: triggerId,
                 type: 'triggered_ability',
                 controller: playerId,
@@ -4177,7 +4394,11 @@ export function nextStep(ctx: GameContext) {
         
         // Rule 511.1: End of combat - "at end of combat" triggers
         else if (nextStep === "END_COMBAT") {
-          const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
+          const delayedCombatCleanupTriggers = dequeuePendingEndOfCombatZoneChangeTriggers(ctx);
+          const endCombatTriggers = [
+            ...getEndOfCombatTriggers(ctx, turnPlayer),
+            ...delayedCombatCleanupTriggers,
+          ];
           pushTriggersToStack(endCombatTriggers, 'end_combat', 'endcombat');
           
           // Clear firebending mana at end of combat
@@ -4242,7 +4463,8 @@ export function nextStep(ctx: GameContext) {
         // This includes cards like Case of the Locked Hothouse, Meren, Atraxa
         else if (nextStep === "END") {
           const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
-          pushTriggersToStack(endStepTriggers, 'end_step', 'endstep');
+          const delayedCleanupTriggers = dequeuePendingNextEndStepZoneChangeTriggers(ctx);
+          pushTriggersToStack([...endStepTriggers, ...delayedCleanupTriggers], 'end_step', 'endstep');
 
           // Best-effort delayed return processing (planeswalker templates, etc.)
           processPendingFlickerReturnsAtBeginningOfEndStep(ctx, turnPlayer);

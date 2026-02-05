@@ -129,6 +129,43 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       const inOracle = oracleText.includes(kw.toLowerCase());
       return inKeywords || inOracle;
     };
+
+    // Keywords can also be applied dynamically at runtime.
+    // Common fields used across the server:
+    // - permanent.tempAbilities: string[] (cleared at cleanup step)
+    // - permanent.grantedAbilities: (string | any)[] (often persistent)
+    // - permanent.temporaryAbilities: { ability: string }[] (often until EOT)
+    const getPermanentAbilityStrings = (): string[] => {
+      const collected: string[] = [];
+      if (!permanent) return collected;
+
+      const temp = Array.isArray((permanent as any).tempAbilities) ? (permanent as any).tempAbilities : [];
+      for (const a of temp) {
+        if (typeof a === 'string' && a.trim()) collected.push(a);
+      }
+
+      const granted = Array.isArray((permanent as any).grantedAbilities) ? (permanent as any).grantedAbilities : [];
+      for (const a of granted) {
+        if (typeof a === 'string' && a.trim()) collected.push(a);
+      }
+
+      const temporary = Array.isArray((permanent as any).temporaryAbilities) ? (permanent as any).temporaryAbilities : [];
+      for (const a of temporary) {
+        if (typeof a === 'string' && a.trim()) {
+          collected.push(a);
+        } else if (a && typeof a === 'object' && typeof (a as any).ability === 'string') {
+          collected.push((a as any).ability);
+        }
+      }
+
+      return collected;
+    };
+
+    const permanentAbilityStringsLower = getPermanentAbilityStrings().map(s => s.toLowerCase());
+    const hasPermanentAbility = (kw: string) => {
+      const needle = kw.toLowerCase();
+      return permanentAbilityStringsLower.some(s => s === needle || s.includes(needle));
+    };
     
     // Check for equipment/aura granted keywords
     let grantedKeywords: string[] = [];
@@ -254,7 +291,7 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
     }
     
     const hasKeywordOrGranted = (kw: string) => {
-      return hasKeyword(kw) || grantedKeywords.includes(kw.toLowerCase());
+      return hasKeyword(kw) || grantedKeywords.includes(kw.toLowerCase()) || hasPermanentAbility(kw);
     };
     
     const result = {
@@ -271,10 +308,10 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       firstStrike: hasKeywordOrGranted("first strike") && !hasKeywordOrGranted("double strike"),
       doubleStrike: hasKeywordOrGranted("double strike"),
       lifelink: hasKeywordOrGranted("lifelink"),
-      deathtouch: hasKeywordOrGranted("deathtouch") || (permanent?.temporaryAbilities?.includes('deathtouch')),
+      deathtouch: hasKeywordOrGranted("deathtouch"),
       trample: hasKeywordOrGranted("trample"),
       vigilance: hasKeywordOrGranted("vigilance"),
-      indestructible: hasKeywordOrGranted("indestructible") || (permanent?.temporaryAbilities?.includes('indestructible')),
+      indestructible: hasKeywordOrGranted("indestructible"),
       hexproof: hasKeywordOrGranted("hexproof"),
       shroud: hasKeywordOrGranted("shroud"),
       haste: hasKeywordOrGranted("haste"),

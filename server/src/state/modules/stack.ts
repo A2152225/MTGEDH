@@ -52,6 +52,7 @@ import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
+import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 
 function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): number | null {
   if (!q) return null;
@@ -814,32 +815,183 @@ function applyOracleIRFallbackForUncategorizedSpell(
           const count = resolveOracleQuantityToNumber(step.amount, xValue);
           if (!count || count <= 0) break;
 
-          // To avoid double-applying against existing creature-token parsing,
-          // only auto-handle common artifact tokens here.
-          const tokenInfo = parseCommonArtifactTokenOptions(step.token);
-          if (!tokenInfo) break;
+          const rawToken = String((step as any).token || '').trim();
+          if (!rawToken) break;
+
+          // Parse common artifact tokens first (Treasure/Clue/Food/etc.).
+          const tokenInfo = parseCommonArtifactTokenOptions(rawToken);
+          const creatureMatch = !tokenInfo
+            ? rawToken.match(/^\s*(\d+)\s*\/\s*(\d+)\s+([\s\S]+?)\s*$/i)
+            : null;
+
+          // If we can't confidently parse, skip (avoid wrong tokens).
+          if (!tokenInfo && !creatureMatch) break;
 
           const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          if (playerIds.length === 0) break;
+
+          // Compute delayed-trigger fire turn number (match existing planeswalker-template semantics).
+          const stateAny = (ctx as any).state as any;
+          const currentTurn = Number(stateAny?.turnNumber ?? 0) || 0;
+          const currentPhase = String(stateAny?.phase ?? '').toLowerCase();
+          const currentStepUpper = String(stateAny?.step ?? '').toUpperCase();
+          const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+          const fireAtTurnNumber = inEnding ? currentTurn + 1 : currentTurn;
+
+          // Compute end-of-combat delayed-trigger fire turn number.
+          // "At end of combat" means "at the beginning of the end of combat step"; if that step is already
+          // reached/passed for the current turn, the delayed trigger should wait for the next turn's end of combat.
+          const afterEndCombat =
+            inEnding ||
+            currentStepUpper === 'END_COMBAT' ||
+            currentStepUpper === 'MAIN2' ||
+            currentStepUpper === 'END' ||
+            currentStepUpper === 'CLEANUP';
+          const fireAtCombatTurnNumber = afterEndCombat ? currentTurn + 1 : currentTurn;
+
+          const grantsHaste = (step as any).grantsHaste as ('permanent' | 'until_end_of_turn' | undefined);
+          const grantsAbilitiesUntilEndOfTurn = (step as any).grantsAbilitiesUntilEndOfTurn as (string[] | undefined);
+          const atNextEndStep = (step as any).atNextEndStep as ('sacrifice' | 'exile' | undefined);
+          const atEndOfCombat = (step as any).atEndOfCombat as ('sacrifice' | 'exile' | undefined);
+
           for (const pid of playerIds) {
-            executeSpellEffect(
-              ctx,
-              {
-                kind: 'CreateToken',
-                controller: pid,
-                name: tokenInfo.name,
+            let createdIds: string[] = [];
+
+            if (tokenInfo) {
+              createdIds = createToken(
+                ctx,
+                pid,
+                tokenInfo.name,
                 count,
-                basePower: (tokenInfo as any).basePower,
-                baseToughness: (tokenInfo as any).baseToughness,
-                options: {
+                (tokenInfo as any).basePower,
+                (tokenInfo as any).baseToughness,
+                {
                   ...(tokenInfo.options || {}),
                   ...((step as any).entersTapped ? { entersTapped: true } : {}),
                   ...((step as any).withCounters ? { withCounters: (step as any).withCounters } : {}),
-                },
-              } as any,
-              caster,
-              spellName,
-              sourcePermanentId
-            );
+                }
+              ) as any;
+            } else if (creatureMatch) {
+              const power = parseInt(String(creatureMatch[1] || ''), 10);
+              const toughness = parseInt(String(creatureMatch[2] || ''), 10);
+              if (!Number.isFinite(power) || !Number.isFinite(toughness)) continue;
+
+              const descriptor = String(creatureMatch[3] || '').trim();
+              const { name, colors, creatureTypes, abilities } = parseCreateTokenDescriptor(descriptor);
+              const typeLine = `Token Creature — ${creatureTypes.length ? creatureTypes.join(' ') : name}`;
+
+              createdIds = createToken(ctx, pid, name, count, power, toughness, {
+                colors,
+                abilities,
+                typeLine,
+                ...((step as any).entersTapped ? { entersTapped: true } : {}),
+                ...((step as any).withCounters ? { withCounters: (step as any).withCounters } : {}),
+              }) as any;
+            }
+
+            if (!Array.isArray(createdIds) || createdIds.length === 0) {
+              continue;
+            }
+
+            // Apply haste grants to created tokens.
+            if (grantsHaste) {
+              const battlefield = (ctx as any).state?.battlefield || [];
+              for (const permId of createdIds) {
+                const perm = battlefield.find((p: any) => p?.id === permId);
+                if (!perm) continue;
+
+                if (grantsHaste === 'until_end_of_turn') {
+                  (perm as any).tempAbilities = Array.isArray((perm as any).tempAbilities) ? (perm as any).tempAbilities : [];
+                  if (!(perm as any).tempAbilities.some((a: any) => String(a).toLowerCase() === 'haste')) {
+                    (perm as any).tempAbilities.push('haste');
+                  }
+                } else {
+                  (perm as any).grantedAbilities = Array.isArray((perm as any).grantedAbilities) ? (perm as any).grantedAbilities : [];
+                  if (!(perm as any).grantedAbilities.some((a: any) => String(a).toLowerCase() === 'haste')) {
+                    (perm as any).grantedAbilities.push('Haste');
+                  }
+                }
+              }
+            }
+
+            // Apply other keyword abilities until end of turn.
+            if (Array.isArray(grantsAbilitiesUntilEndOfTurn) && grantsAbilitiesUntilEndOfTurn.length > 0) {
+              const battlefield = (ctx as any).state?.battlefield || [];
+              for (const permId of createdIds) {
+                const perm = battlefield.find((p: any) => p?.id === permId);
+                if (!perm) continue;
+
+                (perm as any).tempAbilities = Array.isArray((perm as any).tempAbilities) ? (perm as any).tempAbilities : [];
+                for (const rawAbility of grantsAbilitiesUntilEndOfTurn) {
+                  const ability = String(rawAbility || '').trim().toLowerCase();
+                  if (!ability) continue;
+                  if (!(perm as any).tempAbilities.some((a: any) => String(a).trim().toLowerCase() === ability)) {
+                    (perm as any).tempAbilities.push(ability);
+                  }
+                }
+              }
+            }
+
+            // Schedule delayed sacrifice/exile at next end step for created tokens.
+            if (atNextEndStep) {
+              if (atNextEndStep === 'sacrifice') {
+                stateAny.pendingSacrificeAtNextEndStep = Array.isArray(stateAny.pendingSacrificeAtNextEndStep)
+                  ? stateAny.pendingSacrificeAtNextEndStep
+                  : [];
+                for (const id of createdIds) {
+                  stateAny.pendingSacrificeAtNextEndStep.push({
+                    permanentId: id,
+                    fireAtTurnNumber,
+                    maxManaValue: 0,
+                    sourceName: spellName,
+                    createdBy: pid,
+                  });
+                }
+              } else {
+                stateAny.pendingExileAtNextEndStep = Array.isArray(stateAny.pendingExileAtNextEndStep)
+                  ? stateAny.pendingExileAtNextEndStep
+                  : [];
+                for (const id of createdIds) {
+                  stateAny.pendingExileAtNextEndStep.push({
+                    permanentId: id,
+                    fireAtTurnNumber,
+                    sourceName: spellName,
+                    createdBy: pid,
+                  });
+                }
+              }
+            }
+
+            // Schedule delayed sacrifice/exile at end of combat for created tokens.
+            if (atEndOfCombat) {
+              if (atEndOfCombat === 'sacrifice') {
+                stateAny.pendingSacrificeAtEndOfCombat = Array.isArray(stateAny.pendingSacrificeAtEndOfCombat)
+                  ? stateAny.pendingSacrificeAtEndOfCombat
+                  : [];
+                for (const id of createdIds) {
+                  stateAny.pendingSacrificeAtEndOfCombat.push({
+                    permanentId: id,
+                    fireAtTurnNumber: fireAtCombatTurnNumber,
+                    maxManaValue: 0,
+                    sourceName: spellName,
+                    createdBy: pid,
+                  });
+                }
+              } else {
+                stateAny.pendingExileAtEndOfCombat = Array.isArray(stateAny.pendingExileAtEndOfCombat)
+                  ? stateAny.pendingExileAtEndOfCombat
+                  : [];
+                for (const id of createdIds) {
+                  stateAny.pendingExileAtEndOfCombat.push({
+                    permanentId: id,
+                    fireAtTurnNumber: fireAtCombatTurnNumber,
+                    sourceName: spellName,
+                    createdBy: pid,
+                  });
+                }
+              }
+            }
+
             applied++;
           }
           break;
@@ -2796,6 +2948,67 @@ function executeTriggerEffect(
         desc = desc.slice(commaIndex + 1).trim();
       }
     }
+  }
+
+  // ===== DELAYED CLEANUP TRIGGERS (NEXT END STEP / END OF COMBAT) =====
+  // These are synthetic triggers created by the engine to deterministically perform
+  // token cleanup like "Exile them at end of combat" / "Sacrifice them at the beginning
+  // of the next end step".
+  try {
+    const action = (triggerItem as any)?.delayedAction as ('exile' | 'sacrifice' | undefined);
+    const permanentIds = (triggerItem as any)?.delayedPermanentIds as (string[] | undefined);
+    const delayedSourceName = String((triggerItem as any)?.delayedSourceName || sourceName || 'Delayed trigger');
+
+    if ((action === 'exile' || action === 'sacrifice') && Array.isArray(permanentIds) && permanentIds.length > 0) {
+      const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+
+      for (const rawId of permanentIds) {
+        const permanentId = String(rawId || '').trim();
+        if (!permanentId) continue;
+
+        const perm = battlefield.find((p: any) => p?.id === permanentId);
+        if (!perm) continue;
+
+        if (action === 'exile') {
+          movePermanentToExile(ctx, permanentId, {
+            exiledWithSourceName: delayedSourceName,
+          });
+          continue;
+        }
+
+        // Sacrifice: you can only sacrifice permanents you control.
+        const permController = String((perm as any)?.controller || (perm as any)?.owner || '').trim();
+        if (permController && String(controller) && permController !== String(controller)) {
+          continue;
+        }
+
+        // Best-effort tracking used by some intervening-if templates.
+        try {
+          const stateAny = state as any;
+          const key = String(controller || permController || '').trim();
+          if (key) {
+            stateAny.permanentsSacrificedThisTurn = stateAny.permanentsSacrificedThisTurn || {};
+            stateAny.permanentsSacrificedThisTurn[key] = (stateAny.permanentsSacrificedThisTurn[key] || 0) + 1;
+
+            const tl = String((perm as any)?.card?.type_line || '').toLowerCase();
+            const nm = String((perm as any)?.card?.name || '').toLowerCase();
+            const isFood = tl.includes('food') && (tl.includes('artifact') || tl.includes('token'));
+            if (isFood && (nm === 'food' || tl.includes('— food') || tl.includes('- food') || tl.includes('food'))) {
+              stateAny.foodsSacrificedThisTurn = stateAny.foodsSacrificedThisTurn || {};
+              stateAny.foodsSacrificedThisTurn[key] = (stateAny.foodsSacrificedThisTurn[key] || 0) + 1;
+            }
+          }
+        } catch {
+          // best-effort only
+        }
+
+        movePermanentToGraveyard(ctx, permanentId, true);
+      }
+
+      return;
+    }
+  } catch {
+    // Fall through to normal effect parsing.
   }
   const startingLife = state.startingLife || 40;
 

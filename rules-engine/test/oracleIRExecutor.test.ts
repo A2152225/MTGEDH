@@ -259,6 +259,18 @@ describe('Oracle IR Executor', () => {
     expect(token.counters?.['+1/+1']).toBe(2);
   });
 
+  it('attaches "They gain <keywords> until end of turn" as a create_token follow-up modifier', () => {
+    const ir = parseOracleTextToIR(
+      'Create two 1/1 white Soldier creature tokens. They gain flying and lifelink until end of turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const create = steps.find((s: any) => s.kind === 'create_token') as any;
+    expect(create).toBeTruthy();
+    expect(create.grantsAbilitiesUntilEndOfTurn).toEqual(['flying', 'lifelink']);
+  });
+
   it('creates a token with counters when oracle uses a follow-up "an additional" counters clause', () => {
     const ir = parseOracleTextToIR(
       'Create a Treasure token. It enters with an additional +1/+1 counter on it.',
@@ -290,6 +302,99 @@ describe('Oracle IR Executor', () => {
     expect(token.isToken).toBe(true);
     expect(token.tapped).toBe(true);
     expect(token.counters?.['+1/+1']).toBe(2);
+  });
+
+  it('attaches haste and next-end-step sacrifice follow-ups to create_token IR', () => {
+    const ir = parseOracleTextToIR(
+      'Create two 1/1 red Elemental creature tokens. They gain haste. Sacrifice them at the beginning of the next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    const step = steps[0] as any;
+    expect(step.kind).toBe('create_token');
+    expect(step.grantsHaste).toBe('permanent');
+    expect(step.atNextEndStep).toBe('sacrifice');
+  });
+
+  it('attaches triggered-template next-end-step cleanup to create_token IR', () => {
+    const ir = parseOracleTextToIR(
+      'Create two 1/1 red Elemental creature tokens. They gain haste. At the beginning of the next end step, sacrifice them.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    const step = steps[0] as any;
+    expect(step.kind).toBe('create_token');
+    expect(step.grantsHaste).toBe('permanent');
+    expect(step.atNextEndStep).toBe('sacrifice');
+  });
+
+  it('attaches end-of-turn exile cleanup to create_token IR (Oracle shorthand)', () => {
+    const ir = parseOracleTextToIR(
+      'Create two 1/1 blue Illusion creature tokens. Exile them at end of turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    const step = steps[0] as any;
+    expect(step.kind).toBe('create_token');
+    expect(step.atNextEndStep).toBe('exile');
+  });
+
+  it('attaches triggered-template end-of-turn sacrifice cleanup to create_token IR (Oracle shorthand)', () => {
+    const ir = parseOracleTextToIR(
+      'Create a 2/2 colorless Robot artifact creature token. At end of turn, sacrifice that token.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    const step = steps[0] as any;
+    expect(step.kind).toBe('create_token');
+    expect(step.atNextEndStep).toBe('sacrifice');
+  });
+
+  it('attaches end-of-combat exile follow-up to create_token IR', () => {
+    const ir = parseOracleTextToIR(
+      "Create two 1/1 blue Illusion creature tokens. Exile those tokens at end of combat.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    const step = steps[0] as any;
+    expect(step.kind).toBe('create_token');
+    expect(step.atEndOfCombat).toBe('exile');
+  });
+
+  it('attaches triggered-template end-of-combat sacrifice follow-up to create_token IR', () => {
+    const ir = parseOracleTextToIR(
+      'Create a 2/2 colorless Robot artifact creature token. At end of combat, sacrifice that token.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    const step = steps[0] as any;
+    expect(step.kind).toBe('create_token');
+    expect(step.atEndOfCombat).toBe('sacrifice');
+  });
+
+  it('attaches until-EOT haste follow-up to create_token IR', () => {
+    const ir = parseOracleTextToIR(
+      'Create a 1/1 red Elemental creature token. It gains haste until end of turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    const step = steps[0] as any;
+    expect(step.kind).toBe('create_token');
+    expect(step.grantsHaste).toBe('until_end_of_turn');
   });
 
   it('skips optional steps by default', () => {

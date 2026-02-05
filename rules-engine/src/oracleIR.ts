@@ -127,6 +127,14 @@ export type OracleEffectStep =
       readonly entersTapped?: boolean;
       /** Counters the token enters with (deterministic, single-clause only). */
       readonly withCounters?: Record<string, number>;
+      /** Grant haste to the created token(s). */
+      readonly grantsHaste?: 'permanent' | 'until_end_of_turn';
+      /** Grant one or more keyword abilities to the created token(s) until end of turn (e.g. "They gain flying until end of turn."). */
+      readonly grantsAbilitiesUntilEndOfTurn?: readonly string[];
+      /** Create a delayed trigger for the created token(s) at the beginning of the next end step. */
+      readonly atNextEndStep?: 'sacrifice' | 'exile';
+      /** Create a delayed trigger for the created token(s) at end of combat (beginning of the end of combat step). */
+      readonly atEndOfCombat?: 'sacrifice' | 'exile';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
