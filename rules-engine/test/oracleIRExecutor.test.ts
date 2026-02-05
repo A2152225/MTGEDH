@@ -45,6 +45,247 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
   });
 
+  it('applies impulse_exile_top by exiling the top card(s) of your library', () => {
+    const ir = parseOracleTextToIR('Exile the top card of your library. You may play that card this turn.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it("applies impulse_exile_top for each player by exiling from each player's library", () => {
+    const ir = parseOracleTextToIR("Exile the top card of each player's library. You may play those cards this turn.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p2.library).toHaveLength(0);
+    expect(p1.exile).toHaveLength(1);
+    expect(p2.exile).toHaveLength(1);
+
+    expect(p1.exile[0]?.id).toBe('p1c1');
+    expect(p2.exile[0]?.id).toBe('p2c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+  });
+
+  it('applies exile_top by exiling the top card of your library', () => {
+    const ir = parseOracleTextToIR('Exile the top card of your library.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'exile_top')).toBe(true);
+  });
+
+  it("applies exile_top for each player by exiling from each player's library", () => {
+    const ir = parseOracleTextToIR("Exile the top two cards of each player's library.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }, { id: 'p1c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p2.library).toHaveLength(0);
+    expect(p1.exile).toHaveLength(2);
+    expect(p2.exile).toHaveLength(1);
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'exile_top')).toBe(true);
+  });
+
+  it("applies impulse_exile_top for each opponent by exiling from opponents' libraries", () => {
+    const ir = parseOracleTextToIR("Exile the top card of each opponent's library. You may play those cards this turn.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(0);
+    expect(p2.library).toHaveLength(1);
+    expect(p3.library).toHaveLength(0);
+    expect(p2.exile).toHaveLength(1);
+    expect(p3.exile).toHaveLength(1);
+    expect(p2.exile[0]?.id).toBe('p2c1');
+    expect(p3.exile[0]?.id).toBe('p3c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+  });
+
+  it('skips impulse_exile_top when amount is unknown', () => {
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      [
+        {
+          kind: 'impulse_exile_top',
+          who: { kind: 'you' },
+          amount: { kind: 'x' },
+          duration: 'this_turn',
+          permission: 'play',
+          raw: 'Exile the top X cards of your library. You may play those cards this turn.',
+        } as any,
+      ],
+      { controllerId: 'p1' }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(2);
+    expect(p1.exile).toHaveLength(0);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+  });
+
   it('applies life gain and life loss', () => {
     const ir = parseOracleTextToIR('You gain 3 life. You lose 2 life.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -1560,6 +1801,133 @@ describe('Oracle IR Executor', () => {
 
   it('applies move_zone for putting all creature cards from all exiles onto the battlefield tapped under your control', () => {
     const ir = parseOracleTextToIR('Put all creature cards from all exiles onto the battlefield tapped under your control.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const move = steps.find(s => s.kind === 'move_zone') as any;
+    expect(move).toBeTruthy();
+    expect(move.to).toBe('battlefield');
+    expect(move.entersTapped).toBe(true);
+    expect(move.battlefieldController?.kind).toBe('you');
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          ],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
+          ],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['p1e1']);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2e2']);
+
+    expect(result.state.battlefield).toHaveLength(2);
+    const bf = result.state.battlefield as any[];
+    const bears = bf.find(p => String(p?.card?.name) === 'Grizzly Bears');
+    const giant = bf.find(p => String(p?.card?.name) === 'Hill Giant');
+    expect(bears).toBeTruthy();
+    expect(giant).toBeTruthy();
+    expect(String(bears.owner)).toBe('p1');
+    expect(String(bears.controller)).toBe('p1');
+    expect(String(giant.owner)).toBe('p2');
+    expect(String(giant.controller)).toBe('p1');
+    expect(bears.tapped).toBe(true);
+    expect(giant.tapped).toBe(true);
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+  });
+
+  it("applies move_zone for putting all creature cards from each player's exile onto the battlefield (default owners' control)", () => {
+    const ir = parseOracleTextToIR("Put all creature cards from each player's exile onto the battlefield.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const move = steps.find(s => s.kind === 'move_zone') as any;
+    expect(move).toBeTruthy();
+    expect(move.to).toBe('battlefield');
+    expect(move.battlefieldController).toBeUndefined();
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          ],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['p1e1']);
+    expect(p2.exile).toHaveLength(0);
+
+    expect(result.state.battlefield).toHaveLength(2);
+    const bf = result.state.battlefield as any[];
+    const bears = bf.find(p => String(p?.card?.name) === 'Grizzly Bears');
+    const giant = bf.find(p => String(p?.card?.name) === 'Hill Giant');
+    expect(bears).toBeTruthy();
+    expect(giant).toBeTruthy();
+    expect(String(bears.owner)).toBe('p1');
+    expect(String(bears.controller)).toBe('p1');
+    expect(String(giant.owner)).toBe('p2');
+    expect(String(giant.controller)).toBe('p2');
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+  });
+
+  it("applies move_zone for putting all creature cards from each player's exile onto the battlefield tapped under your control", () => {
+    const ir = parseOracleTextToIR(
+      "Put all creature cards from each player's exile onto the battlefield tapped under your control.",
+      'Test'
+    );
     const steps = ir.abilities[0]?.steps ?? [];
 
     const move = steps.find(s => s.kind === 'move_zone') as any;

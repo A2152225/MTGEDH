@@ -39,6 +39,14 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'exile_top';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'impulse_exile_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;

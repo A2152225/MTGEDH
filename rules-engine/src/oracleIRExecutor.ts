@@ -103,6 +103,37 @@ function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: number)
   };
 }
 
+function exileTopCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  count: number
+): { state: GameState; log: string[]; exiled: any[] } {
+  const log: string[] = [];
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) return { state, log: [`Player not found: ${playerId}`], exiled: [] };
+
+  const library = [...((player as any).library || [])];
+  const exile = [...((player as any).exile || [])];
+
+  const exiled: any[] = [];
+  for (let i = 0; i < Math.max(0, count | 0); i++) {
+    if (library.length === 0) {
+      log.push(`${playerId} cannot exile from library (empty library)`);
+      break;
+    }
+    const [card] = library.splice(0, 1);
+    exile.push(card);
+    exiled.push(card);
+  }
+
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...p, library, exile } as any) : p));
+  return {
+    state: { ...state, players: updatedPlayers as any },
+    log: exiled.length > 0 ? [`${playerId} exiles ${exiled.length} card(s) from the top of their library`] : log,
+    exiled,
+  };
+}
+
 function adjustLife(state: GameState, playerId: PlayerID, delta: number): { state: GameState; log: string[] } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
@@ -1153,9 +1184,54 @@ export function applyOracleIRStepsToGameState(
     }
 
     switch (step.kind) {
+      case 'exile_top': {
+        const amount = quantityToNumber(step.amount);
+        if (amount === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped exile top (unknown amount): ${step.raw}`);
+          break;
+        }
+
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped exile top (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        for (const playerId of players) {
+          const r = exileTopCardsForPlayer(nextState, playerId, amount);
+          nextState = r.state;
+          log.push(...r.log);
+        }
+
+        appliedSteps.push(step);
+        break;
+      }
+
       case 'impulse_exile_top': {
-        skippedSteps.push(step);
-        log.push(`Skipped impulse exile top (server-only): ${step.raw}`);
+        const amount = quantityToNumber(step.amount);
+        if (amount === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped impulse exile top (unknown amount): ${step.raw}`);
+          break;
+        }
+
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped impulse exile top (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        for (const playerId of players) {
+          const r = exileTopCardsForPlayer(nextState, playerId, amount);
+          nextState = r.state;
+          log.push(...r.log);
+        }
+
+        // Note: Permission windows ("you may play/cast...") are not enforced here.
+        appliedSteps.push(step);
         break;
       }
 

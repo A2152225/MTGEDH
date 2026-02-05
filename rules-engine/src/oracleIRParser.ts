@@ -760,15 +760,32 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     // First clause: "Exile the top card(s) of your library"
     // Support both explicit quantity and the common implicit "top card".
     let amount: OracleQuantity | null = null;
+    let who: OraclePlayerSelector | null = null;
     {
-      const m = first.match(/^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+your\s+library\s*$/i);
+      const m = first.match(
+        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+      );
       if (m) {
         amount = parseQuantity(m[1]);
-      } else if (/^exile\s+the\s+top\s+card\s+of\s+your\s+library\s*$/i.test(first)) {
-        amount = { kind: 'number', value: 1 };
+        const src = String(m[2] || '').trim().toLowerCase();
+        if (src === 'your') who = { kind: 'you' };
+        else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+        else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+      } else {
+        const m2 = first.match(
+          /^exile\s+the\s+top\s+card\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+        );
+        if (m2) {
+          amount = { kind: 'number', value: 1 };
+          const src = String(m2[1] || '').trim().toLowerCase();
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+          else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+        }
       }
     }
     if (!amount) return null;
+    if (!who) return null;
 
     // Second clause: permission window for playing/casting the exiled card(s).
     // We only emit an impulse step if we can confidently determine the duration.
@@ -874,7 +891,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     return {
       step: {
         kind: 'impulse_exile_top',
-        who: { kind: 'you' },
+        who,
         amount,
         duration,
         permission,
@@ -882,6 +899,51 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         raw: `${first}. ${second}.`,
       },
       consumed: 2,
+    };
+  };
+
+  const tryParseExileTopOnly = (idx: number): { step: OracleEffectStep; consumed: number } | null => {
+    const first = String(clauses[idx] || '').trim();
+    if (!first) return null;
+
+    let amount: OracleQuantity | null = null;
+    let who: OraclePlayerSelector | null = null;
+
+    {
+      const m = first.match(
+        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+      );
+      if (m) {
+        amount = parseQuantity(m[1]);
+        const src = String(m[2] || '').trim().toLowerCase();
+        if (src === 'your') who = { kind: 'you' };
+        else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+        else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+      } else {
+        const m2 = first.match(
+          /^exile\s+the\s+top\s+card\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+        );
+        if (m2) {
+          amount = { kind: 'number', value: 1 };
+          const src = String(m2[1] || '').trim().toLowerCase();
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+          else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+        }
+      }
+    }
+
+    if (!amount) return null;
+    if (!who) return null;
+
+    return {
+      step: {
+        kind: 'exile_top',
+        who,
+        amount,
+        raw: `${first}.`,
+      },
+      consumed: 1,
     };
   };
 
@@ -922,6 +984,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       steps.push(impulse.step);
       lastCreateTokenStepIndexes = null;
       i += impulse.consumed;
+      continue;
+    }
+
+    const exileTopOnly = tryParseExileTopOnly(i);
+    if (exileTopOnly) {
+      steps.push(exileTopOnly.step);
+      lastCreateTokenStepIndexes = null;
+      i += exileTopOnly.consumed;
       continue;
     }
 
