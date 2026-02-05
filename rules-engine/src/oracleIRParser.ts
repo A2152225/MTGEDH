@@ -785,6 +785,30 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
         }
       }
+
+      // Alternate subject order: "Each player exiles the top card(s) of their library."
+      if (!amount) {
+        const m3 = first.match(
+          /^(each player|each opponent|you)\s+exiles\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(?:their|your)\s+library\s*$/i
+        );
+        if (m3) {
+          amount = parseQuantity(m3[2]);
+          const src = String(m3[1] || '').trim().toLowerCase();
+          if (src === 'you') who = { kind: 'you' };
+          else if (src === 'each player') who = { kind: 'each_player' };
+          else if (src === 'each opponent') who = { kind: 'each_opponent' };
+        }
+      }
+      if (!amount) {
+        const m4 = first.match(/^(each player|each opponent|you)\s+exiles\s+the\s+top\s+card\s+of\s+(?:their|your)\s+library\s*$/i);
+        if (m4) {
+          amount = { kind: 'number', value: 1 };
+          const src = String(m4[1] || '').trim().toLowerCase();
+          if (src === 'you') who = { kind: 'you' };
+          else if (src === 'each player') who = { kind: 'each_player' };
+          else if (src === 'each opponent') who = { kind: 'each_opponent' };
+        }
+      }
     }
     if (!amount) return null;
     if (!who) return null;
@@ -816,7 +840,12 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       clause: string
     ):
       | {
-          readonly duration: 'this_turn' | 'until_end_of_next_turn' | 'as_long_as_remains_exiled';
+          readonly duration:
+            | 'this_turn'
+            | 'until_end_of_next_turn'
+            | 'until_next_turn'
+            | 'until_next_end_step'
+            | 'as_long_as_remains_exiled';
           readonly permission: 'play' | 'cast';
           readonly condition?:
             | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -829,7 +858,17 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       let clauseToParse = normalizedClause.trim();
 
       const objectRef =
-        '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells)';
+        '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|card exiled this way|cards exiled this way|the card they exiled this way|the cards they exiled this way)';
+      const objectRefWithLimit = `(?:up to (?:a|an|\d+|x|[a-z]+) of )?${objectRef}`;
+
+      // Strip common mana-spend reminder suffix seen in oracle text.
+      clauseToParse = clauseToParse
+        .replace(/,?\s+and\s+mana of any type can be spent to cast (?:that|those|the exiled) spells\s*$/i, '')
+        .replace(/,?\s*mana of any type can be spent to cast (?:that|those|the exiled) spells\s*$/i, '')
+        .replace(
+          /,?\s+and\s+you may spend mana as though it were mana of any (?:color|type) to cast (?:it|them|that spell|those spells)\s*$/i,
+          ''
+        );
 
       let condition:
         | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -840,7 +879,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // Also accept common variants.
       {
         const m = clauseToParse.match(
-          /^if\s+(?:it|they|that card|those cards|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells)(?:\s+is|(?:'|’)s|(?:'|’)re)\s+(?:a|an)?\s*([^,]+),\s*(.*)$/i
+          /^if\s+(?:it|they|that card|those cards|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|the card they exiled this way|the cards they exiled this way)(?:\s+is|(?:'|’)s|(?:'|’)re)\s+(?:a|an)?\s*([^,]+),\s*(.*)$/i
         );
         if (m) {
           const predicate = String(m[1] || '').trim().toLowerCase();
@@ -872,28 +911,88 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
 
       const lowerClause = clauseToParse.toLowerCase();
-      let duration: 'this_turn' | 'until_end_of_next_turn' | 'as_long_as_remains_exiled' | null = null;
+      let duration:
+        | 'this_turn'
+        | 'until_end_of_next_turn'
+        | 'until_next_turn'
+        | 'until_next_end_step'
+        | 'as_long_as_remains_exiled'
+        | null = null;
       let permission: 'play' | 'cast' | null = null;
 
       // "You may play/cast that card this turn"
       {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} this turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} this turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'this_turn';
         }
       }
+      // "You may cast spells from among them/those exiled cards this turn"
+      if (!duration) {
+        const m = lowerClause.match(/^you may cast spells from among (?:them|those exiled cards) this turn\s*$/i);
+        if (m) {
+          permission = 'cast';
+          duration = 'this_turn';
+        }
+      }
+      // "You may cast spells from among them/those exiled cards until end of turn"
+      if (!duration) {
+        const m = lowerClause.match(
+          /^you may cast spells from among (?:them|those exiled cards) until (?:the )?end of turn\s*$/i
+        );
+        if (m) {
+          permission = 'cast';
+          duration = 'this_turn';
+        }
+      }
       // "Until the end of your next turn, you may play/cast that card"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^until the end of your next turn, you may (play|cast) ${objectRef}\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^until the end of your next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
         }
       }
+      // "Until end of turn, you may cast spells from among them/those exiled cards"
+      if (!duration) {
+        const m = lowerClause.match(
+          /^until (?:the )?end of turn, you may cast spells from among (?:them|those exiled cards)\s*$/i
+        );
+        if (m) {
+          permission = 'cast';
+          duration = 'this_turn';
+        }
+      }
+      // "Until your next turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^until your next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_next_turn';
+        }
+      }
+      // "Until your next end step, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^until your next end step, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_next_end_step';
+        }
+      }
+      // "Until your next end step, each player may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(
+          new RegExp(`^until your next end step, each player may (play|cast) ${objectRefWithLimit}\\s*$`, 'i')
+        );
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_next_end_step';
+        }
+      }
       // "Until the end of next turn, you may play/cast that card"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^until the end of next turn, you may (play|cast) ${objectRef}\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^until the end of next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -901,7 +1000,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "Until end of your next turn, you may play/cast that card"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^until end of your next turn, you may (play|cast) ${objectRef}\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^until end of your next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -909,7 +1008,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "Until end of next turn, you may play/cast that card"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^until end of next turn, you may (play|cast) ${objectRef}\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^until end of next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -917,7 +1016,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "Until end of the next turn, you may play/cast that card"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^until end of the next turn, you may (play|cast) ${objectRef}\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^until end of the next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -925,7 +1024,23 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "Until the end of the turn, you may play/cast that card"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^until the end of the turn, you may (play|cast) ${objectRef}\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^until the end of the turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "Until the end of this turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^until the end of this turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "Until the end of that turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^until the end of that turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'this_turn';
@@ -933,7 +1048,23 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "Until end of turn, you may play/cast that card"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^until end of turn, you may (play|cast) ${objectRef}\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^until end of turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "Until end of this turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^until end of this turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "Until end of that turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^until end of that turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'this_turn';
@@ -941,15 +1072,39 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "You may play/cast that card until the end of your next turn"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} until the end of your next turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until the end of your next turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
         }
       }
+      // "You may play/cast that card until your next turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until your next turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_next_turn';
+        }
+      }
+      // "You may play/cast that card until your next end step"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until your next end step\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_next_end_step';
+        }
+      }
+      // "Each player may play/cast that card until your next end step"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^each player may (play|cast) ${objectRefWithLimit} until your next end step\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_next_end_step';
+        }
+      }
       // "You may play/cast that card until the end of next turn"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} until the end of next turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until the end of next turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -957,7 +1112,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "You may play/cast that card until end of your next turn"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} until end of your next turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of your next turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -965,7 +1120,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "You may play/cast that card until end of next turn"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} until end of next turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of next turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -973,7 +1128,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "You may play/cast that card until end of the next turn"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} until end of the next turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of the next turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_end_of_next_turn';
@@ -981,7 +1136,71 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       // "You may play/cast that card until end of turn"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} until end of turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card through end of turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} through end of turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card through end of next turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} through end of next turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_end_of_next_turn';
+        }
+      }
+      // "You may play/cast that card through the end of next turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} through the end of next turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_end_of_next_turn';
+        }
+      }
+      // "You may play/cast that card through end of this turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} through end of this turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card through the end of turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} through the end of turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card through the end of this turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} through the end of this turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card until end of this turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of this turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card until end of that turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of that turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'this_turn';
@@ -990,7 +1209,23 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
 
       // "You may play/cast that card until the end of the turn"
       if (!duration) {
-        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRef} until the end of the turn\\s*$`, 'i'));
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until the end of the turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card until the end of this turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until the end of this turn\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card until the end of that turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until the end of that turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'this_turn';
@@ -1000,7 +1235,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // "You may play/cast that card for as long as it remains exiled"
       if (!duration) {
         const m = lowerClause.match(
-          new RegExp(`^you may (play|cast) ${objectRef} for as long as (?:it|they) remain(?:s)? exiled\\s*$`, 'i')
+          new RegExp(`^you may (play|cast) ${objectRefWithLimit} for as long as (?:it|they) remain(?:s)? exiled\\s*$`, 'i')
         );
         if (m) {
           permission = m[1] as any;
@@ -1011,7 +1246,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // "You may play/cast that card as long as it remains exiled"
       if (!duration) {
         const m = lowerClause.match(
-          new RegExp(`^you may (play|cast) ${objectRef} as long as (?:it|they) remain(?:s)? exiled\\s*$`, 'i')
+          new RegExp(`^you may (play|cast) ${objectRefWithLimit} as long as (?:it|they) remain(?:s)? exiled\\s*$`, 'i')
         );
         if (m) {
           permission = m[1] as any;

@@ -51,7 +51,12 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
       /** When the exiled cards can be played until. */
-      readonly duration: 'this_turn' | 'until_end_of_next_turn' | 'as_long_as_remains_exiled';
+      readonly duration:
+        | 'this_turn'
+        | 'until_end_of_next_turn'
+        | 'until_next_turn'
+        | 'until_next_end_step'
+        | 'as_long_as_remains_exiled';
       /** Whether oracle text granted 'play' (lands + cast) or 'cast' (spells only). */
       readonly permission: 'play' | 'cast';
       /** Optional simple condition gating the permission (e.g. "If it's red/nonland..."). */
