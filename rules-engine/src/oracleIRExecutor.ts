@@ -1,6 +1,8 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import { createTokens, createTokensByName, parseTokenCreationFromText, COMMON_TOKENS } from './tokenCreation';
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from './oracleIR';
+import { parseManaSymbols } from './types/numbers';
+import { addMana, createEmptyManaPool, ManaType } from './types/mana';
 
 export interface OracleIRExecutionOptions {
   /**
@@ -22,6 +24,14 @@ export interface OracleIRExecutionResult {
   readonly appliedSteps: readonly OracleEffectStep[];
   readonly skippedSteps: readonly OracleEffectStep[];
 }
+
+type SimpleBattlefieldSelector = {
+  readonly kind: 'battlefield_selector';
+  readonly type: 'permanent' | 'nonland_permanent' | 'creature' | 'artifact' | 'enchantment' | 'land';
+  readonly controllerFilter: 'any' | 'you' | 'opponents';
+};
+
+type SimplePermanentType = SimpleBattlefieldSelector['type'];
 
 function quantityToNumber(qty: OracleQuantity): number | null {
   if (qty.kind === 'number') return qty.value;
@@ -47,6 +57,24 @@ function resolvePlayers(
     default:
       return [];
   }
+}
+
+function resolvePlayersFromDamageTarget(
+  state: GameState,
+  target: { readonly kind: 'raw'; readonly text: string } | { readonly kind: 'unknown'; readonly raw: string },
+  ctx: OracleIRExecutionContext
+): readonly PlayerID[] {
+  if (target.kind !== 'raw') return [];
+
+  const t = String(target.text || '').trim().toLowerCase();
+  if (!t) return [];
+
+  // Only support exact, non-targeting player group targets.
+  if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
+  if (t === 'each player') return resolvePlayers(state, { kind: 'each_player' }, ctx);
+  if (t === 'each opponent') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
+
+  return [];
 }
 
 function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: number): { state: GameState; log: string[] } {
@@ -88,6 +116,403 @@ function adjustLife(state: GameState, playerId: PlayerID, delta: number): { stat
   log.push(`${playerId} ${verb} ${Math.abs(delta)} life`);
 
   return { state: { ...state, players: updatedPlayers as any }, log };
+}
+
+function discardCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  count: number
+): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean } {
+  const log: string[] = [];
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false, needsChoice: false };
+
+  const hand = [...((player as any).hand || [])];
+  const graveyard = [...((player as any).graveyard || [])];
+
+  const n = Math.max(0, count | 0);
+  if (n === 0) return { state, log, applied: true, needsChoice: false };
+
+  // Deterministic only when the player has <= N cards, in which case all cards are discarded.
+  if (hand.length > n) {
+    return { state, log, applied: false, needsChoice: true };
+  }
+
+  const discarded = hand.splice(0, hand.length);
+  graveyard.push(...discarded);
+
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand, graveyard } : p));
+  log.push(`${playerId} discards ${discarded.length} card(s)`);
+  return { state: { ...state, players: updatedPlayers as any }, log, applied: true, needsChoice: false };
+}
+
+function millCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  count: number
+): { state: GameState; log: string[] } {
+  const log: string[] = [];
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) return { state, log: [`Player not found: ${playerId}`] };
+
+  const library = [...((player as any).library || [])];
+  const graveyard = [...((player as any).graveyard || [])];
+
+  const n = Math.max(0, count | 0);
+  if (n === 0) return { state, log };
+
+  const actual = Math.min(n, library.length);
+  const milled = library.splice(0, actual);
+  graveyard.push(...milled);
+
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, library, graveyard } : p));
+  log.push(`${playerId} mills ${actual} card(s)`);
+  return { state: { ...state, players: updatedPlayers as any }, log };
+}
+
+function addManaToPoolForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  mana: string
+): { state: GameState; log: string[]; applied: boolean } {
+  const log: string[] = [];
+
+  const playerExists = state.players.some(p => p.id === playerId);
+  if (!playerExists) return { state, log: [`Player not found: ${playerId}`], applied: false };
+
+  const symbols = parseManaSymbols(mana);
+  if (symbols.length === 0) return { state, log: [`Skipped add mana (no symbols): ${mana}`], applied: false };
+
+  // Deterministic only: basic + numeric + {C}. Anything else implies choice/unknown.
+  for (const sym of symbols) {
+    const upper = String(sym).toUpperCase();
+    const isBasic = ['{W}', '{U}', '{B}', '{R}', '{G}', '{C}'].includes(upper);
+    const isNumeric = /^\{\d+\}$/.test(upper);
+    if (!isBasic && !isNumeric) {
+      return { state, log: [`Skipped add mana (unsupported symbol ${sym}): ${mana}`], applied: false };
+    }
+  }
+
+  const manaPoolRecord: Record<PlayerID, any> = { ...(((state as any).manaPool || {}) as any) };
+  let pool = manaPoolRecord[playerId] || createEmptyManaPool();
+
+  for (const sym of symbols) {
+    const upper = String(sym).toUpperCase();
+    switch (upper) {
+      case '{W}':
+        pool = addMana(pool, ManaType.WHITE, 1);
+        break;
+      case '{U}':
+        pool = addMana(pool, ManaType.BLUE, 1);
+        break;
+      case '{B}':
+        pool = addMana(pool, ManaType.BLACK, 1);
+        break;
+      case '{R}':
+        pool = addMana(pool, ManaType.RED, 1);
+        break;
+      case '{G}':
+        pool = addMana(pool, ManaType.GREEN, 1);
+        break;
+      case '{C}':
+        pool = addMana(pool, ManaType.COLORLESS, 1);
+        break;
+      default: {
+        // Treat numeric symbols like {2} as adding that much colorless mana.
+        const m = upper.match(/^\{(\d+)\}$/);
+        const n = m ? parseInt(m[1], 10) : 0;
+        if (n > 0) pool = addMana(pool, ManaType.COLORLESS, n);
+        break;
+      }
+    }
+  }
+
+  manaPoolRecord[playerId] = pool;
+  log.push(`${playerId} adds ${mana.replace(/\s+/g, '')} to their mana pool`);
+  return { state: { ...(state as any), manaPool: manaPoolRecord } as any, log, applied: true };
+}
+
+function parseSimpleBattlefieldSelector(target: { readonly kind: string; readonly text?: string; readonly raw?: string }):
+  | SimpleBattlefieldSelector
+  | null {
+  if (target.kind !== 'raw') return null;
+  const text = String((target as any).text || '').trim();
+  if (!text) return null;
+
+  const lower = text.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  // Very conservative: only support "all/each <type>" optionally followed by a controller filter.
+  const m = lower.match(/^(?:all|each)\s+(nonland\s+)?(permanents?|creatures?|artifacts?|enchantments?|lands?)\b(.*)$/i);
+  if (!m) return null;
+
+  const nonlandPrefix = Boolean(m[1]);
+  const noun = String(m[2] || '').toLowerCase();
+  const rest = String(m[3] || '').trim();
+
+  let type: SimpleBattlefieldSelector['type'] | null = null;
+  if (noun.startsWith('permanent')) type = nonlandPrefix ? 'nonland_permanent' : 'permanent';
+  if (noun.startsWith('creature')) type = 'creature';
+  if (noun.startsWith('artifact')) type = 'artifact';
+  if (noun.startsWith('enchantment')) type = 'enchantment';
+  if (noun.startsWith('land')) type = 'land';
+  if (!type) return null;
+
+  let controllerFilter: SimpleBattlefieldSelector['controllerFilter'] = 'any';
+  if (/\byou control\b/i.test(rest)) controllerFilter = 'you';
+  if (/\b(?:your opponents|each opponent|an opponent) controls\b/i.test(rest)) controllerFilter = 'opponents';
+
+  return { kind: 'battlefield_selector', type, controllerFilter };
+}
+
+function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlefieldSelector, ctx: OracleIRExecutionContext): boolean {
+  if (sel.controllerFilter === 'you' && perm.controller !== ctx.controllerId) return false;
+  if (sel.controllerFilter === 'opponents' && perm.controller === ctx.controllerId) return false;
+
+  const typeLine = String((perm as any)?.card?.type_line || '').toLowerCase();
+  switch (sel.type) {
+    case 'permanent':
+      return true;
+    case 'nonland_permanent':
+      return !typeLine.includes('land');
+    case 'creature':
+      return typeLine.includes('creature');
+    case 'artifact':
+      return typeLine.includes('artifact');
+    case 'enchantment':
+      return typeLine.includes('enchantment');
+    case 'land':
+      return typeLine.includes('land');
+    default:
+      return false;
+  }
+}
+
+function permanentMatchesType(perm: BattlefieldPermanent, type: SimplePermanentType): boolean {
+  const typeLine = String((perm as any)?.card?.type_line || '').toLowerCase();
+  switch (type) {
+    case 'permanent':
+      return true;
+    case 'nonland_permanent':
+      return !typeLine.includes('land');
+    case 'creature':
+      return typeLine.includes('creature');
+    case 'artifact':
+      return typeLine.includes('artifact');
+    case 'enchantment':
+      return typeLine.includes('enchantment');
+    case 'land':
+      return typeLine.includes('land');
+    default:
+      return false;
+  }
+}
+
+function finalizeBattlefieldRemoval(
+  state: GameState,
+  removed: readonly BattlefieldPermanent[],
+  removedIds: ReadonlySet<string>,
+  kept: readonly BattlefieldPermanent[],
+  destination: 'graveyard' | 'exile',
+  verbPastTense: string
+): { state: GameState; log: string[] } {
+  // Clean up attachment references deterministically.
+  const cleanedKept = kept.map(p => {
+    const next: any = { ...p };
+    if (typeof next.attachedTo === 'string' && removedIds.has(next.attachedTo)) next.attachedTo = undefined;
+    if (Array.isArray(next.attachments)) next.attachments = next.attachments.filter((id: any) => !removedIds.has(String(id)));
+    if (Array.isArray(next.attachedEquipment)) {
+      next.attachedEquipment = next.attachedEquipment.filter((id: any) => !removedIds.has(String(id)));
+      next.isEquipped = Boolean(next.attachedEquipment.length > 0);
+    }
+    if (Array.isArray(next.blocking)) next.blocking = next.blocking.filter((id: any) => !removedIds.has(String(id)));
+    if (Array.isArray(next.blockedBy)) next.blockedBy = next.blockedBy.filter((id: any) => !removedIds.has(String(id)));
+    return next;
+  });
+
+  // Move non-token cards to the destination zone.
+  const players = state.players.map(p => ({ ...p } as any));
+  for (const perm of removed) {
+    if ((perm as any).isToken) continue;
+    const ownerId = perm.owner;
+    const player = players.find(pp => pp.id === ownerId);
+    if (!player) continue;
+
+    if (destination === 'graveyard') {
+      const gy = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+      gy.push((perm as any).card);
+      player.graveyard = gy;
+    } else {
+      const ex = Array.isArray(player.exile) ? [...player.exile] : [];
+      ex.push((perm as any).card);
+      player.exile = ex;
+    }
+  }
+
+  const log = removed.length > 0 ? [`${verbPastTense} ${removed.length} permanent(s) from battlefield`] : [];
+  return { state: { ...state, battlefield: cleanedKept as any, players: players as any } as any, log };
+}
+
+function moveMatchingBattlefieldPermanents(
+  state: GameState,
+  selector: SimpleBattlefieldSelector,
+  ctx: OracleIRExecutionContext,
+  destination: 'graveyard' | 'exile'
+): { state: GameState; log: string[] } {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+
+  const removedIds = new Set<string>();
+  const removed: BattlefieldPermanent[] = [];
+  const kept: BattlefieldPermanent[] = [];
+
+  for (const perm of battlefield) {
+    if (permanentMatchesSelector(perm, selector, ctx)) {
+      removed.push(perm);
+      removedIds.add(perm.id);
+    } else {
+      kept.push(perm);
+    }
+  }
+
+  const verb = destination === 'graveyard' ? 'destroyed' : 'exiled';
+  return finalizeBattlefieldRemoval(state, removed, removedIds, kept, destination, verb);
+}
+
+function parseSimplePermanentTypeFromText(text: string): SimplePermanentType | null {
+  const lower = String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.\s]+$/g, '')
+    .trim();
+
+  if (!lower) return null;
+
+  // Prefer specific -> generic.
+  if (/\bnonland\s+permanent(s)?\b/i.test(lower)) return 'nonland_permanent';
+  if (/\bcreature(s)?\b/i.test(lower)) return 'creature';
+  if (/\bartifact(s)?\b/i.test(lower)) return 'artifact';
+  if (/\benchantment(s)?\b/i.test(lower)) return 'enchantment';
+  if (/\bland(s)?\b/i.test(lower)) return 'land';
+  if (/\bpermanent(s)?\b/i.test(lower)) return 'permanent';
+  return null;
+}
+
+type SimpleCardType = 'any' | 'creature' | 'artifact' | 'enchantment' | 'land' | 'instant' | 'sorcery' | 'planeswalker';
+
+function parseSimpleCardTypeFromText(text: string): SimpleCardType | null {
+  const lower = String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.\s]+$/g, '')
+    .trim();
+
+  if (!lower) return null;
+  if (/\bcreature(s)?\b/i.test(lower)) return 'creature';
+  if (/\bartifact(s)?\b/i.test(lower)) return 'artifact';
+  if (/\benchantment(s)?\b/i.test(lower)) return 'enchantment';
+  if (/\bland(s)?\b/i.test(lower)) return 'land';
+  if (/\binstant(s)?\b/i.test(lower)) return 'instant';
+  if (/\bsorcery|sorceries\b/i.test(lower)) return 'sorcery';
+  if (/\bplaneswalker(s)?\b/i.test(lower)) return 'planeswalker';
+  return null;
+}
+
+function cardMatchesType(card: any, type: SimpleCardType): boolean {
+  if (type === 'any') return true;
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  return typeLine.includes(type);
+}
+
+function parseMoveZoneAllFromYourGraveyard(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  // Conservative: only support "all ... cards from your graveyard".
+  // Do NOT attempt to interpret multi-type selectors ("artifact and creature cards"),
+  // or arbitrary zones.
+  if (!lower.startsWith('all ')) return null;
+  if (!/\bfrom your graveyard\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  // "all cards from your graveyard"
+  if (/^all\s+cards?\s+from\s+your\s+graveyard$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^all\s+(.+?)\s+cards?\s+from\s+your\s+graveyard$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+function returnAllMatchingFromGraveyardToHand(
+  state: GameState,
+  playerId: PlayerID,
+  cardType: SimpleCardType
+): { state: GameState; log: string[] } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { state, log: [] };
+
+  const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+
+  const kept: any[] = [];
+  const moved: any[] = [];
+
+  for (const card of graveyard) {
+    if (cardMatchesType(card, cardType)) moved.push(card);
+    else kept.push(card);
+  }
+
+  if (moved.length === 0) return { state, log: [] };
+
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), graveyard: kept, hand: [...hand, ...moved] } as any) : p
+  );
+  return {
+    state: { ...state, players: updatedPlayers as any } as any,
+    log: [`${playerId} returns ${moved.length} card(s) from graveyard to hand`],
+  };
+}
+
+function parseSacrificeWhat(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
+  | { readonly mode: 'all'; readonly type: SimplePermanentType }
+  | { readonly mode: 'count'; readonly count: number; readonly type: SimplePermanentType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase();
+
+  if (/^all\b/i.test(lower)) {
+    const type = parseSimplePermanentTypeFromText(cleaned);
+    return type ? { mode: 'all', type } : null;
+  }
+
+  // Deterministic-forced only when player controls <= N matching permanents.
+  const mCount = cleaned.match(/^(a|an|\d+)\s+(.+)$/i);
+  if (!mCount) return null;
+  const countRaw = String(mCount[1] || '').toLowerCase();
+  const rest = String(mCount[2] || '').trim();
+
+  const count = countRaw === 'a' || countRaw === 'an' ? 1 : parseInt(countRaw, 10);
+  if (!Number.isFinite(count) || count <= 0) return null;
+
+  const type = parseSimplePermanentTypeFromText(rest);
+  if (!type) return null;
+  return { mode: 'count', count: Math.max(1, count | 0), type };
 }
 
 function addTokensToBattlefield(
@@ -261,8 +686,36 @@ export function applyOracleIRStepsToGameState(
       }
 
       case 'add_mana': {
-        skippedSteps.push(step);
-        log.push(`Skipped add mana (server-only): ${step.raw}`);
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped add mana (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        // Be conservative: if we can't apply to any one player, skip the whole step.
+        let tempState = nextState;
+        const tempLog: string[] = [];
+        let failed = false;
+        for (const playerId of players) {
+          const r = addManaToPoolForPlayer(tempState, playerId, step.mana);
+          tempLog.push(...r.log);
+          if (!r.applied) {
+            failed = true;
+            break;
+          }
+          tempState = r.state;
+        }
+        if (failed) {
+          skippedSteps.push(step);
+          log.push(...tempLog);
+          break;
+        }
+
+        nextState = tempState;
+        log.push(...tempLog);
+
+        appliedSteps.push(step);
         break;
       }
 
@@ -279,8 +732,65 @@ export function applyOracleIRStepsToGameState(
       }
 
       case 'mill': {
-        skippedSteps.push(step);
-        log.push(`Skipped mill (not supported by executor yet): ${step.raw}`);
+        const amount = quantityToNumber(step.amount);
+        if (amount === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped mill (unknown amount): ${step.raw}`);
+          break;
+        }
+
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped mill (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        for (const playerId of players) {
+          const r = millCardsForPlayer(nextState, playerId, amount);
+          nextState = r.state;
+          log.push(...r.log);
+        }
+
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'discard': {
+        const amount = quantityToNumber(step.amount);
+        if (amount === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped discard (unknown amount): ${step.raw}`);
+          break;
+        }
+
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped discard (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        // Be conservative: if any targeted player would need to choose, skip the whole step.
+        const wouldNeedChoice = players.some(playerId => {
+          const p = nextState.players.find(pp => pp.id === playerId) as any;
+          const handLen = Array.isArray(p?.hand) ? p.hand.length : 0;
+          return handLen > Math.max(0, amount | 0);
+        });
+
+        if (wouldNeedChoice) {
+          skippedSteps.push(step);
+          log.push(`Skipped discard (requires player choice): ${step.raw}`);
+          break;
+        }
+
+        for (const playerId of players) {
+          const r = discardCardsForPlayer(nextState, playerId, amount);
+          nextState = r.state;
+          log.push(...r.log);
+        }
+
+        appliedSteps.push(step);
         break;
       }
 
@@ -334,6 +844,55 @@ export function applyOracleIRStepsToGameState(
         break;
       }
 
+      case 'deal_damage': {
+        const amount = quantityToNumber(step.amount);
+        if (amount === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped deal damage (unknown amount): ${step.raw}`);
+          break;
+        }
+
+        // Only supports dealing damage to players (no creatures/planeswalkers) and no targeting.
+        const players = resolvePlayersFromDamageTarget(nextState, step.target as any, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped deal damage (unsupported target): ${step.raw}`);
+          break;
+        }
+
+        for (const playerId of players) {
+          const r = adjustLife(nextState, playerId, -amount);
+          nextState = r.state;
+          // Override wording to avoid calling this "life loss" in the log.
+          log.push(`${playerId} is dealt ${amount} damage`);
+        }
+
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'move_zone': {
+        // Deterministic only for returning all (optionally typed) cards from your graveyard to your hand.
+        if (step.to !== 'hand') {
+          skippedSteps.push(step);
+          log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+          break;
+        }
+
+        const parsed = parseMoveZoneAllFromYourGraveyard(step.what as any);
+        if (!parsed) {
+          skippedSteps.push(step);
+          log.push(`Skipped move zone (unsupported selector): ${step.raw}`);
+          break;
+        }
+
+        const r = returnAllMatchingFromGraveyardToHand(nextState, ctx.controllerId, parsed.cardType);
+        nextState = r.state;
+        log.push(...r.log);
+        appliedSteps.push(step);
+        break;
+      }
+
       case 'create_token': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
@@ -359,6 +918,87 @@ export function applyOracleIRStepsToGameState(
           (step as any).entersTapped,
           (step as any).withCounters
         );
+        nextState = r.state;
+        log.push(...r.log);
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'destroy': {
+        const selector = parseSimpleBattlefieldSelector(step.target as any);
+        if (!selector) {
+          skippedSteps.push(step);
+          log.push(`Skipped destroy (unsupported target): ${step.raw}`);
+          break;
+        }
+
+        const r = moveMatchingBattlefieldPermanents(nextState, selector, ctx, 'graveyard');
+        nextState = r.state;
+        log.push(...r.log);
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'exile': {
+        const selector = parseSimpleBattlefieldSelector(step.target as any);
+        if (!selector) {
+          skippedSteps.push(step);
+          log.push(`Skipped exile (unsupported target): ${step.raw}`);
+          break;
+        }
+
+        const r = moveMatchingBattlefieldPermanents(nextState, selector, ctx, 'exile');
+        nextState = r.state;
+        log.push(...r.log);
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'sacrifice': {
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped sacrifice (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        const parsed = parseSacrificeWhat(step.what as any);
+        if (!parsed) {
+          skippedSteps.push(step);
+          log.push(`Skipped sacrifice (unsupported object selector): ${step.raw}`);
+          break;
+        }
+
+        const battlefield = [...((nextState.battlefield || []) as BattlefieldPermanent[])];
+
+        const toRemove: BattlefieldPermanent[] = [];
+        let needsChoice = false;
+
+        for (const playerId of players) {
+          const candidates = battlefield.filter(p => p.controller === playerId && permanentMatchesType(p, parsed.type));
+
+          if (parsed.mode === 'all') {
+            toRemove.push(...candidates);
+            continue;
+          }
+
+          // Deterministic only if they have <= N matching permanents.
+          if (candidates.length > parsed.count) {
+            needsChoice = true;
+            break;
+          }
+          toRemove.push(...candidates);
+        }
+
+        if (needsChoice) {
+          skippedSteps.push(step);
+          log.push(`Skipped sacrifice (requires player choice): ${step.raw}`);
+          break;
+        }
+
+        const removedIds = new Set<string>(toRemove.map(p => p.id));
+        const kept = battlefield.filter(p => !removedIds.has(p.id));
+        const r = finalizeBattlefieldRemoval(nextState, toRemove, removedIds, kept, 'graveyard', 'sacrificed');
         nextState = r.state;
         log.push(...r.log);
         appliedSteps.push(step);

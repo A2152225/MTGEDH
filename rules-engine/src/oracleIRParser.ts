@@ -179,7 +179,9 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   {
     // Examples: "Add {R}{R}{R}." / "Add {2}{C}." / "Add {G}."
     // We intentionally avoid parsing "Add {R} or {G}" etc. (player choice).
-    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*$/i);
+    const m = clause.match(
+      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?adds?\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*$/i
+    );
     if (m) {
       const mana = String(m[2] || '').trim();
       if (mana && !/\bor\b/i.test(clause)) {
