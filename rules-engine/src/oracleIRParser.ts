@@ -755,6 +755,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
   const tryParseImpulseExileTop = (idx: number): { step: OracleEffectStep; consumed: number } | null => {
     const first = String(clauses[idx] || '').trim();
     const second = String(clauses[idx + 1] || '').trim();
+    const third = String(clauses[idx + 2] || '').trim();
+    const fourth = String(clauses[idx + 3] || '').trim();
     if (!first || !second) return null;
 
     // First clause: "Exile the top card(s) of your library"
@@ -787,118 +789,189 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     if (!amount) return null;
     if (!who) return null;
 
-    // Second clause: permission window for playing/casting the exiled card(s).
-    // We only emit an impulse step if we can confidently determine the duration.
-    const normalizedSecond = normalizeOracleText(second);
-    let secondToParse = normalizedSecond.trim();
+    const isIgnorableImpulseReminderClause = (clause: string): boolean => {
+      const t = normalizeOracleText(String(clause || '')).trim().toLowerCase();
+      if (!t) return false;
 
-    let condition:
-      | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
-      | { readonly kind: 'type'; readonly type: 'land' | 'nonland' }
-      | undefined;
+      // Common reminder between exile and permission:
+      // "You may look at that card for as long as it remains exiled."
+      // "You may look at the exiled cards for as long as they remain exiled."
+      const lookAtPattern =
+        /^you may look at (?:that card|those cards|them|it|the exiled card|the exiled cards)(?: for as long as (?:it|they) remain(?:s)? exiled| at any time| any time)?\s*$/i;
+      if (lookAtPattern.test(t)) return true;
 
-    // Support: "If it's a red/nonland card, you may cast it this turn."
-    // Also accept common variants like:
-    // - "If that card is red, you may cast it ..."
-    // - "If the exiled card is a nonland card, you may cast that card ..."
-    // - (plural) "If they're nonland cards, you may cast them ..."
-    // Be conservative: only accept a single simple condition we recognize.
-    {
-      const m = secondToParse.match(
-        /^if\s+(?:it|they|that card|those cards|the exiled card)(?:\s+is|(?:'|’)s|(?:'|’)re)\s+(?:a|an)?\s*([^,]+),\s*(.*)$/i
-      );
-      if (m) {
-        const predicate = String(m[1] || '').trim().toLowerCase();
-        const rest = String(m[2] || '').trim();
+      // Some impulse effects include an extra reminder about spending mana.
+      // We treat it as ignorable metadata for now.
+      // Examples:
+      // - "You may spend mana as though it were mana of any color to cast it."
+      // - "You may spend mana as though it were mana of any type to cast those spells."
+      const spendManaPattern =
+        /^you may spend mana as though it were mana of any (?:color|type)(?: to cast (?:it|them|that spell|those spells))?\s*$/i;
+      if (spendManaPattern.test(t)) return true;
 
-        // Reject complex predicates for now.
-        if (predicate.includes(' or ') || predicate.includes(' and ')) return null;
+      return false;
+    };
 
-        if (predicate.includes('nonland')) {
-          condition = { kind: 'type', type: 'nonland' };
-        } else if (predicate.includes('land')) {
-          condition = { kind: 'type', type: 'land' };
-        } else {
-          const colorMap: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
-            white: 'W',
-            blue: 'U',
-            black: 'B',
-            red: 'R',
-            green: 'G',
-          };
-          const colorWord = predicate.replace(/\bcard\b/g, '').trim();
-          const c = colorMap[colorWord];
-          if (c) condition = { kind: 'color', color: c };
-          else return null;
+    const parseImpulsePermissionClause = (
+      clause: string
+    ):
+      | {
+          readonly duration: 'this_turn' | 'until_end_of_next_turn' | 'as_long_as_remains_exiled';
+          readonly permission: 'play' | 'cast';
+          readonly condition?:
+            | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
+            | { readonly kind: 'type'; readonly type: 'land' | 'nonland' };
         }
+      | null => {
+      // Second clause: permission window for playing/casting the exiled card(s).
+      // We only emit an impulse step if we can confidently determine the duration.
+      const normalizedClause = normalizeOracleText(clause);
+      let clauseToParse = normalizedClause.trim();
 
-        secondToParse = rest;
-      }
-    }
+      let condition:
+        | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
+        | { readonly kind: 'type'; readonly type: 'land' | 'nonland' }
+        | undefined;
 
-    const lowerSecond = secondToParse.toLowerCase();
-    let duration: 'this_turn' | 'until_end_of_next_turn' | null = null;
-    let permission: 'play' | 'cast' | null = null;
+      // Support: "If it's a red/nonland card, you may cast it this turn."
+      // Also accept common variants.
+      {
+        const m = clauseToParse.match(
+          /^if\s+(?:it|they|that card|those cards|the exiled card)(?:\s+is|(?:'|’)s|(?:'|’)re)\s+(?:a|an)?\s*([^,]+),\s*(.*)$/i
+        );
+        if (m) {
+          const predicate = String(m[1] || '').trim().toLowerCase();
+          const rest = String(m[2] || '').trim();
 
-    // "You may play/cast that card this turn"
-    {
-      const m = lowerSecond.match(/^you may (play|cast) (?:that card|those cards|them|it) this turn\s*$/i);
-      if (m) {
-        permission = m[1] as any;
-        duration = 'this_turn';
-      }
-    }
-    // "Until the end of your next turn, you may play/cast that card"
-    if (!duration) {
-      const m = lowerSecond.match(
-        /^until the end of your next turn, you may (play|cast) (?:that card|those cards|them|it)\s*$/i
-      );
-      if (m) {
-        permission = m[1] as any;
-        duration = 'until_end_of_next_turn';
-      }
-    }
-    // "Until end of turn, you may play/cast that card"
-    if (!duration) {
-      const m = lowerSecond.match(/^until end of turn, you may (play|cast) (?:that card|those cards|them|it)\s*$/i);
-      if (m) {
-        permission = m[1] as any;
-        duration = 'this_turn';
-      }
-    }
-    // "You may play/cast that card until the end of your next turn"
-    if (!duration) {
-      const m = lowerSecond.match(
-        /^you may (play|cast) (?:that card|those cards|them|it) until the end of your next turn\s*$/i
-      );
-      if (m) {
-        permission = m[1] as any;
-        duration = 'until_end_of_next_turn';
-      }
-    }
-    // "You may play/cast that card until end of turn"
-    if (!duration) {
-      const m = lowerSecond.match(/^you may (play|cast) (?:that card|those cards|them|it) until end of turn\s*$/i);
-      if (m) {
-        permission = m[1] as any;
-        duration = 'this_turn';
-      }
-    }
+          // Reject complex predicates for now.
+          if (predicate.includes(' or ') || predicate.includes(' and ')) return null;
 
-    if (!duration) return null;
-    if (!permission) return null;
+          if (predicate.includes('nonland')) {
+            condition = { kind: 'type', type: 'nonland' };
+          } else if (predicate.includes('land')) {
+            condition = { kind: 'type', type: 'land' };
+          } else {
+            const colorMap: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
+              white: 'W',
+              blue: 'U',
+              black: 'B',
+              red: 'R',
+              green: 'G',
+            };
+            const colorWord = predicate.replace(/\bcard\b/g, '').trim();
+            const c = colorMap[colorWord];
+            if (c) condition = { kind: 'color', color: c };
+            else return null;
+          }
+
+          clauseToParse = rest;
+        }
+      }
+
+      const lowerClause = clauseToParse.toLowerCase();
+      let duration: 'this_turn' | 'until_end_of_next_turn' | 'as_long_as_remains_exiled' | null = null;
+      let permission: 'play' | 'cast' | null = null;
+
+      // "You may play/cast that card this turn"
+      {
+        const m = lowerClause.match(/^you may (play|cast) (?:that card|those cards|them|it) this turn\s*$/i);
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "Until the end of your next turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(
+          /^until the end of your next turn, you may (play|cast) (?:that card|those cards|them|it)\s*$/i
+        );
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_end_of_next_turn';
+        }
+      }
+      // "Until end of turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(/^until end of turn, you may (play|cast) (?:that card|those cards|them|it)\s*$/i);
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+      // "You may play/cast that card until the end of your next turn"
+      if (!duration) {
+        const m = lowerClause.match(
+          /^you may (play|cast) (?:that card|those cards|them|it) until the end of your next turn\s*$/i
+        );
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_end_of_next_turn';
+        }
+      }
+      // "You may play/cast that card until end of turn"
+      if (!duration) {
+        const m = lowerClause.match(/^you may (play|cast) (?:that card|those cards|them|it) until end of turn\s*$/i);
+        if (m) {
+          permission = m[1] as any;
+          duration = 'this_turn';
+        }
+      }
+
+      // "You may play/cast that card for as long as it remains exiled"
+      if (!duration) {
+        const m = lowerClause.match(
+          /^you may (play|cast) (?:that card|those cards|them|it) for as long as (?:it|they) remain(?:s)? exiled\s*$/i
+        );
+        if (m) {
+          permission = m[1] as any;
+          duration = 'as_long_as_remains_exiled';
+        }
+      }
+
+      if (!duration) return null;
+      if (!permission) return null;
+
+      return { duration, permission, ...(condition ? { condition } : {}) };
+    };
+
+    // Allow up to two intervening reminder clauses between the exile clause and the permission clause.
+    // Be conservative: only specific known reminder clauses are skippable.
+    const candidateClauses = [second, third, fourth].filter(Boolean);
+    let permissionInfo: ReturnType<typeof parseImpulsePermissionClause> | null = null;
+    let consumed = 0;
+    for (let i = 0; i < candidateClauses.length; i++) {
+      const c = candidateClauses[i];
+      const parsed = parseImpulsePermissionClause(c);
+      if (parsed) {
+        permissionInfo = parsed;
+        consumed = 1 /* first */ + (i + 1);
+        break;
+      }
+
+      if (i >= 2) break; // only allow skipping up to two reminder clauses
+      if (!isIgnorableImpulseReminderClause(c)) {
+        // As soon as we see a non-permission, non-ignorable clause, abort.
+        break;
+      }
+    }
+    if (!permissionInfo) return null;
 
     return {
       step: {
         kind: 'impulse_exile_top',
         who,
         amount,
-        duration,
-        permission,
-        condition,
-        raw: `${first}. ${second}.`,
+        duration: permissionInfo.duration,
+        permission: permissionInfo.permission,
+        condition: permissionInfo.condition,
+        raw: clauses
+          .slice(idx, idx + consumed)
+          .map(c => String(c || '').trim())
+          .filter(Boolean)
+          .join('. ') +
+          '.',
       },
-      consumed: 2,
+      consumed,
     };
   };
 

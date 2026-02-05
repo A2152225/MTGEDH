@@ -74,6 +74,99 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
   });
 
+  it('applies impulse_exile_top with remains-exiled permission window', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. You may play that card for as long as it remains exiled.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when a look clause intervenes', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. You may look at that card for as long as it remains exiled. You may play that card this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when multiple reminder clauses intervene', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. You may look at that card any time. You may spend mana as though it were mana of any color to cast it. You may play that card this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
   it("applies impulse_exile_top for each player by exiling from each player's library", () => {
     const ir = parseOracleTextToIR("Exile the top card of each player's library. You may play those cards this turn.", 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -188,6 +281,73 @@ describe('Oracle IR Executor', () => {
     expect(p2.exile).toHaveLength(1);
     expect(p1.exile.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
     expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'exile_top')).toBe(true);
+  });
+
+  it('applies exile_top parsed from triggered ability effect', () => {
+    const ir = parseOracleTextToIR("Whenever Etali attacks, exile the top card of each player's library.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'exile_top')).toBe(true);
+  });
+
+  it('applies exile_top parsed from replacement effect (instead pattern)', () => {
+    const ir = parseOracleTextToIR('If you would draw a card, exile the top two cards of your library instead.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.library.map((c: any) => c.id)).toEqual(['c3']);
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['c1', 'c2']);
     expect(result.appliedSteps.some(s => s.kind === 'exile_top')).toBe(true);
   });
 

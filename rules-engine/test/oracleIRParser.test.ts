@@ -348,8 +348,74 @@ describe('Oracle IR Parser', () => {
     expect(step.amount).toEqual({ kind: 'number', value: 2 });
   });
 
+  it('parses exile_top from triggered ability effect text', () => {
+    const text = "Whenever Etali attacks, exile the top card of each player's library.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+    expect(ability.type).toBe('triggered');
+    expect(ability.triggerCondition).toBe('Etali attacks');
+
+    const step = ability.steps.find(s => s.kind === 'exile_top') as any;
+    expect(step).toBeTruthy();
+    expect(step.who).toEqual({ kind: 'each_player' });
+    expect(step.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses exile_top from replacement effect (instead pattern)', () => {
+    const text = 'If you would draw a card, exile the top two cards of your library instead.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+    expect(ability.type).toBe('replacement');
+
+    const step = ability.steps.find(s => s.kind === 'exile_top') as any;
+    expect(step).toBeTruthy();
+    expect(step.who).toEqual({ kind: 'you' });
+    expect(step.amount).toEqual({ kind: 'number', value: 2 });
+  });
+
   it('parses impulse exile-top with this-turn permission', () => {
     const text = 'Exile the top card of your library. You may play that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with an intervening look clause', () => {
+    const text =
+      'Exile the top card of your library. You may look at that card for as long as it remains exiled. You may play that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with a look-any-time clause intervening', () => {
+    const text = 'Exile the top card of your library. You may look at that card any time. You may play that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with look + spend-mana reminders intervening', () => {
+    const text =
+      'Exile the top card of your library. You may look at that card any time. You may spend mana as though it were mana of any color to cast it. You may play that card this turn.';
     const ir = parseOracleTextToIR(text);
     const steps = ir.abilities[0].steps;
 
@@ -397,6 +463,19 @@ describe('Oracle IR Parser', () => {
     expect(impulse.who).toEqual({ kind: 'you' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with remains-exiled permission', () => {
+    const text = 'Exile the top card of your library. You may play that card for as long as it remains exiled.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
     expect(impulse.permission).toBe('play');
   });
 
