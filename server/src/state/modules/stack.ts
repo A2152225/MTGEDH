@@ -996,6 +996,65 @@ function applyOracleIRFallbackForUncategorizedSpell(
           }
           break;
         }
+        case 'destroy': {
+          const targetText = String((step as any)?.target?.text || (step as any)?.target?.raw || '').trim().toLowerCase();
+          if (!targetText) break;
+
+          // Skip anything with controller/targeting qualifiers or relative qualifiers.
+          if (/(?:you|target|chosen|each|opponent|other)\b/.test(targetText)) break;
+          if (/\b(don't|do not)\s+control\b|\byou\s+control\b|\byour\s+opponents\b/.test(targetText)) break;
+
+          // Conservative: only support simple mass-wipe templates ("destroy all <type(s)>" or "destroy all nonland permanents").
+          if (!/^all\s+/.test(targetText)) break;
+
+          const targetRemainder = targetText.replace(/^all\s+/, '').trim();
+          const battlefield = (ctx as any).state?.battlefield || [];
+          if (!Array.isArray(battlefield) || battlefield.length === 0) break;
+
+          let predicate: ((perm: any) => boolean) | null = null;
+
+          if (/^nonland\s+permanents?\b/.test(targetRemainder)) {
+            predicate = (perm: any) => !String(perm?.card?.type_line || '').toLowerCase().includes('land');
+          } else {
+            const cleaned = targetRemainder.replace(/\bpermanents?\b/, '').trim();
+            if (!cleaned) break;
+
+            const parts = cleaned.split(/\s*(?:,|and\/or|and|or)\s*/i).filter(Boolean);
+            if (parts.length === 0) break;
+
+            const allowed = new Set(['creature', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle']);
+            const types: string[] = [];
+
+            for (const part of parts) {
+              let t = part.trim().toLowerCase();
+              if (t.endsWith('s')) t = t.slice(0, -1);
+              if (!allowed.has(t)) {
+                types.length = 0;
+                break;
+              }
+              types.push(t);
+            }
+
+            if (types.length === 0) break;
+
+            predicate = (perm: any) => {
+              const tl = String(perm?.card?.type_line || '').toLowerCase();
+              return types.some(t => tl.includes(t));
+            };
+          }
+
+          if (!predicate) break;
+
+          const toDestroy = battlefield.filter(predicate);
+          if (toDestroy.length === 0) break;
+
+          for (const perm of toDestroy) {
+            if (!perm?.id) continue;
+            movePermanentToGraveyard(ctx, String(perm.id), true);
+            applied++;
+          }
+          break;
+        }
         default:
           break;
       }

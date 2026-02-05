@@ -559,6 +559,30 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses impulse exile-top with leading until-end-of-turn for those cards', () => {
+    const text = 'Exile the top two cards of your library. Until end of turn, you may play those cards.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with leading until-end-of-your-next-turn for those cards', () => {
+    const text = 'Exile the top two cards of your library. Until the end of your next turn, you may play those cards.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse exile-top with next-turn permission (trailing until, missing "the")', () => {
     const text = 'Exile the top card of your library. You may play that card until end of your next turn.';
     const ir = parseOracleTextToIR(text);
@@ -786,6 +810,65 @@ describe('Oracle IR Parser', () => {
     expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
     expect(impulse.duration).toBe('this_turn');
     expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with "you may play it this turn" wording', () => {
+    const text = 'Exile the top card of your library. You may play it this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with "you may play them this turn" wording', () => {
+    const text = 'Exile the top three cards of your library. You may play them this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 3 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with "you may play them until end of turn" wording', () => {
+    const text = 'Exile the top two cards of your library. You may play them until end of turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with "until your next turn, you may play those cards" wording', () => {
+    const text = 'Exile the top card of each player\'s library. Until your next turn, you may play those cards.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with "you may cast it this turn" wording', () => {
+    const text = 'Exile the top card of your library. You may cast it this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
   });
 
   it('parses impulse exile-top referencing cards exiled this way', () => {
