@@ -85,6 +85,105 @@ function resolvePlayersFromDamageTarget(
   return [];
 }
 
+function parseDeterministicMixedDamageTarget(
+  rawText: string
+): { readonly players: ReadonlySet<'you' | 'each_player' | 'each_opponent'>; readonly selectors: readonly SimpleBattlefieldSelector[] } | null {
+  const lower = String(rawText || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\.!]$/, '');
+
+  if (!lower) return null;
+  if (/\band\/or\b/i.test(lower)) return null;
+  // "or" implies a choice/ambiguity for this best-effort executor.
+  if (/\bor\b/i.test(lower)) return null;
+
+  const parts = lower.split(/\s*(?:,|and)\s*/i).map(p => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return null;
+
+  const players = new Set<'you' | 'each_player' | 'each_opponent'>();
+  const selectors: SimpleBattlefieldSelector[] = [];
+
+  for (const part of parts) {
+    if (part === 'you') {
+      players.add('you');
+      continue;
+    }
+    if (part === 'each player' || part === 'all players') {
+      players.add('each_player');
+      continue;
+    }
+    if (part === 'each opponent' || part === 'all opponents') {
+      players.add('each_opponent');
+      continue;
+    }
+
+    // Allow shorthand list elements like "planeswalker" after normalization.
+    let candidate = part;
+    if (!/^(?:each|all)\b/i.test(candidate) && /^(?:creature|creatures|planeswalker|planeswalkers|battle|battles)\b/i.test(candidate)) {
+      candidate = `each ${candidate}`;
+    }
+
+    const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: candidate } as any);
+    if (!selector) return null;
+
+    const disallowed = selector.types.some(
+      t => t === 'land' || t === 'artifact' || t === 'enchantment' || t === 'permanent' || t === 'nonland_permanent'
+    );
+    if (disallowed) return null;
+
+    selectors.push(selector);
+  }
+
+  if (players.size === 0 || selectors.length === 0) return null;
+  return { players, selectors };
+}
+
+function normalizeRepeatedEachAllInList(text: string): string {
+  // Turns e.g. "each creature and each planeswalker" into "each creature and planeswalker"
+  // so it can be parsed as a single battlefield selector list.
+  return String(text || '')
+    .replace(/\b(and|or)\s+(?:each|all)\s+/gi, '$1 ')
+    .replace(/,\s*(?:each|all)\s+/gi, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function addDamageToPermanentLikeCreature(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {
+  const n = Math.max(0, amount | 0);
+  if (n <= 0) return perm;
+
+  const current =
+    Number((perm as any).markedDamage ?? (perm as any).damageMarked ?? (perm as any).damage ?? (perm as any).counters?.damage ?? 0) || 0;
+  const next = current + n;
+  const counters = { ...(((perm as any).counters || {}) as any), damage: next };
+  return { ...(perm as any), counters, markedDamage: next, damageMarked: next, damage: next } as any;
+}
+
+function removeLoyaltyFromPlaneswalker(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {
+  const n = Math.max(0, amount | 0);
+  if (n <= 0) return perm;
+
+  const current = Number((perm as any).loyalty ?? (perm as any).counters?.loyalty ?? 0) || 0;
+  const next = Math.max(0, current - n);
+  const counters = { ...(((perm as any).counters || {}) as any), loyalty: next };
+  return { ...(perm as any), counters, loyalty: next } as any;
+}
+
+function removeDefenseCountersFromBattle(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {
+  const n = Math.max(0, amount | 0);
+  if (n <= 0) return perm;
+
+  const current = Number((perm as any).counters?.defense ?? 0);
+  if (!Number.isFinite(current)) return perm;
+
+  const next = Math.max(0, current - n);
+  const counters = { ...(((perm as any).counters || {}) as any), defense: next };
+  return { ...(perm as any), counters } as any;
+}
+
 function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: number): { state: GameState; log: string[] } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
@@ -278,7 +377,7 @@ function parseSimpleBattlefieldSelector(
   const text = String((target as any).text || '').trim();
   if (!text) return null;
 
-  const lower = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const lower = text.replace(/\u2019/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
 
   // Very conservative: only support "all/each <type(s)>" optionally followed by a controller filter.
   const m = lower.match(/^(?:all|each)\s+(.+)$/i);
@@ -289,11 +388,15 @@ function parseSimpleBattlefieldSelector(
 
   let controllerFilter: SimpleBattlefieldSelector['controllerFilter'] = 'any';
   if (/\byou control\b/i.test(remainder)) controllerFilter = 'you';
-  if (/\b(?:your opponents|each opponent|an opponent) controls\b/i.test(remainder)) controllerFilter = 'opponents';
+  if (/\b(?:your opponents|opponents)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
+  if (/\b(?:each opponent|an opponent)\s+controls\b/i.test(remainder)) controllerFilter = 'opponents';
+  if (/\byou\s+(?:don'?t|do not)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
 
   remainder = remainder
     .replace(/\byou control\b/i, '')
-    .replace(/\b(?:your opponents|each opponent|an opponent) controls\b/i, '')
+    .replace(/\b(?:your opponents|opponents)\s+control\b/i, '')
+    .replace(/\b(?:each opponent|an opponent)\s+controls\b/i, '')
+    .replace(/\byou\s+(?:don'?t|do not)\s+control\b/i, '')
     .trim();
 
   if (!remainder) return null;
@@ -1476,20 +1579,93 @@ export function applyOracleIRStepsToGameState(
 
         // Only supports dealing damage to players (no creatures/planeswalkers) and no targeting.
         const players = resolvePlayersFromDamageTarget(nextState, step.target as any, ctx);
-        if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped deal damage (unsupported target): ${step.raw}`);
+        if (players.length > 0) {
+          for (const playerId of players) {
+            const r = adjustLife(nextState, playerId, -amount);
+            nextState = r.state;
+            // Override wording to avoid calling this "life loss" in the log.
+            log.push(`${playerId} is dealt ${amount} damage`);
+          }
+
+          appliedSteps.push(step);
           break;
         }
 
-        for (const playerId of players) {
-          const r = adjustLife(nextState, playerId, -amount);
-          nextState = r.state;
-          // Override wording to avoid calling this "life loss" in the log.
-          log.push(`${playerId} is dealt ${amount} damage`);
+        // Deterministic mixed targets (no targeting): e.g. "each creature and each opponent".
+        if ((step.target as any)?.kind === 'raw') {
+          const rawText = String(((step.target as any).text || '') as any).trim();
+          const mixed = parseDeterministicMixedDamageTarget(rawText);
+          if (mixed) {
+            const playerIds = new Set<PlayerID>();
+            for (const who of mixed.players) {
+              const ids =
+                who === 'you'
+                  ? resolvePlayers(nextState, { kind: 'you' } as any, ctx)
+                  : who === 'each_player'
+                    ? resolvePlayers(nextState, { kind: 'each_player' } as any, ctx)
+                    : resolvePlayers(nextState, { kind: 'each_opponent' } as any, ctx);
+              for (const id of ids) playerIds.add(id);
+            }
+
+            for (const playerId of playerIds) {
+              const r = adjustLife(nextState, playerId, -amount);
+              nextState = r.state;
+              log.push(`${playerId} is dealt ${amount} damage`);
+            }
+
+            let updatedBattlefield = (nextState.battlefield || []) as any[];
+            for (const selector of mixed.selectors) {
+              updatedBattlefield = updatedBattlefield.map(p => {
+                if (!permanentMatchesSelector(p as any, selector, ctx)) return p as any;
+                const tl = String((p as any)?.card?.type_line || '').toLowerCase();
+                if (tl.includes('battle')) return removeDefenseCountersFromBattle(p as any, amount);
+                if (tl.includes('creature')) return addDamageToPermanentLikeCreature(p as any, amount);
+                if (tl.includes('planeswalker')) return removeLoyaltyFromPlaneswalker(p as any, amount);
+                return p as any;
+              });
+            }
+
+            nextState = { ...(nextState as any), battlefield: updatedBattlefield } as any;
+            log.push(`Dealt ${amount} damage to ${rawText}`);
+            appliedSteps.push(step);
+            break;
+          }
         }
 
-        appliedSteps.push(step);
+        // Deterministic battlefield-group damage (no targeting): "each/all creature(s)" / "... and each planeswalker".
+        if ((step.target as any)?.kind === 'raw') {
+          const rawText = String(((step.target as any).text || '') as any).trim();
+          const normalized = normalizeRepeatedEachAllInList(rawText);
+          const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: normalized } as any);
+
+          if (selector) {
+            const disallowed = selector.types.some(
+              t => t === 'land' || t === 'artifact' || t === 'enchantment' || t === 'permanent' || t === 'nonland_permanent'
+            );
+            if (disallowed) {
+              skippedSteps.push(step);
+              log.push(`Skipped deal damage (unsupported permanent types): ${step.raw}`);
+              break;
+            }
+
+            const updatedBattlefield = (nextState.battlefield || []).map(p => {
+              if (!permanentMatchesSelector(p as any, selector, ctx)) return p as any;
+              const tl = String((p as any)?.card?.type_line || '').toLowerCase();
+              if (tl.includes('battle')) return removeDefenseCountersFromBattle(p as any, amount);
+              if (tl.includes('creature')) return addDamageToPermanentLikeCreature(p as any, amount);
+              if (tl.includes('planeswalker')) return removeLoyaltyFromPlaneswalker(p as any, amount);
+              return p as any;
+            }) as any;
+
+            nextState = { ...(nextState as any), battlefield: updatedBattlefield } as any;
+            log.push(`Dealt ${amount} damage to ${normalized}`);
+            appliedSteps.push(step);
+            break;
+          }
+        }
+
+        skippedSteps.push(step);
+        log.push(`Skipped deal damage (unsupported target): ${step.raw}`);
         break;
       }
 

@@ -703,6 +703,259 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
   });
 
+  it('applies deal_damage to each creature (deterministic battlefield group)', () => {
+    const ir = parseOracleTextToIR('It deals 3 damage to each creature.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'a1', controller: 'p2', owner: 'p2', card: { id: 'a1_card', name: 'Sol Ring', type_line: 'Artifact' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const c1 = (result.state.battlefield || []).find((p: any) => p.id === 'c1') as any;
+    const c2 = (result.state.battlefield || []).find((p: any) => p.id === 'c2') as any;
+    const a1 = (result.state.battlefield || []).find((p: any) => p.id === 'a1') as any;
+
+    expect(c1?.counters?.damage ?? c1?.markedDamage ?? c1?.damage).toBe(3);
+    expect(c2?.counters?.damage ?? c2?.markedDamage ?? c2?.damage).toBe(3);
+    expect(a1?.counters?.damage ?? a1?.markedDamage ?? a1?.damage ?? 0).toBe(0);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to each creature and each planeswalker (deterministic battlefield group)', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to each creature and each planeswalker.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'pw1', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const c1 = (result.state.battlefield || []).find((p: any) => p.id === 'c1') as any;
+    const pw1 = (result.state.battlefield || []).find((p: any) => p.id === 'pw1') as any;
+
+    expect(c1?.counters?.damage ?? c1?.markedDamage ?? c1?.damage).toBe(2);
+    expect(pw1?.loyalty ?? pw1?.counters?.loyalty).toBe(3);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to each battle (deterministic battlefield group)', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to each battle.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'b1', controller: 'p2', owner: 'p2', counters: { defense: 5 }, card: { id: 'b1_card', name: 'Test Siege', type_line: 'Battle — Siege' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const b1 = (result.state.battlefield || []).find((p: any) => p.id === 'b1') as any;
+
+    expect(b1?.counters?.defense).toBe(3);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to each creature and each opponent (mixed deterministic targets)', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to each creature and each opponent.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find((p: any) => p.id === 'p1') as any;
+    const p2 = result.state.players.find((p: any) => p.id === 'p2') as any;
+    const c1 = (result.state.battlefield || []).find((p: any) => p.id === 'c1') as any;
+    const c2 = (result.state.battlefield || []).find((p: any) => p.id === 'c2') as any;
+
+    expect(p1.life).toBe(40);
+    expect(p2.life).toBe(38);
+    expect(c1?.counters?.damage ?? c1?.markedDamage ?? c1?.damage).toBe(2);
+    expect(c2?.counters?.damage ?? c2?.markedDamage ?? c2?.damage).toBe(2);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to you and each creature (mixed deterministic targets)', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to you and each creature.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find((p: any) => p.id === 'p1') as any;
+    const p2 = result.state.players.find((p: any) => p.id === 'p2') as any;
+    const c1 = (result.state.battlefield || []).find((p: any) => p.id === 'c1') as any;
+    const c2 = (result.state.battlefield || []).find((p: any) => p.id === 'c2') as any;
+
+    expect(p1.life).toBe(38);
+    expect(p2.life).toBe(40);
+    expect(c1?.counters?.damage ?? c1?.markedDamage ?? c1?.damage).toBe(2);
+    expect(c2?.counters?.damage ?? c2?.markedDamage ?? c2?.damage).toBe(2);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to each creature, each planeswalker, and each opponent (mixed deterministic targets)', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to each creature, each planeswalker, and each opponent.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        {
+          id: 'pw1',
+          controller: 'p2',
+          owner: 'p2',
+          loyalty: 5,
+          counters: { loyalty: 5 },
+          card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find((p: any) => p.id === 'p1') as any;
+    const p2 = result.state.players.find((p: any) => p.id === 'p2') as any;
+    const c1 = (result.state.battlefield || []).find((p: any) => p.id === 'c1') as any;
+    const c2 = (result.state.battlefield || []).find((p: any) => p.id === 'c2') as any;
+    const pw1 = (result.state.battlefield || []).find((p: any) => p.id === 'pw1') as any;
+
+    expect(p1.life).toBe(40);
+    expect(p2.life).toBe(38);
+    expect(c1?.counters?.damage ?? c1?.markedDamage ?? c1?.damage).toBe(2);
+    expect(c2?.counters?.damage ?? c2?.markedDamage ?? c2?.damage).toBe(2);
+    expect(pw1?.loyalty ?? pw1?.counters?.loyalty).toBe(3);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to each creature you control and each opponent (mixed deterministic targets w/ controller filter)', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to each creature you control and each opponent.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find((p: any) => p.id === 'p1') as any;
+    const p2 = result.state.players.find((p: any) => p.id === 'p2') as any;
+    const c1 = (result.state.battlefield || []).find((p: any) => p.id === 'c1') as any;
+    const c2 = (result.state.battlefield || []).find((p: any) => p.id === 'c2') as any;
+
+    expect(p1.life).toBe(40);
+    expect(p2.life).toBe(38);
+    expect(c1?.counters?.damage ?? c1?.markedDamage ?? c1?.damage).toBe(2);
+    expect(c2?.counters?.damage ?? c2?.markedDamage ?? c2?.damage ?? 0).toBe(0);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to each planeswalker your opponents control and you (mixed deterministic targets w/ controller filter)', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to each planeswalker your opponents control and you.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'pw1',
+          controller: 'p2',
+          owner: 'p2',
+          loyalty: 5,
+          counters: { loyalty: 5 },
+          card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' },
+        } as any,
+        {
+          id: 'pw2',
+          controller: 'p1',
+          owner: 'p1',
+          loyalty: 4,
+          counters: { loyalty: 4 },
+          card: { id: 'pw2_card', name: 'Home Walker', type_line: 'Planeswalker — Test' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find((p: any) => p.id === 'p1') as any;
+    const p2 = result.state.players.find((p: any) => p.id === 'p2') as any;
+    const pw1 = (result.state.battlefield || []).find((p: any) => p.id === 'pw1') as any;
+    const pw2 = (result.state.battlefield || []).find((p: any) => p.id === 'pw2') as any;
+
+    expect(p1.life).toBe(38);
+    expect(p2.life).toBe(40);
+    expect(pw1?.loyalty ?? pw1?.counters?.loyalty).toBe(3);
+    expect(pw2?.loyalty ?? pw2?.counters?.loyalty).toBe(4);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
   it('applies destroy for "all creatures" by removing matching permanents from battlefield', () => {
     const ir = parseOracleTextToIR('Destroy all creatures.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -1240,6 +1493,113 @@ describe('Oracle IR Executor', () => {
 
     expect(result.state.battlefield).toHaveLength(1);
     expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('Grizzly Bears');
+  });
+
+  it('applies destroy for "all battles" by removing battles only', () => {
+    const ir = parseOracleTextToIR('Destroy all battles.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'bf1',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_battle_1', name: 'Test Siege', type_line: 'Battle — Siege' },
+        },
+        {
+          id: 'bf2',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+        },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('Grizzly Bears');
+  });
+
+  it('applies destroy for "all creatures you control" by removing only your creatures', () => {
+    const ir = parseOracleTextToIR('Destroy all creatures you control.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('P2 Lion');
+  });
+
+  it('applies destroy for "all creatures your opponents control" by removing only opponent creatures', () => {
+    const ir = parseOracleTextToIR('Destroy all creatures your opponents control.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('P1 Bear');
+  });
+
+  it('applies destroy for "all creatures you don\'t control" by removing only non-owned creatures', () => {
+    const ir = parseOracleTextToIR("Destroy all creatures you don't control.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('P1 Bear');
   });
 
   it('applies move_zone for putting all creature cards from your graveyard onto the battlefield tapped', () => {
