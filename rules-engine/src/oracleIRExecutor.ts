@@ -27,11 +27,19 @@ export interface OracleIRExecutionResult {
 
 type SimpleBattlefieldSelector = {
   readonly kind: 'battlefield_selector';
-  readonly type: 'permanent' | 'nonland_permanent' | 'creature' | 'artifact' | 'enchantment' | 'land';
+  readonly types: readonly SimplePermanentType[];
   readonly controllerFilter: 'any' | 'you' | 'opponents';
 };
 
-type SimplePermanentType = SimpleBattlefieldSelector['type'];
+type SimplePermanentType =
+  | 'permanent'
+  | 'nonland_permanent'
+  | 'creature'
+  | 'artifact'
+  | 'enchantment'
+  | 'land'
+  | 'planeswalker'
+  | 'battle';
 
 function quantityToNumber(qty: OracleQuantity): number | null {
   if (qty.kind === 'number') return qty.value;
@@ -263,36 +271,66 @@ function addManaToPoolForPlayer(
   return { state: { ...(state as any), manaPool: manaPoolRecord } as any, log, applied: true };
 }
 
-function parseSimpleBattlefieldSelector(target: { readonly kind: string; readonly text?: string; readonly raw?: string }):
-  | SimpleBattlefieldSelector
-  | null {
+function parseSimpleBattlefieldSelector(
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string }
+): SimpleBattlefieldSelector | null {
   if (target.kind !== 'raw') return null;
   const text = String((target as any).text || '').trim();
   if (!text) return null;
 
   const lower = text.toLowerCase().replace(/\s+/g, ' ').trim();
 
-  // Very conservative: only support "all/each <type>" optionally followed by a controller filter.
-  const m = lower.match(/^(?:all|each)\s+(nonland\s+)?(permanents?|creatures?|artifacts?|enchantments?|lands?)\b(.*)$/i);
+  // Very conservative: only support "all/each <type(s)>" optionally followed by a controller filter.
+  const m = lower.match(/^(?:all|each)\s+(.+)$/i);
   if (!m) return null;
 
-  const nonlandPrefix = Boolean(m[1]);
-  const noun = String(m[2] || '').toLowerCase();
-  const rest = String(m[3] || '').trim();
-
-  let type: SimpleBattlefieldSelector['type'] | null = null;
-  if (noun.startsWith('permanent')) type = nonlandPrefix ? 'nonland_permanent' : 'permanent';
-  if (noun.startsWith('creature')) type = 'creature';
-  if (noun.startsWith('artifact')) type = 'artifact';
-  if (noun.startsWith('enchantment')) type = 'enchantment';
-  if (noun.startsWith('land')) type = 'land';
-  if (!type) return null;
+  let remainder = String(m[1] || '').trim();
+  if (!remainder) return null;
 
   let controllerFilter: SimpleBattlefieldSelector['controllerFilter'] = 'any';
-  if (/\byou control\b/i.test(rest)) controllerFilter = 'you';
-  if (/\b(?:your opponents|each opponent|an opponent) controls\b/i.test(rest)) controllerFilter = 'opponents';
+  if (/\byou control\b/i.test(remainder)) controllerFilter = 'you';
+  if (/\b(?:your opponents|each opponent|an opponent) controls\b/i.test(remainder)) controllerFilter = 'opponents';
 
-  return { kind: 'battlefield_selector', type, controllerFilter };
+  remainder = remainder
+    .replace(/\byou control\b/i, '')
+    .replace(/\b(?:your opponents|each opponent|an opponent) controls\b/i, '')
+    .trim();
+
+  if (!remainder) return null;
+
+  if (/\bnonland\b/.test(remainder) && !/^nonland\s+permanents?\b/.test(remainder)) return null;
+
+  if (/^nonland\s+permanents?\b/.test(remainder)) {
+    return { kind: 'battlefield_selector', types: ['nonland_permanent'], controllerFilter };
+  }
+
+  if (/^permanents?\b/.test(remainder)) {
+    return { kind: 'battlefield_selector', types: ['permanent'], controllerFilter };
+  }
+
+  const cleaned = remainder.replace(/\bpermanents?\b/g, '').trim();
+  if (!cleaned) return null;
+
+  const parts = cleaned.split(/\s*(?:,|and\/or|and|or)\s*/i).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const allowed = new Set<SimplePermanentType>([
+    'creature',
+    'artifact',
+    'enchantment',
+    'land',
+    'planeswalker',
+    'battle',
+  ]);
+  const types: SimplePermanentType[] = [];
+  for (const part of parts) {
+    let t = part.trim().toLowerCase();
+    if (t.endsWith('s')) t = t.slice(0, -1);
+    if (!allowed.has(t as SimplePermanentType)) return null;
+    types.push(t as SimplePermanentType);
+  }
+
+  return { kind: 'battlefield_selector', types, controllerFilter };
 }
 
 function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlefieldSelector, ctx: OracleIRExecutionContext): boolean {
@@ -300,22 +338,27 @@ function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlef
   if (sel.controllerFilter === 'opponents' && perm.controller === ctx.controllerId) return false;
 
   const typeLine = String((perm as any)?.card?.type_line || '').toLowerCase();
-  switch (sel.type) {
-    case 'permanent':
-      return true;
-    case 'nonland_permanent':
-      return !typeLine.includes('land');
-    case 'creature':
-      return typeLine.includes('creature');
-    case 'artifact':
-      return typeLine.includes('artifact');
-    case 'enchantment':
-      return typeLine.includes('enchantment');
-    case 'land':
-      return typeLine.includes('land');
-    default:
-      return false;
-  }
+  if (sel.types.includes('permanent')) return true;
+  if (sel.types.includes('nonland_permanent')) return !typeLine.includes('land');
+
+  return sel.types.some(t => {
+    switch (t) {
+      case 'creature':
+        return typeLine.includes('creature');
+      case 'artifact':
+        return typeLine.includes('artifact');
+      case 'enchantment':
+        return typeLine.includes('enchantment');
+      case 'land':
+        return typeLine.includes('land');
+      case 'planeswalker':
+        return typeLine.includes('planeswalker');
+      case 'battle':
+        return typeLine.includes('battle');
+      default:
+        return false;
+    }
+  });
 }
 
 function permanentMatchesType(perm: BattlefieldPermanent, type: SimplePermanentType): boolean {
@@ -333,6 +376,10 @@ function permanentMatchesType(perm: BattlefieldPermanent, type: SimplePermanentT
       return typeLine.includes('enchantment');
     case 'land':
       return typeLine.includes('land');
+    case 'planeswalker':
+      return typeLine.includes('planeswalker');
+    case 'battle':
+      return typeLine.includes('battle');
     default:
       return false;
   }

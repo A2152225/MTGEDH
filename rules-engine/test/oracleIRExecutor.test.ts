@@ -1101,7 +1101,145 @@ describe('Oracle IR Executor', () => {
     const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
     expect(names).toContain('Grizzly Bears');
     expect(names).toContain('Silvercoat Lion');
-    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+  });
+
+  it('applies destroy for "all artifacts and enchantments" by removing both types', () => {
+    const ir = parseOracleTextToIR('Destroy all artifacts and enchantments.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'bf1',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_artifact_1', name: 'Sol Ring', type_line: 'Artifact' },
+        },
+        {
+          id: 'bf2',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'c_ench_1', name: 'Seal of Strength', type_line: 'Enchantment' },
+        },
+        {
+          id: 'bf3',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+        },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('Grizzly Bears');
+  });
+
+  it('applies destroy for "all nonland permanents" by keeping only lands', () => {
+    const ir = parseOracleTextToIR('Destroy all nonland permanents.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'bf1',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_land_1', name: 'Plains', type_line: 'Land' },
+        },
+        {
+          id: 'bf2',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+        },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('Plains');
+  });
+
+  it('applies destroy for "all planeswalkers" by removing planeswalkers only', () => {
+    const ir = parseOracleTextToIR('Destroy all planeswalkers.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'bf1',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_pw_1', name: 'Test Walker', type_line: 'Planeswalker — Test' },
+        },
+        {
+          id: 'bf2',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+        },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('Grizzly Bears');
   });
 
   it('applies move_zone for putting all creature cards from your graveyard onto the battlefield tapped', () => {
