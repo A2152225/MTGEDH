@@ -765,6 +765,29 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses impulse exile-top with "you may play them until the end of your next turn" wording', () => {
+    const text = 'Exile the top card of your library. You may play them until the end of your next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with "you may play those cards this turn" wording', () => {
+    const text = 'Exile the top two cards of your library. You may play those cards this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse exile-top referencing cards exiled this way', () => {
     const text = 'Exile the top card of your library. You may play cards exiled this way until the end of your next turn.';
     const ir = parseOracleTextToIR(text);
