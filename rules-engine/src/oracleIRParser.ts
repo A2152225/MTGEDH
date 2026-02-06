@@ -192,7 +192,9 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Scry
   {
-    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?scry\s+(a|an|\d+|x|[a-z]+)\b/i);
+    const m = clause.match(
+      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?(?:scry|scries)\s+(a|an|\d+|x|[a-z]+)\b/i
+    );
     if (m) {
       const who = parsePlayerSelector(m[1]);
       const amount = parseQuantity(m[2]);
@@ -202,7 +204,9 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Surveil
   {
-    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?surveil\s+(a|an|\d+|x|[a-z]+)\b/i);
+    const m = clause.match(
+      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?(?:surveil|surveils)\s+(a|an|\d+|x|[a-z]+)\b/i
+    );
     if (m) {
       const who = parsePlayerSelector(m[1]);
       const amount = parseQuantity(m[2]);
@@ -212,6 +216,27 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Discard
   {
+    // Discard hand (deterministic amount)
+    // Represent as a very large numeric discard so the deterministic executor can safely discard the entire hand.
+    // (Executor only applies discard when hand size <= amount, so this cannot force a choice.)
+    {
+      const mHand = clause.match(
+        /^(?:(you|each player|each opponent|target player|target opponent)\s+)?discards?\s+(?:your|their)\s+hand\b/i
+      );
+      if (mHand) {
+        const who = parsePlayerSelector(mHand[1]);
+        return withMeta({ kind: 'discard', who, amount: { kind: 'number', value: 9999 }, raw: rawClause });
+      }
+
+      const mAllInHand = clause.match(
+        /^(?:(you|each player|each opponent|target player|target opponent)\s+)?discards?\s+all\s+cards?\s+in\s+(?:your|their)\s+hand\b/i
+      );
+      if (mAllInHand) {
+        const who = parsePlayerSelector(mAllInHand[1]);
+        return withMeta({ kind: 'discard', who, amount: { kind: 'number', value: 9999 }, raw: rawClause });
+      }
+    }
+
     const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?discards?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (m) {
       const who = parsePlayerSelector(m[1]);

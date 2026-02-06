@@ -74,13 +74,24 @@ function resolvePlayersFromDamageTarget(
 ): readonly PlayerID[] {
   if (target.kind !== 'raw') return [];
 
-  const t = String(target.text || '').trim().toLowerCase();
+  const t = String(target.text || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\.!]$/, '');
   if (!t) return [];
 
   // Only support exact, non-targeting player group targets.
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
   if (t === 'each player') return resolvePlayers(state, { kind: 'each_player' }, ctx);
+  if (t === 'each of your opponents' || t === 'each of the opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
   if (t === 'each opponent') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
+  if (t === 'your opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
+  if (t === 'all opponents' || t === 'all of your opponents' || t === 'all of the opponents') {
+    return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
+  }
+  if (t === 'all your opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
 
   return [];
 }
@@ -97,8 +108,6 @@ function parseDeterministicMixedDamageTarget(
 
   if (!lower) return null;
   if (/\band\/or\b/i.test(lower)) return null;
-  // "or" implies a choice/ambiguity for this best-effort executor.
-  if (/\bor\b/i.test(lower)) return null;
 
   const parts = lower.split(/\s*(?:,|and)\s*/i).map(p => p.trim()).filter(Boolean);
   if (parts.length <= 1) return null;
@@ -115,9 +124,28 @@ function parseDeterministicMixedDamageTarget(
       players.add('each_player');
       continue;
     }
-    if (part === 'each opponent' || part === 'all opponents') {
+    if (
+      part === 'each opponent' ||
+      part === 'all opponents' ||
+      part === 'each of your opponents' ||
+      part === 'all of your opponents' ||
+      part === 'each of the opponents' ||
+      part === 'all of the opponents' ||
+      part === 'your opponents' ||
+      part === 'all your opponents'
+    ) {
       players.add('each_opponent');
       continue;
+    }
+
+    // Allow "or" inside battlefield selector unions (e.g. "each creature or planeswalker"),
+    // but reject "or" in non-selector parts to avoid ambiguous/choice-y text.
+    if (
+      /\bor\b/i.test(part) &&
+      !/^(?:each|all)\b/i.test(part) &&
+      !/^(?:your\b|opponent\b|opponents\b)/i.test(part)
+    ) {
+      return null;
     }
 
     // Allow shorthand list elements like "planeswalker" after normalization.
@@ -379,14 +407,75 @@ function parseSimpleBattlefieldSelector(
 
   const lower = text.replace(/\u2019/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
 
-  // Very conservative: only support "all/each <type(s)>" optionally followed by a controller filter.
+  // Very conservative: support
+  // - "all/each <type(s)>" optionally followed by a controller filter
+  // - shorthand possessives like "your creatures" / "your opponents' creatures" / "opponent's planeswalkers"
   const m = lower.match(/^(?:all|each)\s+(.+)$/i);
-  if (!m) return null;
 
-  let remainder = String(m[1] || '').trim();
-  if (!remainder) return null;
-
+  let remainder = '';
   let controllerFilter: SimpleBattlefieldSelector['controllerFilter'] = 'any';
+
+  if (m) {
+    remainder = String(m[1] || '').trim();
+    if (!remainder) return null;
+
+    // Common Oracle phrasing: "each of your opponents' creatures", "each of the creatures you control".
+    remainder = remainder.replace(/^of\s+/i, '').replace(/^the\s+/i, '').trim();
+  } else {
+    // Shorthand forms (no each/all)
+    // - "your <types>"
+    // - "your opponents' <types>" / "your opponents's <types>"
+    // - "opponent's <types>"
+    const oppPlural = remainder || lower;
+    if (/^(?:your\s+)?opponents?'s\s+/i.test(oppPlural) || /^(?:your\s+)?opponents?'\s+/i.test(oppPlural)) {
+      controllerFilter = 'opponents';
+      remainder = oppPlural
+        .replace(/^(?:your\s+)?opponents?'s\s+/i, '')
+        .replace(/^(?:your\s+)?opponents?'\s+/i, '')
+        .trim();
+    } else if (/^opponent's\s+/i.test(oppPlural) || /^opponent'\s+/i.test(oppPlural)) {
+      controllerFilter = 'opponents';
+      remainder = oppPlural.replace(/^opponent's\s+/i, '').replace(/^opponent'\s+/i, '').trim();
+    } else if (/^your\s+/i.test(oppPlural)) {
+      controllerFilter = 'you';
+      remainder = oppPlural.replace(/^your\s+/i, '').trim();
+    } else {
+      // Also accept controller-suffix forms like:
+      // - "creatures you control"
+      // - "creatures your opponents control"
+      // - "creatures an opponent controls"
+      // - "creatures you don't control"
+      // Let the shared controller-filter stripping below handle these.
+      if (
+        /\byou control\b/i.test(oppPlural) ||
+        /\b(?:your opponents|opponents)\s+control\b/i.test(oppPlural) ||
+        /\b(?:each opponent|an opponent)\s+controls\b/i.test(oppPlural) ||
+        /\byou\s+(?:don'?t|do not)\s+control\b/i.test(oppPlural)
+      ) {
+        remainder = oppPlural.trim();
+      } else {
+        return null;
+      }
+    }
+
+    if (!remainder) return null;
+  }
+
+  // Possessive shorthand: "each opponent's creatures" / "each opponents' creatures" / "each opponents’s creatures"
+  // Treat as opponents control.
+  if (/^(?:your\s+)?opponents?'s\s+/i.test(remainder) || /^(?:your\s+)?opponents?'\s+/i.test(remainder)) {
+    controllerFilter = 'opponents';
+    remainder = remainder
+      .replace(/^(?:your\s+)?opponents?'s\s+/i, '')
+      .replace(/^(?:your\s+)?opponents?'\s+/i, '')
+      .trim();
+  }
+
+  if (/^opponent's\s+/i.test(remainder) || /^opponent'\s+/i.test(remainder)) {
+    controllerFilter = 'opponents';
+    remainder = remainder.replace(/^opponent's\s+/i, '').replace(/^opponent'\s+/i, '').trim();
+  }
+
   if (/\byou control\b/i.test(remainder)) controllerFilter = 'you';
   if (/\b(?:your opponents|opponents)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
   if (/\b(?:each opponent|an opponent)\s+controls\b/i.test(remainder)) controllerFilter = 'opponents';
@@ -1176,6 +1265,32 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
   const cleaned = raw.replace(/[.\s]+$/g, '').trim();
   const lower = cleaned.toLowerCase();
 
+  // Shorthand deterministic forms (no explicit "all" / count) that still mean a fixed set:
+  // - "your creatures" / "your artifacts" / ...
+  // - "creatures you control" / "artifacts under your control" / ...
+  // Note: By rules, a player can only sacrifice permanents they control; reject opponent-scoped text.
+  {
+    const normalized = cleaned.replace(/\u2019/g, "'");
+    const normalizedLower = normalized.toLowerCase();
+
+    const mentionsOpponentControl =
+      /^(?:your\s+)?opponents?['’]s?\s+/i.test(normalized) ||
+      /^opponent['’]s?\s+/i.test(normalized) ||
+      /\b(?:your opponents|opponents)\s+control\b/i.test(normalized) ||
+      /\b(?:an opponent|each opponent)\s+controls\b/i.test(normalized) ||
+      /\byou\s+(?:don'?t|do not)\s+control\b/i.test(normalized);
+
+    if (!mentionsOpponentControl && (/^your\s+/i.test(normalized) || /\b(?:you control|under your control)\b/i.test(normalized))) {
+      const stripped = normalized
+        .replace(/^your\s+/i, '')
+        .replace(/\s+you\s+control\b/gi, '')
+        .replace(/\s+under\s+your\s+control\b/gi, '')
+        .trim();
+      const type = parseSimplePermanentTypeFromText(stripped);
+      if (type) return { mode: 'all', type };
+    }
+  }
+
   if (/^all\b/i.test(lower)) {
     const type = parseSimplePermanentTypeFromText(cleaned);
     return type ? { mode: 'all', type } : null;
@@ -1445,14 +1560,80 @@ export function applyOracleIRStepsToGameState(
       }
 
       case 'scry': {
-        skippedSteps.push(step);
-        log.push(`Skipped scry (requires player choice): ${step.raw}`);
+        const amount = quantityToNumber(step.amount);
+        if (amount === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped scry (unknown amount): ${step.raw}`);
+          break;
+        }
+
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped scry (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        // Deterministic no-op cases only.
+        if (amount <= 0) {
+          log.push(`Scry ${amount} (no-op): ${step.raw}`);
+          appliedSteps.push(step);
+          break;
+        }
+
+        const wouldNeedChoice = players.some(playerId => {
+          const p = nextState.players.find(pp => pp.id === playerId) as any;
+          const libLen = Array.isArray(p?.library) ? p.library.length : 0;
+          return libLen > 0;
+        });
+
+        if (wouldNeedChoice) {
+          skippedSteps.push(step);
+          log.push(`Skipped scry (requires player choice): ${step.raw}`);
+          break;
+        }
+
+        log.push(`Scry ${amount} (no cards in library): ${step.raw}`);
+        appliedSteps.push(step);
         break;
       }
 
       case 'surveil': {
-        skippedSteps.push(step);
-        log.push(`Skipped surveil (requires player choice): ${step.raw}`);
+        const amount = quantityToNumber(step.amount);
+        if (amount === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped surveil (unknown amount): ${step.raw}`);
+          break;
+        }
+
+        const players = resolvePlayers(nextState, step.who, ctx);
+        if (players.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped surveil (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        // Deterministic no-op cases only.
+        if (amount <= 0) {
+          log.push(`Surveil ${amount} (no-op): ${step.raw}`);
+          appliedSteps.push(step);
+          break;
+        }
+
+        const wouldNeedChoice = players.some(playerId => {
+          const p = nextState.players.find(pp => pp.id === playerId) as any;
+          const libLen = Array.isArray(p?.library) ? p.library.length : 0;
+          return libLen > 0;
+        });
+
+        if (wouldNeedChoice) {
+          skippedSteps.push(step);
+          log.push(`Skipped surveil (requires player choice): ${step.raw}`);
+          break;
+        }
+
+        log.push(`Surveil ${amount} (no cards in library): ${step.raw}`);
+        appliedSteps.push(step);
         break;
       }
 
@@ -1982,24 +2163,26 @@ export function applyOracleIRStepsToGameState(
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
-        if (players.length !== 1 || players[0] !== ctx.controllerId) {
+        if (players.length === 0) {
           skippedSteps.push(step);
           log.push(`Skipped token creation (unsupported player selector): ${step.raw}`);
           break;
         }
 
-        const r = addTokensToBattlefield(
-          nextState,
-          ctx.controllerId,
-          amount,
-          step.token,
-          step.raw,
-          ctx,
-          (step as any).entersTapped,
-          (step as any).withCounters
-        );
-        nextState = r.state;
-        log.push(...r.log);
+        for (const playerId of players) {
+          const r = addTokensToBattlefield(
+            nextState,
+            playerId,
+            amount,
+            step.token,
+            step.raw,
+            ctx,
+            (step as any).entersTapped,
+            (step as any).withCounters
+          );
+          nextState = r.state;
+          log.push(...r.log);
+        }
         appliedSteps.push(step);
         break;
       }
