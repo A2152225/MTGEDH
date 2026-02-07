@@ -1018,6 +1018,55 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('cast');
   });
 
+  it('parses impulse exile-top with until-the-beginning-of-your-next-upkeep duration', () => {
+    const text = 'Exile the top card of your library. Until the beginning of your next upkeep, you may play that card.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with immediate cast permission and follow-up if-you-dont clause (Chandra-style)', () => {
+    const text = "Exile the top card of your library. You may cast that card. If you don't, it deals 2 damage to each opponent.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with immediate cast-it permission (no explicit duration)', () => {
+    const text = "Exile the top card of your library. You may cast it. If you don't, create a Treasure token.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with immediate cast-it without-paying-mana-cost permission plus trailing if restriction', () => {
+    const text =
+      "Exile the top card of your library. You may cast it without paying its mana cost if it's a spell with mana value 2 or less. If you don't, put it into your graveyard.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
   it('parses impulse exile-top with up-to-two limit in permission clause', () => {
     const text =
       'Exile the top three cards of your library. You may play up to two of those cards until the end of your next turn.';
@@ -1583,5 +1632,49 @@ describe('Oracle IR Parser', () => {
 
     expect(steps[0].kind).toBe('draw');
     expect((steps[0] as any).optional).toBe(true);
+  });
+
+  it('parses face-down exile with combined look-and-play permission', () => {
+    const text =
+      'Exile the top card of your library face down. You may look at and play that card this turn.';
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+    const impulse = steps.find((s) => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it('parses face-down exile with combined look-and-play remains-exiled permission', () => {
+    const text =
+      "Exile the top card of each opponent's library face down. You may look at and play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses target-opponent face-down impulse with remains-exiled permission', () => {
+    const text =
+      "Exile the top two cards of target opponent's library face down. You may look at and play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
   });
 });
