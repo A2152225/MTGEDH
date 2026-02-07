@@ -27,7 +27,10 @@ function splitIntoClauses(line: string): string[] {
   const parts: string[] = [];
 
   const firstPass = String(line)
-    .split(/(?<=[.;])\s+/)
+    // Also split after parenthetical sentences that end with ".)"/";)".
+    // Without this, reminders like "(You may look at it any time.)" can prevent subsequent
+    // sentences from being split into separate clauses.
+    .split(/(?:(?<=[.;])|(?<=\.\))|(?<=;\)))\s+/)
     .map(p => p.trim())
     .filter(Boolean);
 
@@ -798,6 +801,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const second = String(clauses[idx + 1] || '').trim();
     const third = String(clauses[idx + 2] || '').trim();
     const fourth = String(clauses[idx + 3] || '').trim();
+    const fifth = String(clauses[idx + 4] || '').trim();
     if (!first || !second) return null;
 
     const normalizePossessive = (s: string): string => String(s || '').replace(/’/g, "'").trim().toLowerCase();
@@ -806,30 +810,35 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     // Support both explicit quantity and the common implicit "top card".
     let amount: OracleQuantity | null = null;
     let who: OraclePlayerSelector | null = null;
+    let baseConsumed = 1;
     {
       const m = first.match(
-        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
+        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
       );
       if (m) {
         amount = parseQuantity(m[1]);
-        const src = normalizePossessive(m[2]);
+        const rawSrc = String(m[2] || '').trim();
+        const src = normalizePossessive(rawSrc);
         if (src === 'your') who = { kind: 'you' };
         else if (src === "target player's") who = { kind: 'target_player' };
         else if (src === "target opponent's") who = { kind: 'target_opponent' };
         else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
         else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+        else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
       } else {
         const m2 = first.match(
-          /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
+          /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
         );
         if (m2) {
           amount = { kind: 'number', value: 1 };
-          const src = normalizePossessive(m2[1]);
+          const rawSrc = String(m2[1] || '').trim();
+          const src = normalizePossessive(rawSrc);
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+          else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
         }
       }
 
@@ -866,30 +875,34 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // Alternate verb: "Put the top card(s) of ... library into exile"
       if (!amount) {
         const m5 = first.match(
-          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?\s*$/i
+          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
         );
         if (m5) {
           amount = parseQuantity(m5[1]);
-          const src = normalizePossessive(m5[2]);
+          const rawSrc = String(m5[2] || '').trim();
+          const src = normalizePossessive(rawSrc);
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+          else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
         }
       }
       if (!amount) {
         const m6 = first.match(
-          /^put\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?\s*$/i
+          /^put\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
         );
         if (m6) {
           amount = { kind: 'number', value: 1 };
-          const src = normalizePossessive(m6[1]);
+          const rawSrc = String(m6[1] || '').trim();
+          const src = normalizePossessive(rawSrc);
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+          else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
         }
       }
 
@@ -922,13 +935,105 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           else if (src === 'target opponent') who = { kind: 'target_opponent' };
         }
       }
+
+      // 2-clause face-down variant:
+      // "Look at the top card of <library>, then exile it face down. You may play/cast ..."
+      // This shows up in oracle text for "steal"-style effects (e.g., "that player's library").
+      if (!amount) {
+        const clean = (s: string): string =>
+          normalizeOracleText(String(s || ''))
+            .trim()
+            .replace(/^then\b\s*/i, '')
+            .replace(/,+\s*$/g, '')
+            .trim();
+        const firstClean = clean(first);
+        const secondClean = clean(second);
+
+        const look = firstClean.match(
+          /^look at the top card of (your|their|his or her|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s) librar(?:y|ies)\s*$/i
+        );
+        const exileIt = /^(?:then\s+)?exile\s+(?:it|that card)\s+face down\s*$/i;
+
+        if (look && exileIt.test(secondClean)) {
+          amount = { kind: 'number', value: 1 };
+          const src = normalizePossessive(look[1]);
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === 'their' || src === 'his or her') who = { kind: 'target_player' };
+          else if (src === "target player's" || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "target opponent's" || src === "that opponent's") who = { kind: 'target_opponent' };
+          baseConsumed = 2;
+        }
+      }
+
+      // Single-clause face-down variant:
+      // "Look at the top N cards of <library> and exile those cards face down. You may play those cards ..."
+      // Only supported when it deterministically exiles all looked-at cards.
+      if (!amount) {
+        const clean = (s: string): string =>
+          normalizeOracleText(String(s || ''))
+            .trim()
+            .replace(/^then\b\s*/i, '')
+            .replace(/,+\s*$/g, '')
+            .trim();
+        const firstClean = clean(first);
+
+        const srcPattern =
+          '(your|target player[\'’]s|target opponent[\'’]s|that player[\'’]s|that opponent[\'’]s|each player[\'’]s|each players[\'’]|each opponent[\'’]s|each opponents[\'’]|each of your opponents[\'’]|their|his or her)';
+
+        // Explicit quantity: "top two cards"
+        const m = firstClean.match(
+          new RegExp(
+            `^look at the top (a|an|\\d+|x|[a-z]+) cards? of ${srcPattern} librar(?:y|ies)(?:,)? and exile (?:them|those cards|the cards) face down\\s*$`,
+            'i'
+          )
+        );
+        if (m) {
+          amount = parseQuantity(m[1]);
+          const src = normalizePossessive(m[2]);
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === 'their' || src === 'his or her') who = { kind: 'target_player' };
+          else if (src === "target player's" || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "target opponent's" || src === "that opponent's") who = { kind: 'target_opponent' };
+          else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+          else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+        }
+
+        // Implicit singular: "top card ... and exile it face down"
+        if (!amount) {
+          const m2 = firstClean.match(
+            new RegExp(
+              `^look at the top card of ${srcPattern} librar(?:y|ies)(?:,)? and exile (?:it|that card|them|those cards|the cards) face down\\s*$`,
+              'i'
+            )
+          );
+          if (m2) {
+            amount = { kind: 'number', value: 1 };
+            const src = normalizePossessive(m2[1]);
+            if (src === 'your') who = { kind: 'you' };
+            else if (src === 'their' || src === 'his or her') who = { kind: 'target_player' };
+            else if (src === "target player's" || src === "that player's") who = { kind: 'target_player' };
+            else if (src === "target opponent's" || src === "that opponent's") who = { kind: 'target_opponent' };
+            else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+            else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+          }
+        }
+      }
     }
     if (!amount) return null;
     if (!who) return null;
 
     const isIgnorableImpulseReminderClause = (clause: string): boolean => {
-      const t = normalizeOracleText(String(clause || '')).trim().toLowerCase();
+      let t = normalizeOracleText(String(clause || '')).trim();
       if (!t) return false;
+
+      // Normalize away surrounding parentheses/brackets and trailing punctuation.
+      // Many reminder sentences are formatted like "(You may ... .)".
+      t = t.replace(/^[\(\[]\s*/g, '').trim();
+      // Strip punctuation and closing parens in either order (".)" vs ").").
+      t = t.replace(/[.!]+\s*$/g, '').trim();
+      t = t.replace(/\s*[\)\]]\s*$/g, '').trim();
+      t = t.replace(/[.!]+\s*$/g, '').trim();
+      t = t.toLowerCase();
 
       // Common reminder between exile and permission:
       // "You may look at that card for as long as it remains exiled."
@@ -998,8 +1103,10 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           /,?\s+and\s+mana of any type can be spent to cast (?:that|those|the exiled) spells?\s*$/i,
           ''
         )
+        .replace(/,?\s+and\s+mana of any type can be spent to cast (?:it|them)\s*$/i, '')
         .replace(/,?\s+and\s+mana of any type can be spent to cast that spell\s*$/i, '')
         .replace(/,?\s*mana of any type can be spent to cast (?:that|those|the exiled) spells?\s*$/i, '')
+        .replace(/,?\s*mana of any type can be spent to cast (?:it|them)\s*$/i, '')
         .replace(/,?\s*mana of any type can be spent to cast that spell\s*$/i, '')
         .replace(
           /,?\s+and\s+you may spend mana as though it were mana of any (?:color|type) to cast (?:it|them|that spell|those spells)\s*$/i,
@@ -1860,7 +1967,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
 
     // Allow up to two intervening reminder clauses between the exile clause and the permission clause.
     // Be conservative: only specific known reminder clauses are skippable.
-    const candidateClauses = [second, third, fourth].filter(Boolean);
+    const candidateClauses = (baseConsumed === 1 ? [second, third, fourth] : [third, fourth, fifth]).filter(Boolean);
     let permissionInfo: ReturnType<typeof parseImpulsePermissionClause> | null = null;
     let consumed = 0;
     for (let i = 0; i < candidateClauses.length; i++) {
@@ -1868,7 +1975,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       const parsed = parseImpulsePermissionClause(c);
       if (parsed) {
         permissionInfo = parsed;
-        consumed = 1 /* first */ + (i + 1);
+        consumed = baseConsumed + (i + 1);
         break;
       }
 

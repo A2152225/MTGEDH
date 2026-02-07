@@ -378,8 +378,7 @@ export function FreeField(props: {
 
       const effP = (p as any).effectivePower as number | undefined;
       const effT = (p as any).effectiveToughness as number | undefined;
-      const grantedAbilities = (p as any).grantedAbilities;
-      const abilities: string[] = Array.isArray(grantedAbilities) ? grantedAbilities : [];
+      const abilities: readonly string[] | undefined = (p as any).grantedAbilities;
 
       // Combat state
       const attacking = p.attacking;
@@ -543,7 +542,7 @@ export function FreeField(props: {
         overflow: 'visible' // Allow attack indicators to overflow
       }}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities = [], attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources, isGroupedTokens, tokenCount, isToken }) => {
+      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources, isGroupedTokens, tokenCount, isToken }) => {
         const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
         const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
@@ -601,67 +600,6 @@ export function FreeField(props: {
         const hovered = hoverId === id;
         const attackingPlayerName = attacking ? players.find(p => p.id === attacking)?.name || attacking : null;
         const isPlayable = playableCards.includes(id);
-
-        const abilityBadges: React.ReactNode =
-          abilities.length > 0 ? (
-            <div style={{
-              position: 'absolute',
-              top: isTargeted ? Math.round(24 * scale) : Math.round(4 * scale),
-              right: Math.round(4 * scale),
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: Math.round(2 * scale),
-              maxWidth: '75%',
-              justifyContent: 'flex-end',
-            }}>
-              {abilities.slice(0, 4).map((a) => {
-                const abilityInfo = getAbilityDisplay(a);
-                // Format tooltip like reminder text: "Flying (This creature can only be blocked by creatures with flying or reach.)"
-                const tooltipText = `${abilityInfo.term}\n(${abilityInfo.reminderText})`;
-                return (
-                  <span
-                    key={a}
-                    title={tooltipText}
-                    style={{
-                      background: `${abilityInfo.color}dd`,
-                      color: '#fff',
-                      border: `1px solid ${abilityInfo.color}`,
-                      borderRadius: Math.round(3 * scale),
-                      fontSize: Math.round(8 * scale),
-                      padding: `${Math.round(1 * scale)}px ${Math.round(3 * scale)}px`,
-                      lineHeight: '1.1',
-                      fontWeight: 600,
-                      textShadow: '0 1px 1px rgba(0,0,0,0.4)',
-                      cursor: 'help',
-                    }}
-                  >
-                    {abilityInfo.short}
-                  </span>
-                );
-              })}
-              {abilities.length > 4 && (
-                <span
-                  title={abilities
-                    .slice(4)
-                    .map((a) => {
-                      const info = getAbilityDisplay(a);
-                      return `${info.term}: ${info.reminderText}`;
-                    })
-                    .join('\n\n')}
-                  style={{
-                    background: 'rgba(0,0,0,0.7)',
-                    color: '#fff',
-                    borderRadius: Math.round(3 * scale),
-                    fontSize: Math.round(7 * scale),
-                    padding: `${Math.round(1 * scale)}px ${Math.round(2 * scale)}px`,
-                    cursor: 'help',
-                  }}
-                >
-                  +{abilities.length - 4}
-                </span>
-              )}
-            </div>
-          ) : null;
 
         return (
           <div
@@ -861,7 +799,62 @@ export function FreeField(props: {
 
             {/* Granted abilities badges with reminder text tooltips */}
             {/* Position adjusts when targeted indicator is shown to avoid overlap */}
-            {abilityBadges as any}
+            {Array.isArray(abilities) && abilities.length > 0 ? (
+              <div style={{ 
+                position: 'absolute', 
+                top: isTargeted ? Math.round(24 * scale) : Math.round(4 * scale), 
+                right: Math.round(4 * scale), 
+                display: 'flex', 
+                flexWrap: 'wrap',
+                gap: Math.round(2 * scale),
+                maxWidth: '75%',
+                justifyContent: 'flex-end',
+              }}>
+                {abilities.slice(0, 4).map((a) => {
+                  const abilityInfo = getAbilityDisplay(a);
+                  // Format tooltip like reminder text: "Flying (This creature can only be blocked by creatures with flying or reach.)"
+                  const tooltipText = `${abilityInfo.term}\n(${abilityInfo.reminderText})`;
+                  return (
+                    <span 
+                      key={a} 
+                      title={tooltipText}
+                      style={{
+                        background: `${abilityInfo.color}dd`,
+                        color: '#fff',
+                        border: `1px solid ${abilityInfo.color}`,
+                        borderRadius: Math.round(3 * scale),
+                        fontSize: Math.round(8 * scale),
+                        padding: `${Math.round(1 * scale)}px ${Math.round(3 * scale)}px`,
+                        lineHeight: '1.1',
+                        fontWeight: 600,
+                        textShadow: '0 1px 1px rgba(0,0,0,0.4)',
+                        cursor: 'help',
+                      }}
+                    >
+                      {abilityInfo.short}
+                    </span>
+                  );
+                })}
+                {abilities.length > 4 && (
+                  <span 
+                    title={abilities.slice(4).map(a => {
+                      const info = getAbilityDisplay(a);
+                      return `${info.term}: ${info.reminderText}`;
+                    }).join('\n\n')}
+                    style={{
+                      background: 'rgba(0,0,0,0.7)',
+                      color: '#fff',
+                      borderRadius: Math.round(3 * scale),
+                      fontSize: Math.round(7 * scale),
+                      padding: `${Math.round(1 * scale)}px ${Math.round(2 * scale)}px`,
+                      cursor: 'help',
+                    }}
+                  >
+                    +{abilities.length - 4}
+                  </span>
+                )}
+              </div>
+            ) : null}
 
             {/* Temporary Effects Badge - shows when card has temporary effects applied */}
             {hasTemporaryEffects && (

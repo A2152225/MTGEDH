@@ -479,6 +479,7 @@ export function parseDelayedTrigger(text: string): { effect: string; timing: str
  */
 const CONTINUATION_SENTENCE_PATTERNS = [
   /^then\b/i,          // Sequential action: "Then draw a card"
+  /^\(/,               // Reminder/parenthetical continuation: "(You may ... )"
   /^you\b/i,           // Continuation of effect on player: "You may...", "You gain..."
   /^if\b/i,            // Conditional modifier: "If you do..."
   /^when\s+you\s+do\b/i,  // Reflexive trigger: "When you do, X happens"
