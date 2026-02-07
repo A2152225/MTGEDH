@@ -55,6 +55,81 @@ describe('Oracle IR Parser', () => {
     expect(creates[1].who).toEqual({ kind: 'each_opponent' });
   });
 
+  it('normalizes "each of your opponents" into an each_opponent selector', () => {
+    const text = 'Each of your opponents draws a card.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('draw');
+    expect((steps[0] as any).who).toEqual({ kind: 'each_opponent' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('normalizes "your opponents" into an each_opponent selector', () => {
+    const text = 'Your opponents mill a card.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('mill');
+    expect((steps[0] as any).who).toEqual({ kind: 'each_opponent' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses exile_top for each of your opponents' libraries", () => {
+    const text = "Exile the top card of each of your opponents' libraries.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses exile_top for each opponent’s library (curly apostrophe)', () => {
+    const text = 'Exile the top card of each opponent’s library.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses exile_top for each opponent's library (straight apostrophe)", () => {
+    const text = "Exile the top card of each opponent's library.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses exile_top for 'put the top card of each opponent's library into exile'", () => {
+    const text = "Put the top card of each opponent's library into exile.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses exile_top for 'each player puts the top two cards of their library into exile'", () => {
+    const text = 'Each player puts the top two cards of their library into exile.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_player' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 2 });
+  });
+
   it('parses comma-separated multi-token creation lists', () => {
     const text = 'Create a Treasure token, a Food token, and a Clue token.';
     const ir = parseOracleTextToIR(text);

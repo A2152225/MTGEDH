@@ -106,6 +106,20 @@ function normalizeClauseForParse(clause: string): {
     // Many cards then start with an imperative verb after stripping.
   }
 
+  // Normalize common multiplayer phrasing variants.
+  // This keeps downstream regexes small while preserving semantics for the supported step kinds.
+  // Examples:
+  // - "Each of your opponents draws a card." -> "Each opponent draws a card."
+  // - "Your opponents lose 1 life." -> "Each opponent lose 1 life." (parser accepts both lose/loses)
+  // Note: We intentionally only rewrite at the beginning of a clause.
+  working = working
+    .replace(/^each\s+of\s+your\s+opponents\b/i, 'each opponent')
+    .replace(/^each\s+of\s+the\s+opponents\b/i, 'each opponent')
+    .replace(/^all\s+of\s+your\s+opponents\b/i, 'each opponent')
+    .replace(/^all\s+your\s+opponents\b/i, 'each opponent')
+    .replace(/^all\s+opponents\b/i, 'each opponent')
+    .replace(/^your\s+opponents\b/i, 'each opponent');
+
   return { clause: working.trim(), sequence, optional };
 }
 
@@ -251,7 +265,9 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Mill
   {
-    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?mills?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    const m = clause.match(
+      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?mill(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i
+    );
     if (m) {
       const who = parsePlayerSelector(m[1]);
       const amount = parseQuantity(m[2]);
@@ -784,30 +800,32 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const fourth = String(clauses[idx + 3] || '').trim();
     if (!first || !second) return null;
 
+    const normalizePossessive = (s: string): string => String(s || '').replace(/’/g, "'").trim().toLowerCase();
+
     // First clause: "Exile the top card(s) of your library"
     // Support both explicit quantity and the common implicit "top card".
     let amount: OracleQuantity | null = null;
     let who: OraclePlayerSelector | null = null;
     {
       const m = first.match(
-        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s*$/i
       );
       if (m) {
         amount = parseQuantity(m[1]);
-        const src = String(m[2] || '').trim().toLowerCase();
+        const src = normalizePossessive(m[2]);
         if (src === 'your') who = { kind: 'you' };
         else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
-        else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+        else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
       } else {
         const m2 = first.match(
-          /^exile\s+the\s+top\s+card\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+          /^exile\s+the\s+top\s+card\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s*$/i
         );
         if (m2) {
           amount = { kind: 'number', value: 1 };
-          const src = String(m2[1] || '').trim().toLowerCase();
+          const src = normalizePossessive(m2[1]);
           if (src === 'your') who = { kind: 'you' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
-          else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+          else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
         }
       }
 
@@ -829,6 +847,56 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         if (m4) {
           amount = { kind: 'number', value: 1 };
           const src = String(m4[1] || '').trim().toLowerCase();
+          if (src === 'you') who = { kind: 'you' };
+          else if (src === 'each player') who = { kind: 'each_player' };
+          else if (src === 'each opponent') who = { kind: 'each_opponent' };
+        }
+      }
+
+      // Alternate verb: "Put the top card(s) of ... library into exile"
+      if (!amount) {
+        const m5 = first.match(
+          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile\s*$/i
+        );
+        if (m5) {
+          amount = parseQuantity(m5[1]);
+          const src = normalizePossessive(m5[2]);
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+          else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+        }
+      }
+      if (!amount) {
+        const m6 = first.match(
+          /^put\s+the\s+top\s+card\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile\s*$/i
+        );
+        if (m6) {
+          amount = { kind: 'number', value: 1 };
+          const src = normalizePossessive(m6[1]);
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+          else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+        }
+      }
+
+      // Subject-order with "put/puts": "Each player puts the top card(s) of their library into exile."
+      if (!amount) {
+        const m7 = first.match(
+          /^(each player|each opponent|you)\s+puts?\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(?:their|your)\s+library\s+into\s+exile\s*$/i
+        );
+        if (m7) {
+          amount = parseQuantity(m7[2]);
+          const src = String(m7[1] || '').trim().toLowerCase();
+          if (src === 'you') who = { kind: 'you' };
+          else if (src === 'each player') who = { kind: 'each_player' };
+          else if (src === 'each opponent') who = { kind: 'each_opponent' };
+        }
+      }
+      if (!amount) {
+        const m8 = first.match(/^(each player|each opponent|you)\s+puts?\s+the\s+top\s+card\s+of\s+(?:their|your)\s+library\s+into\s+exile\s*$/i);
+        if (m8) {
+          amount = { kind: 'number', value: 1 };
+          const src = String(m8[1] || '').trim().toLowerCase();
           if (src === 'you') who = { kind: 'you' };
           else if (src === 'each player') who = { kind: 'each_player' };
           else if (src === 'each opponent') who = { kind: 'each_opponent' };
@@ -1330,29 +1398,79 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const first = String(clauses[idx] || '').trim();
     if (!first) return null;
 
+    const normalizePossessive = (s: string): string => String(s || '').replace(/’/g, "'").trim().toLowerCase();
+
     let amount: OracleQuantity | null = null;
     let who: OraclePlayerSelector | null = null;
 
     {
       const m = first.match(
-        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s*$/i
       );
       if (m) {
         amount = parseQuantity(m[1]);
-        const src = String(m[2] || '').trim().toLowerCase();
+        const src = normalizePossessive(m[2]);
         if (src === 'your') who = { kind: 'you' };
         else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
-        else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+        else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
       } else {
         const m2 = first.match(
-          /^exile\s+the\s+top\s+card\s+of\s+(your|each player's|each players'|each opponent's|each opponents')\s+library\s*$/i
+          /^exile\s+the\s+top\s+card\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s*$/i
         );
         if (m2) {
           amount = { kind: 'number', value: 1 };
-          const src = String(m2[1] || '').trim().toLowerCase();
+          const src = normalizePossessive(m2[1]);
           if (src === 'your') who = { kind: 'you' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
-          else if (src === "each opponent's" || src === "each opponents'") who = { kind: 'each_opponent' };
+          else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+        }
+      }
+
+      if (!amount) {
+        const m3 = first.match(
+          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile\s*$/i
+        );
+        if (m3) {
+          amount = parseQuantity(m3[1]);
+          const src = normalizePossessive(m3[2]);
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+          else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+        }
+      }
+      if (!amount) {
+        const m4 = first.match(
+          /^put\s+the\s+top\s+card\s+of\s+(your|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile\s*$/i
+        );
+        if (m4) {
+          amount = { kind: 'number', value: 1 };
+          const src = normalizePossessive(m4[1]);
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+          else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
+        }
+      }
+
+      if (!amount) {
+        const m5 = first.match(
+          /^(each player|each opponent|you)\s+puts?\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(?:their|your)\s+library\s+into\s+exile\s*$/i
+        );
+        if (m5) {
+          amount = parseQuantity(m5[2]);
+          const src = String(m5[1] || '').trim().toLowerCase();
+          if (src === 'you') who = { kind: 'you' };
+          else if (src === 'each player') who = { kind: 'each_player' };
+          else if (src === 'each opponent') who = { kind: 'each_opponent' };
+        }
+      }
+      if (!amount) {
+        const m6 = first.match(/^(each player|each opponent|you)\s+puts?\s+the\s+top\s+card\s+of\s+(?:their|your)\s+library\s+into\s+exile\s*$/i);
+        if (m6) {
+          amount = { kind: 'number', value: 1 };
+          const src = String(m6[1] || '').trim().toLowerCase();
+          if (src === 'you') who = { kind: 'you' };
+          else if (src === 'each player') who = { kind: 'each_player' };
+          else if (src === 'each opponent') who = { kind: 'each_opponent' };
         }
       }
     }

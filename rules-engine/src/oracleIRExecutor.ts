@@ -1254,6 +1254,60 @@ function moveAllMatchingFromHand(
   };
 }
 
+function putAllMatchingFromHandOntoBattlefield(
+  state: GameState,
+  playerId: PlayerID,
+  cardType: SimpleCardType,
+  entersTapped?: boolean
+): { state: GameState; log: string[] } {
+  return putAllMatchingFromHandOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped);
+}
+
+function putAllMatchingFromHandOntoBattlefieldWithController(
+  state: GameState,
+  sourcePlayerId: PlayerID,
+  controllerId: PlayerID,
+  cardType: SimpleCardType,
+  entersTapped?: boolean
+): { state: GameState; log: string[] } {
+  const player = state.players.find(p => p.id === sourcePlayerId) as any;
+  if (!player) return { state, log: [] };
+
+  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+
+  const kept: any[] = [];
+  const moved: any[] = [];
+
+  for (const card of hand) {
+    if (cardMatchesType(card, cardType)) moved.push(card);
+    else kept.push(card);
+  }
+
+  if (moved.length === 0) return { state, log: [] };
+
+  const newPermanents: BattlefieldPermanent[] = moved.map((card: any, idx: number) => {
+    const cardIdHint = String(card?.id || '').trim();
+    const base = cardIdHint ? cardIdHint : `hand-${idx}`;
+    return {
+      id: `perm-${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      controller: controllerId,
+      owner: sourcePlayerId,
+      tapped: Boolean(entersTapped),
+      summoningSickness: true,
+      counters: {},
+      attachments: [],
+      modifiers: [],
+      card,
+    } as any;
+  });
+
+  const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), hand: kept } as any) : p));
+  return {
+    state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanents] } as any,
+    log: [`${controllerId} puts ${moved.length} card(s) from ${sourcePlayerId}'s hand onto the battlefield`],
+  };
+}
+
 function parseSacrificeWhat(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
   | { readonly mode: 'all'; readonly type: SimplePermanentType }
   | { readonly mode: 'count'; readonly count: number; readonly type: SimplePermanentType }
@@ -1981,15 +2035,36 @@ export function applyOracleIRStepsToGameState(
         }
 
         if (parsedEachOpponentsHand) {
-          if (step.to !== 'exile' && step.to !== 'graveyard') {
+          if (step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield') {
             skippedSteps.push(step);
             log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
             break;
           }
 
+          if (
+            step.to === 'battlefield' &&
+            (step as any).battlefieldController?.kind !== 'you' &&
+            (step as any).battlefieldController?.kind !== 'owner_of_moved_cards'
+          ) {
+            skippedSteps.push(step);
+            log.push(`Skipped move zone (battlefield requires explicit control override): ${step.raw}`);
+            break;
+          }
+
           const opponents = (nextState.players as any[]).filter(p => p?.id && p.id !== ctx.controllerId);
           for (const p of opponents) {
-            const r = moveAllMatchingFromHand(nextState, p.id, parsedEachOpponentsHand.cardType, step.to);
+            const r =
+              step.to === 'battlefield'
+                ? (step as any).battlefieldController?.kind === 'you'
+                  ? putAllMatchingFromHandOntoBattlefieldWithController(
+                      nextState,
+                      p.id,
+                      ctx.controllerId,
+                      parsedEachOpponentsHand.cardType,
+                      (step as any).entersTapped
+                    )
+                  : putAllMatchingFromHandOntoBattlefield(nextState, p.id, parsedEachOpponentsHand.cardType, (step as any).entersTapped)
+                : moveAllMatchingFromHand(nextState, p.id, parsedEachOpponentsHand.cardType, step.to);
             nextState = r.state;
             log.push(...r.log);
           }
@@ -2056,14 +2131,25 @@ export function applyOracleIRStepsToGameState(
         }
 
         if (parsedEachPlayersHand) {
-          if (step.to !== 'exile' && step.to !== 'graveyard') {
+          if (step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield') {
             skippedSteps.push(step);
             log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
             break;
           }
 
           for (const p of nextState.players as any[]) {
-            const r = moveAllMatchingFromHand(nextState, p.id, parsedEachPlayersHand.cardType, step.to);
+            const r =
+              step.to === 'battlefield'
+                ? (step as any).battlefieldController?.kind === 'you'
+                  ? putAllMatchingFromHandOntoBattlefieldWithController(
+                      nextState,
+                      p.id,
+                      ctx.controllerId,
+                      parsedEachPlayersHand.cardType,
+                      (step as any).entersTapped
+                    )
+                  : putAllMatchingFromHandOntoBattlefield(nextState, p.id, parsedEachPlayersHand.cardType, (step as any).entersTapped)
+                : moveAllMatchingFromHand(nextState, p.id, parsedEachPlayersHand.cardType, step.to);
             nextState = r.state;
             log.push(...r.log);
           }
@@ -2142,12 +2228,16 @@ export function applyOracleIRStepsToGameState(
         }
 
         // From hand
-        if (step.to !== 'graveyard' && step.to !== 'exile') {
+        if (step.to !== 'graveyard' && step.to !== 'exile' && step.to !== 'battlefield') {
           skippedSteps.push(step);
           log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
           break;
         }
-        const r = moveAllMatchingFromHand(nextState, ctx.controllerId, parsedFromHand!.cardType, step.to);
+
+        const r =
+          step.to === 'battlefield'
+            ? putAllMatchingFromHandOntoBattlefield(nextState, ctx.controllerId, parsedFromHand!.cardType, (step as any).entersTapped)
+            : moveAllMatchingFromHand(nextState, ctx.controllerId, parsedFromHand!.cardType, step.to);
         nextState = r.state;
         log.push(...r.log);
         appliedSteps.push(step);
