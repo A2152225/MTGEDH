@@ -492,6 +492,9 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^return\b/i,        // Return action as continuation (often after exile)
   /^it\b/i,            // Reference to previous object: "It gains...", "It becomes..."
   /^until\b/i,         // Duration modifier: "Until end of turn"
+  /^through\b/i,       // Duration modifier: "Through end of turn"
+  /^as\s+long\s+as\b/i, // Condition/duration modifier: "As long as ..."
+  /^during\b/i,        // Timing window modifier: "During your next turn ..."
   /^put\b/i,           // Put action as continuation (counters, cards in zones)
   /^activate\b/i,      // Activation restriction: "Activate only as a sorcery"
   /^this\b/i,          // Reference to the card itself as continuation

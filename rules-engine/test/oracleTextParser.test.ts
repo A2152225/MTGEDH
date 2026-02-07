@@ -421,6 +421,39 @@ describe('Oracle Text Parser', () => {
       expect(staticAbilities[0].text).toContain('Until end of turn');
     });
 
+    it('should merge ". Through" duration sentences', () => {
+      const text = 'Exile the top two cards of your library. Through the end of this turn, you may cast spells from among those cards.';
+      const result = parseOracleText(text);
+
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Exile the top two cards');
+      expect(staticAbilities[0].text).toContain('Through the end of this turn');
+      expect(staticAbilities[0].text).toContain('cast spells from among');
+    });
+
+    it('should merge ". As long as" condition sentences', () => {
+      const text = 'Exile those cards. As long as those cards remain exiled, you may cast them.';
+      const result = parseOracleText(text);
+
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Exile those cards');
+      expect(staticAbilities[0].text).toContain('As long as those cards remain exiled');
+      expect(staticAbilities[0].text).toContain('you may cast them');
+    });
+
+    it('should merge ". During" timing window sentences', () => {
+      const text = 'Exile the top card of your library. During your next turn, you may play that card.';
+      const result = parseOracleText(text);
+
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Exile the top card of your library');
+      expect(staticAbilities[0].text).toContain('During your next turn');
+      expect(staticAbilities[0].text).toContain('you may play that card');
+    });
+
     it('should merge ". Create" token creation sentences', () => {
       const text = 'Draw a card. Create a 1/1 white Soldier creature token.';
       const result = parseOracleText(text);
