@@ -35,14 +35,24 @@ function splitIntoClauses(line: string): string[] {
     .filter(Boolean);
 
   for (const p of firstPass) {
-    const thenSplit = p.split(/\bthen\b/i).map(x => x.trim()).filter(Boolean);
-    if (thenSplit.length === 1) {
-      parts.push(p);
-    } else {
-      for (let idx = 0; idx < thenSplit.length; idx++) {
-        const chunk = thenSplit[idx];
-        if (!chunk) continue;
-        parts.push(idx === 0 ? chunk : `then ${chunk}`);
+    // Split modal bullet lists into separate clauses.
+    // Example:
+    // "Choose one —\n• Exile the top card ..." should yield a standalone "Exile ..." clause.
+    const bulletSplit = p
+      .split(/\n\s*[\u2022•]\s+/)
+      .map(x => x.trim())
+      .filter(Boolean);
+
+    for (const b of bulletSplit) {
+      const thenSplit = b.split(/\bthen\b/i).map(x => x.trim()).filter(Boolean);
+      if (thenSplit.length === 1) {
+        parts.push(b);
+      } else {
+        for (let idx = 0; idx < thenSplit.length; idx++) {
+          const chunk = thenSplit[idx];
+          if (!chunk) continue;
+          parts.push(idx === 0 ? chunk : `then ${chunk}`);
+        }
       }
     }
   }
@@ -96,6 +106,10 @@ function normalizeClauseForParse(clause: string): {
   let working = clause.trim();
   let sequence: 'then' | undefined;
   let optional: boolean | undefined;
+
+  // Modal bullet lists often prefix effect lines with a bullet ("•").
+  // Strip it so downstream regexes can match deterministically.
+  working = working.replace(/^[\u2022•]\s+/, '');
 
   if (/^then\b/i.test(working)) {
     sequence = 'then';
@@ -555,12 +569,19 @@ function tryParseCreateTokenAndExileTopClause(rawClause: string): OracleEffectSt
   const optional = normalized.optional;
 
   const lower = clause.toLowerCase();
-  const splitNeedle = ' and exile the top ';
-  const splitAt = lower.indexOf(splitNeedle);
-  if (splitAt < 0) return null;
+  const splitNeedleCreateThenExile = ' and exile the top ';
+  const splitNeedleExileThenCreate = ' and create ';
+  const splitAtCreateThenExile = lower.indexOf(splitNeedleCreateThenExile);
+  const splitAtExileThenCreate = lower.indexOf(splitNeedleExileThenCreate);
+  if (splitAtCreateThenExile < 0 && splitAtExileThenCreate < 0) return null;
 
-  const createPart = clause.slice(0, splitAt).trim();
-  const exilePart = clause.slice(splitAt + ' and '.length).trim();
+  const isCreateThenExile = splitAtCreateThenExile >= 0;
+  const createPart = isCreateThenExile
+    ? clause.slice(0, splitAtCreateThenExile).trim()
+    : clause.slice(splitAtExileThenCreate + ' and '.length).trim();
+  const exilePart = isCreateThenExile
+    ? clause.slice(splitAtCreateThenExile + ' and '.length).trim()
+    : clause.slice(0, splitAtExileThenCreate).trim();
   if (!createPart || !exilePart) return null;
 
   const created: OracleEffectStep[] | null =
@@ -635,7 +656,8 @@ function tryParseCreateTokenAndExileTopClause(rawClause: string): OracleEffectSt
     raw: clean.endsWith('.') ? clean : `${clean}.`,
   });
 
-  return [...createdWithMeta, exileTop];
+  // Preserve action order from the oracle text.
+  return isCreateThenExile ? [...createdWithMeta, exileTop] : [exileTop, ...createdWithMeta];
 }
 
 function inferZoneFromDestination(destination: string): OracleZone {
@@ -892,6 +914,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       .replace(/^then\b\s*/i, '')
       .replace(/^if you do,\s*/i, '')
       .replace(/^if you don[’']t,\s*/i, '')
+      .replace(/^otherwise,?\s*/i, '')
+      .replace(/^if you don[’']t cast (?:it|that card|the exiled card) this way,\s*/i, '')
       .replace(/,+\s*$/g, '')
       .trim();
 
@@ -944,6 +968,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           | 'during_resolution'
           | 'during_next_turn'
           | 'until_end_of_next_turn'
+          | 'until_end_of_combat_on_next_turn'
           | 'until_next_turn'
           | 'until_next_upkeep'
           | 'until_next_end_step'
@@ -985,7 +1010,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       .trim();
 
     const objectRef =
-      '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|the card they exiled this way|the cards they exiled this way)';
+      '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|(?:the )?card they exiled this way|(?:the )?cards they exiled this way)';
     const objectRefWithLimit = `(?:up to (?:a|an|\d+|x|[a-z]+) of |one of )?${objectRef}`;
 
     // Strip common mana-spend reminder suffix seen in oracle text.
@@ -1012,6 +1037,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     // Some templates use "cast any number of <restricted> spells ...".
     // Drop the quantifier; we don't model it in IR.
     clauseToParse = clauseToParse.replace(/\bcast\s+any\s+number\s+of\s+/i, 'cast ');
+
+    // Some templates use "cast up to N ...".
+    // Drop the quantifier; we don't model it in IR.
+    clauseToParse = clauseToParse.replace(/\bcast\s+up\s+to\s+(?:a|an|\d+|x|[a-z]+)\s+/i, 'cast ');
+
+    // Many permission clauses include an extra "with mana value ..." restriction we don't model.
+    // Strip it so the rest of the matcher remains conservative.
+    clauseToParse = clauseToParse.replace(/\b(spells?)\s+with\s+mana\s+value\s+[^.]*?\s+from\s+among\b/gi, '$1 from among');
 
     let condition:
       | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -1068,12 +1101,17 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       )
       .trim();
 
+    // Some templates add a trailing restriction rider we don't model.
+    // Example: "Until your next turn, players may play cards they exiled this way, and they can't play cards from their hand."
+    clauseToParse = clauseToParse.replace(/,?\s+and\s+they\s+can(?:not|'t)\s+play\s+cards?\s+from\s+their\s+hands?\s*$/i, '').trim();
+
     const lowerClause = clauseToParse.toLowerCase();
     let duration:
       | 'this_turn'
       | 'during_resolution'
       | 'during_next_turn'
       | 'until_end_of_next_turn'
+      | 'until_end_of_combat_on_next_turn'
       | 'until_next_turn'
       | 'until_next_upkeep'
       | 'until_next_end_step'
@@ -1123,7 +1161,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const amongRef =
       '(?:them|those (?:exiled )?cards(?: exiled this way)?|the exiled cards|(?:the )?cards exiled this way)';
     const restrictedSpellRef =
-      '(?:(?:an?\\s+)?(?:artifact|creature|noncreature|enchantment|planeswalker|instant (?:or|and|and/or) sorcery|permanent)\\s+)?spells?';
+      '(?:(?:an?\\s+)?(?:artifact|creature|noncreature|enchantment|planeswalker|instant (?:or|and|and/or) sorcery|instant|sorcery|permanent)\\s+)?spells?';
     const colorWordRef = '(white|blue|black|red|green)';
 
     // "You may play lands and cast spells from among them/those cards ..."
@@ -1408,9 +1446,56 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
     }
 
+    // "You may play/cast <objectRef> until the end of your next turn"
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(`^you may (play|cast) ${objectRefWithLimit} until the end of your next turn\\s*$`, 'i')
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_next_turn';
+      }
+    }
+
+    // "You may play/cast <objectRef> until end of your next turn"
+    if (!duration) {
+      const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of your next turn\\s*$`, 'i'));
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_next_turn';
+      }
+    }
+
+    // "You may play/cast <objectRef> until end of next turn" (missing "your")
+    if (!duration) {
+      const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until end of next turn\\s*$`, 'i'));
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_next_turn';
+      }
+    }
+
+    // "You may play/cast <objectRef> until the end of next turn" (missing "your")
+    if (!duration) {
+      const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} until the end of next turn\\s*$`, 'i'));
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_next_turn';
+      }
+    }
+
     // "Until your next turn, you may play/cast <objectRef>"
     if (!duration) {
       const m = lowerClause.match(new RegExp(`^until your next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_next_turn';
+      }
+    }
+
+    // "Until your next turn, players may play/cast <objectRef>"
+    if (!duration) {
+      const m = lowerClause.match(new RegExp(`^until your next turn, players may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
       if (m) {
         permission = m[1] as any;
         duration = 'until_next_turn';
@@ -1439,6 +1524,28 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
     }
 
+    // "Until end of combat on your next turn, you may play/cast <objectRef>"
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(`^until (?:the )?end of combat on your next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i')
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_combat_on_next_turn';
+      }
+    }
+
+    // "You may play/cast <objectRef> until end of combat on your next turn"
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(`^you may (play|cast) ${objectRefWithLimit} until (?:the )?end of combat on your next turn\\s*$`, 'i')
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_end_of_combat_on_next_turn';
+      }
+    }
+
     // "During your next turn, you may play/cast <objectRef>"
     if (!duration) {
       const m = lowerClause.match(
@@ -1464,6 +1571,21 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       const m = lowerClause.match(
         new RegExp(
           `^(?:for as long as|as long as) ${objectRef} remain(?:s)? exiled, you may (play|cast) ${objectRefWithLimit}\\s*$`,
+          'i'
+        )
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'as_long_as_remains_exiled';
+      }
+    }
+
+    // "You may play/cast <objectRef> for/as long as it/they remain(s) exiled"
+    // Seen in real oracle text (suffix form) and is important for the pending upgrade path.
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(
+          `^you may (play|cast) ${objectRefWithLimit} (?:for as long as|as long as) (?:it|they) remain(?:s)? exiled\\s*$`,
           'i'
         )
       );
@@ -1522,6 +1644,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         .replace(/^then\b\s*/i, '')
         .replace(/^if you do,\s*/i, '')
         .replace(/^if you don[’']t,\s*/i, '')
+        .replace(/^otherwise,?\s*/i, '')
+        .replace(/^if you don[’']t cast (?:it|that card|the exiled card) this way,\s*/i, '')
         .replace(/,+\s*$/g, '')
         .trim();
 
@@ -1805,6 +1929,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
             | 'until_next_turn'
             | 'until_next_upkeep'
             | 'until_next_end_step'
+            | 'until_end_of_combat_on_next_turn'
             | 'as_long_as_remains_exiled'
             | 'as_long_as_control_source';
           readonly permission: 'play' | 'cast';
@@ -1851,7 +1976,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         .trim();
 
       const objectRef =
-        '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|the card they exiled this way|the cards they exiled this way)';
+        '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|(?:the )?card they exiled this way|(?:the )?cards they exiled this way)';
       const objectRefWithLimit = `(?:up to (?:a|an|\d+|x|[a-z]+) of |one of )?${objectRef}`;
 
       // Strip common mana-spend reminder suffix seen in oracle text.
@@ -1884,6 +2009,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // Some templates use "cast any number of <restricted> spells ...".
       // Drop the quantifier; we don't model it in IR.
       clauseToParse = clauseToParse.replace(/\bcast\s+any\s+number\s+of\s+/i, 'cast ');
+
+      // Some templates use "cast up to N ...".
+      // Drop the quantifier; we don't model it in IR.
+      clauseToParse = clauseToParse.replace(/\bcast\s+up\s+to\s+(?:a|an|\d+|x|[a-z]+)\s+/i, 'cast ');
+
+      // Many permission clauses include an extra "with mana value ..." restriction we don't model.
+      // Strip it so the rest of the matcher remains conservative.
+      clauseToParse = clauseToParse.replace(/\b(spells?)\s+with\s+mana\s+value\s+[^.]*?\s+from\s+among\b/gi, '$1 from among');
 
       let condition:
         | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -1940,6 +2073,10 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         )
         .trim();
 
+      // Some templates add a trailing restriction rider we don't model.
+      // Example: "Until your next turn, players may play cards they exiled this way, and they can't play cards from their hand."
+      clauseToParse = clauseToParse.replace(/,?\s+and\s+they\s+can(?:not|'t)\s+play\s+cards?\s+from\s+their\s+hands?\s*$/i, '').trim();
+
       const lowerClause = clauseToParse.toLowerCase();
       let duration:
         | 'this_turn'
@@ -1949,6 +2086,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         | 'until_next_turn'
         | 'until_next_upkeep'
         | 'until_next_end_step'
+        | 'until_end_of_combat_on_next_turn'
         | 'as_long_as_remains_exiled'
         | 'as_long_as_control_source'
         | null = null;
@@ -1976,7 +2114,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       const amongRef =
         '(?:them|those (?:exiled )?cards(?: exiled this way)?|the exiled cards|(?:the )?cards exiled this way)';
       const restrictedSpellRef =
-        '(?:(?:an?\\s+)?(?:artifact|creature|noncreature|enchantment|planeswalker|instant (?:or|and|and/or) sorcery|permanent)\\s+)?spells?';
+        '(?:(?:an?\\s+)?(?:artifact|creature|noncreature|enchantment|planeswalker|instant (?:or|and|and/or) sorcery|instant|sorcery|permanent)\\s+)?spells?';
       const colorWordRef = '(white|blue|black|red|green)';
 
       // "You may play lands and cast spells from among them/those cards ..."
@@ -2472,12 +2610,43 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           duration = 'until_next_turn';
         }
       }
+
+      // "Until your next turn, players may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^until your next turn, players may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_next_turn';
+        }
+      }
       // "Until your next end step, you may play/cast that card"
       if (!duration) {
         const m = lowerClause.match(new RegExp(`^until your next end step, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
           duration = 'until_next_end_step';
+        }
+      }
+
+      // "Until end of combat on your next turn, you may play/cast that card"
+      if (!duration) {
+        const m = lowerClause.match(
+          new RegExp(`^until (?:the )?end of combat on your next turn, you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i')
+        );
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_end_of_combat_on_next_turn';
+        }
+      }
+
+      // "You may play/cast that card until end of combat on your next turn"
+      if (!duration) {
+        const m = lowerClause.match(
+          new RegExp(`^you may (play|cast) ${objectRefWithLimit} until (?:the )?end of combat on your next turn\\s*$`, 'i')
+        );
+        if (m) {
+          permission = m[1] as any;
+          duration = 'until_end_of_combat_on_next_turn';
         }
       }
 
@@ -2852,9 +3021,12 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       const c = cleanImpulseClause(cRaw);
       const parsed = parseImpulsePermissionClause(c);
       if (parsed) {
-        permissionInfo = parsed;
-        consumed = baseConsumed + (i + 1);
-        break;
+        if (!permissionInfo || (permissionInfo.duration === 'during_resolution' && parsed.duration !== 'during_resolution')) {
+          permissionInfo = parsed;
+          consumed = baseConsumed + (i + 1);
+        }
+        if (parsed.duration !== 'during_resolution') break;
+        continue;
       }
 
       if (i >= maxIgnorableInterveningClauses) break;
@@ -3169,18 +3341,38 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       if (age > 4) {
         pendingImpulseFromExileTop = null;
       } else {
-        const permissionInfo = parseImpulsePermissionClause(cleanImpulseClause(clauses[i]));
-        if (permissionInfo) {
+        // Scan ahead a few clauses to find the best matching permission clause.
+        // Prefer explicit durations over the weak "during_resolution" match when multiple clauses exist.
+        const maxClauseIndex = Math.min(clauses.length, pendingImpulseFromExileTop.clauseIndex + 5);
+        let best: ReturnType<typeof parseImpulsePermissionClause> | null = null;
+        let bestClauseIndex: number | null = null;
+
+        for (let j = i; j < maxClauseIndex; j++) {
+          const parsed = parseImpulsePermissionClause(cleanImpulseClause(clauses[j]));
+          if (parsed) {
+            if (!best || (best.duration === 'during_resolution' && parsed.duration !== 'during_resolution')) {
+              best = parsed;
+              bestClauseIndex = j;
+            }
+            if (parsed.duration !== 'during_resolution') break;
+            continue;
+          }
+
+          // Stop at the first non-ignorable intervening clause.
+          if (!isIgnorableImpulseReminderClause(cleanImpulseClause(clauses[j]))) break;
+        }
+
+        if (best && bestClauseIndex !== null) {
           const prev: any = steps[pendingImpulseFromExileTop.stepIndex];
           if (prev && prev.kind === 'exile_top') {
-            const combinedRaw = `${String(prev.raw || '').trim()} ${String(clauses[i] || '').trim()}`.trim();
+            const combinedRaw = `${String(prev.raw || '').trim()} ${String(clauses[bestClauseIndex] || '').trim()}`.trim();
             steps[pendingImpulseFromExileTop.stepIndex] = {
               kind: 'impulse_exile_top',
               who: prev.who,
               amount: prev.amount,
-              duration: permissionInfo.duration,
-              permission: permissionInfo.permission,
-              ...(permissionInfo.condition ? { condition: permissionInfo.condition } : {}),
+              duration: best.duration,
+              permission: best.permission,
+              ...(best.condition ? { condition: best.condition } : {}),
               ...(prev.optional ? { optional: prev.optional } : {}),
               ...(prev.sequence ? { sequence: prev.sequence } : {}),
               raw: combinedRaw.endsWith('.') ? combinedRaw : `${combinedRaw}.`,
@@ -3188,7 +3380,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
 
             pendingImpulseFromExileTop = null;
             lastCreateTokenStepIndexes = null;
-            i += 1;
+            i = bestClauseIndex + 1;
             continue;
           }
           pendingImpulseFromExileTop = null;
@@ -3207,8 +3399,18 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         .map(x => x.idx);
       lastCreateTokenStepIndexes = createIndexes.length > 0 ? createIndexes : null;
 
-      // The exile_top step is always last.
-      pendingImpulseFromExileTop = { stepIndex: startIdx + (createAndExileTop.length - 1), clauseIndex: i };
+      // Track the exile_top step for a follow-up impulse permission window.
+      const exileIdxWithin = (() => {
+        for (let off = createAndExileTop.length - 1; off >= 0; off--) {
+          if (createAndExileTop[off]?.kind === 'exile_top') return off;
+        }
+        return null;
+      })();
+      if (exileIdxWithin !== null) {
+        pendingImpulseFromExileTop = { stepIndex: startIdx + exileIdxWithin, clauseIndex: i };
+      } else {
+        pendingImpulseFromExileTop = null;
+      }
       i += 1;
       continue;
     }

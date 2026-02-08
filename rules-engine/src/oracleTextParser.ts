@@ -94,13 +94,15 @@ export interface OracleTextParseResult {
  * - Everything to the left is the Cost (happens immediately, cannot be responded to)
  * - Everything to the right is the Effect (goes on the stack)
  */
-const ACTIVATED_ABILITY_PATTERN = /^([^:]+?):\s*(.+)$/;
+// Note: Use [\s\S] so multiline modal/bullet effects are supported.
+const ACTIVATED_ABILITY_PATTERN = /^([^:]+?):\s*([\s\S]+)$/;
 
 /**
  * Planeswalker loyalty ability pattern
  * Captures: loyalty change (group 1), effect (group 2)
  */
-const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*(.+)$/;
+// Note: Use [\s\S] so multiline modal/bullet effects are supported.
+const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*([\s\S]+)$/;
 
 /**
  * Keyword ability with cost pattern (Equip, Cycling, etc.)
@@ -180,15 +182,18 @@ export function parseActivatedAbility(text: string): ParsedAbility | null {
 
 // When/Whenever clause pattern
 // Captures: keyword (group 1), trigger condition (group 2), effect (group 3)
-const WHEN_WHENEVER_PATTERN = /^(When|Whenever)\s+(.+?),\s+(.+)$/i;
+// Note: Use [\s\S] so multiline modal/bullet effects are supported.
+const WHEN_WHENEVER_PATTERN = /^(When|Whenever)\s+([\s\S]+?),\s+([\s\S]+)$/i;
 
 // "At" clause pattern for specific points in time
 // Captures: timing (group 2), effect (group 3)
-const AT_PATTERN = /^At\s+(the|each)\s+(.+?),\s+(.+)$/i;
+// Note: Use [\s\S] so multiline modal/bullet effects are supported.
+const AT_PATTERN = /^At\s+(the|each)\s+([\s\S]+?),\s+([\s\S]+)$/i;
 
 // Intervening-if clause pattern (checks twice: on trigger and on resolution)
 // Captures: trigger keyword (group 1), condition (group 2), if clause (group 3), effect (group 4)
-const INTERVENING_IF_PATTERN = /^(When|Whenever|At)\s+(.+?),\s+if\s+(.+?),\s+(.+)$/i;
+// Note: Use [\s\S] so multiline modal/bullet effects are supported.
+const INTERVENING_IF_PATTERN = /^(When|Whenever|At)\s+([\s\S]+?),\s+if\s+([\s\S]+?),\s+([\s\S]+)$/i;
 
 /**
  * Parse a triggered ability from oracle text line
@@ -687,19 +692,35 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     ? oracleText.replace(new RegExp(cardName, 'gi'), 'this permanent')
     : oracleText;
   
-  // Split into lines/sentences for parsing
-  // Split by newlines first to preserve ability boundaries, then split sentences within each line
-  const abilityLines = normalizedText.split(/\n+/).filter(l => l.trim());
+  // Split into lines/sentences for parsing.
+  // Split by newlines first to preserve ability boundaries, but merge modal bullet lines
+  // (lines starting with "•") into the previous line so we can parse the entire modal block.
+  const rawLines = normalizedText.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const abilityLines: string[] = [];
+  for (const raw of rawLines) {
+    if (/^[\u2022•]\s+/.test(raw) && abilityLines.length > 0) {
+      abilityLines[abilityLines.length - 1] = `${abilityLines[abilityLines.length - 1]}\n${raw}`;
+    } else {
+      abilityLines.push(raw);
+    }
+  }
   
-  // For each ability line, split into sentences and merge continuations
+  // For each ability line, split into sentences and merge continuations.
+  // Modal bullet blocks must remain intact (they frequently include newlines and bullets).
   const lines: string[] = [];
   for (const abilityLine of abilityLines) {
+    const isModalBulletBlock = /\n\s*[\u2022•]\s+/.test(abilityLine);
+    if (isModalBulletBlock) {
+      lines.push(abilityLine);
+      continue;
+    }
+
     // Split sentences within this ability line
     const sentences = abilityLine.split(/(?<=[.!])\s+/).filter(s => s.trim());
-    
+
     // Merge continuation sentences within this line only
     const merged = mergeContinuationSentences(sentences);
-    
+
     // Add the merged sentences to our final list
     lines.push(...merged);
   }
@@ -760,7 +781,7 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     keywordActions.push(...actions);
     
     // Check for modal text
-    if (/choose (one|two|three|four)/i.test(trimmed) || /\n•/.test(trimmed)) {
+    if (/choose\s+(?:one|two|three|four|up to)\b/i.test(trimmed) || /[\u2022•]/.test(trimmed)) {
       hasModes = true;
     }
     

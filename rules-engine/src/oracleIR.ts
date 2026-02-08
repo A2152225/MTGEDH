@@ -56,6 +56,7 @@ export type OracleEffectStep =
         | 'during_resolution'
         | 'during_next_turn'
         | 'until_end_of_next_turn'
+        | 'until_end_of_combat_on_next_turn'
         | 'until_next_turn'
         | 'until_next_upkeep'
         | 'until_next_end_step'
