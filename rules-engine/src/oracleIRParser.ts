@@ -548,6 +548,96 @@ function tryParseMultiCreateTokensClause(rawClause: string): OracleEffectStep[] 
   return steps;
 }
 
+function tryParseCreateTokenAndExileTopClause(rawClause: string): OracleEffectStep[] | null {
+  const normalized = normalizeClauseForParse(rawClause);
+  const clause = normalized.clause;
+  const sequence = normalized.sequence;
+  const optional = normalized.optional;
+
+  const lower = clause.toLowerCase();
+  const splitNeedle = ' and exile the top ';
+  const splitAt = lower.indexOf(splitNeedle);
+  if (splitAt < 0) return null;
+
+  const createPart = clause.slice(0, splitAt).trim();
+  const exilePart = clause.slice(splitAt + ' and '.length).trim();
+  if (!createPart || !exilePart) return null;
+
+  const created: OracleEffectStep[] | null =
+    tryParseMultiCreateTokensClause(createPart) ||
+    (() => {
+      const step = parseEffectClauseToStep(createPart);
+      return step.kind === 'create_token' ? [step] : null;
+    })();
+  if (!created || created.length === 0) return null;
+
+  // We only support the exile-top portion when it is deterministic.
+  const normalizePossessive = (s: string): string => String(s || '').replace(/’/g, "'").trim().toLowerCase();
+  const clean = normalizeOracleText(exilePart).trim();
+
+  let amount: OracleQuantity | null = null;
+  let who: OraclePlayerSelector | null = null;
+
+  {
+    const mMany = clean.match(
+      /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
+    );
+    if (mMany) {
+      amount = parseQuantity(mMany[1]);
+      const src = normalizePossessive(mMany[2]);
+      if (src === 'your') who = { kind: 'you' };
+      else if (src === "target player's") who = { kind: 'target_player' };
+      else if (src === "target opponent's") who = { kind: 'target_opponent' };
+      else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+      else if (src === "that opponent's") who = { kind: 'target_opponent' };
+      else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+      else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) {
+        who = { kind: 'each_opponent' };
+      }
+    }
+  }
+
+  if (!amount) {
+    const mOne = clean.match(
+      /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
+    );
+    if (mOne) {
+      amount = { kind: 'number', value: 1 };
+      const src = normalizePossessive(mOne[1]);
+      if (src === 'your') who = { kind: 'you' };
+      else if (src === "target player's") who = { kind: 'target_player' };
+      else if (src === "target opponent's") who = { kind: 'target_opponent' };
+      else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+      else if (src === "that opponent's") who = { kind: 'target_opponent' };
+      else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
+      else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) {
+        who = { kind: 'each_opponent' };
+      }
+    }
+  }
+
+  if (!amount || !who) return null;
+
+  const withMeta = <T extends OracleEffectStep>(step: T): T => {
+    const out: any = { ...step };
+    if (sequence) out.sequence = sequence;
+    if (optional) out.optional = optional;
+    return out;
+  };
+
+  const createdWithMeta = created.map((s, idx) =>
+    withMeta({ ...(s as any), sequence: idx === 0 ? (sequence as any) : undefined } as any)
+  );
+  const exileTop = withMeta({
+    kind: 'exile_top',
+    who,
+    amount,
+    raw: clean.endsWith('.') ? clean : `${clean}.`,
+  });
+
+  return [...createdWithMeta, exileTop];
+}
+
 function inferZoneFromDestination(destination: string): OracleZone {
   const s = String(destination || '').toLowerCase();
   if (/\bhands?\b/.test(s)) return 'hand';
@@ -801,6 +891,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       .trim()
       .replace(/^then\b\s*/i, '')
       .replace(/^if you do,\s*/i, '')
+      .replace(/^if you don[’']t,\s*/i, '')
       .replace(/,+\s*$/g, '')
       .trim();
 
@@ -851,11 +942,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         readonly duration:
           | 'this_turn'
           | 'during_resolution'
+          | 'during_next_turn'
           | 'until_end_of_next_turn'
           | 'until_next_turn'
           | 'until_next_upkeep'
           | 'until_next_end_step'
-          | 'as_long_as_remains_exiled';
+          | 'as_long_as_remains_exiled'
+          | 'as_long_as_control_source'
+          | 'until_exile_another';
         readonly permission: 'play' | 'cast';
         readonly condition?:
           | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -883,6 +977,13 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         '$1, '
       );
 
+    // Some templates insert a no-cost rider between the object and the duration.
+    // Example: "You may play that card without paying its mana cost this turn."
+    clauseToParse = clauseToParse
+      .replace(/,?\s+without paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
     const objectRef =
       '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|the card they exiled this way|the cards they exiled this way)';
     const objectRefWithLimit = `(?:up to (?:a|an|\d+|x|[a-z]+) of |one of )?${objectRef}`;
@@ -907,6 +1008,10 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     // Some templates use "cast any number of spells from among ...".
     // Normalize this to our simpler "cast spells from among ..." so the rest of the matcher can stay small.
     clauseToParse = clauseToParse.replace(/\bcast\s+any\s+number\s+of\s+spells\s+from\s+among\b/i, 'cast spells from among');
+
+    // Some templates use "cast any number of <restricted> spells ...".
+    // Drop the quantifier; we don't model it in IR.
+    clauseToParse = clauseToParse.replace(/\bcast\s+any\s+number\s+of\s+/i, 'cast ');
 
     let condition:
       | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -967,11 +1072,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     let duration:
       | 'this_turn'
       | 'during_resolution'
+      | 'during_next_turn'
       | 'until_end_of_next_turn'
       | 'until_next_turn'
       | 'until_next_upkeep'
       | 'until_next_end_step'
       | 'as_long_as_remains_exiled'
+      | 'until_exile_another'
+      | 'as_long_as_control_source'
       | null = null;
     let permission: 'play' | 'cast' | null = null;
 
@@ -1015,7 +1123,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const amongRef =
       '(?:them|those (?:exiled )?cards(?: exiled this way)?|the exiled cards|(?:the )?cards exiled this way)';
     const restrictedSpellRef =
-      '(?:an?\\s+(?:artifact|creature|noncreature|enchantment|planeswalker|instant or sorcery)\\s+)?spell';
+      '(?:(?:an?\\s+)?(?:artifact|creature|noncreature|enchantment|planeswalker|instant (?:or|and|and/or) sorcery|permanent)\\s+)?spells?';
+    const colorWordRef = '(white|blue|black|red|green)';
 
     // "You may play lands and cast spells from among them/those cards ..."
     // We treat this as equivalent to a broad "play" permission.
@@ -1149,11 +1258,48 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
     }
 
+    // "You may cast red/blue/... spells from among them/those cards this turn"
+    if (!duration) {
+      const m = lowerClause.match(new RegExp(`^you may cast ${colorWordRef} spells from among ${amongRef} this turn\\s*$`, 'i'));
+      if (m) {
+        const colorMap: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
+          white: 'W',
+          blue: 'U',
+          black: 'B',
+          red: 'R',
+          green: 'G',
+        };
+        const c = colorMap[String(m[1] || '').trim().toLowerCase()];
+        if (c) condition = { kind: 'color', color: c };
+        permission = 'cast';
+        duration = 'this_turn';
+      }
+    }
+
     // "You may cast spells from among them/those cards"
     // No explicit duration implies the permission is usable during the resolution of this effect.
     if (!duration) {
       const m = lowerClause.match(new RegExp(`^you may cast spells from among ${amongRef}\\s*$`, 'i'));
       if (m) {
+        permission = 'cast';
+        duration = 'during_resolution';
+      }
+    }
+
+    // "You may cast red/blue/... spells from among them/those cards"
+    // No explicit duration implies the permission is usable during the resolution of this effect.
+    if (!duration) {
+      const m = lowerClause.match(new RegExp(`^you may cast ${colorWordRef} spells from among ${amongRef}\\s*$`, 'i'));
+      if (m) {
+        const colorMap: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
+          white: 'W',
+          blue: 'U',
+          black: 'B',
+          red: 'R',
+          green: 'G',
+        };
+        const c = colorMap[String(m[1] || '').trim().toLowerCase()];
+        if (c) condition = { kind: 'color', color: c };
         permission = 'cast';
         duration = 'during_resolution';
       }
@@ -1200,6 +1346,17 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     // "You may cast a spell from among them/those cards this turn"
     if (!duration) {
       const m = lowerClause.match(new RegExp(`^you may cast a spell from among ${amongRef} this turn\\s*$`, 'i'));
+      if (m) {
+        permission = 'cast';
+        duration = 'this_turn';
+      }
+    }
+
+    // "Until end of turn, you may cast noncreature/creature/... spells from among them/those cards"
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(`^until (?:the )?end of (?:this )?turn, you may cast ${restrictedSpellRef} from among ${amongRef}\\s*$`, 'i')
+      );
       if (m) {
         permission = 'cast';
         duration = 'this_turn';
@@ -1282,6 +1439,26 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
     }
 
+    // "During your next turn, you may play/cast <objectRef>"
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(`^during your next turn,?\\s+you may (play|cast) ${objectRefWithLimit}\\s*$`, 'i')
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'during_next_turn';
+      }
+    }
+
+    // "You may play/cast <objectRef> during your next turn"
+    if (!duration) {
+      const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} during your next turn\\s*$`, 'i'));
+      if (m) {
+        permission = m[1] as any;
+        duration = 'during_next_turn';
+      }
+    }
+
     // "For/as long as <objectRef> remains exiled, you may play/cast <objectRef>"
     if (!duration) {
       const m = lowerClause.match(
@@ -1293,6 +1470,36 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       if (m) {
         permission = m[1] as any;
         duration = 'as_long_as_remains_exiled';
+      }
+    }
+
+    // "You may play/cast it for as long as you control <source>"
+    // Seen in templates like Lightning, Security Sergeant.
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(
+          `^you may (play|cast) ${objectRefWithLimit} (?:for as long as|as long as) you control (?:this (?:creature|artifact|enchantment|planeswalker|permanent)|(?!(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)\\b)[a-z0-9][a-z0-9\\s\\-\\.',’]+)\\s*$`,
+          'i'
+        )
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'as_long_as_control_source';
+      }
+    }
+
+    // "You may play/cast it until you exile another card with this <permanent type>."
+    // Seen in templates like Furious Rise / Unstable Amulet / similar.
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(
+          `^you may (play|cast) ${objectRefWithLimit} until you exile another card with this (?:creature|artifact|enchantment|planeswalker|permanent)\\s*$`,
+          'i'
+        )
+      );
+      if (m) {
+        permission = m[1] as any;
+        duration = 'until_exile_another';
       }
     }
 
@@ -1314,6 +1521,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         .trim()
         .replace(/^then\b\s*/i, '')
         .replace(/^if you do,\s*/i, '')
+        .replace(/^if you don[’']t,\s*/i, '')
         .replace(/,+\s*$/g, '')
         .trim();
 
@@ -1328,7 +1536,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       const firstClean = cleanImpulseClause(first);
 
       const m = firstClean.match(
-        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
+        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
       );
       if (m) {
         amount = parseQuantity(m[1]);
@@ -1337,12 +1545,14 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         if (src === 'your') who = { kind: 'you' };
         else if (src === "target player's") who = { kind: 'target_player' };
         else if (src === "target opponent's") who = { kind: 'target_opponent' };
+        else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+        else if (src === "that opponent's") who = { kind: 'target_opponent' };
         else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
         else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
         else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
       } else {
         const m2 = firstClean.match(
-          /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
+          /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
         );
         if (m2) {
           amount = { kind: 'number', value: 1 };
@@ -1351,6 +1561,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
           else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
@@ -1390,7 +1602,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // Alternate verb: "Put the top card(s) of ... library into exile"
       if (!amount) {
         const m5 = firstClean.match(
-          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
+          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
         );
         if (m5) {
           amount = parseQuantity(m5[1]);
@@ -1399,6 +1611,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
           else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
@@ -1406,7 +1620,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       if (!amount) {
         const m6 = firstClean.match(
-          /^put\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
+          /^put\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
         );
         if (m6) {
           amount = { kind: 'number', value: 1 };
@@ -1415,6 +1629,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
           else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
@@ -1584,11 +1800,13 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           readonly duration:
             | 'this_turn'
             | 'during_resolution'
+            | 'during_next_turn'
             | 'until_end_of_next_turn'
             | 'until_next_turn'
             | 'until_next_upkeep'
             | 'until_next_end_step'
-            | 'as_long_as_remains_exiled';
+            | 'as_long_as_remains_exiled'
+            | 'as_long_as_control_source';
           readonly permission: 'play' | 'cast';
           readonly condition?:
             | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -1625,6 +1843,13 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           '$1, '
         );
 
+      // Some templates insert a no-cost rider between the object and the duration.
+      // Example: "You may play that card without paying its mana cost this turn."
+      clauseToParse = clauseToParse
+        .replace(/,?\s+without paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
       const objectRef =
         '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|the card they exiled this way|the cards they exiled this way)';
       const objectRefWithLimit = `(?:up to (?:a|an|\d+|x|[a-z]+) of |one of )?${objectRef}`;
@@ -1655,6 +1880,10 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         /\bcast\s+any\s+number\s+of\s+spells\s+from\s+among\b/i,
         'cast spells from among'
       );
+
+      // Some templates use "cast any number of <restricted> spells ...".
+      // Drop the quantifier; we don't model it in IR.
+      clauseToParse = clauseToParse.replace(/\bcast\s+any\s+number\s+of\s+/i, 'cast ');
 
       let condition:
         | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
@@ -1715,11 +1944,13 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       let duration:
         | 'this_turn'
         | 'during_resolution'
+        | 'during_next_turn'
         | 'until_end_of_next_turn'
         | 'until_next_turn'
         | 'until_next_upkeep'
         | 'until_next_end_step'
         | 'as_long_as_remains_exiled'
+        | 'as_long_as_control_source'
         | null = null;
       let permission: 'play' | 'cast' | null = null;
 
@@ -1744,7 +1975,9 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
       const amongRef =
         '(?:them|those (?:exiled )?cards(?: exiled this way)?|the exiled cards|(?:the )?cards exiled this way)';
-      const restrictedSpellRef = '(?:an?\\s+(?:artifact|creature|noncreature|enchantment|planeswalker|instant or sorcery)\\s+)?spell';
+      const restrictedSpellRef =
+        '(?:(?:an?\\s+)?(?:artifact|creature|noncreature|enchantment|planeswalker|instant (?:or|and|and/or) sorcery|permanent)\\s+)?spells?';
+      const colorWordRef = '(white|blue|black|red|green)';
 
       // "You may play lands and cast spells from among them/those cards ..."
       // We treat this as equivalent to a broad "play" permission.
@@ -1868,11 +2101,48 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         }
       }
 
+      // "You may cast red/blue/... spells from among them/those cards this turn"
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may cast ${colorWordRef} spells from among ${amongRef} this turn\\s*$`, 'i'));
+        if (m) {
+          const colorMap: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
+            white: 'W',
+            blue: 'U',
+            black: 'B',
+            red: 'R',
+            green: 'G',
+          };
+          const c = colorMap[String(m[1] || '').trim().toLowerCase()];
+          if (c) condition = { kind: 'color', color: c };
+          permission = 'cast';
+          duration = 'this_turn';
+        }
+      }
+
       // "You may cast spells from among them/those cards"
       // No explicit duration implies the permission is usable during the resolution of this effect.
       if (!duration) {
         const m = lowerClause.match(new RegExp(`^you may cast spells from among ${amongRef}\\s*$`, 'i'));
         if (m) {
+          permission = 'cast';
+          duration = 'during_resolution';
+        }
+      }
+
+      // "You may cast red/blue/... spells from among them/those cards"
+      // No explicit duration implies the permission is usable during the resolution of this effect.
+      if (!duration) {
+        const m = lowerClause.match(new RegExp(`^you may cast ${colorWordRef} spells from among ${amongRef}\\s*$`, 'i'));
+        if (m) {
+          const colorMap: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
+            white: 'W',
+            blue: 'U',
+            black: 'B',
+            red: 'R',
+            green: 'G',
+          };
+          const c = colorMap[String(m[1] || '').trim().toLowerCase()];
+          if (c) condition = { kind: 'color', color: c };
           permission = 'cast';
           duration = 'during_resolution';
         }
@@ -1919,6 +2189,17 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // "You may cast a spell from among them/those cards this turn"
       if (!duration) {
         const m = lowerClause.match(new RegExp(`^you may cast a spell from among ${amongRef} this turn\\s*$`, 'i'));
+        if (m) {
+          permission = 'cast';
+          duration = 'this_turn';
+        }
+      }
+
+      // "Until end of turn, you may cast noncreature/creature/... spells from among them/those cards"
+      if (!duration) {
+        const m = lowerClause.match(
+          new RegExp(`^until (?:the )?end of (?:this )?turn, you may cast ${restrictedSpellRef} from among ${amongRef}\\s*$`, 'i')
+        );
         if (m) {
           permission = 'cast';
           duration = 'this_turn';
@@ -2147,7 +2428,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         );
         if (m) {
           permission = m[1] as any;
-          duration = 'until_end_of_next_turn';
+          duration = 'during_next_turn';
         }
       }
 
@@ -2156,7 +2437,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         const m = lowerClause.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} during your next turn\\s*$`, 'i'));
         if (m) {
           permission = m[1] as any;
-          duration = 'until_end_of_next_turn';
+          duration = 'during_next_turn';
         }
       }
       // "Until the end of your next turn, you may play/cast that card"
@@ -2535,6 +2816,20 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         }
       }
 
+      // "You may play/cast it for as long as you control <source>"
+      if (!duration) {
+        const m = lowerClause.match(
+          new RegExp(
+            `^you may (play|cast) ${objectRefWithLimit} (?:for as long as|as long as) you control (?:this (?:creature|artifact|enchantment|planeswalker|permanent)|(?!(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)\\b)[a-z0-9][a-z0-9\\s\\-\\.',’]+)\\s*$`,
+            'i'
+          )
+        );
+        if (m) {
+          permission = m[1] as any;
+          duration = 'as_long_as_control_source';
+        }
+      }
+
       if (!duration) return null;
       if (!permission) return null;
 
@@ -2594,6 +2889,11 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const second = String(clauses[idx + 1] || '').trim();
     if (!first) return null;
 
+    const normalizedFirst = normalizeClauseForParse(first);
+    const normalizedSecond = second ? normalizeClauseForParse(second) : null;
+    const firstToParse = String(normalizedFirst.clause || '').trim();
+    const secondToParse = normalizedSecond ? String(normalizedSecond.clause || '').trim() : '';
+
     const normalizePossessive = (s: string): string => String(s || '').replace(/’/g, "'").trim().toLowerCase();
 
     let amount: OracleQuantity | null = null;
@@ -2601,8 +2901,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     let consumed = 1;
 
     {
-      const m = first.match(
-        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
+      const m = firstToParse.match(
+        /^exile\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
       );
       if (m) {
         amount = parseQuantity(m[1]);
@@ -2610,11 +2910,13 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         if (src === 'your') who = { kind: 'you' };
         else if (src === "target player's") who = { kind: 'target_player' };
         else if (src === "target opponent's") who = { kind: 'target_opponent' };
+        else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+        else if (src === "that opponent's") who = { kind: 'target_opponent' };
         else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
         else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
       } else {
-        const m2 = first.match(
-          /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
+        const m2 = firstToParse.match(
+          /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
         );
         if (m2) {
           amount = { kind: 'number', value: 1 };
@@ -2622,13 +2924,15 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
         }
       }
 
       if (!amount) {
-        const mExilesMany = first.match(
+        const mExilesMany = firstToParse.match(
           /^(each player|each opponent|you|target player|target opponent)\s+exiles\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(?:their|your)\s+library(?:\s+face down)?\s*$/i
         );
         if (mExilesMany) {
@@ -2643,7 +2947,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
 
       if (!amount) {
-        const mExilesOne = first.match(
+        const mExilesOne = firstToParse.match(
           /^(each player|each opponent|you|target player|target opponent)\s+exiles\s+the\s+top\s+card\s+of\s+(?:their|your)\s+library(?:\s+face down)?\s*$/i
         );
         if (mExilesOne) {
@@ -2658,8 +2962,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       }
 
       if (!amount) {
-        const m3 = first.match(
-          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?\s*$/i
+        const m3 = firstToParse.match(
+          /^put\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?\s*$/i
         );
         if (m3) {
           amount = parseQuantity(m3[1]);
@@ -2667,13 +2971,15 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
         }
       }
       if (!amount) {
-        const m4 = first.match(
-          /^put\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?\s*$/i
+        const m4 = firstToParse.match(
+          /^put\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’])\s+librar(?:y|ies)\s+into\s+exile(?:\s+face down)?\s*$/i
         );
         if (m4) {
           amount = { kind: 'number', value: 1 };
@@ -2681,13 +2987,15 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
         }
       }
 
       if (!amount) {
-        const m5 = first.match(
+        const m5 = firstToParse.match(
           /^(each player|each opponent|you|target player|target opponent)\s+puts?\s+the\s+top\s+(a|an|\d+|x|[a-z]+)\s+cards?\s+of\s+(?:their|your)\s+library\s+into\s+exile(?:\s+face down)?\s*$/i
         );
         if (m5) {
@@ -2701,7 +3009,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         }
       }
       if (!amount) {
-        const m6 = first.match(
+        const m6 = firstToParse.match(
           /^(each player|each opponent|you|target player|target opponent)\s+puts?\s+the\s+top\s+card\s+of\s+(?:their|your)\s+library\s+into\s+exile(?:\s+face down)?\s*$/i
         );
         if (m6) {
@@ -2724,8 +3032,8 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
             .replace(/^then\b\s*/i, '')
             .replace(/,+\s*$/g, '')
             .trim();
-        const firstClean = clean(first);
-        const secondClean = clean(second);
+        const firstClean = clean(firstToParse);
+        const secondClean = clean(secondToParse);
 
         const look = firstClean.match(
           /^look at the top card of (your|their|his or her|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s) librar(?:y|ies)\s*$/i
@@ -2753,7 +3061,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
             .replace(/^then\b\s*/i, '')
             .replace(/,+\s*$/g, '')
             .trim();
-        const firstClean = clean(first);
+        const firstClean = clean(firstToParse);
 
         const srcPattern =
           '(your|target player[\'’]s|target opponent[\'’]s|that player[\'’]s|that opponent[\'’]s|each player[\'’]s|each players[\'’]|each opponent[\'’]s|each opponents[\'’]|each of your opponents[\'’]|their|his or her)';
@@ -2799,18 +3107,23 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     if (!amount) return null;
     if (!who) return null;
 
-    return {
-      step: {
-        kind: 'exile_top',
-        who,
-        amount,
-        raw: clauses
+    const out: any = {
+      kind: 'exile_top',
+      who,
+      amount,
+      raw:
+        clauses
           .slice(idx, idx + consumed)
           .map(c => String(c || '').trim())
           .filter(Boolean)
           .join('. ') +
-          '.',
-      },
+        '.',
+    };
+    if (normalizedFirst.sequence) out.sequence = normalizedFirst.sequence;
+    if (normalizedFirst.optional) out.optional = true;
+
+    return {
+      step: out,
       consumed,
     };
   };
@@ -2881,6 +3194,23 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           pendingImpulseFromExileTop = null;
         }
       }
+    }
+
+    const createAndExileTop = tryParseCreateTokenAndExileTopClause(clauses[i]);
+    if (createAndExileTop) {
+      const startIdx = steps.length;
+      steps.push(...createAndExileTop);
+
+      const createIndexes = createAndExileTop
+        .map((s, off) => ({ s, idx: startIdx + off }))
+        .filter(x => x.s.kind === 'create_token')
+        .map(x => x.idx);
+      lastCreateTokenStepIndexes = createIndexes.length > 0 ? createIndexes : null;
+
+      // The exile_top step is always last.
+      pendingImpulseFromExileTop = { stepIndex: startIdx + (createAndExileTop.length - 1), clauseIndex: i };
+      i += 1;
+      continue;
     }
 
     const impulse = tryParseImpulseExileTop(i);

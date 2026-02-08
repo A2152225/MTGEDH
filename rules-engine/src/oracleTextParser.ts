@@ -507,6 +507,7 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^otherwise\b/i,     // Alternative clause
   /^instead\b/i,       // Replacement continuation
   /^draw\b/i,          // Draw as continuation: "Destroy X. Draw a card."
+  /^exile\b/i,         // Exile as continuation: "Destroy X. Exile it." / "Choose target. Exile the top card ..."
   /^shuffle\b/i,       // Shuffle as continuation: "Search library. Shuffle."
   /^(?:sacrifice|exile)\s+(?:it|them|that token|those tokens|the token|the tokens)\b/i, // Follow-up cleanup for created/affected objects
 ];

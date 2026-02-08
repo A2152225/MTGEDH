@@ -54,11 +54,14 @@ export type OracleEffectStep =
       readonly duration:
         | 'this_turn'
         | 'during_resolution'
+        | 'during_next_turn'
         | 'until_end_of_next_turn'
         | 'until_next_turn'
         | 'until_next_upkeep'
         | 'until_next_end_step'
-        | 'as_long_as_remains_exiled';
+        | 'as_long_as_remains_exiled'
+        | 'as_long_as_control_source'
+        | 'until_exile_another';
       /** Whether oracle text granted 'play' (lands + cast) or 'cast' (spells only). */
       readonly permission: 'play' | 'cast';
       /** Optional simple condition gating the permission (e.g. "If it's red/nonland..."). */

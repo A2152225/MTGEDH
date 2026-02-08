@@ -130,6 +130,35 @@ describe('Oracle IR Parser', () => {
     expect(exileTop.amount).toEqual({ kind: 'number', value: 2 });
   });
 
+  it("upgrades exile_top into impulse for 'that player\'s library'", () => {
+    const text = "Exile the top card of that player's library. You gain 2 life. You may cast it.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('cast');
+    expect(impulse.duration).toBe('during_resolution');
+  });
+
+  it("parses Ragavan-style 'create a Treasure token and exile the top card' into create_token + impulse", () => {
+    const text =
+      "Whenever Ragavan deals combat damage to a player, create a Treasure token and exile the top card of that player's library. Until end of turn, you may cast that card.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps.some(s => s.kind === 'create_token')).toBe(true);
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('cast');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
   it('parses comma-separated multi-token creation lists', () => {
     const text = 'Create a Treasure token, a Food token, and a Clue token.';
     const ir = parseOracleTextToIR(text);
@@ -459,6 +488,203 @@ describe('Oracle IR Parser', () => {
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('this_turn');
     expect(impulse.permission).toBe('play');
+  });
+
+  it('upgrades exile_top into impulse when permission is conditional "If you don\'t, you may play ..."', () => {
+    const text = "Exile the top card of your library. If you don't, you may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('upgrades exile_top into impulse for Spark of Creativity-style conditional permission', () => {
+    const text =
+      "Choose target creature. Exile the top card of your library. You may have Spark of Creativity deal damage to that creature equal to the exiled card's mana value. If you don't, you may play that card until end of turn.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('upgrades exile_top into impulse for Synth Eradicator-style energy-or-play branch', () => {
+    const text =
+      'Haste\nWhenever this creature attacks, exile the top card of your library. You may get {E}{E} (two energy counters). If you don\'t, you may play that card this turn.';
+    const ir = parseOracleTextToIR(text, 'Synth Eradicator');
+    const ability = ir.abilities.find(a => a.type === 'triggered')!;
+    expect(ability).toBeTruthy();
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('upgrades exile_top into impulse for The Great Juggernaut-style free-play rider', () => {
+    const text =
+      'Whenever The Great Juggernaut attacks, shuffle your library then exile the top card of your library. You may play that card without paying its mana cost this turn.';
+    const ir = parseOracleTextToIR(text, 'The Great Juggernaut');
+    const ability = ir.abilities.find(a => a.type === 'triggered')!;
+    expect(ability).toBeTruthy();
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('upgrades optional exile_top into impulse and preserves optional metadata', () => {
+    const text = 'You may exile the top card of your library. Until end of turn, you may play that card.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+    expect(impulse.optional).toBe(true);
+  });
+
+  it('parses impulse exile-top with until-you-exile-another duration', () => {
+    const text =
+      'Whenever you cast a spell with mana value 4 or greater, you may exile the top card of your library. If you do, you may play that card until you exile another card with this creature.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('until_exile_another');
+    expect(impulse.optional).toBe(true);
+  });
+
+  it('parses impulse exile-top with until-you-exile-another duration (artifact variant)', () => {
+    const text = '{T}, Pay {E}{E}: Exile the top card of your library. You may play it until you exile another card with this artifact.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('until_exile_another');
+  });
+
+  it('parses impulse exile-top with implicit during-resolution permission (plural them)', () => {
+    const text = 'Exile the top two cards of your library. You may play them.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with color-restricted spell permission (cast red spells from among them)', () => {
+    const text = 'Exile the top five cards of your library. You may cast red spells from among them this turn.';
+    const ir = parseOracleTextToIR(text, 'Chandra, Dressed to Kill');
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 5 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+    expect(impulse.condition).toEqual({ kind: 'color', color: 'R' });
+  });
+
+  it('parses impulse exile-top with leading until-end-of-turn and plural restricted-spells permission', () => {
+    const text =
+      'Whenever Narset attacks, exile the top four cards of your library. Until end of turn, you may cast noncreature spells from among those cards without paying their mana costs.';
+    const ir = parseOracleTextToIR(text, 'Narset, Enlightened Master');
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 4 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with next-turn duration and plural restricted-spells from among the exiled cards', () => {
+    const text =
+      'Exile the top two cards of your library. Until the end of your next turn, you may cast creature spells from among the exiled cards.';
+    const ir = parseOracleTextToIR(text, 'Eager Flameguide');
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with "instant and sorcery spells" restriction (normalized to instant-or-sorcery)', () => {
+    const text =
+      'Exile the top eight cards of your library. You may cast instant and sorcery spells from among them this turn without paying their mana costs.';
+    const ir = parseOracleTextToIR(text, 'Ral, Leyline Prodigy');
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 8 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with control-source duration', () => {
+    const text =
+      'Whenever Lightning deals combat damage to a player, exile the top card of your library. You may play that card for as long as you control Lightning.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('as_long_as_control_source');
+  });
+
+  it('parses impulse exile-top with remains-exiled duration (suffix form)', () => {
+    const text = "Exile the top card of each opponent's library. You may play those cards for as long as they remain exiled.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
   });
 
   it('parses impulse exile-top with until-end-of-turn (suffix form) permission', () => {
@@ -993,6 +1219,20 @@ describe('Oracle IR Parser', () => {
     expect(impulse).toBeTruthy();
     expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
     expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with "instant and/or sorcery" restriction (Kylox-style any-number-of)', () => {
+    const text =
+      'Whenever Kylox attacks, sacrifice any number of other creatures, then exile the top X cards of your library, where X is their total power. You may cast any number of instant and/or sorcery spells from among the exiled cards without paying their mana costs.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'x' });
+    expect(impulse.duration).toBe('during_resolution');
     expect(impulse.permission).toBe('cast');
   });
 
@@ -1599,7 +1839,7 @@ describe('Oracle IR Parser', () => {
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'you' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
-    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.duration).toBe('during_next_turn');
     expect(impulse.permission).toBe('play');
   });
 
