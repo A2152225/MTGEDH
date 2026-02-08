@@ -482,6 +482,7 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^\(/,               // Reminder/parenthetical continuation: "(You may ... )"
   /^you\b/i,           // Continuation of effect on player: "You may...", "You gain..."
   /^if\b/i,            // Conditional modifier: "If you do..."
+  /^choose\b/i,         // Intervening choice that refers to previous sentence: "Choose one of them"
   /^when\s+you\s+do\b/i,  // Reflexive trigger: "When you do, X happens"
   /^whenever\s+you\s+do\b/i,  // Reflexive trigger: "Whenever you do, X happens"
   /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\b/i, // Delayed trigger created by a spell/ability
