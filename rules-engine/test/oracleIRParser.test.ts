@@ -1361,6 +1361,44 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses impulse exile-top in Saga chapter lines (roman numeral prefix)', () => {
+    // Real-world Saga formatting uses chapter markers like "I —".
+    // Our normalizer converts em-dash to '-', so the clause becomes "I - Exile ...".
+    const text =
+      '(As this Saga enters and after your draw step, add a lore counter.)\n' +
+      'I — Exile the top three cards of your library. Until the end of your next turn, you may play those cards.\n' +
+      'II — Add one mana of any color.';
+
+    const ir = parseOracleTextToIR(text, 'The Legend of Roku');
+    const steps = ir.abilities.flatMap((a) => a.steps);
+    const impulse = steps.find((s) => s.kind === 'impulse_exile_top') as any;
+
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 3 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top in modal options with a named mode label (corpus-style)', () => {
+    // Corpus-style modal formatting:
+    // "Choose one —\n• <Mode Name> — Exile ..."
+    const text =
+      'Choose one —\n' +
+      '• Break Their Chains — Destroy target artifact.\n' +
+      "• Interrogate Them — Exile the top three cards of target opponent's library. Choose one of them. Until the end of your next turn, you may play that card, and you may spend mana as though it were mana of any color to cast it.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities.flatMap((a) => a.steps);
+    const impulse = steps.find((s) => s.kind === 'impulse_exile_top') as any;
+
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 3 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse with variable-amount exile "cards equal to <expr>" from top of target player library (corpus)', () => {
     // Corpus example: Rakdos, the Muscle (template as of 2026-02)
     const text =

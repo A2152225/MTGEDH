@@ -4321,6 +4321,10 @@ function executeTriggerEffect(
     debug(1, `[executeTriggerEffect] Kynaios: Creating resolution steps for ${players.length} players, gameId=${gameId}`);
     
     // Create resolution steps for each player using APNAP ordering
+    // Tag all steps with a batch id so the socket handler can apply the "then each opponent who didn't draws" clause
+    // only after all players have made their choice.
+    const kynaiosBatchId = String((triggerItem as any)?.id || `kynaios_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+
     // Each player gets a step to choose whether to play a land
     const stepConfigs = players.map((p: any) => {
       const playerId = p.id;
@@ -4341,6 +4345,7 @@ function executeTriggerEffect(
         sourceId: triggerItem?.permanentId || triggerItem?.sourceId,
         sourceName,
         sourceImage: triggerItem?.card?.image_uris?.small,
+        kynaiosBatchId,
         // Custom data for Kynaios choice
         isController,
         sourceController: controller,

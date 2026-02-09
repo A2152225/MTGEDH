@@ -1811,6 +1811,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const cleanImpulseClause = (s: string): string =>
       normalizeOracleText(String(s || ''))
         .trim()
+        .replace(/^[\u2022•]\s+/g, '')
         .replace(/^then\b\s*/i, '')
         .replace(/^if you do,\s*/i, '')
         .replace(/^if you don[’']t,\s*/i, '')
@@ -1833,6 +1834,12 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // Strip it before attempting to match the exile seed.
       const firstCleanNoChoose = firstClean
         .replace(/,?\s*then\s+choose\s+(?:a|an|one)\s+(?:card|spell)\s+exiled\s+this\s+way\s*$/i, '')
+        // Saga chapter markers prefix effect lines: "I —", "II —", etc.
+        // Our normalizer maps em-dash to '-', so strip "I -"/"II -"/etc.
+        .replace(/^(?:[ivx]+)\s*-\s+/i, '')
+        // Modal mode labels sometimes prefix effect lines: "Interrogate Them — Exile ...".
+        // Strip a short "<Label> -" prefix only when followed by an exile/put/look seed.
+        .replace(/^(?:[a-z0-9][a-z0-9\s'’\-.,]{0,80})\s*-\s+(?=(?:exile|put|look)\b)/i, '')
         // Common prefix patterns that wrap an exile instruction inside a trigger/condition:
         // "Whenever <thing>, if <predicate>, exile ..."
         // "When/Whenever <thing>, exile ..."

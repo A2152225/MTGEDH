@@ -38,6 +38,7 @@ import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { isShockLand } from "./land-helpers.js";
 import type { GameContext } from "../state/context.js";
+import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } from "../state/resolution/handlers/kynaiosChoice.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
@@ -5691,7 +5692,7 @@ async function handleStepResponse(
       break;
       
     case ResolutionStepType.KYNAIOS_CHOICE:
-      handleKynaiosChoiceResponse(io, game, gameId, step, response);
+      handleKynaiosChoiceResponseBatched(io, game, gameId, step, response, { getPlayerName });
       break;
       
     case ResolutionStepType.JOIN_FORCES:
