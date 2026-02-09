@@ -199,47 +199,50 @@ const INTERVENING_IF_PATTERN = /^(When|Whenever|At)\s+([\s\S]+?),\s+if\s+([\s\S]
  * Parse a triggered ability from oracle text line
  */
 export function parseTriggeredAbility(text: string): ParsedAbility | null {
-  // Check for intervening-if clause first (more specific pattern)
-  const ifMatch = text.match(INTERVENING_IF_PATTERN);
-  if (ifMatch) {
+  const parseInterveningIfEffect = (
+    triggerKeyword: 'when' | 'whenever' | 'at',
+    triggerCondition: string,
+    effect: string
+  ): ParsedAbility => {
+    const rawEffect = effect.trim();
+    const ifPrefix = rawEffect.match(/^if\s+([\s\S]+?),\s+([\s\S]+)$/i);
+    if (ifPrefix) {
+      const interveningIf = String(ifPrefix[1] || '').trim();
+      const effectText = String(ifPrefix[2] || '').trim();
+      return {
+        type: AbilityType.TRIGGERED,
+        text,
+        triggerKeyword,
+        triggerCondition,
+        interveningIf,
+        effect: effectText,
+        isOptional: effectText.toLowerCase().includes('you may'),
+        targets: parseTargets(effectText),
+      };
+    }
+
     return {
       type: AbilityType.TRIGGERED,
       text,
-      triggerKeyword: ifMatch[1].toLowerCase() as 'when' | 'whenever' | 'at',
-      triggerCondition: ifMatch[2].trim(),
-      interveningIf: ifMatch[3].trim(),
-      effect: ifMatch[4].trim(),
-      isOptional: ifMatch[4].toLowerCase().includes('you may'),
-      targets: parseTargets(ifMatch[4]),
+      triggerKeyword,
+      triggerCondition,
+      effect: rawEffect,
+      isOptional: rawEffect.toLowerCase().includes('you may'),
+      targets: parseTargets(rawEffect),
     };
-  }
-  
+  };
+
   // Check for "At" clause (beginning of phases/steps)
   const atMatch = text.match(AT_PATTERN);
   if (atMatch) {
-    return {
-      type: AbilityType.TRIGGERED,
-      text,
-      triggerKeyword: 'at',
-      triggerCondition: `${atMatch[1]} ${atMatch[2]}`.trim(),
-      effect: atMatch[3].trim(),
-      isOptional: atMatch[3].toLowerCase().includes('you may'),
-      targets: parseTargets(atMatch[3]),
-    };
+    return parseInterveningIfEffect('at', `${atMatch[1]} ${atMatch[2]}`.trim(), atMatch[3]);
   }
-  
+
   // Check for When/Whenever clause
   const whenMatch = text.match(WHEN_WHENEVER_PATTERN);
   if (whenMatch) {
-    return {
-      type: AbilityType.TRIGGERED,
-      text,
-      triggerKeyword: whenMatch[1].toLowerCase() as 'when' | 'whenever',
-      triggerCondition: whenMatch[2].trim(),
-      effect: whenMatch[3].trim(),
-      isOptional: whenMatch[3].toLowerCase().includes('you may'),
-      targets: parseTargets(whenMatch[3]),
-    };
+    const keyword = whenMatch[1].toLowerCase() as 'when' | 'whenever';
+    return parseInterveningIfEffect(keyword, whenMatch[2].trim(), whenMatch[3]);
   }
   
   return null;

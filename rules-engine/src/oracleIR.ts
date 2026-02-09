@@ -68,7 +68,8 @@ export type OracleEffectStep =
       /** Optional simple condition gating the permission (e.g. "If it's red/nonland..."). */
       readonly condition?:
         | { readonly kind: 'color'; readonly color: 'W' | 'U' | 'B' | 'R' | 'G' }
-        | { readonly kind: 'type'; readonly type: 'land' | 'nonland' };
+        | { readonly kind: 'type'; readonly type: 'land' | 'nonland' }
+        | { readonly kind: 'attacked_with'; readonly raw: string };
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

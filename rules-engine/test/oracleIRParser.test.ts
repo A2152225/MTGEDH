@@ -17,6 +17,21 @@ describe('Oracle IR Parser', () => {
     expect((steps[1] as any).amount).toEqual({ kind: 'number', value: 1 });
     expect((steps[1] as any).sequence).toBe('then');
   });
+  
+  it('upgrades exile-top into impulse for "cards exiled with this creature" permission', () => {
+    const text =
+      "Whenever you sacrifice a nontoken permanent, exile the top card of your library. During your turn, as long as you've sacrificed a nontoken permanent this turn, you may play cards exiled with this creature.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+    const impulse = steps.find((s) => s.kind === 'impulse_exile_top') as any;
+
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('as_long_as_control_source');
+  });
 
   it('parses token creation into IR steps', () => {
     const text = 'Draw a card. Create a 1/1 white Soldier creature token.';
@@ -155,6 +170,20 @@ describe('Oracle IR Parser', () => {
     expect(impulse.who).toEqual({ kind: 'each_player' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 7 });
     expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it("upgrades exile_top into impulse when 'Choose one' intervenes (corpus)", () => {
+    const text = '+2: Add {R}{R}{R}. Exile the top three cards of your library. Choose one. You may play that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities.find(a => a.type === 'activated')!;
+    expect(ability).toBeTruthy();
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 3 });
+    expect(impulse.duration).toBe('this_turn');
     expect(impulse.permission).toBe('play');
   });
 
@@ -734,6 +763,21 @@ describe('Oracle IR Parser', () => {
     expect(impulse.duration).toBe('until_next_end_step');
   });
 
+  it("parses impulse exile-from-top with 'their next turn' duration (corpus)", () => {
+    const text =
+      "Whenever a creature is dealt damage, its controller may exile that many cards from the top of their library. They may play those cards until the end of their next turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'unknown', raw: 'its controller' });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'that many' });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+  });
+
   it('parses impulse exile-top with remains-exiled duration (suffix form)', () => {
     const text = "Exile the top card of each opponent's library. You may play those cards for as long as they remain exiled.";
     const ir = parseOracleTextToIR(text);
@@ -796,6 +840,20 @@ describe('Oracle IR Parser', () => {
     expect(impulse.who).toEqual({ kind: 'target_player' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-until + "this Saga remains on the battlefield" duration', () => {
+    const text =
+      'Exile cards from the top of your library until you exile a legendary card. You may play that card for as long as this Saga remains on the battlefield.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities.flatMap(a => a.steps);
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'until you exile a legendary card' });
+    expect(impulse.duration).toBe('as_long_as_control_source');
     expect(impulse.permission).toBe('play');
   });
 
@@ -1273,6 +1331,22 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses impulse with variable-amount exile "cards equal to <expr>" from top of target player library (corpus)', () => {
+    // Corpus example: Rakdos, the Muscle (template as of 2026-02)
+    const text =
+      "Whenever you sacrifice another creature, exile cards equal to its mana value from the top of target player's library. Until your next end step, you may play those cards, and mana of any type can be spent to cast those spells.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount.kind).toBe('unknown');
+    expect(String(impulse.amount.raw || '')).toMatch(/cards equal to/i);
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse exile-top with in-clause mana-spend reminder', () => {
     const text =
       'Exile the top card of your library. Until end of turn, you may play that card and you may spend mana as though it were mana of any color to cast it.';
@@ -1554,6 +1628,36 @@ describe('Oracle IR Parser', () => {
     expect(impulse.who).toEqual({ kind: 'each_player' });
     expect(impulse.duration).toBe('this_turn');
     expect(impulse.permission).toBe('play');
+  });
+
+  it('upgrades each-player exile-top into impulse for "during each player\'s turn" exiled-with permission (corpus)', () => {
+    const text =
+      "When this enchantment enters and whenever an opponent loses the game, exile the top card of each player's library. During each player's turn, that player may play a land or cast a spell from among cards exiled with this enchantment, and they may spend mana as though it were mana of any color to cast that spell.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('as_long_as_control_source');
+  });
+
+  it('upgrades upkeep exile-top into impulse for "play lands and cast spells from among cards exiled with this" (corpus)', () => {
+    const text =
+      'At the beginning of your upkeep, exile the top card of your library. '
+      + "During your turn, if an opponent lost life this turn, you may play lands and cast spells from among cards exiled with this enchantment.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities.flatMap(a => a.steps);
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('as_long_as_control_source');
   });
 
   it('parses impulse exile-top with each-player next-end-step permission', () => {
@@ -2418,5 +2522,66 @@ describe('Oracle IR Parser', () => {
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('as_long_as_remains_exiled');
     expect(impulse.permission).toBe('cast');
+  });
+  it('parses impulse with variable exile amount "a number of ... equal to ..." and a choose-card clause', () => {
+    // Corpus example: End-Blaze Epiphany
+    const oracleText =
+      "Choose one. You may cast target creature spell from your hand or a graveyard this turn. If you cast it from a graveyard, it gains haste until end of turn. Return it to its owner’s hand at the beginning of the next end step."
+      + "\n"
+      + "Or exile the top card of your library. You may play it this turn."
+      + "\n"
+      + "Or exile a creature you control. When that creature dies this turn, exile a number of cards from the top of your library equal to its power, then choose a card exiled this way. Until the end of your next turn, you may play that card.";
+
+    const ir = parseOracleTextToIR(oracleText);
+
+    const allSteps = ir.abilities.flatMap((a) => a.steps);
+    const impulse = allSteps.find((s) => s.kind === 'impulse_exile_top');
+    expect(impulse).toBeTruthy();
+    if (!impulse || impulse.kind !== 'impulse_exile_top') return;
+
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.amount.kind).toBe('unknown');
+  });
+
+  it('parses conditional impulse permission "During any turn you attacked with a commander" (corpus)', () => {
+    // Corpus example: Neriv, Crackling Vanguard
+    const oracleText =
+      'Flying, deathtouch\n'
+      + 'When Neriv enters, create two 1/1 red Goblin creature tokens.\n'
+      + 'Whenever Neriv attacks, exile a number of cards from the top of your library equal to the number of differently named tokens you control. During any turn you attacked with a commander, you may play those cards.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Neriv, Crackling Vanguard');
+    const allSteps = ir.abilities.flatMap((a) => a.steps);
+    const impulse = allSteps.find((s) => s.kind === 'impulse_exile_top');
+    expect(impulse).toBeTruthy();
+    if (!impulse || impulse.kind !== 'impulse_exile_top') return;
+
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.amount.kind).toBe('unknown');
+    expect(impulse.condition).toEqual({ kind: 'attacked_with', raw: 'a commander' });
+  });
+
+  it('parses conditional impulse permission "During any turn you attacked with a Rogue" with trigger/if-prefixed exile seed (corpus)', () => {
+    // Corpus example: Robber of the Rich (oracle-cards.json is normalized to "this creature")
+    const oracleText =
+      'Reach, haste\n'
+      + 'Whenever this creature attacks, if defending player has more cards in hand than you, exile the top card of their library. '
+      + 'During any turn you attacked with a Rogue, you may cast that card and you may spend mana as though it were mana of any color to cast that spell.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Robber of the Rich');
+    const allSteps = ir.abilities.flatMap((a) => a.steps);
+    const impulse = allSteps.find((s) => s.kind === 'impulse_exile_top');
+    expect(impulse).toBeTruthy();
+    if (!impulse || impulse.kind !== 'impulse_exile_top') return;
+
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('cast');
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.condition).toEqual({ kind: 'attacked_with', raw: 'a rogue' });
   });
 });
