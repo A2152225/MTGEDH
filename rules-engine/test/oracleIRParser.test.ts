@@ -33,6 +33,22 @@ describe('Oracle IR Parser', () => {
     expect(impulse.duration).toBe('as_long_as_control_source');
   });
 
+  it("upgrades exile-top into impulse for Hauken's Insight-style 'Once during each of your turns' permission (corpus)", () => {
+    const text =
+      'At the beginning of your upkeep, exile the top card of your library face down. You may look at that card for as long as it remains exiled. Once during each of your turns, you may play a land or cast a spell from among the cards exiled with this permanent without paying its mana cost.';
+
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities.find(a => a.type === 'triggered')!;
+    expect(ability).toBeTruthy();
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('as_long_as_control_source');
+  });
+
   it('parses token creation into IR steps', () => {
     const text = 'Draw a card. Create a 1/1 white Soldier creature token.';
     const ir = parseOracleTextToIR(text);
@@ -169,6 +185,20 @@ describe('Oracle IR Parser', () => {
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'each_player' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 7 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it("upgrades exile-top into impulse for 'Until your next turn, you may play those cards' (corpus: Three Wishes)", () => {
+    const text =
+      "Exile the top three cards of your library face down. You may look at those cards for as long as they remain exiled. Until your next turn, you may play those cards. At the beginning of your next upkeep, put any of those cards you didn't play into your graveyard.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 3 });
     expect(impulse.duration).toBe('until_next_turn');
     expect(impulse.permission).toBe('play');
   });
@@ -1540,6 +1570,147 @@ describe('Oracle IR Parser', () => {
     expect(impulse.who).toEqual({ kind: 'you' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
     expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when exile clause uses "that many cards from the top" wording (Dream Pillager template)', () => {
+    const text =
+      'Whenever this creature deals combat damage to a player, exile that many cards from the top of your library. Until end of turn, you may cast spells from among those exiled cards.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'that many' });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-top for 'exiles cards from the top ... until ... You may cast that card' (corpus: Chaos Wand)", () => {
+    const text =
+      "{4}, {T}: Target opponent exiles cards from the top of their library until they exile an instant or sorcery card. You may cast that card without paying its mana cost. Then put the exiled cards that weren't cast this way on the bottom of that library in a random order.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities.find(a => a.type === 'activated')!;
+    expect(ability).toBeTruthy();
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'until they exile an instant or sorcery card' });
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until with intervening 'then shuffles the rest' rider (corpus: Wand of Wonder)", () => {
+    const text =
+      '{4}, {T}: Roll a d20. Each opponent exiles cards from the top of their library until they exile an instant or sorcery card, then shuffles the rest into their library. You may cast up to X instant and/or sorcery spells from among cards exiled this way without paying their mana costs.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities.find(a => a.type === 'activated')!;
+    expect(ability).toBeTruthy();
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_opponent' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('instant or sorcery');
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until + 'you may cast cards exiled this way' permission (corpus: Dream Harvest)", () => {
+    const text =
+      'Each opponent exiles cards from the top of their library until they have exiled cards with total mana value 5 or greater this way. Until end of turn, you may cast cards exiled this way without paying their mana costs.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_opponent' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('total mana value 5 or greater');
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until + 'cast that card by paying life' permission (corpus: Bismuth Mindrender)", () => {
+    const text =
+      "Whenever this creature deals combat damage to a player, that player exiles cards from the top of their library until they exile a nonland card. You may cast that card by paying life equal to the spell's mana value rather than paying its mana cost.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities.find(a => a.type === 'triggered')!;
+    expect(ability).toBeTruthy();
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('nonland');
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until + third-person permission with implied subject (corpus: Tibalt's Trickery)", () => {
+    const text =
+      "Counter target spell. Choose 1, 2, or 3 at random. Its controller mills that many cards, then exiles cards from the top of their library until they exile a nonland card with a different name than that spell. They may cast that card without paying its mana cost. Then they put the exiled cards on the bottom of their library in a random order.";
+    const ir = parseOracleTextToIR(text);
+
+    const steps = ir.abilities.flatMap(a => a.steps);
+    expect(steps.map(s => s.kind)).toContain('impulse_exile_top');
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('different name');
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-until when subject is "its controller" (corpus: Transforming Flourish)', () => {
+    const text =
+      "Destroy target artifact or creature you don't control. If that permanent is destroyed this way, its controller exiles cards from the top of their library until they exile a nonland card, then they may cast that card without paying its mana cost.";
+    const ir = parseOracleTextToIR(text);
+
+    const steps = ir.abilities.flatMap(a => a.steps);
+    expect(steps.map(s => s.kind)).toContain('impulse_exile_top');
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'unknown', raw: 'its controller' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('nonland');
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until when a player exiles a spell then exiles from top (corpus: Possibility Storm)", () => {
+    const text =
+      'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.';
+    const ir = parseOracleTextToIR(text);
+
+    const steps = ir.abilities.flatMap(a => a.steps);
+    expect(steps.map(s => s.kind)).toContain('impulse_exile_top');
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('shares a card type');
+    expect(impulse.duration).toBe('during_resolution');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-top when exile clause uses 'its owner's library' wording (corpus: Dead Man's Chest)", () => {
+    const text =
+      "When enchanted creature dies, exile cards equal to its power from the top of its owner's library. You may cast spells from among those cards for as long as they remain exiled, and mana of any type can be spent to cast them.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'unknown', raw: "its owner's" });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'cards equal to its power' });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
     expect(impulse.permission).toBe('cast');
   });
 

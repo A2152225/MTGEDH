@@ -676,6 +676,111 @@ function abilityEffectText(ability: ParsedAbility): string {
   return String(ability.effect || ability.text || '').trim();
 }
 
+function parseGlobalExiledWithSourceImpulsePermission(
+  rawClause: string
+): { readonly duration: 'as_long_as_control_source'; readonly permission: 'play' | 'cast'; readonly rawClause: string } | null {
+  const normalized = normalizeOracleText(rawClause);
+  if (!normalized) return null;
+
+  let clause = normalized
+    .trim()
+    .replace(/^then\b\s*/i, '')
+    .replace(/^once during each of your turns,?\s*/i, '')
+    .replace(/,?\s+without paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\b/gi, '')
+    .replace(/[,.;]\s*$/g, '')
+    .trim();
+
+  if (!clause) return null;
+  const lower = clause.toLowerCase();
+
+  const exiledWithSourceRef =
+    "(?:the )?(?:cards?|spells?) exiled with (?:this (?:creature|artifact|enchantment|planeswalker|permanent|class|saga)|(?!(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten)\\b)[a-z0-9][a-z0-9\\s\\-\\.',’]+)";
+
+  // Hauken's Insight-style:
+  // "Once during each of your turns, you may play a land or cast a spell from among the cards exiled with this permanent ..."
+  {
+    const m = lower.match(new RegExp(`^you may play a land or cast a spell from among ${exiledWithSourceRef}\\s*$`, 'i'));
+    if (m) return { duration: 'as_long_as_control_source', permission: 'play', rawClause: normalized.trim() };
+  }
+
+  // General exiled-with-source permission clause (often with an optional During-your-turn prefix).
+  {
+    const m = lower.match(
+      new RegExp(
+        `^(?:during your turn,?\\s*)?(?:(?:for as long as|as long as) (?![^,]*remain(?:s)? exiled)[^,]+,\\s*)?you may (play|cast) ${exiledWithSourceRef}\\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'as_long_as_control_source', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // Exiled-with-source "play lands and cast spells from among ..." (treat as broad play).
+  {
+    const m = lower.match(new RegExp(`^(?:during your turn,?\\s*)?you may play lands and cast spells from among ${exiledWithSourceRef}\\s*$`, 'i'));
+    if (m) return { duration: 'as_long_as_control_source', permission: 'play', rawClause: normalized.trim() };
+  }
+
+  return null;
+}
+
+function parseGlobalLooseImpulsePermission(
+  rawClause: string
+): { readonly duration: 'this_turn' | 'during_resolution'; readonly permission: 'play' | 'cast'; readonly rawClause: string } | null {
+  const normalized = normalizeOracleText(rawClause);
+  if (!normalized) return null;
+
+  let clause = normalized
+    .trim()
+    .replace(/^then\b\s*/i, '')
+    .replace(/[,.;]\s*$/g, '')
+    .trim();
+
+  if (!clause) return null;
+
+  // Normalize third-person permissions into our "You may ..." templates.
+  clause = clause
+    .replace(/^(they|that player|that opponent|he or she) may\b/i, 'You may')
+    .replace(/^((?:until|through)\b[^,]*,),\s*(?:they|that player|that opponent|he or she) may\b/i, '$1 you may')
+    .replace(/^(during your next turn,?)\s*(?:they|that player|that opponent|he or she) may\b/i, '$1 you may');
+
+  // Strip unmodeled casting-cost riders so the core permission can be recognized.
+  clause = clause
+    .replace(/,?\s+without paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\b/gi, '')
+    .replace(
+      /,?\s+by paying\b.*\s+rather than paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\.?\s*$/i,
+      ''
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const lower = clause.toLowerCase();
+  const objectRef =
+    '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|(?:the )?card they exiled this way|(?:the )?cards they exiled this way)';
+  const objectRefWithLimit = `(?:up to (?:a|an|\d+|x|[a-z]+) of |one of )?${objectRef}`;
+
+  // "You may play/cast that card this turn"
+  {
+    const m = lower.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} this turn\s*$`, 'i'));
+    if (m) return { duration: 'this_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card until end of turn" / "until the end of turn"
+  {
+    const m = lower.match(
+      new RegExp(`^you may (play|cast) ${objectRefWithLimit} until (?:the )?end of turn\s*$`, 'i')
+    );
+    if (m) return { duration: 'this_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card" (implicit during-resolution permission)
+  {
+    const m = lower.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit}\s*$`, 'i'));
+    if (m) return { duration: 'during_resolution', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  return null;
+}
+
 function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
   const effectText = abilityEffectText(ability);
   const clauses = splitIntoClauses(effectText);
@@ -993,6 +1098,18 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     const normalizedClause = normalizeOracleText(clause);
     let clauseToParse = normalizedClause.trim();
 
+    // Some oracle text grants the permission to a previously mentioned player:
+    // "They may play it this turn." / "That player may cast it until ..." / "That opponent may ..."
+    // Normalize these into our existing "You may ..." templates.
+    clauseToParse = clauseToParse
+      .replace(/^(they|that player|that opponent|he or she) may\b/i, 'You may')
+      .replace(/^((?:until|through)\b[^,]*,),\s*(?:they|that player|that opponent|he or she) may\b/i, '$1 you may')
+      .replace(/^(during your next turn,?)\s*(?:they|that player|that opponent|he or she) may\b/i, '$1 you may')
+      .replace(
+        /^((?:for as long as|as long as)\b[^,]*,),\s*(?:they|that player|that opponent|he or she) may\b/i,
+        '$1 you may'
+      );
+
     // Some templates combine the look-at reminder with the permission.
     // Example: "You may look at and play that card this turn."
     clauseToParse = clauseToParse.replace(/^you may look at and (play|cast)\b/i, 'You may $1');
@@ -1113,6 +1230,16 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     clauseToParse = clauseToParse
       .replace(
         /,?\s+without paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\.?\s*$/i,
+        ''
+      )
+      .trim();
+
+    // Strip alternative-cost riders we don't model yet.
+    // Example: "You may cast that card by paying life equal to the spell’s mana value rather than paying its mana cost." ->
+    // "You may cast that card"
+    clauseToParse = clauseToParse
+      .replace(
+        /,?\s+by paying\b.*\s+rather than paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\.?\s*$/i,
         ''
       )
       .trim();
@@ -1322,6 +1449,20 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       if (m) {
         permission = 'cast';
         duration = 'this_turn';
+      }
+    }
+
+    // "You may cast spells from among them/those cards for as long as they remain exiled"
+    if (!duration) {
+      const m = lowerClause.match(
+        new RegExp(
+          `^you may cast spells from among ${amongRef} (?:for as long as|as long as) (?:it|they) remain(?:s)? exiled\\s*$`,
+          'i'
+        )
+      );
+      if (m) {
+        permission = 'cast';
+        duration = 'as_long_as_remains_exiled';
       }
     }
 
@@ -1733,6 +1874,26 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         }
       }
 
+      // Variable-quantity form used by real oracle text:
+      // "... exile that many cards from the top of your library."
+      // We don't attempt to resolve what "that many" refers to here; represent it as an unknown quantity
+      // so the impulse permission clause can still be parsed deterministically.
+      if (!amount) {
+        const mVar = firstCleanNoChoose.match(
+          /^exile\s+that\s+many\s+cards?\s+from\s+(?:the\s+)?top\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her)\s+librar(?:y|ies)(?:\s+face down)?\s*$/i
+        );
+        if (mVar) {
+          amount = { kind: 'unknown', raw: 'that many' };
+          const rawSrc = String(mVar[1] || '').trim();
+          const src = normalizePossessive(rawSrc);
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === "target player's") who = { kind: 'target_player' };
+          else if (src === "target opponent's") who = { kind: 'target_opponent' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
+          else if (src === "that opponent's") who = { kind: 'target_opponent' };
+        }
+      }
+
       // Alternate subject order: "Each player exiles the top card(s) of their library."
       if (!amount) {
         const m3 = firstCleanNoChoose.match(
@@ -1874,12 +2035,63 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         }
       }
 
+      // Exile-until variant seen in real oracle text (corpus):
+      // "Target opponent exiles cards from the top of their library until they exile an instant or sorcery card."
+      // "Each opponent exiles cards from the top of their library until they exile a nonland card."
+      // We treat the quantity as unknown in IR.
+      if (!amount) {
+        const m10c = firstCleanNoChoose.match(
+          /^(?:(?:when|whenever|if)\s+[^,]+,\s*)?(each player|each opponent|you|target player|target opponent|that player|that opponent|its controller|its owner)\s+exiles?\s+cards?\s+from\s+the\s+top\s+of\s+(?:their|your|his or her)\s+library\s+until\s+(.+?)(?:\s+face down)?\s*$/i
+        );
+        if (m10c) {
+          const subj = String(m10c[1] || '').trim().toLowerCase();
+          if (subj === 'you') who = { kind: 'you' };
+          else if (subj === 'each player') who = { kind: 'each_player' };
+          else if (subj === 'each opponent') who = { kind: 'each_opponent' };
+          else if (subj === 'target player' || subj === 'that player') who = { kind: 'target_player' };
+          else if (subj === 'target opponent' || subj === 'that opponent') who = { kind: 'target_opponent' };
+          else who = { kind: 'unknown', raw: String(m10c[1] || '').trim() };
+
+          const untilRaw = String(m10c[2] || '')
+            .trim()
+            .replace(/[,;]\s*then\b.*$/i, '')
+            .replace(/\s+then\b.*$/i, '')
+            .trim();
+
+          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+        }
+      }
+
+      // Exile-until variant with implied subject (often created by our clause-splitting on "then").
+      // Example (corpus: Tibalt's Trickery):
+      // "... mills that many cards, then exiles cards from the top of their library until they exile ..."
+      // We treat the quantity as unknown in IR and map the pronoun source to our existing selectors.
+      if (!amount) {
+        const m10c2 = firstCleanNoChoose.match(
+          /^(?:(?:when|whenever|if)\s+[^,]+,\s*)?exiles?\s+cards?\s+from\s+the\s+top\s+of\s+(their|your|his or her)\s+library\s+until\s+(.+?)(?:\s+face down)?\s*$/i
+        );
+        if (m10c2) {
+          const src = normalizePossessive(String(m10c2[1] || '').trim());
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === 'their' || src === 'his or her') who = { kind: 'target_player' };
+          else who = { kind: 'unknown', raw: String(m10c2[1] || '').trim() };
+
+          const untilRaw = String(m10c2[2] || '')
+            .trim()
+            .replace(/[,;]\s*then\b.*$/i, '')
+            .replace(/\s+then\b.*$/i, '')
+            .trim();
+
+          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+        }
+      }
+
       // Variable-amount variant seen in real oracle text (corpus):
       // "Exile cards equal to <expr> from the top of <player>'s library."
       // We treat the quantity as unknown in IR.
       if (!amount) {
         const srcPattern =
-          '(your|target player[\'’]s|target opponent[\'’]s|that player[\'’]s|that opponent[\'’]s|their|his or her)';
+          '(your|target player[\'’]s|target opponent[\'’]s|that player[\'’]s|that opponent[\'’]s|their|his or her|its owner[\'’]s|its controller[\'’]s)';
         const m11 = firstCleanNoChoose.match(
           new RegExp(
             `^exile\\s+cards?\\s+equal\\s+to\\s+(.+?)\\s+from\\s+the\\s+top\\s+of\\s+${srcPattern}\\s+library(?:\\s+face down)?\\s*$`,
@@ -1895,6 +2107,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
           else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
+          else if (src === "its owner's" || src === "its controller's") who = { kind: 'unknown', raw: rawSrc };
         }
       }
 
@@ -2069,6 +2282,10 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       // Example: "You may look at and play that card this turn."
       clauseToParse = clauseToParse.replace(/^you may look at and (play|cast)\b/i, 'You may $1');
 
+      // Some templates add a per-turn usage limiter we don't currently model.
+      // Example: "Once during each of your turns, you may play a land or cast a spell from among ..."
+      clauseToParse = clauseToParse.replace(/^once during each of your turns,?\s*/i, '');
+
       // Some templates combine a leading remains-exiled window with a look-at reminder and then the permission.
       // Example: "For as long as those cards remain exiled, you may look at them, you may cast permanent spells from among them ..."
       clauseToParse = clauseToParse
@@ -2202,6 +2419,16 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         )
         .trim();
 
+      // Strip alternative-cost riders we don't model yet.
+      // Example: "You may cast that card by paying life equal to the spell’s mana value rather than paying its mana cost." ->
+      // "You may cast that card"
+      clauseToParse = clauseToParse
+        .replace(
+          /,?\s+by paying\b.*\s+rather than paying (?:its|their|that spell(?:'|’)s|those spells(?:'|’)) mana costs?\.?\s*$/i,
+          ''
+        )
+        .trim();
+
       // Some templates add a trailing restriction rider we don't model.
       // Example: "Until your next turn, players may play cards they exiled this way, and they can't play cards from their hand."
       clauseToParse = clauseToParse.replace(/,?\s+and\s+they\s+can(?:not|'t)\s+play\s+cards?\s+from\s+their\s+hands?\s*$/i, '').trim();
@@ -2238,6 +2465,21 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         const m = lowerClause.match(
           new RegExp(
             `^during each player's turn, that player may play a land or cast a spell from among ${exiledWithSourceRef}\\s*$`,
+            'i'
+          )
+        );
+        if (m) {
+          permission = 'play';
+          duration = 'as_long_as_control_source';
+        }
+      }
+
+      // "(Once during each of your turns, ...) you may play a land or cast a spell from among cards exiled with this <permanent>"
+      // Seen in real oracle text for continuous exile-from-top engines. We ignore the once-per-turn limiter.
+      if (!duration) {
+        const m = lowerClause.match(
+          new RegExp(
+            `^(?:once during each of your turns,?\\s*)?you may play a land or cast a spell from among ${exiledWithSourceRef}\\s*$`,
             'i'
           )
         );
@@ -2435,6 +2677,20 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         if (m) {
           permission = 'cast';
           duration = 'this_turn';
+        }
+      }
+
+      // "You may cast spells from among them/those cards for as long as they remain exiled"
+      if (!duration) {
+        const m = lowerClause.match(
+          new RegExp(
+            `^you may cast spells from among ${amongRef} (?:for as long as|as long as) (?:it|they) remain(?:s)? exiled\\s*$`,
+            'i'
+          )
+        );
+        if (m) {
+          permission = 'cast';
+          duration = 'as_long_as_remains_exiled';
         }
       }
 
@@ -3409,6 +3665,56 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         }
       }
 
+      // Exile-until variant seen in real oracle text (corpus):
+      // "Target opponent exiles cards from the top of their library until they exile an instant or sorcery card."
+      // "Each opponent exiles cards from the top of their library until they exile a nonland card."
+      // We treat the quantity as unknown in IR.
+      if (!amount) {
+        const mUntil = firstToParse.match(
+          /^(?:(?:when|whenever|if)\s+[^,]+,\s*)?(each player|each opponent|you|target player|target opponent|that player|that opponent|its controller|its owner)\s+exiles?\s+cards?\s+from\s+the\s+top\s+of\s+(?:their|your|his or her)\s+library\s+until\s+(.+?)(?:\s+face down)?\s*$/i
+        );
+        if (mUntil) {
+          const subj = String(mUntil[1] || '').trim().toLowerCase();
+          if (subj === 'you') who = { kind: 'you' };
+          else if (subj === 'each player') who = { kind: 'each_player' };
+          else if (subj === 'each opponent') who = { kind: 'each_opponent' };
+          else if (subj === 'target player' || subj === 'that player') who = { kind: 'target_player' };
+          else if (subj === 'target opponent' || subj === 'that opponent') who = { kind: 'target_opponent' };
+          else who = { kind: 'unknown', raw: String(mUntil[1] || '').trim() };
+
+          const untilRaw = String(mUntil[2] || '')
+            .trim()
+            .replace(/[,;]\s*then\b.*$/i, '')
+            .replace(/\s+then\b.*$/i, '')
+            .trim();
+
+          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+        }
+      }
+
+      // Exile-until variant with implied subject (often created by our clause-splitting on "then").
+      // Example (corpus: Tibalt's Trickery):
+      // "... mills that many cards, then exiles cards from the top of their library until they exile ..."
+      if (!amount) {
+        const mUntilImplied = firstToParse.match(
+          /^(?:(?:when|whenever|if)\s+[^,]+,\s*)?exiles?\s+cards?\s+from\s+the\s+top\s+of\s+(their|your|his or her)\s+library\s+until\s+(.+?)(?:\s+face down)?\s*$/i
+        );
+        if (mUntilImplied) {
+          const src = normalizePossessive(String(mUntilImplied[1] || '').trim());
+          if (src === 'your') who = { kind: 'you' };
+          else if (src === 'their' || src === 'his or her') who = { kind: 'target_player' };
+          else who = { kind: 'unknown', raw: String(mUntilImplied[1] || '').trim() };
+
+          const untilRaw = String(mUntilImplied[2] || '')
+            .trim()
+            .replace(/[,;]\s*then\b.*$/i, '')
+            .replace(/\s+then\b.*$/i, '')
+            .trim();
+
+          amount = { kind: 'unknown', raw: `until ${untilRaw}` };
+        }
+      }
+
       // 2-clause face-down variant:
       // "Look at the top card of <library>, then exile it face down."
       if (!amount && second) {
@@ -3676,9 +3982,93 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   const normalizedOracleText = normalizeOracleText(oracleText);
   const parsed: OracleTextParseResult = parseOracleText(normalizedOracleText, cardName);
 
+  let abilities = parsed.abilities.map(parseAbilityToIRAbility);
+
+  // Cross-ability impulse upgrade (conservative):
+  // Some engines (e.g. Hauken's Insight) have the exile-top seed and the permission window
+  // in different abilities, linked via "cards exiled with this <permanent>" wording.
+  // When we detect that permission anywhere in the oracle text, upgrade any `exile_top`
+  // from your library into an `impulse_exile_top` so deterministic simulations can treat it
+  // as an impulse engine.
+  const globalPermission = (() => {
+    const allClauses = splitIntoClauses(normalizedOracleText);
+    for (const c of allClauses) {
+      const parsed = parseGlobalExiledWithSourceImpulsePermission(c);
+      if (parsed) return parsed;
+    }
+    return null;
+  })();
+
+  if (globalPermission) {
+    abilities = abilities.map((ability) => {
+      let changed = false;
+      const upgradedSteps = ability.steps.map((step) => {
+        if (step.kind !== 'exile_top') return step;
+        if (step.who.kind !== 'you') return step;
+
+        changed = true;
+        const combinedRaw = `${String(step.raw || '').trim()} ${String(globalPermission.rawClause || '').trim()}`.trim();
+        return {
+          kind: 'impulse_exile_top',
+          who: step.who,
+          amount: step.amount,
+          duration: globalPermission.duration,
+          permission: globalPermission.permission,
+          ...(step.optional ? { optional: step.optional } : {}),
+          ...(step.sequence ? { sequence: step.sequence } : {}),
+          raw: combinedRaw.endsWith('.') ? combinedRaw : `${combinedRaw}.`,
+        } as const;
+      });
+
+      return changed ? { ...ability, steps: upgradedSteps } : ability;
+    });
+  }
+
+  // Cross-ParsedAbility impulse upgrade (conservative):
+  // oracleTextParser currently splits many spell texts into multiple STATIC abilities
+  // (often one sentence per ParsedAbility). For templates like Tibalt's Trickery,
+  // the exile-until seed and the permission window appear in separate ParsedAbility
+  // entries but still refer to the same exiled card.
+  const globalLoosePermission = (() => {
+    const allClauses = splitIntoClauses(normalizedOracleText);
+    for (const c of allClauses) {
+      const parsed = parseGlobalLooseImpulsePermission(c);
+      if (parsed) return parsed;
+    }
+    return null;
+  })();
+
+  if (globalLoosePermission) {
+    abilities = abilities.map((ability) => {
+      let changed = false;
+      const upgradedSteps = ability.steps.map((step) => {
+        if (step.kind !== 'exile_top') return step;
+        if (step.amount.kind !== 'unknown') return step;
+
+        const raw = String((step.amount as any).raw || '').trim().toLowerCase();
+        if (!raw.startsWith('until ')) return step;
+
+        changed = true;
+        const combinedRaw = `${String(step.raw || '').trim()} ${String(globalLoosePermission.rawClause || '').trim()}`.trim();
+        return {
+          kind: 'impulse_exile_top',
+          who: step.who,
+          amount: step.amount,
+          duration: globalLoosePermission.duration,
+          permission: globalLoosePermission.permission,
+          ...(step.optional ? { optional: step.optional } : {}),
+          ...(step.sequence ? { sequence: step.sequence } : {}),
+          raw: combinedRaw.endsWith('.') ? combinedRaw : `${combinedRaw}.`,
+        } as const;
+      });
+
+      return changed ? { ...ability, steps: upgradedSteps } : ability;
+    });
+  }
+
   return {
     normalizedOracleText,
-    abilities: parsed.abilities.map(parseAbilityToIRAbility),
+    abilities,
     keywords: parsed.keywords,
   };
 }
