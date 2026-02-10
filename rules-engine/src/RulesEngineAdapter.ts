@@ -215,6 +215,8 @@ export class RulesEngineAdapter {
     switch (action.type) {
       case 'castSpell':
         return this.validateSpellCast(state, action);
+      case 'playLand':
+        return this.validatePlayLand(state, action);
       case 'declareAttackers':
         return this.validateAttackerDeclaration(state, action);
       case 'declareBlockers':
@@ -222,6 +224,89 @@ export class RulesEngineAdapter {
       default:
         return { legal: true };
     }
+  }
+
+  /**
+   * Validate land play (special action)
+   */
+  private validatePlayLand(state: GameState, action: any): ActionValidation {
+    // Check if player has priority
+    if (state.priorityPlayerIndex === undefined || state.priorityPlayerIndex === null) {
+      // Legacy fallback
+      return { legal: true };
+    }
+
+    const priorityPlayer = state.players?.[state.priorityPlayerIndex];
+    if (!priorityPlayer) {
+      return { legal: true };
+    }
+
+    if (priorityPlayer.id !== action.playerId) {
+      return { legal: false, reason: 'Player does not have priority' };
+    }
+
+    const timing = this.buildTimingContext(state, action.playerId);
+    if (!timing.isMainPhase || !timing.isOwnTurn || !timing.stackEmpty || !timing.hasPriority) {
+      return { legal: false, reason: 'Cannot play a land right now' };
+    }
+
+    const stateAny: any = state as any;
+    const landsPlayed = Number(stateAny.landsPlayedThisTurn?.[action.playerId] ?? 0) || 0;
+    const maxLandsPerTurn = 1;
+    if (landsPlayed >= maxLandsPerTurn) {
+      return { legal: false, reason: 'No remaining land plays this turn' };
+    }
+
+    const fromZone = String(action.fromZone || 'hand').toLowerCase();
+    const cardId = String(action.cardId || '');
+    if (!cardId) {
+      return { legal: false, reason: 'Missing cardId for land play' };
+    }
+
+    const player: any = state.players.find(p => p.id === action.playerId);
+    if (!player) {
+      return { legal: false, reason: 'Player not found' };
+    }
+
+    const findById = (arr: any[]): any | null => {
+      const a = Array.isArray(arr) ? arr : [];
+      return a.find(c => String(c?.id || c?.cardId || '') === cardId) || null;
+    };
+
+    if (fromZone === 'hand') {
+      const inHand = findById(player.hand);
+      if (!inHand) return { legal: false, reason: 'Card not found in hand' };
+      const typeLineLower = String(inHand?.type_line || '').toLowerCase();
+      if (!typeLineLower.includes('land')) return { legal: false, reason: 'Card is not a land' };
+      return { legal: true };
+    }
+
+    if (fromZone === 'exile') {
+      const exiledCard = findById(player.exile);
+      if (!exiledCard) return { legal: false, reason: 'Card not found in exile' };
+      const typeLineLower = String(exiledCard?.type_line || '').toLowerCase();
+      if (!typeLineLower.includes('land')) return { legal: false, reason: 'Card is not a land' };
+
+      // Require an explicit permission window (impulse-style effects).
+      const playableFromExile = stateAny.playableFromExile?.[action.playerId] || {};
+      const currentTurn = Number(stateAny.turnNumber ?? (state as any).turn ?? 0) || 0;
+      const until = playableFromExile[cardId] ?? exiledCard.playableUntilTurn;
+      const canBePlayedBy = exiledCard.canBePlayedBy;
+
+      if (canBePlayedBy && canBePlayedBy !== action.playerId) {
+        return { legal: false, reason: 'Card is not playable by this player' };
+      }
+      if (typeof until !== 'number') {
+        return { legal: false, reason: 'No permission to play this land from exile' };
+      }
+      if (until < currentTurn) {
+        return { legal: false, reason: 'Permission window to play from exile has expired' };
+      }
+
+      return { legal: true };
+    }
+
+    return { legal: false, reason: `Unsupported fromZone: ${fromZone}` };
   }
   
   /**
@@ -594,6 +679,9 @@ export class RulesEngineAdapter {
       case 'castSpell':
         result = this.castSpellAction(gameId, action);
         break;
+      case 'playLand':
+        result = this.playLandAction(gameId, action);
+        break;
       case 'tapForMana':
         result = this.tapForManaAction(gameId, action);
         break;
@@ -809,6 +897,101 @@ export class RulesEngineAdapter {
     return {
       next: nextState,
       log: castResult.log || [`${action.playerId} cast ${action.cardName}`],
+    };
+  }
+
+  /**
+   * Play a land (special action). Supports playing from hand and from exile.
+   */
+  private playLandAction(gameId: string, action: any): EngineResult<GameState> {
+    const state = this.gameStates.get(gameId)!;
+    const playerId = String(action.playerId || '');
+    const cardId = String(action.cardId || '');
+    const fromZone = String(action.fromZone || 'hand').toLowerCase();
+    if (!playerId || !cardId) {
+      return { next: state, log: ['Missing playerId or cardId'] };
+    }
+
+    const playerIndex = state.players.findIndex(p => p.id === playerId);
+    if (playerIndex < 0) {
+      return { next: state, log: ['Player not found'] };
+    }
+
+    const player: any = state.players[playerIndex] as any;
+    const hand: any[] = Array.isArray(player.hand) ? [...player.hand] : [];
+    const exile: any[] = Array.isArray(player.exile) ? [...player.exile] : [];
+
+    let card: any | null = null;
+    if (fromZone === 'hand') {
+      const idx = hand.findIndex(c => String(c?.id || c?.cardId || '') === cardId);
+      if (idx >= 0) {
+        card = hand[idx];
+        hand.splice(idx, 1);
+      }
+    } else if (fromZone === 'exile') {
+      const idx = exile.findIndex(c => String(c?.id || c?.cardId || '') === cardId);
+      if (idx >= 0) {
+        card = exile[idx];
+        exile.splice(idx, 1);
+      }
+    }
+
+    if (!card) {
+      return { next: state, log: ['Card not found in origin zone'] };
+    }
+
+    const typeLineLower = String(card?.type_line || '').toLowerCase();
+    if (!typeLineLower.includes('land')) {
+      return { next: state, log: ['Card is not a land'] };
+    }
+
+    // Strip impulse markers when the card leaves exile.
+    const { canBePlayedBy, playableUntilTurn, ...restCard } = card as any;
+    const battlefieldPermanent: any = {
+      id: cardId,
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      card: { ...(restCard as any), id: cardId, zone: 'battlefield' },
+    };
+
+    const updatedPlayers = state.players.map(p => {
+      if (p.id !== playerId) return p;
+      return {
+        ...(p as any),
+        hand,
+        exile,
+      } as any;
+    });
+
+    const stateAny: any = { ...state, players: updatedPlayers, battlefield: [...(state.battlefield || []), battlefieldPermanent] };
+
+    // Increment land plays this turn.
+    const existingLandsPlayed: any = stateAny.landsPlayedThisTurn || {};
+    const prev = Number(existingLandsPlayed[playerId] ?? 0) || 0;
+    stateAny.landsPlayedThisTurn = { ...(existingLandsPlayed as any), [playerId]: prev + 1 };
+
+    // Consume any playable-from-exile marker if we played from exile.
+    if (fromZone === 'exile') {
+      const pMap = stateAny.playableFromExile?.[playerId];
+      if (pMap && typeof pMap === 'object' && Object.prototype.hasOwnProperty.call(pMap, cardId)) {
+        const nextPMap: any = { ...(pMap as any) };
+        delete nextPMap[cardId];
+        stateAny.playableFromExile = { ...(stateAny.playableFromExile as any), [playerId]: nextPMap };
+      }
+    }
+
+    // Emit a generic ETB/zone-change style event.
+    this.emit({
+      type: RulesEngineEvent.CARD_PUT_ONTO_BATTLEFIELD,
+      timestamp: Date.now(),
+      gameId,
+      data: { playerId, cardId, fromZone },
+    });
+
+    return {
+      next: stateAny as any,
+      log: [`${playerId} played a land`],
     };
   }
   

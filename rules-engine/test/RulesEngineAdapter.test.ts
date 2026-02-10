@@ -173,6 +173,42 @@ describe('RulesEngineAdapter', () => {
       expect(validation.reason).toContain('mana');
     });
 
+    it('should require permission to play a land from exile', () => {
+      const stateWithExileLand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                exile: [{ id: 'land-ex1', name: 'Mountain', type_line: 'Basic Land — Mountain' }],
+              }
+            : p
+        ),
+        turn: 1,
+        landsPlayedThisTurn: { player1: 0 },
+      };
+
+      adapter.initializeGame('test-game', stateWithExileLand);
+      const denied = adapter.validateAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'exile',
+        cardId: 'land-ex1',
+      });
+      expect(denied.legal).toBe(false);
+
+      stateWithExileLand.playableFromExile = { player1: { 'land-ex1': 10 } };
+      adapter.initializeGame('test-game', stateWithExileLand);
+      const allowed = adapter.validateAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'exile',
+        cardId: 'land-ex1',
+      });
+      expect(allowed.legal).toBe(true);
+    });
+
     it('should require permission to cast from exile', () => {
       const stateWithExile: any = {
         ...testGameState,
@@ -341,6 +377,40 @@ describe('RulesEngineAdapter', () => {
       });
       
       expect(eventFired).toBe(true);
+    });
+
+    it('should play a land from exile when permitted', () => {
+      const stateWithExileLand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                exile: [{ id: 'land-ex1', name: 'Mountain', type_line: 'Basic Land — Mountain', canBePlayedBy: 'player1', playableUntilTurn: 10 }],
+              }
+            : p
+        ),
+        playableFromExile: { player1: { 'land-ex1': 10 } },
+        turn: 1,
+        landsPlayedThisTurn: { player1: 0 },
+        battlefield: [],
+      };
+
+      adapter.initializeGame('test-game', stateWithExileLand);
+      const result = adapter.executeAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'exile',
+        cardId: 'land-ex1',
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.exile || []).some((c: any) => c.id === 'land-ex1')).toBe(false);
+      expect(((result.next as any).battlefield || []).some((perm: any) => perm.id === 'land-ex1')).toBe(true);
+      expect((result.next as any).landsPlayedThisTurn?.player1).toBe(1);
+      expect((result.next as any).playableFromExile?.player1?.['land-ex1']).toBeUndefined();
     });
 
     it('should remove a spell from exile when it is cast from exile', () => {

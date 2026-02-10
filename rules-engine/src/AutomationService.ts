@@ -705,6 +705,8 @@ function getManaColor(perm: BattlefieldPermanent): string[] {
 export function hasAvailableActions(state: GameState, playerId: string): boolean {
   const player = state.players.find(p => p.id === playerId);
   if (!player) return false;
+
+  const isValidUntil = (until: any): until is number => typeof until === 'number' && Number.isFinite(until);
   
   const isActivePlayer = state.players[state.activePlayerIndex || 0]?.id === playerId;
   const phaseStr = String(state.phase || '').toLowerCase();
@@ -719,6 +721,28 @@ export function hasAvailableActions(state: GameState, playerId: string): boolean
       (c?.type_line || '').toLowerCase().includes('land') && landsPlayed < 1
     );
     if (hasPlayableLand) return true;
+
+    // Check for playable lands from exile when an effect grants permission
+    const stateAny: any = state as any;
+    const currentTurn = Number(stateAny.turnNumber ?? (state as any).turn ?? 0) || 0;
+    const playableFromExile = stateAny.playableFromExile?.[playerId] || {};
+    const exile = (player as any).exile || [];
+    for (const card of exile) {
+      if (!card) continue;
+      const typeLineLower = String(card.type_line || '').toLowerCase();
+      if (!typeLineLower.includes('land')) continue;
+
+      const id = String(card.id || card.cardId || '');
+      if (!id) continue;
+
+      const until = playableFromExile[id] ?? card.playableUntilTurn;
+      const canBePlayedBy = card.canBePlayedBy;
+      if (canBePlayedBy && canBePlayedBy !== playerId) continue;
+      if (!isValidUntil(until)) continue;
+      if (until < currentTurn) continue;
+
+      if (landsPlayed < 1) return true;
+    }
   }
   
   // Check for castable spells
@@ -756,8 +780,8 @@ export function hasAvailableActions(state: GameState, playerId: string): boolean
     const until = playableFromExile[id] ?? card.playableUntilTurn;
     const canBePlayedBy = card.canBePlayedBy;
     if (canBePlayedBy && canBePlayedBy !== playerId) continue;
-    if (typeof until === 'number' && until < currentTurn) continue;
-    if (until === undefined || until === null) continue;
+    if (!isValidUntil(until)) continue;
+    if (until < currentTurn) continue;
 
     const typeLine = String(card.type_line || '').toLowerCase();
     // This action system only supports casting spells (not playing lands) today.

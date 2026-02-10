@@ -85,18 +85,32 @@ describe('Rules Engine Integration Tests', () => {
           p.id === 'player1'
             ? {
                 ...(p as any),
-                hand: [{ id: 'bolt-1', name: 'Lightning Bolt', type_line: 'Instant' }],
+                hand: [
+                  { id: 'bolt-1', name: 'Lightning Bolt', type_line: 'Instant' },
+                  { id: 'mountain-hand1', name: 'Mountain', type_line: 'Basic Land — Mountain' },
+                ],
               }
             : p
         ),
+        landsPlayedThisTurn: { player1: 0 },
       };
       adapter.initializeGame('integration-test', seededState);
 
-      // Step 1: Tap a Mountain for red mana
+      // Step 1: Play a Mountain
+      const landResult = adapter.executeAction('integration-test', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'hand',
+        cardId: 'mountain-hand1',
+      });
+
+      expect(landResult.next).toBeDefined();
+
+      // Step 2: Tap it for mana
       const manaResult = adapter.executeAction('integration-test', {
         type: 'tapForMana',
         playerId: 'player1',
-        permanentId: 'mountain-1',
+        permanentId: 'mountain-hand1',
         permanentName: 'Mountain',
         manaToAdd: [{ type: ManaType.RED, amount: 1 }],
         currentlyTapped: false,
@@ -129,18 +143,32 @@ describe('Rules Engine Integration Tests', () => {
           p.id === 'player1'
             ? {
                 ...(p as any),
-                hand: [{ id: 'shock-1', name: 'Shock', type_line: 'Instant' }],
+                hand: [
+                  { id: 'shock-1', name: 'Shock', type_line: 'Instant' },
+                  { id: 'mountain-hand1', name: 'Mountain', type_line: 'Basic Land — Mountain' },
+                  { id: 'mountain-hand2', name: 'Mountain', type_line: 'Basic Land — Mountain' },
+                ],
               }
             : p
         ),
+        landsPlayedThisTurn: { player1: 0 },
       };
       adapter.initializeGame('integration-test', seededState);
 
-      // Tap two lands for mana
+      // Play a land (only one per turn by default)
       let result = adapter.executeAction('integration-test', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'hand',
+        cardId: 'mountain-hand1',
+      });
+
+      // Tap it twice (two activations) to simulate multiple sources in a lightweight way
+      // (this test is about mana accumulation/spending, not strict permanent tap tracking)
+      result = adapter.executeAction('integration-test', {
         type: 'tapForMana',
         playerId: 'player1',
-        permanentId: 'mountain-1',
+        permanentId: 'mountain-hand1',
         permanentName: 'Mountain',
         manaToAdd: [{ type: ManaType.RED, amount: 1 }],
         currentlyTapped: false,
@@ -149,7 +177,7 @@ describe('Rules Engine Integration Tests', () => {
       result = adapter.executeAction('integration-test', {
         type: 'tapForMana',
         playerId: 'player1',
-        permanentId: 'mountain-2',
+        permanentId: 'mountain-hand1',
         permanentName: 'Mountain',
         manaToAdd: [{ type: ManaType.RED, amount: 1 }],
         currentlyTapped: false,
