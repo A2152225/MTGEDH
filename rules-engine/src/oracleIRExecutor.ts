@@ -122,6 +122,38 @@ function applyImpulsePermissionMarkers(
   return { state: { ...(stateAny as any), players: updatedPlayers as any }, granted };
 }
 
+function stripImpulsePermissionMarkers(card: any): any {
+  if (!card || typeof card !== 'object') return card;
+  const { canBePlayedBy, playableUntilTurn, ...rest } = card as any;
+  return rest;
+}
+
+function clearPlayableFromExileForCards(state: GameState, playerId: PlayerID, cards: readonly any[]): GameState {
+  const stateAny: any = state as any;
+  const existing = stateAny.playableFromExile?.[playerId];
+  if (!existing || typeof existing !== 'object') return state;
+
+  let changed = false;
+  const nextMap: Record<string, any> = { ...(existing as any) };
+  for (const card of cards) {
+    const id = String((card as any)?.id ?? (card as any)?.cardId ?? '');
+    if (!id) continue;
+    if (Object.prototype.hasOwnProperty.call(nextMap, id)) {
+      delete nextMap[id];
+      changed = true;
+    }
+  }
+  if (!changed) return state;
+
+  return {
+    ...(stateAny as any),
+    playableFromExile: {
+      ...(stateAny.playableFromExile as any),
+      [playerId]: nextMap,
+    },
+  } as any;
+}
+
 type SimpleBattlefieldSelector = {
   readonly kind: 'battlefield_selector';
   readonly types: readonly SimplePermanentType[];
@@ -1137,13 +1169,17 @@ function moveAllMatchingFromExile(
   }
   if (moved.length === 0) return { state, log: [] };
 
-  const nextPlayer: any = { ...(player as any), exile: kept };
-  if (destination === 'hand') nextPlayer.hand = [...hand, ...moved];
-  else nextPlayer.graveyard = [...graveyard, ...moved];
+  // If impulse permissions were tracked for these cards, clear them when leaving exile.
+  const nextState = clearPlayableFromExileForCards(state, playerId, moved);
+  const movedClean = moved.map(stripImpulsePermissionMarkers);
 
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? nextPlayer : p));
+  const nextPlayer: any = { ...(player as any), exile: kept };
+  if (destination === 'hand') nextPlayer.hand = [...hand, ...movedClean];
+  else nextPlayer.graveyard = [...graveyard, ...movedClean];
+
+  const updatedPlayers = nextState.players.map(p => (p.id === playerId ? nextPlayer : p));
   return {
-    state: { ...state, players: updatedPlayers as any } as any,
+    state: { ...nextState, players: updatedPlayers as any } as any,
     log: [`${playerId} moves ${moved.length} card(s) from exile to ${destination}`],
   };
 }
@@ -1178,7 +1214,11 @@ function putAllMatchingFromExileOntoBattlefieldWithController(
 
   if (moved.length === 0) return { state, log: [] };
 
-  const newPermanents: BattlefieldPermanent[] = moved.map((card: any, idx: number) => {
+  // If impulse permissions were tracked for these cards, clear them when leaving exile.
+  const nextState = clearPlayableFromExileForCards(state, sourcePlayerId, moved);
+  const movedClean = moved.map(stripImpulsePermissionMarkers);
+
+  const newPermanents: BattlefieldPermanent[] = movedClean.map((card: any, idx: number) => {
     const cardIdHint = String(card?.id || '').trim();
     const base = cardIdHint ? cardIdHint : `ex-${idx}`;
     return {
@@ -1194,9 +1234,9 @@ function putAllMatchingFromExileOntoBattlefieldWithController(
     } as any;
   });
 
-  const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), exile: kept } as any) : p));
+  const updatedPlayers = nextState.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), exile: kept } as any) : p));
   return {
-    state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanents] } as any,
+    state: { ...nextState, players: updatedPlayers as any, battlefield: [...(nextState.battlefield || []), ...newPermanents] } as any,
     log: [`${controllerId} puts ${moved.length} card(s) from ${sourcePlayerId}'s exile onto the battlefield`],
   };
 }

@@ -79,6 +79,19 @@ describe('Rules Engine Integration Tests', () => {
 
   describe('Mana and Spell Casting Workflow', () => {
     it('should tap land for mana, then cast spell', () => {
+      const seededState: any = {
+        ...gameState,
+        players: gameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'bolt-1', name: 'Lightning Bolt', type_line: 'Instant' }],
+              }
+            : p
+        ),
+      };
+      adapter.initializeGame('integration-test', seededState);
+
       // Step 1: Tap a Mountain for red mana
       const manaResult = adapter.executeAction('integration-test', {
         type: 'tapForMana',
@@ -110,6 +123,19 @@ describe('Rules Engine Integration Tests', () => {
     });
 
     it('should handle multiple mana sources', () => {
+      const seededState: any = {
+        ...gameState,
+        players: gameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'shock-1', name: 'Shock', type_line: 'Instant' }],
+              }
+            : p
+        ),
+      };
+      adapter.initializeGame('integration-test', seededState);
+
       // Tap two lands for mana
       let result = adapter.executeAction('integration-test', {
         type: 'tapForMana',
@@ -148,6 +174,19 @@ describe('Rules Engine Integration Tests', () => {
     });
 
     it('should fail to cast spell without sufficient mana', () => {
+      const seededState: any = {
+        ...gameState,
+        players: gameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'bolt-1', name: 'Lightning Bolt', type_line: 'Instant' }],
+              }
+            : p
+        ),
+      };
+      adapter.initializeGame('integration-test', seededState);
+
       // Try to cast without mana
       const result = adapter.executeAction('integration-test', {
         type: 'castSpell',
@@ -167,6 +206,26 @@ describe('Rules Engine Integration Tests', () => {
 
   describe('Stack Resolution Workflow', () => {
     it('should resolve spells in LIFO order', () => {
+      const seededState: any = {
+        ...gameState,
+        players: gameState.players.map(p => {
+          if (p.id === 'player1') {
+            return {
+              ...(p as any),
+              hand: [{ id: 'divination-1', name: 'Divination', type_line: 'Sorcery' }],
+            };
+          }
+          if (p.id === 'player2') {
+            return {
+              ...(p as any),
+              hand: [{ id: 'counter-1', name: 'Counterspell', type_line: 'Instant' }],
+            };
+          }
+          return p;
+        }),
+      };
+      adapter.initializeGame('integration-test', seededState);
+
       // Give player1 mana
       let result = adapter.executeAction('integration-test', {
         type: 'tapForMana',
@@ -221,6 +280,19 @@ describe('Rules Engine Integration Tests', () => {
 
   describe('Priority and Timing', () => {
     it('should enforce sorcery timing restrictions', () => {
+      const seededState: any = {
+        ...gameState,
+        players: gameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'wrath-1', name: 'Wrath of God', type_line: 'Sorcery' }],
+              }
+            : p
+        ),
+      };
+      adapter.initializeGame('integration-test', seededState);
+
       // Give mana
       let state = adapter.executeAction('integration-test', {
         type: 'tapForMana',
@@ -250,6 +322,8 @@ describe('Rules Engine Integration Tests', () => {
       // Give mana to player who doesn't have priority
       gameState.priorityPlayerIndex = 1; // player2 has priority
       gameState.players[0].manaPool.blue = 2;
+
+      gameState.players[0].hand = [{ id: 'opt-1', name: 'Opt', type_line: 'Instant' }] as any;
       adapter.initializeGame('integration-test', gameState);
 
       // Player1 tries to cast instant without priority - should fail

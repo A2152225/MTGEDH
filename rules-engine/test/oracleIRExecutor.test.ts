@@ -3883,17 +3883,26 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear', canBePlayedBy: 'p1', playableUntilTurn: 123 },
           ],
         } as any,
       ],
     });
+
+    (start as any).playableFromExile = { p1: { p1e2: 123 } };
 
     const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
 
     expect(p1.exile.map((c: any) => c.id)).toEqual(['p1e1']);
     expect(p1.hand.map((c: any) => c.id)).toEqual(['p1h0', 'p1e2']);
+
+    // Leaving exile should clear impulse markers.
+    expect((result.state as any).playableFromExile?.p1?.p1e2).toBeUndefined();
+    const moved = p1.hand.find((c: any) => c.id === 'p1e2');
+    expect(moved?.canBePlayedBy).toBeUndefined();
+    expect(moved?.playableUntilTurn).toBeUndefined();
+
     expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
   });
 

@@ -283,6 +283,62 @@ export class RulesEngineAdapter {
         reason: timingResult.reason || 'Invalid timing',
       };
     }
+
+    // If a cardId is provided, enforce the card is in the declared origin zone.
+    // This prevents "cast from exile" from silently defaulting to hand casts.
+    const fromZone = String(action.fromZone || 'hand').toLowerCase();
+    const cardId = String(action.cardId || action.spellId || '');
+    if (cardId && fromZone === 'hand') {
+      const player: any = state.players.find(p => p.id === action.playerId);
+      if (!player) {
+        return { legal: false, reason: 'Player not found' };
+      }
+
+      const handArr: any[] = Array.isArray(player.hand) ? player.hand : [];
+      const inHand = handArr.some(c => String(c?.id || c?.cardId || '') === cardId);
+      if (!inHand) {
+        return { legal: false, reason: 'Card not found in hand' };
+      }
+    }
+
+    // If casting from exile, require an explicit permission window.
+    if (fromZone === 'exile') {
+      if (!cardId) {
+        return { legal: false, reason: 'Missing cardId for exile cast' };
+      }
+
+      const player = state.players.find(p => p.id === action.playerId) as any;
+      if (!player) {
+        return { legal: false, reason: 'Player not found' };
+      }
+
+      const exileArr: any[] = Array.isArray(player.exile) ? player.exile : [];
+      const exiledCard = exileArr.find(c => String(c?.id || c?.cardId || '') === cardId);
+      if (!exiledCard) {
+        return { legal: false, reason: 'Card not found in exile' };
+      }
+
+      const typeLineLower = String(exiledCard?.type_line || '').toLowerCase();
+      if (typeLineLower.includes('land')) {
+        return { legal: false, reason: 'Cannot cast a land from exile' };
+      }
+
+      const stateAny: any = state as any;
+      const currentTurn = Number(stateAny.turnNumber ?? (state as any).turn ?? 0) || 0;
+      const playableFromExile = stateAny.playableFromExile?.[action.playerId] || {};
+      const until = playableFromExile[cardId] ?? exiledCard.playableUntilTurn;
+      const canBePlayedBy = exiledCard.canBePlayedBy;
+
+      if (canBePlayedBy && canBePlayedBy !== action.playerId) {
+        return { legal: false, reason: 'Card is not playable by this player' };
+      }
+      if (typeof until !== 'number') {
+        return { legal: false, reason: 'No permission to cast this card from exile' };
+      }
+      if (until < currentTurn) {
+        return { legal: false, reason: 'Permission window to cast from exile has expired' };
+      }
+    }
     
     return { legal: true };
   }
@@ -672,16 +728,48 @@ export class RulesEngineAdapter {
     }
     
     // Update player's mana pool
-    const updatedPlayers = state.players.map(p =>
-      p.id === action.playerId
-        ? { ...p, manaPool: castResult.manaPoolAfter! }
-        : p
-    );
+    const fromZone = String(action.fromZone || 'hand').toLowerCase();
+    const cardId = String(action.cardId || '');
+
+    const updatedPlayers = state.players.map(p => {
+      if (p.id !== action.playerId) return p;
+      const next: any = { ...p, manaPool: castResult.manaPoolAfter! };
+
+      if (cardId) {
+        if (fromZone === 'hand') {
+          const hand: any[] = Array.isArray((p as any).hand) ? [...(p as any).hand] : [];
+          next.hand = hand.filter(c => String(c?.id || c?.cardId || '') !== cardId);
+        } else if (fromZone === 'exile') {
+          const exile: any[] = Array.isArray((p as any).exile) ? [...(p as any).exile] : [];
+          const kept: any[] = [];
+          for (const c of exile) {
+            const id = String(c?.id || c?.cardId || '');
+            if (id === cardId) continue;
+            kept.push(c);
+          }
+          next.exile = kept;
+        }
+      }
+
+      return next;
+    });
     
-    const nextState: GameState = {
+    let nextState: GameState = {
       ...state,
       players: updatedPlayers,
     };
+
+    // Clear any playable-from-exile marker if we cast from exile.
+    if (fromZone === 'exile' && cardId) {
+      const stateAny: any = nextState as any;
+      const pMap = stateAny.playableFromExile?.[action.playerId];
+      if (pMap && typeof pMap === 'object' && Object.prototype.hasOwnProperty.call(pMap, cardId)) {
+        const nextPMap: any = { ...(pMap as any) };
+        delete nextPMap[cardId];
+        stateAny.playableFromExile = { ...(stateAny.playableFromExile as any), [action.playerId]: nextPMap };
+        nextState = stateAny as any;
+      }
+    }
     
     // Add to stack (stored separately for now)
     const stack = this.stacks.get(gameId)!;

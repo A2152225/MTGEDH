@@ -172,6 +172,54 @@ describe('RulesEngineAdapter', () => {
       expect(validation.legal).toBe(false);
       expect(validation.reason).toContain('mana');
     });
+
+    it('should require permission to cast from exile', () => {
+      const stateWithExile: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                exile: [{ id: 'ex1', name: 'Opt', type_line: 'Instant' }],
+              }
+            : p
+        ),
+        turn: 1,
+      };
+
+      // No playableFromExile entry => should be illegal.
+      adapter.initializeGame('test-game', stateWithExile);
+      const denied = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'exile',
+        cardId: 'ex1',
+        card: { name: 'Opt', type_line: 'Instant' },
+      });
+      expect(denied.legal).toBe(false);
+
+      // Omitting fromZone defaults to hand; since the card isn't in hand, it should be illegal.
+      adapter.initializeGame('test-game', stateWithExile);
+      const deniedNoFromZone = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'ex1',
+        card: { name: 'Opt', type_line: 'Instant' },
+      });
+      expect(deniedNoFromZone.legal).toBe(false);
+
+      // Add permission => should be legal.
+      stateWithExile.playableFromExile = { player1: { ex1: 10 } };
+      adapter.initializeGame('test-game', stateWithExile);
+      const allowed = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'exile',
+        cardId: 'ex1',
+        card: { name: 'Opt', type_line: 'Instant' },
+      });
+      expect(allowed.legal).toBe(true);
+    });
     
     it('should validate attacker declaration in correct step', () => {
       // Set game to declare attackers step
@@ -232,13 +280,26 @@ describe('RulesEngineAdapter', () => {
     });
     
     it('should cast spell and add to stack', () => {
+      const stateWithHand: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'opt-1', name: 'Opt', type_line: 'Instant' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithHand);
       const result = adapter.executeAction('test-game', {
         type: 'castSpell',
         playerId: 'player1',
-        cardId: 'bolt-1',
-        cardName: 'Lightning Bolt',
+        cardId: 'opt-1',
+        cardName: 'Opt',
         cardTypes: ['instant'],
-        manaCost: { red: 1 },
+        manaCost: '{U}',
         targets: [],
       });
       
@@ -249,6 +310,20 @@ describe('RulesEngineAdapter', () => {
     
     it('should emit SPELL_CAST event', () => {
       let eventFired = false;
+
+      const stateWithHand: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'opt-1', name: 'Opt', type_line: 'Instant' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithHand);
       
       adapter.on(RulesEngineEvent.SPELL_CAST, (event) => {
         eventFired = true;
@@ -259,13 +334,46 @@ describe('RulesEngineAdapter', () => {
       adapter.executeAction('test-game', {
         type: 'castSpell',
         playerId: 'player1',
-        cardId: 'bolt-1',
-        cardName: 'Lightning Bolt',
+        cardId: 'opt-1',
+        cardName: 'Opt',
         cardTypes: ['instant'],
-        manaCost: { blue: 1 }, // Changed to blue since player1 has blue mana
+        manaCost: '{U}',
       });
       
       expect(eventFired).toBe(true);
+    });
+
+    it('should remove a spell from exile when it is cast from exile', () => {
+      const stateWithExile: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                exile: [{ id: 'ex1', name: 'Opt', type_line: 'Instant', canBePlayedBy: 'player1', playableUntilTurn: 10 }],
+                manaPool: { white: 5, blue: 5, black: 0, red: 0, green: 0, colorless: 0 },
+              }
+            : p
+        ),
+        playableFromExile: { player1: { ex1: 10 } },
+        turn: 1,
+      };
+
+      adapter.initializeGame('test-game', stateWithExile);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'exile',
+        cardId: 'ex1',
+        cardName: 'Opt',
+        cardTypes: ['instant'],
+        manaCost: { blue: 1 },
+        targets: [],
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.exile || []).some((c: any) => c.id === 'ex1')).toBe(false);
+      expect((result.next as any).playableFromExile?.player1?.ex1).toBeUndefined();
     });
   });
   

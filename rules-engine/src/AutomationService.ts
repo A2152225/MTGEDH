@@ -742,6 +742,31 @@ export function hasAvailableActions(state: GameState, playerId: string): boolean
       return true;
     }
   }
+
+  // Check for castable spells from exile when an effect grants permission
+  const stateAny: any = state as any;
+  const currentTurn = Number(stateAny.turnNumber ?? (state as any).turn ?? 0) || 0;
+  const playableFromExile = stateAny.playableFromExile?.[playerId] || {};
+  const exile = (player as any).exile || [];
+  for (const card of exile) {
+    if (!card) continue;
+    const id = String(card.id || card.cardId || '');
+    if (!id) continue;
+
+    const until = playableFromExile[id] ?? card.playableUntilTurn;
+    const canBePlayedBy = card.canBePlayedBy;
+    if (canBePlayedBy && canBePlayedBy !== playerId) continue;
+    if (typeof until === 'number' && until < currentTurn) continue;
+    if (until === undefined || until === null) continue;
+
+    const typeLine = String(card.type_line || '').toLowerCase();
+    // This action system only supports casting spells (not playing lands) today.
+    if (typeLine.includes('land')) continue;
+
+    const isInstant = typeLine.includes('instant') || String(card.oracle_text || '').toLowerCase().includes('flash');
+    if (isInstant) return true;
+    if (isActivePlayer && isMainPhase && stackEmpty) return true;
+  }
   
   // Check for activatable abilities on battlefield
   const battlefield = state.battlefield || [];
