@@ -45,6 +45,57 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
   });
 
+  it('records impulse permissions on exiled cards (until end of your next turn)', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. Until the end of your next turn, you may play that card.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({ turnNumber: 10 } as any);
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Test Source' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(Array.isArray(p1.exile)).toBe(true);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0].canBePlayedBy).toBe('p1');
+    expect(p1.exile[0].playableUntilTurn).toBe(11);
+
+    const pfe = (result.state as any).playableFromExile?.p1;
+    expect(pfe).toBeTruthy();
+    expect(pfe[String(p1.exile[0].id)]).toBe(11);
+  });
+
+  it('does not grant cast-from-exile permission to lands', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. Until end of turn, you may cast that card.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 3,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'land1', name: 'Forest', type_line: 'Basic Land — Forest' }],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0].id).toBe('land1');
+    expect(p1.exile[0].canBePlayedBy).toBeUndefined();
+    expect((result.state as any).playableFromExile?.p1?.land1).toBeUndefined();
+  });
+
   it('applies draw for "each of your opponents" (normalized to each_opponent)', () => {
     const ir = parseOracleTextToIR('Each of your opponents draws a card.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];

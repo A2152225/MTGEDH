@@ -25,6 +25,103 @@ export interface OracleIRExecutionResult {
   readonly skippedSteps: readonly OracleEffectStep[];
 }
 
+function getPlayableUntilTurnForImpulseDuration(state: GameState, duration: any): number | null {
+  const turnNumber = Number((state as any).turnNumber ?? 0) || 0;
+  const d = String(duration || '').trim();
+  if (!d) return null;
+
+  if (d === 'this_turn' || d === 'during_resolution') return turnNumber;
+
+  // Best-effort: treat all "next turn" / "until next <step>" windows as lasting through the next turn.
+  if (
+    d === 'during_next_turn' ||
+    d === 'until_end_of_next_turn' ||
+    d === 'until_end_of_combat_on_next_turn' ||
+    d === 'until_next_turn' ||
+    d === 'until_next_upkeep' ||
+    d === 'until_next_end_step'
+  ) {
+    return turnNumber + 1;
+  }
+
+  // Longer / open-ended windows: keep the permission present without an expiry.
+  if (d === 'as_long_as_remains_exiled' || d === 'as_long_as_control_source' || d === 'until_exile_another') {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return null;
+}
+
+function applyImpulsePermissionMarkers(
+  state: GameState,
+  playerId: PlayerID,
+  exiledCards: readonly any[],
+  meta: {
+    readonly permission: 'play' | 'cast';
+    readonly playableUntilTurn: number | null;
+    readonly condition?: any;
+    readonly exiledBy?: string;
+  }
+): { state: GameState; granted: number } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { state, granted: 0 };
+
+  const exileArr: any[] = Array.isArray(player.exile) ? [...player.exile] : [];
+  if (exileArr.length === 0 || exiledCards.length === 0) return { state, granted: 0 };
+
+  const stateAny: any = state as any;
+  stateAny.playableFromExile = stateAny.playableFromExile || {};
+  stateAny.playableFromExile[playerId] = stateAny.playableFromExile[playerId] || {};
+
+  const playableUntilTurn = meta.playableUntilTurn;
+  const condition = meta.condition as any;
+
+  let granted = 0;
+
+  const exiledIds = new Set(exiledCards.map(c => String((c as any)?.id ?? (c as any)?.cardId ?? '')));
+
+  const shouldGrant = (card: any): boolean => {
+    const typeLineLower = String(card?.type_line || '').toLowerCase();
+    const isLand = typeLineLower.includes('land');
+    const colors = Array.isArray(card?.colors) ? card.colors.map((x: any) => String(x || '').toUpperCase()) : [];
+
+    const passesPermissionGate = meta.permission === 'play' ? true : !isLand;
+    let passesConditionGate = true;
+    if (condition) {
+      if (condition.kind === 'type') {
+        passesConditionGate = condition.type === 'land' ? isLand : !isLand;
+      } else if (condition.kind === 'color') {
+        passesConditionGate = colors.includes(condition.color);
+      }
+    }
+    return passesPermissionGate && passesConditionGate;
+  };
+
+  for (let i = 0; i < exileArr.length; i++) {
+    const card = exileArr[i];
+    const id = String(card?.id ?? card?.cardId ?? '');
+    if (!id || !exiledIds.has(id)) continue;
+
+    const grant = shouldGrant(card);
+    const next = {
+      ...card,
+      zone: 'exile',
+      ...(meta.exiledBy ? { exiledBy: meta.exiledBy } : {}),
+      ...(grant ? { canBePlayedBy: playerId, playableUntilTurn } : {}),
+    };
+    exileArr[i] = next;
+
+    if (grant) {
+      // Gate play/cast permissions (impulse draw) by turn number.
+      stateAny.playableFromExile[playerId][id] = playableUntilTurn ?? Number.MAX_SAFE_INTEGER;
+      granted++;
+    }
+  }
+
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...(p as any), exile: exileArr } as any) : p));
+  return { state: { ...(stateAny as any), players: updatedPlayers as any }, granted };
+}
+
 type SimpleBattlefieldSelector = {
   readonly kind: 'battlefield_selector';
   readonly types: readonly SimplePermanentType[];
@@ -1543,13 +1640,34 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
+        const permission = (step as any).permission as 'play' | 'cast' | undefined;
+        if (!permission) {
+          skippedSteps.push(step);
+          log.push(`Skipped impulse exile top (missing permission): ${step.raw}`);
+          break;
+        }
+
+        const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(nextState, (step as any).duration);
+        const condition = (step as any).condition;
+        const exiledBy = ctx.sourceName;
+
         for (const playerId of players) {
           const r = exileTopCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
           log.push(...r.log);
+
+          const markerResult = applyImpulsePermissionMarkers(nextState, playerId, r.exiled, {
+            permission,
+            playableUntilTurn,
+            condition,
+            exiledBy,
+          });
+          nextState = markerResult.state;
+          if (markerResult.granted > 0) {
+            log.push(`${playerId} may ${permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} exiled card(s)`);
+          }
         }
 
-        // Note: Permission windows ("you may play/cast...") are not enforced here.
         appliedSteps.push(step);
         break;
       }
