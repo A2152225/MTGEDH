@@ -36,6 +36,7 @@ import { evaluateAction } from "../../rules-engine/index.js";
 import { pushStack, resolveTopOfStack, playLand } from "./stack.js";
 import { nextTurn, nextStep, passPriority } from "./turn.js";
 import { reconcileZonesConsistency } from "./zones.js";
+import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 
 /* applyEvent: mirror of monolithic behavior */
 export function applyEvent(ctx: GameContext, e: GameEvent) {
@@ -198,6 +199,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     }
 
     case "pushStack":
+      // Defensive replay hardening: if persisted provenance indicates the stack item
+      // was cast from true exile, ensure impulse-style tags/permissions are cleaned up.
+      try {
+        const item = (e as any).item;
+        const fromZone = String((item as any)?.fromZone || (item as any)?.castSourceZone || (item as any)?.source || (e as any)?.fromZone || '')
+          .toLowerCase()
+          .trim();
+        if (fromZone === 'exile') {
+          const cardData = (item as any)?.card;
+          if (cardData) {
+            const cardObj = typeof cardData === 'string' ? { id: cardData } : cardData;
+            cleanupCardLeavingExile((ctx.state as any) as any, cardObj);
+          }
+        }
+      } catch {
+        // best-effort only
+      }
       pushStack(ctx, (e as any).item);
       break;
 
@@ -206,7 +224,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       break;
 
     case "playLand":
-      playLand(ctx, (e as any).playerId, (e as any).card);
+      // Prefer full card object for replay (contains all card data)
+      // Fall back to cardId for backward compatibility with old events
+      {
+        const cardData = (e as any).card || (e as any).cardId;
+
+        // Defensive replay hardening: if the persisted event indicates the land
+        // was played from true exile, ensure any impulse-style tags/permissions
+        // are cleaned up even if playLand can't infer the source from current zones.
+        try {
+          const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
+          if (fromZone === 'exile') {
+            const cardObj = typeof cardData === 'string' ? { id: cardData } : cardData;
+            cleanupCardLeavingExile((ctx.state as any) as any, cardObj);
+          }
+        } catch {
+          // best-effort only
+        }
+
+        playLand(ctx, (e as any).playerId, cardData);
+      }
       break;
 
     case "nextTurn":

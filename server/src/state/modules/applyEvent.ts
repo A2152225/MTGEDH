@@ -43,6 +43,7 @@ import {
   runSBA,
   movePermanentToExile,
 } from "./counters_tokens";
+import { cleanupCardLeavingExile } from "./playable-from-exile";
 import { pushStack, resolveTopOfStack, playLand, castSpell } from "./stack";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
@@ -53,6 +54,7 @@ import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { checkGraveyardTrigger } from "./triggered-abilities.js";
 import { processLifeChange } from "./game-state-effects";
+import { ResolutionQueueManager } from "../resolution/index.js";
 
 /* -------- Helpers ---------- */
 
@@ -78,6 +80,17 @@ function generateDeterministicId(ctx: any, prefix: string, cardId: string): stri
  */
 export function reset(ctx: any, preservePlayers = false): void {
   if (!ctx) throw new Error("reset: missing ctx");
+
+  // Clear unified ResolutionQueue state for this game. This prevents stale
+  // pending interactions from blocking subsequent replays/undo.
+  try {
+    const gameId = (ctx as any).gameId;
+    if (typeof gameId === 'string' && gameId.trim()) {
+      ResolutionQueueManager.clearAllSteps(gameId);
+    }
+  } catch {
+    // best-effort only
+  }
 
   // Prefer specialized reset if present on ctx or a global replayModule
   try {
@@ -995,6 +1008,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Prefer full card object for replay (contains all card data)
         // Fall back to cardId for backward compatibility with old events
         const cardData = (e as any).card || (e as any).cardId;
+
+        // Defensive replay hardening: if the persisted event indicates the land
+        // was played from true exile, ensure any impulse-style tags/permissions
+        // are cleaned up even if playLand can't infer the source from current zones.
+        try {
+          const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
+          if (fromZone === 'exile') {
+            const cardObj = typeof cardData === 'string' ? { id: cardData } : cardData;
+            cleanupCardLeavingExile((ctx.state as any) as any, cardObj);
+          }
+        } catch {
+          // best-effort only
+        }
         playLand(ctx as any, (e as any).playerId, cardData);
         break;
       }
@@ -1043,6 +1069,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Prefer full card object for replay (contains all card data)
         // Fall back to cardId for backward compatibility with old events
         const spellCardData = (e as any).card || (e as any).cardId;
+
+        // Defensive replay hardening: if the persisted event indicates the spell
+        // was cast from true exile, ensure any impulse-style tags/permissions are
+        // cleaned up even if castSpell can't infer the source from current zones.
+        try {
+          const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
+          if (fromZone === 'exile') {
+            const cardObj = typeof spellCardData === 'string' ? { id: spellCardData } : spellCardData;
+            cleanupCardLeavingExile((ctx.state as any) as any, cardObj);
+          }
+        } catch {
+          // best-effort only
+        }
         castSpell(
           ctx as any,
           (e as any).playerId,
@@ -2977,6 +3016,16 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
   (ctx as any).isReplaying = true;
   
   try {
+    // Ensure any stale per-game resolution steps are cleared before rebuilding state.
+    // The queue is not persisted in the event log, so it must not leak across reset/replay.
+    try {
+      if (ctx?.gameId) {
+        ResolutionQueueManager.clearAllSteps(ctx.gameId);
+      }
+    } catch {
+      // best-effort only
+    }
+
     // Track which players have shuffle/draw events anywhere in the event list
     // This is used to detect old-style games that don't have explicit shuffle/draw events
     // and need backward compatibility handling
@@ -3001,8 +3050,20 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
     }
     
     // Second pass: apply events
-    for (const e of events) {
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i];
       if (!e || typeof e.type !== "string") continue;
+
+      // Provide a small amount of lookahead context for replay-only behaviors.
+      // This is used to avoid double-applying implicit state transitions when
+      // an explicit event follows (e.g., nextStep calling nextTurn vs a nextTurn event).
+      try {
+        (ctx as any)._replayCurrentEventType = e.type;
+        (ctx as any)._replayNextEventType = (events[i + 1] as any)?.type;
+      } catch {
+        // ignore
+      }
+
       if (e.type === "passPriority") {
         try {
           if (typeof passPriority === "function")
@@ -3055,6 +3116,12 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
   } finally {
     // Clear replay mode flag when done
     (ctx as any).isReplaying = false;
+    try {
+      delete (ctx as any)._replayCurrentEventType;
+      delete (ctx as any)._replayNextEventType;
+    } catch {
+      // ignore
+    }
   }
 }
 

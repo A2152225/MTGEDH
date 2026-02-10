@@ -3779,8 +3779,12 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
  * Simple progression through main phases and steps.
  * Full step/phase automation would be more complex, but this provides basic progression.
  * 
- * When ctx.isReplaying is true, skip side effects (drawing, untapping, triggers, etc.)
- * because those actions should be handled by separate replayed events.
+ * Replay/undo determinism note:
+ * - Replaying persisted events must reproduce the same state as live execution.
+ * - Most turn-based actions (untap, draw step draw, step-entry triggers, combat damage)
+ *   are NOT persisted as separate events, so they must still run during replay.
+ * - We keep the pending-interaction blocker disabled during replay to avoid stale
+ *   ResolutionQueue state preventing forward progress.
  */
 export function nextStep(ctx: GameContext) {
   try {
@@ -3872,12 +3876,12 @@ export function nextStep(ctx: GameContext) {
         // But keep this for backward compatibility with old save states or manual step control
         nextPhase = "beginning";
         nextStep = "UPKEEP";
-        shouldUntap = !isReplaying; // Untap all permanents when leaving UNTAP step (skip during replay)
+        shouldUntap = true; // Untap all permanents when leaving UNTAP step
         // NOTE: Upkeep triggers will be pushed AFTER phase/step update below
       } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {
         nextPhase = "beginning";
         nextStep = "DRAW";
-        shouldDraw = !isReplaying; // Draw a card when entering draw step (skip during replay)
+        shouldDraw = true; // Draw a card when entering draw step
         // NOTE: Draw step triggers will be pushed AFTER phase/step update below
       } else {
         // After draw, go to precombatMain
@@ -3923,32 +3927,28 @@ export function nextStep(ctx: GameContext) {
         if (hasFirstStrikeOrDoubleStrike) {
           debug(2, `${ts()} [COMBAT_STEP] ========== TRANSITIONING TO FIRST_STRIKE_DAMAGE (first/double strike detected) ==========`);
           nextStep = "FIRST_STRIKE_DAMAGE";
-          // Deal first strike damage - skip during replay
-          if (!isReplaying) {
-            try {
-              debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage (first strike phase)...`);
-              const combatResult = dealCombatDamage(ctx, true); // Pass flag for first strike phase
-              debug(2, `${ts()} [COMBAT_STEP] First strike damage completed`);
-              (ctx as any).state.lastFirstStrikeDamageResult = combatResult;
-            } catch (err) {
-              debugError(1, `${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
-            }
+          // Deal first strike damage
+          try {
+            debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage (first strike phase)...`);
+            const combatResult = dealCombatDamage(ctx, true); // Pass flag for first strike phase
+            debug(2, `${ts()} [COMBAT_STEP] First strike damage completed`);
+            (ctx as any).state.lastFirstStrikeDamageResult = combatResult;
+          } catch (err) {
+            debugError(1, `${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
           }
         } else {
           debug(2, `${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM DECLARE_BLOCKERS TO DAMAGE (no first strike) ==========`);
           nextStep = "DAMAGE";
-          // Deal combat damage when entering the DAMAGE step (Rule 510) - skip during replay
-          if (!isReplaying) {
-            try {
-              debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
-              const combatResult = dealCombatDamage(ctx);
-              debug(2, `${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
-              debug(2, `${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
-              (ctx as any).state.lastCombatDamageResult = combatResult;
-            } catch (err) {
-              debugError(1, `${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
-              debugWarn(1, `${ts()} [nextStep] Failed to deal combat damage:`, err);
-            }
+          // Deal combat damage when entering the DAMAGE step (Rule 510)
+          try {
+            debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
+            const combatResult = dealCombatDamage(ctx);
+            debug(2, `${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
+            debug(2, `${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
+            (ctx as any).state.lastCombatDamageResult = combatResult;
+          } catch (err) {
+            debugError(1, `${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
+            debugWarn(1, `${ts()} [nextStep] Failed to deal combat damage:`, err);
           }
         }
         debug(2, `${ts()} [COMBAT_STEP] ========== END DAMAGE STEP PROCESSING ==========`);
@@ -3957,24 +3957,20 @@ export function nextStep(ctx: GameContext) {
         debug(2, `${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM FIRST_STRIKE_DAMAGE TO DAMAGE ==========`);
         nextStep = "DAMAGE";
         // Deal regular combat damage (from creatures without first strike, and double strike creatures again)
-        // Skip during replay - combat damage should be handled by replayed events
-        if (!isReplaying) {
-          try {
-            debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage (regular damage phase after first strike)...`);
-            const combatResult = dealCombatDamage(ctx, false); // Regular damage phase
-            debug(2, `${ts()} [COMBAT_STEP] Regular damage completed`);
-            (ctx as any).state.lastCombatDamageResult = combatResult;
-          } catch (err) {
-            debugError(1, `${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
-          }
+        try {
+          debug(2, `${ts()} [COMBAT_STEP] Calling dealCombatDamage (regular damage phase after first strike)...`);
+          const combatResult = dealCombatDamage(ctx, false); // Regular damage phase
+          debug(2, `${ts()} [COMBAT_STEP] Regular damage completed`);
+          (ctx as any).state.lastCombatDamageResult = combatResult;
+        } catch (err) {
+          debugError(1, `${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
         }
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
         nextStep = "END_COMBAT";
         // NOTE: End of combat triggers will be pushed AFTER phase/step update below
       } else {
         // After endCombat, check for extra combat phases before going to postcombatMain
-        // Skip extra combat processing during replay - should be handled by replayed events
-        if (!isReplaying && hasExtraCombat(ctx)) {
+        if (hasExtraCombat(ctx)) {
           // There's an extra combat phase pending
           const extraCombat = consumeExtraCombat(ctx);
           debug(2, `${ts()} [nextStep] Starting extra combat phase from ${extraCombat?.source || 'Unknown'}`);
@@ -4056,7 +4052,7 @@ export function nextStep(ctx: GameContext) {
     // triggers like "at the beginning of your draw step" which should see
     // the card that was just drawn.
     // ========================================================================
-    if (shouldDraw && !isReplaying) {
+    if (shouldDraw) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
@@ -4090,7 +4086,7 @@ export function nextStep(ctx: GameContext) {
     // 2. Triggers for the new step are detected and pushed to stack
     // 3. Active player receives priority (done at end of nextStep or in socket layer)
     // ========================================================================
-    if (!isReplaying) {
+    {
       const turnPlayer = (ctx as any).state?.turnPlayer;
       if (turnPlayer) {
         (ctx as any).state.stack = (ctx as any).state.stack || [];
@@ -4577,15 +4573,13 @@ export function nextStep(ctx: GameContext) {
 
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
-      // CRITICAL: During replay, do NOT call nextTurn here!
-      // The nextTurn event is persisted separately in the event log and will be
-      // applied via applyEvent("nextTurn") when it's reached in the replay sequence.
-      // Calling nextTurn here during replay causes duplicate turn advancement,
-      // which corrupts game state (e.g., double turn increments, repeated side effects).
+      let skipImplicitNextTurnCall = false;
       if (isReplaying) {
-        debug(2, `${ts()} [nextStep] In replay mode - skipping nextTurn call (nextTurn event is in event log)`);
-        ctx.bumpSeq();
-        return;
+        const nextEventType = String(((ctx as any)._replayNextEventType ?? '')).trim();
+        if (nextEventType === 'nextTurn') {
+          debug(2, `${ts()} [nextStep] In replay mode - next event is nextTurn; skipping implicit nextTurn call to avoid double-advance`);
+          skipImplicitNextTurnCall = true;
+        }
       }
       
       // Check if we're proceeding from cleanup (player already had chance to use Sundial)
@@ -4636,6 +4630,9 @@ export function nextStep(ctx: GameContext) {
       
       debug(2, `${ts()} [nextStep] Cleanup complete, advancing to next turn`);
       ctx.bumpSeq();
+      if (skipImplicitNextTurnCall) {
+        return;
+      }
       nextTurn(ctx);
       return;
     }
