@@ -413,6 +413,52 @@ describe('RulesEngineAdapter', () => {
       expect((result.next as any).playableFromExile?.player1?.['land-ex1']).toBeUndefined();
     });
 
+    it('should allow additional land plays when maxLandsPerTurn is increased', () => {
+      const stateWithExtraLandPlay: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [
+                  { id: 'land-a', name: 'Forest', type_line: 'Basic Land — Forest' },
+                  { id: 'land-b', name: 'Mountain', type_line: 'Basic Land — Mountain' },
+                ],
+              }
+            : p
+        ),
+        turn: 1,
+        landsPlayedThisTurn: { player1: 0 },
+        maxLandsPerTurn: { player1: 2 },
+        battlefield: [],
+      };
+
+      adapter.initializeGame('test-game', stateWithExtraLandPlay);
+
+      const first = adapter.executeAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'hand',
+        cardId: 'land-a',
+      });
+
+      expect((first.next as any).landsPlayedThisTurn?.player1).toBe(1);
+      expect(((first.next as any).battlefield || []).some((perm: any) => perm.id === 'land-a')).toBe(true);
+
+      adapter.initializeGame('test-game', first.next as any);
+      const second = adapter.executeAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'hand',
+        cardId: 'land-b',
+      });
+
+      expect((second.next as any).landsPlayedThisTurn?.player1).toBe(2);
+      expect(((second.next as any).battlefield || []).some((perm: any) => perm.id === 'land-b')).toBe(true);
+    });
+
     it('should remove a spell from exile when it is cast from exile', () => {
       const stateWithExile: any = {
         ...testGameState,

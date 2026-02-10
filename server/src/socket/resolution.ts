@@ -48,6 +48,7 @@ import { getTokenImageUrls } from "../services/tokens.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
+import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
@@ -6081,10 +6082,14 @@ function handleCommanderZoneResponse(
     if (zones && card) {
       // Remove from source zone
       const sourceZone = (zones as any)[destinationZone];
+      let removedFromZone: any = null;
       if (Array.isArray(sourceZone)) {
         const cardIndex = sourceZone.findIndex((c: any) => c.id === commanderId || c.id === card.id);
         if (cardIndex !== -1) {
-          sourceZone.splice(cardIndex, 1);
+          removedFromZone = sourceZone.splice(cardIndex, 1)[0];
+          if (destinationZone === 'exile' && removedFromZone) {
+            cleanupCardLeavingExile(game.state as any, removedFromZone);
+          }
           // Update zone count
           const countKey = `${destinationZone}Count` as keyof typeof zones;
           if (typeof zones[countKey] === 'number') {
@@ -6095,7 +6100,10 @@ function handleCommanderZoneResponse(
       
       // Add to command zone
       zones.commandZone = zones.commandZone || [];
-      zones.commandZone.push({ ...card, zone: 'command' });
+      if (destinationZone === 'exile' && !removedFromZone) {
+        cleanupCardLeavingExile(game.state as any, card);
+      }
+      zones.commandZone.push({ ...(removedFromZone || card), zone: 'command' });
       zones.commandZoneCount = zones.commandZone.length;
     }
     
@@ -6720,6 +6728,7 @@ async function handleTargetSelectionResponse(
 
     if (permanent) {
       (permanent as any).exiledCards = (permanent as any).exiledCards || [];
+      cleanupCardLeavingExile(game.state as any, removedCard);
       (permanent as any).exiledCards.push({ ...(removedCard as any), zone: 'exile', exiledWith: permanentId });
     }
 
@@ -11073,6 +11082,13 @@ async function handleLibrarySearchResponse(
     if (idx >= 0) {
       const [taken] = ex.splice(idx, 1);
       z.exileCount = ex.length;
+
+      // If the card is being removed from the true exile zone and placed elsewhere
+      // (hand/battlefield/library/etc), strip any impulse-style playable-from-exile tags.
+      // This prevents stale permissions from following the card into other zones.
+      if (taken && String(destination || '').toLowerCase() !== 'exile') {
+        cleanupCardLeavingExile(state as any, taken);
+      }
       return taken;
     }
     return cardMap.get(cardId);
@@ -14466,6 +14482,8 @@ async function handleOptionChoiceResponse(
       zones.exile.splice(cardIndex, 1);
       zones.exileCount = zones.exile.length;
 
+      cleanupCardLeavingExile(game.state as any, exiledCard);
+
       const stackItem = {
         id: uid('free_exile_spell'),
         type: 'spell',
@@ -14491,6 +14509,9 @@ async function handleOptionChoiceResponse(
       if (declineDestination === 'graveyard') {
         zones.exile.splice(cardIndex, 1);
         zones.exileCount = zones.exile.length;
+
+        cleanupCardLeavingExile(game.state as any, exiledCard);
+
         zones.graveyard = zones.graveyard || [];
         zones.graveyard.push({ ...exiledCard, zone: 'graveyard' });
         zones.graveyardCount = zones.graveyard.length;
@@ -16019,6 +16040,8 @@ async function handleOptionChoiceResponse(
       // Player chose to cast - remove from exile and put on stack
       zones.exile.splice(cardIndex, 1);
       zones.exileCount = zones.exile.length;
+
+      cleanupCardLeavingExile(game.state as any, exiledCard);
       
       // Add to stack as a spell (without paying mana cost)
       const stackItem = {
@@ -16047,6 +16070,8 @@ async function handleOptionChoiceResponse(
       // Player declined - move card from exile to graveyard
       zones.exile.splice(cardIndex, 1);
       zones.exileCount = zones.exile.length;
+
+      cleanupCardLeavingExile(game.state as any, exiledCard);
       
       zones.graveyard = zones.graveyard || [];
       zones.graveyard.push({ ...exiledCard, zone: 'graveyard', reboundPending: false, reboundTriggered: false });

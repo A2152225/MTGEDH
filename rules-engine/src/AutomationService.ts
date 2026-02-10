@@ -707,6 +707,12 @@ export function hasAvailableActions(state: GameState, playerId: string): boolean
   if (!player) return false;
 
   const isValidUntil = (until: any): until is number => typeof until === 'number' && Number.isFinite(until);
+
+  const getMaxLandsPerTurn = (): number => {
+    const stateAny: any = state as any;
+    const max = Number(stateAny.maxLandsPerTurn?.[playerId] ?? 1);
+    return Number.isFinite(max) && max > 0 ? max : 1;
+  };
   
   const isActivePlayer = state.players[state.activePlayerIndex || 0]?.id === playerId;
   const phaseStr = String(state.phase || '').toLowerCase();
@@ -717,8 +723,9 @@ export function hasAvailableActions(state: GameState, playerId: string): boolean
   if (isActivePlayer && isMainPhase && stackEmpty) {
     const landsPlayed = (state as any).landsPlayedThisTurn?.[playerId] || 0;
     const hand = (player as any).hand || [];
+    const maxLandsPerTurn = getMaxLandsPerTurn();
     const hasPlayableLand = hand.some((c: any) => 
-      (c?.type_line || '').toLowerCase().includes('land') && landsPlayed < 1
+      (c?.type_line || '').toLowerCase().includes('land') && landsPlayed < maxLandsPerTurn
     );
     if (hasPlayableLand) return true;
 
@@ -741,7 +748,7 @@ export function hasAvailableActions(state: GameState, playerId: string): boolean
       if (!isValidUntil(until)) continue;
       if (until < currentTurn) continue;
 
-      if (landsPlayed < 1) return true;
+      if (landsPlayed < maxLandsPerTurn) return true;
     }
   }
   

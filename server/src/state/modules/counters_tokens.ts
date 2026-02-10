@@ -12,6 +12,7 @@ import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -1396,17 +1397,40 @@ export function runSBA(ctx: GameContext) {
     // Note: Same token detection logic as graveyard
     if (Array.isArray(playerZones.exile)) {
       const beforeCount = playerZones.exile.length;
-      playerZones.exile = playerZones.exile.filter((card: any) => {
+      const kept: any[] = [];
+      const removedFromExile: any[] = [];
+
+      for (const card of playerZones.exile as any[]) {
+        const c: any = card as any;
         // We intentionally keep token entries in exile for UI/test visibility.
         // (Rules-wise they cease to exist, but the engine tracks them here.)
-        if (card?.zone === 'exile' && card?.isToken === true) return true;
-        if (card.isToken) return false;
-        if (card.card?.isToken) return false;
-        const typeLine = (card.type_line || card.card?.type_line || '').toLowerCase();
-        if (typeLine.includes('token')) return false;
-        return true;
-      }) as any;
+        if (c?.zone === 'exile' && c?.isToken === true) {
+          kept.push(card);
+          continue;
+        }
+
+        if (c?.isToken) {
+          removedFromExile.push(card);
+          continue;
+        }
+        if (c?.card?.isToken) {
+          removedFromExile.push(card);
+          continue;
+        }
+        const typeLine = (c?.type_line || c?.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('token')) {
+          removedFromExile.push(card);
+          continue;
+        }
+
+        kept.push(card);
+      }
+
+      playerZones.exile = kept as any;
       if (playerZones.exile.length !== beforeCount) {
+        for (const removed of removedFromExile) {
+          cleanupCardLeavingExile(state as any, removed);
+        }
         playerZones.exileCount = playerZones.exile.length;
         debug(2, `[runSBA] Removed ${beforeCount - playerZones.exile.length} token(s) from ${playerId}'s exile`);
         changed = true;

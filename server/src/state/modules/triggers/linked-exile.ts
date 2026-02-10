@@ -10,6 +10,7 @@
 
 import type { GameContext } from "../../context.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
+import { cleanupCardLeavingExile } from "../playable-from-exile.js";
 
 /**
  * Represents a linked exile - a permanent that has exiled another permanent
@@ -186,6 +187,9 @@ export function processLinkedExileReturns(
     // Per MTG rules for linked exile effects, cards exiled "until ~ leaves the 
     // battlefield" return under their original owner's control when the exiling
     // permanent leaves. This is different from effects that say "under your control".
+
+    cleanupCardLeavingExile(state, linked.exiledCard);
+
     const newPermanent = {
       id: `perm_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       card: linked.exiledCard,

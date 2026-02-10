@@ -55,6 +55,7 @@ import {
   validateSpellTiming,
   type SpellCastingContext,
 } from './spellCasting';
+import { consumePlayableFromExileForCard, stripPlayableFromExileTags } from './playableFromExile';
 import {
   createEmptyStack,
   pushToStack,
@@ -252,7 +253,8 @@ export class RulesEngineAdapter {
 
     const stateAny: any = state as any;
     const landsPlayed = Number(stateAny.landsPlayedThisTurn?.[action.playerId] ?? 0) || 0;
-    const maxLandsPerTurn = 1;
+    const maxLandsPerTurn =
+      Number(stateAny.maxLandsPerTurn?.[action.playerId] ?? 1) || 1;
     if (landsPlayed >= maxLandsPerTurn) {
       return { legal: false, reason: 'No remaining land plays this turn' };
     }
@@ -849,14 +851,7 @@ export class RulesEngineAdapter {
 
     // Clear any playable-from-exile marker if we cast from exile.
     if (fromZone === 'exile' && cardId) {
-      const stateAny: any = nextState as any;
-      const pMap = stateAny.playableFromExile?.[action.playerId];
-      if (pMap && typeof pMap === 'object' && Object.prototype.hasOwnProperty.call(pMap, cardId)) {
-        const nextPMap: any = { ...(pMap as any) };
-        delete nextPMap[cardId];
-        stateAny.playableFromExile = { ...(stateAny.playableFromExile as any), [action.playerId]: nextPMap };
-        nextState = stateAny as any;
-      }
+      nextState = consumePlayableFromExileForCard(nextState, action.playerId, cardId) as any;
     }
     
     // Add to stack (stored separately for now)
@@ -946,7 +941,7 @@ export class RulesEngineAdapter {
     }
 
     // Strip impulse markers when the card leaves exile.
-    const { canBePlayedBy, playableUntilTurn, ...restCard } = card as any;
+    const restCard = stripPlayableFromExileTags(card);
     const battlefieldPermanent: any = {
       id: cardId,
       controller: playerId,
@@ -973,12 +968,8 @@ export class RulesEngineAdapter {
 
     // Consume any playable-from-exile marker if we played from exile.
     if (fromZone === 'exile') {
-      const pMap = stateAny.playableFromExile?.[playerId];
-      if (pMap && typeof pMap === 'object' && Object.prototype.hasOwnProperty.call(pMap, cardId)) {
-        const nextPMap: any = { ...(pMap as any) };
-        delete nextPMap[cardId];
-        stateAny.playableFromExile = { ...(stateAny.playableFromExile as any), [playerId]: nextPMap };
-      }
+      const consumed = consumePlayableFromExileForCard(stateAny as any, playerId, cardId) as any;
+      stateAny.playableFromExile = (consumed as any).playableFromExile;
     }
 
     // Emit a generic ETB/zone-change style event.

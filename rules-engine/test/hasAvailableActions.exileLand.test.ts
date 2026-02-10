@@ -160,4 +160,30 @@ describe('hasAvailableActions - playable land from exile', () => {
 
     expect(hasAvailableActions(state, 'p1')).toBe(false);
   });
+
+  it('respects maxLandsPerTurn when checking lands in hand', () => {
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 20,
+          hand: [{ id: 'land-hand1', name: 'Forest', type_line: 'Basic Land — Forest' }],
+          library: [],
+          graveyard: [],
+          battlefield: [],
+          exile: [],
+          commandZone: [],
+          counters: {},
+          hasLost: false,
+          manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        } as any,
+      ],
+      landsPlayedThisTurn: { p1: 1 },
+      maxLandsPerTurn: { p1: 2 },
+    } as any);
+
+    expect(hasAvailableActions(state, 'p1')).toBe(true);
+  });
 });

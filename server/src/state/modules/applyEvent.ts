@@ -124,6 +124,9 @@ export function reset(ctx: any, preservePlayers = false): void {
     ctx.state = ctx.state || {};
     ctx.state.battlefield = [];
     ctx.state.stack = [];
+    // Impulse-style exile permissions must never survive a reset/replay.
+    // These will be rebuilt deterministically from replayed events when appropriate.
+    (ctx.state as any).playableFromExile = {};
     // Clear commandZone in place to preserve reference identity
     if (ctx.state.commandZone && typeof ctx.state.commandZone === 'object') {
       for (const key of Object.keys(ctx.state.commandZone)) {

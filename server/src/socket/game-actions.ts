@@ -22,6 +22,7 @@ import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
+import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -6376,6 +6377,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               zones.handCount = hand.length;
             } else if (castSourceZone === 'exile') {
               (zones as any).exileCount = exile.length;
+              cleanupCardLeavingExile(game.state as any, removedCard);
             } else if (castSourceZone === 'graveyard') {
               (zones as any).graveyardCount = graveyard.length;
             }
@@ -10319,6 +10321,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       const originalCard = { ...card };
       (zones.exile as any[]).splice(cardIndex, 1);
       (zones as any).exileCount = (zones.exile as any[]).length;
+
+      // Defensive: if any impulse-style playable-from-exile permissions/tags exist on this card,
+      // strip them as it leaves true exile so they can't leak into hand/cast representations.
+      cleanupCardLeavingExile(game.state as any, card);
 
       zones.hand = Array.isArray((zones as any).hand) ? (zones as any).hand : [];
 

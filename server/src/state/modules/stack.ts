@@ -42,6 +42,7 @@ import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.j
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
 import { createToken, runSBA, applyCounterModifications, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
+import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
@@ -11331,6 +11332,12 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       }
     }
   }
+
+  // If this land was played from exile due to impulse-like permissions, consume that permission now.
+  // Also strip the permission tags so they don't leak into battlefield representations.
+  if (playedFromExile) {
+    cleanupCardLeavingExile(state as any, card);
+  }
   
   const tl = (card.type_line || "").toLowerCase();
   const isCreature = /\bcreature\b/.test(tl);
@@ -11750,6 +11757,12 @@ export function castSpell(
         castFromGraveyard = true;
       }
     }
+  }
+
+  // If this was an exile-cast enabled by impulse-like permissions, consume that permission now.
+  // Also strip the permission tags so they don't leak into stack/battlefield representations.
+  if (castFromExile) {
+    cleanupCardLeavingExile(state as any, card);
   }
 
   // Record cast-time metadata that some intervening-if clauses depend on.

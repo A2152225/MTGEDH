@@ -38,6 +38,7 @@ import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
+import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
@@ -162,6 +163,8 @@ function processPendingFlickerReturnsAtBeginningOfEndStep(ctx: GameContext, turn
       if (!card) {
         continue;
       }
+
+      cleanupCardLeavingExile(state, card);
 
       const entersWithCounters = detectEntersWithCounters(card);
       const isPlaneswalker = String(card?.type_line || '').toLowerCase().includes('planeswalker');
@@ -2382,6 +2385,28 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.turnNumber = ((ctx as any).state.turnNumber || 0) + 1;
     const turnNumber = (ctx as any).state.turnNumber;
 
+    // Best-effort cleanup: prune expired impulse-style "playable from exile" windows.
+    // Semantics: numeric entries represent "playable until >= turnNumber"; once turnNumber advances,
+    // any entry with value < turnNumber is no longer usable.
+    try {
+      const stateAny = (ctx as any).state as any;
+      const pfeAll = stateAny?.playableFromExile;
+      if (pfeAll && typeof pfeAll === 'object') {
+        for (const [pid, entry] of Object.entries(pfeAll)) {
+          if (!entry) continue;
+          if (Array.isArray(entry)) continue;
+          if (typeof entry !== 'object') continue;
+          for (const [cardId, until] of Object.entries(entry as any)) {
+            if (typeof until === 'number' && until < turnNumber) {
+              delete (entry as any)[cardId];
+            }
+          }
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+
     // Legacy alias used by older client/replay consumers.
     (ctx as any).state.turn = turnNumber;
     
@@ -4273,6 +4298,9 @@ export function nextStep(ctx: GameContext) {
               // If last time counter was removed, cast the spell for free
               if (card.timeCounters === 0) {
                 debug(2, `${ts()} [nextStep] Suspend: ${card.name} has no time counters remaining - will be cast`);
+
+                cleanupCardLeavingExile((ctx as any).state, card);
+
                 // Remove from exile
                 const exileIdx = playerZone.exile.indexOf(card);
                 if (exileIdx !== -1) {

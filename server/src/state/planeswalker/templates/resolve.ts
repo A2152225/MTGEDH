@@ -4,6 +4,7 @@ import { debug } from "../../../utils/debug.js";
 import { getActualPowerToughness, uid } from "../../utils.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary } from "../../modules/zones.js";
 import { createToken, movePermanentToExile, movePermanentToGraveyard, updateCounters } from "../../modules/counters_tokens.js";
+import { cleanupCardLeavingExile } from "../../modules/playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn } from "../../modules/turn-tracking.js";
 import { applyTemporaryLandBonus } from "../../modules/game-state-effects.js";
 import { addExtraTurn, nextTurn } from "../../modules/turn.js";
@@ -105,6 +106,7 @@ function restartGameWithKarnExemptions(
     for (const c of exile) {
       const exiledWith = String((c as any)?.exiledWithSourceId || '');
       if (exiledWith && exiledWith === sourcePermanentId && isNonAuraPermanentCard(c)) {
+        cleanupCardLeavingExile(state, c);
         preserved.push({ ownerId: pid, card: c });
         continue;
       }
@@ -169,6 +171,10 @@ function restartGameWithKarnExemptions(
       for (const c of arr) {
         const cid = String((c as any)?.id || '');
         if (cid && commanderIds.has(cid)) continue;
+
+        if (zoneName === 'exile') {
+          cleanupCardLeavingExile(state, c);
+        }
         toLibraryByPlayer[pid].push({ ...(c as any), zone: 'library' });
       }
       (z as any)[zoneName] = [];

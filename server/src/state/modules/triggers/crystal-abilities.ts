@@ -24,6 +24,7 @@
 
 import type { GameContext } from "../../context.js";
 import { recordCardPutIntoGraveyardThisTurn } from "../turn-tracking.js";
+import { cleanupCardLeavingExile } from "../playable-from-exile.js";
 
 /**
  * Crystal ability definition
@@ -408,6 +409,9 @@ export function executeDarknessCrystalAbility(
   
   // Remove from exiled cards
   exiledWithCrystal.splice(targetIdx, 1);
+
+  // Defensive: ensure no stale impulse-style tags/permissions follow this card.
+  cleanupCardLeavingExile(state, cardData);
   
   // Create the permanent on battlefield - tapped with 2 additional +1/+1 counters
   const newPermanent = {

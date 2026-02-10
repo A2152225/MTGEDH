@@ -12,6 +12,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattlefieldThisTurn } from "./turn-tracking.js";
+import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 
 /* ===== core zone operations ===== */
 
@@ -32,6 +33,17 @@ export function importDeckResolved(
 ) {
   const { libraries, state, bumpSeq } = ctx as any;
   const zones = state.zones = state.zones || {};
+
+  // If this player currently has any cards in true exile, ensure impulse-style permissions/tags
+  // are cleaned up before we wipe zones for a fresh deck import.
+  try {
+    const prevExile = Array.isArray(zones?.[playerId]?.exile) ? (zones[playerId] as any).exile : [];
+    for (const c of prevExile) cleanupCardLeavingExile(state, c);
+    state.playableFromExile = state.playableFromExile || {};
+    state.playableFromExile[playerId] = {};
+  } catch {
+    // ignore
+  }
   
   debug(2, `[importDeckResolved] Importing ${cards.length} cards for player ${playerId}`);
   
@@ -927,6 +939,17 @@ export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID)
 export function applyPreGameReset(ctx: GameContext, playerId: PlayerID) {
   const { state, libraries, bumpSeq, life, poison, experience, commandZone } = ctx as any;
   const zones = state.zones = state.zones || {};
+
+  // If this player currently has any cards in true exile, clean up impulse permissions/tags
+  // so they can't leak across a wipe/reset.
+  try {
+    const prevExile = Array.isArray(zones?.[playerId]?.exile) ? (zones[playerId] as any).exile : [];
+    for (const c of prevExile) cleanupCardLeavingExile(state, c);
+    state.playableFromExile = state.playableFromExile || {};
+    state.playableFromExile[playerId] = {};
+  } catch {
+    // ignore
+  }
 
   // If libraries map doesn't contain the imported deck but an import buffer exists, use it.
   try {

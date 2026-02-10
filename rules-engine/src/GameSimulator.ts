@@ -254,6 +254,45 @@ export class GameSimulator {
     const card = this.getCard(cardName);
     return card?.type_line?.toLowerCase().includes('creature') || false;
   }
+
+  private parseAdditionalLandPlayEffect(oracleText?: string): { lands: number; affectsAll: boolean } {
+    const text = (oracleText || '').toLowerCase();
+    if (!text.includes('additional land')) return { lands: 0, affectsAll: false };
+
+    const affectsAll = text.includes('each player') && text.includes('may play');
+
+    const numeric = text.match(/play\s+(\d+)\s+additional\s+lands?/);
+    if (numeric) {
+      const n = Number(numeric[1]);
+      const lands = Number.isFinite(n) && n > 0 ? n : 0;
+      return { lands, affectsAll };
+    }
+
+    const word = text.match(/play\s+(an|one|two|three|four|five)\s+additional\s+lands?/);
+    if (word) {
+      const map: Record<string, number> = { an: 1, one: 1, two: 2, three: 3, four: 4, five: 5 };
+      return { lands: map[word[1]] ?? 0, affectsAll };
+    }
+
+    return { lands: 0, affectsAll };
+  }
+
+  private getMaxLandsPerTurn(playerId: PlayerID, simState: { players: Record<string, SimPlayerState> }): number {
+    let extra = 0;
+    for (const [controllerId, player] of Object.entries(simState.players)) {
+      for (const perm of player.battlefield) {
+        const card = this.getCard(perm.card);
+        const effect = this.parseAdditionalLandPlayEffect(card?.oracle_text);
+        if (effect.lands <= 0) continue;
+        if (controllerId === playerId || effect.affectsAll) {
+          extra += effect.lands;
+        }
+      }
+    }
+
+    const max = 1 + extra;
+    return Number.isFinite(max) && max > 0 ? max : 1;
+  }
   
   /**
    * Get CMC of a card
@@ -677,33 +716,34 @@ export class GameSimulator {
     let actions = 0;
     
     // Play a land if possible
-    if (player.landsPlayedThisTurn < 1) {
+    const maxLandsPerTurn = this.getMaxLandsPerTurn(player.id, simState);
+    while (player.landsPlayedThisTurn < maxLandsPerTurn) {
       const lands = player.hand.filter(c => this.isLand(c));
-      if (lands.length > 0) {
-        const land = lands[0];
-        const idx = player.hand.indexOf(land);
-        player.hand.splice(idx, 1);
-        
-        player.battlefield.push({
-          id: `perm-${Date.now()}-${this.rng()}`,
-          card: land,
-          tapped: false,
-          summoningSickness: false,
-          power: 0,
-          toughness: 0,
-          counters: {},
-          damage: 0,
-        });
-        
-        player.landsPlayedThisTurn++;
-        actions++;
-        
-        const stats = this.playerStats.get(player.id);
-        if (stats) stats.landsPlayed++;
-        
-        if (config.verbose) {
-          console.log(`[Simulator] ${player.name} played ${land}`);
-        }
+      if (lands.length === 0) break;
+
+      const land = lands[0];
+      const idx = player.hand.indexOf(land);
+      player.hand.splice(idx, 1);
+
+      player.battlefield.push({
+        id: `perm-${Date.now()}-${this.rng()}`,
+        card: land,
+        tapped: false,
+        summoningSickness: false,
+        power: 0,
+        toughness: 0,
+        counters: {},
+        damage: 0,
+      });
+
+      player.landsPlayedThisTurn++;
+      actions++;
+
+      const stats = this.playerStats.get(player.id);
+      if (stats) stats.landsPlayed++;
+
+      if (config.verbose) {
+        console.log(`[Simulator] ${player.name} played ${land}`);
       }
     }
     

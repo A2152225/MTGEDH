@@ -3,6 +3,7 @@ import { createTokens, createTokensByName, parseTokenCreationFromText, COMMON_TO
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from './oracleIR';
 import { parseManaSymbols } from './types/numbers';
 import { addMana, createEmptyManaPool, ManaType } from './types/mana';
+import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 
 export interface OracleIRExecutionOptions {
   /**
@@ -122,37 +123,7 @@ function applyImpulsePermissionMarkers(
   return { state: { ...(stateAny as any), players: updatedPlayers as any }, granted };
 }
 
-function stripImpulsePermissionMarkers(card: any): any {
-  if (!card || typeof card !== 'object') return card;
-  const { canBePlayedBy, playableUntilTurn, ...rest } = card as any;
-  return rest;
-}
-
-function clearPlayableFromExileForCards(state: GameState, playerId: PlayerID, cards: readonly any[]): GameState {
-  const stateAny: any = state as any;
-  const existing = stateAny.playableFromExile?.[playerId];
-  if (!existing || typeof existing !== 'object') return state;
-
-  let changed = false;
-  const nextMap: Record<string, any> = { ...(existing as any) };
-  for (const card of cards) {
-    const id = String((card as any)?.id ?? (card as any)?.cardId ?? '');
-    if (!id) continue;
-    if (Object.prototype.hasOwnProperty.call(nextMap, id)) {
-      delete nextMap[id];
-      changed = true;
-    }
-  }
-  if (!changed) return state;
-
-  return {
-    ...(stateAny as any),
-    playableFromExile: {
-      ...(stateAny.playableFromExile as any),
-      [playerId]: nextMap,
-    },
-  } as any;
-}
+const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
 
 type SimpleBattlefieldSelector = {
   readonly kind: 'battlefield_selector';
