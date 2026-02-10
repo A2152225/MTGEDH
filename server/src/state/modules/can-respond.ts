@@ -18,7 +18,7 @@ import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCost, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
-import { categorizeSpell, evaluateTargeting, parseTargetRequirements } from "../../rules-engine/targeting";
+import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn } from "./game-state-effects";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -166,101 +166,7 @@ function isCardPlayableFromExile(playableCards: any, cardId: string): boolean {
  * @param card - The card being checked
  * @returns true if spell has valid targets (or doesn't require targets), false otherwise
  */
-function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boolean {
-  if (!card) return false;
-
-  // When running in minimal/partial state contexts (e.g., unit tests or early bootstrapping),
-  // be conservative and assume targets exist. This avoids incorrectly auto-passing priority.
-  const hasBattlefieldInfo = Array.isArray(state?.battlefield);
-  const hasPlayersInfo = Array.isArray(state?.players);
-  const hasStackInfo = Array.isArray((state as any)?.stack);
-  // For general "target" spells, we typically need both battlefield + players to reason safely.
-  // Stack is only relevant for counterspells.
-  const hasEnoughTargetingContext = (hasBattlefieldInfo && hasPlayersInfo) || hasStackInfo;
-  
-  const typeLine = (card.type_line || "").toLowerCase();
-  const oracleText = (card.oracle_text || "").toLowerCase();
-  const cardName = card.name || "";
-  
-  // Check if this is an aura - auras ALWAYS require a target when cast
-  // Pattern: Enchantment — Aura with "Enchant <target type>" in oracle text
-  const isAura = typeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
-  
-  if (isAura) {
-    // Extract what the aura can enchant (creature, permanent, player, artifact, land, opponent)
-    const auraMatch = oracleText.match(/^enchant\s+(creature|permanent|player|artifact|land|opponent)/i);
-    const auraTargetType = auraMatch ? auraMatch[1].toLowerCase() : 'creature';
-    
-    // Check if valid targets exist
-    if (auraTargetType === 'player' || auraTargetType === 'opponent') {
-      // Check if there are valid player targets
-      const players = state.players || [];
-      const validPlayers = players.filter((p: any) => 
-        auraTargetType !== 'opponent' || p.id !== playerId
-      );
-      return validPlayers.length > 0;
-    } else {
-      // Check battlefield for permanents of the required type
-      const battlefield = state.battlefield || [];
-      const validTargets = battlefield.filter((p: any) => {
-        const tl = (p.card?.type_line || '').toLowerCase();
-        if (auraTargetType === 'permanent') return true;
-        return tl.includes(auraTargetType);
-      });
-      return validTargets.length > 0;
-    }
-  }
-  
-  // Check for instants/sorceries that require targets
-  const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
-  if (isInstantOrSorcery) {
-    // Check for counterspells - they need items on the stack to target
-    // Pattern: "counter target spell" or similar
-    const isCounterspell = /counter\s+target\s+(?:\w+\s+)?spell/i.test(oracleText) ||
-                           /counter\s+target\s+(?:instant|sorcery)/i.test(oracleText) ||
-                           /counter\s+target\s+(?:activated|triggered)\s+ability/i.test(oracleText);
-    
-    if (isCounterspell) {
-      // Counterspells require items on the stack to target
-      const stack = (state as any).stack;
-      if (!Array.isArray(stack)) {
-        // No stack info available; assume the spell could be cast.
-        return true;
-      }
-      if (stack.length === 0) {
-        // No spells/abilities on stack to counter
-        return false;
-      }
-      // Continue to normal targeting check below to validate specific targets
-    }
-    
-    // Try to categorize the spell to see if it needs targets
-    const spellSpec = categorizeSpell(cardName, oracleText);
-    if (spellSpec && spellSpec.minTargets > 0) {
-      if (!hasEnoughTargetingContext) {
-        return true;
-      }
-      // This spell requires targets - check if valid targets exist
-      const validTargets = evaluateTargeting(state, playerId, spellSpec);
-      return validTargets.length >= spellSpec.minTargets;
-    }
-    
-    // Also check via parseTargetRequirements as backup
-    const targetReqs = parseTargetRequirements(oracleText);
-    if (targetReqs.needsTargets && targetReqs.minTargets > 0) {
-      if (!hasEnoughTargetingContext) {
-        return true;
-      }
-      // This spell requires targets but we couldn't categorize it precisely.
-      // Be conservative and assume targets might exist so we don't auto-pass incorrectly.
-      debugWarn(2, `[hasValidTargetsForSpell] Could not categorize targeting spell ${cardName}, assuming targets may exist`);
-      return true;
-    }
-  }
-  
-  // Spell doesn't require targets, or we couldn't determine targeting requirements
-  return true;
-}
+// Target checks are centralized in server/rules-engine/target-availability.ts
 
 /**
  * Determine total cost adjustment (reductions/taxes) that apply to a spell.

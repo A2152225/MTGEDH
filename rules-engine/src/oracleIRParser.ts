@@ -1837,9 +1837,15 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         // Saga chapter markers prefix effect lines: "I —", "II —", etc.
         // Our normalizer maps em-dash to '-', so strip "I -"/"II -"/etc.
         .replace(/^(?:[ivx]+)\s*-\s+/i, '')
-        // Modal mode labels sometimes prefix effect lines: "Interrogate Them — Exile ...".
-        // Strip a short "<Label> -" prefix only when followed by an exile/put/look seed.
-        .replace(/^(?:[a-z0-9][a-z0-9\s'’\-.,]{0,80})\s*-\s+(?=(?:exile|put|look)\b)/i, '')
+        // Modal mode labels and ability-word labels sometimes prefix effect lines: "Interrogate Them — Exile ..."
+        // / "Mystic Arcanum — At the beginning of ...".
+        // Strip a short "<Label> -" prefix only when followed by a known deterministic wrapper/seed.
+        .replace(
+          /^(?:[a-z0-9][a-z0-9\s'’\-.,]{0,80})\s*-\s+(?=(?:at the beginning of|when|whenever|if|exile|put|look)\b)/i,
+          ''
+        )
+        // Wrapper used by many triggered templates.
+        .replace(/^at the beginning of (?:the )?[^,]+,\s*/i, '')
         // Common prefix patterns that wrap an exile instruction inside a trigger/condition:
         // "Whenever <thing>, if <predicate>, exile ..."
         // "When/Whenever <thing>, exile ..."

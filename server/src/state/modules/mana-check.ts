@@ -85,29 +85,45 @@ export function parseManaCost(manaCost?: string): {
  */
 export function getTotalManaFromPool(pool: Record<string, number>): number {
   if (!pool) return 0;
-  
-  // If the pool has 'anyColor' tracking, we need to calculate correctly
-  // anyColor sources can produce ANY color, but only count as 1 mana each
+
+  // If the pool has 'anyColor' tracking, we need to calculate correctly.
+  // anyColor sources can produce ANY color, but only count as 1 mana each.
   const anyColorCount = pool.anyColor || 0;
-  
-  // Sum specific colors (excluding anyColor marker)
-  let specificColorTotal = 0;
-  for (const [key, val] of Object.entries(pool)) {
-    if (key === 'anyColor') continue; // Skip the anyColor marker
-    specificColorTotal += val || 0;
+
+  // Additional tracking for "choice" sources (e.g., lands with multiple separate tap abilities:
+  // "{T}: Add {R}." and "{T}: Add {U}." should count as 1 mana total, not 2).
+  // Representation: getAvailableMana inflates each possible color by +1 and adds a marker key
+  // like choiceColors_RU: 1. Total mana is corrected by subtracting (optionsCount - 1) per source.
+  const choiceMarkers = Object.entries(pool).filter(([k, v]) => k.startsWith('choiceColors_') && (v || 0) > 0);
+
+  // Sum only real mana keys (exclude markers like anyColor/choiceColors_*).
+  const MANA_KEYS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+  let specificManaTotal = 0;
+  for (const k of MANA_KEYS) {
+    specificManaTotal += Number((pool as any)[k] || 0);
   }
-  
-  // If we have anyColor sources, we need to subtract them from the inflated total
-  // Each "any color" source adds +1 to all 5 colored mana types (W,U,B,R,G) but only produces 1 mana
-  // So the inflated amount is anyColorCount * (NUM_COLORED_MANA_TYPES - 1)
-  // Note: colorless is NOT included because "any color" sources don't add to colorless
-  const NUM_COLORED_MANA_TYPES = 5; // white, blue, black, red, green
+
+  // Subtract inflation from anyColor.
+  // Each anyColor source adds +1 to all 5 colored mana types (W,U,B,R,G) but only produces 1 mana.
+  // Note: colorless is NOT included because "any color" sources don't add to colorless.
+  const NUM_COLORED_MANA_TYPES = 5;
+  let inflatedAmount = 0;
   if (anyColorCount > 0) {
-    const inflatedAmount = anyColorCount * (NUM_COLORED_MANA_TYPES - 1);
-    return Math.max(0, specificColorTotal - inflatedAmount);
+    inflatedAmount += anyColorCount * (NUM_COLORED_MANA_TYPES - 1);
   }
-  
-  return specificColorTotal;
+
+  // Subtract inflation from choice sources.
+  // If a source can produce N different options, we inflated N mana keys by +1 but it only produces 1.
+  // So subtract (N-1) for each such source instance.
+  for (const [k, v] of choiceMarkers) {
+    const letters = k.slice('choiceColors_'.length);
+    const optionsCount = Math.max(0, new Set(letters.split('')).size);
+    if (optionsCount >= 2) {
+      inflatedAmount += Number(v || 0) * (optionsCount - 1);
+    }
+  }
+
+  return Math.max(0, specificManaTotal - inflatedAmount);
 }
 
 /**
@@ -146,7 +162,8 @@ export function canPayManaCost(
   };
 
   // Make a copy of the pool to track what's been spent
-  const remainingPool = { ...pool };
+  // NOTE: remainingPool may include marker keys like anyColor / choiceColors_*.
+  const remainingPool: Record<string, number> = { ...pool };
   let remainingLife = lifeAvailable;
   
   // Track how many anyColor sources we've used
@@ -216,6 +233,7 @@ export function canPayManaCost(
             if (toPay > 0) {
               for (const colorKey of Object.keys(remainingPool)) {
                 if (colorKey === 'colorless' || colorKey === 'anyColor') continue; // Skip special keys
+                if (colorKey.startsWith('choiceColors_')) continue; // Skip choice-source markers
                 const available = remainingPool[colorKey as keyof typeof remainingPool];
                 if (available > 0) {
                   const toDeduct = Math.min(available, toPay);
@@ -687,7 +705,80 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         const matchText = match[0];
         return !costMatches.some(costMatch => matchText.includes(costMatch[0]));
       });
-    
+
+    // IMPORTANT: A single permanent can have multiple distinct tap-for-mana abilities (multiple lines).
+    // These are alternatives, not additive. We must avoid counting them as multiple mana sources.
+    // Example: Riverpyre Verge has "{T}: Add {R}." and "{T}: Add {U}. ..." and should count as 1 mana.
+    // We handle multi-ability single-mana cases by:
+    // - Inflating each possible color by +1 (for cost-checking)
+    // - Adding a marker choiceColors_<letters> so getTotalManaFromPool can correct total mana.
+    if (noCostMatches.length > 1) {
+      const allManaTexts = noCostMatches.map(m => String(m[1] || '').trim());
+
+      // If any ability is an explicit multi-mana production (e.g., "{U}{R}"), prefer the highest-output ability.
+      // Otherwise treat as a 1-mana choice among the available single-symbol options.
+      const parsed = allManaTexts.map(t => {
+        const hasOrClause = /\{[wubrgc]\}(?:,?\s*\{[wubrgc]\})*,?\s+or\s+\{[wubrgc]\}/i.test(t);
+        const manaTokens = t.match(/\{([wubrgc])\}/gi) || [];
+        const letters = manaTokens.map(sym => sym.replace(/[{}]/g, '').toUpperCase());
+        return { text: t, hasOrClause, manaTokens, letters };
+      });
+
+      // Prefer a non-OR ability that produces the most mana at once.
+      const best = parsed
+        .filter(p => !p.hasOrClause)
+        .sort((a, b) => (b.manaTokens.length - a.manaTokens.length))[0];
+
+      if (best && best.manaTokens.length >= 2) {
+        // Treat as deterministic multi-mana production.
+        for (const token of best.manaTokens) {
+          const color = token.replace(/[{}]/g, '').toUpperCase();
+          const colorKey = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          }[color];
+          if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + 1;
+        }
+        continue;
+      }
+
+      // Aggregate all single-symbol options across the abilities.
+      const optionLetters = new Set<string>();
+      for (const p of parsed) {
+        for (const l of p.letters) optionLetters.add(l);
+      }
+
+      // If this includes any-color text, let the normal any-color handler below deal with it
+      // by falling back to the single-match handler. (Multi-match any-color sources are rare.
+      // Keeping this conservative avoids double-counting.)
+      const hasAnyColorText = allManaTexts.some(t => /one mana of any color|add.*any color/i.test(t));
+      if (!hasAnyColorText && optionLetters.size >= 2) {
+        // Inflate each option color by +1 for cost-checking.
+        const lettersSorted = Array.from(optionLetters).sort().join('');
+        for (const letter of optionLetters) {
+          const colorKey = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          }[letter];
+          if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + 1;
+        }
+
+        // Marker used by getTotalManaFromPool to subtract inflation.
+        const markerKey = `choiceColors_${lettersSorted}`;
+        (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + 1;
+        continue;
+      }
+      // Else: fall through to process matches normally.
+    }
+
     for (const match of noCostMatches) {
       const fullManaText = match[1].trim();
       

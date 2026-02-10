@@ -3765,17 +3765,38 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         // No additional cost (or optional cost skipped) ΓÇö go directly to payment.
-        socket.emit("paymentRequired", {
-          gameId,
-          cardId,
-          cardName,
-          manaCost,
-          effectId,
-          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
-          convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
-        });
-        debug(2, `[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
+        // NOTE: Client spell payment is handled via Resolution Queue (legacy `paymentRequired` listener was removed).
+        const existingPaymentStep = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) =>
+            s?.type === ResolutionStepType.MANA_PAYMENT_CHOICE &&
+            (s as any)?.spellPaymentRequired === true &&
+            String((s as any)?.effectId || '') === String(effectId)
+          );
+
+        if (!existingPaymentStep) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardName,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `Pay costs to cast ${cardName}.`,
+            mandatory: true,
+
+            spellPaymentRequired: true,
+            cardId,
+            cardName,
+            manaCost,
+            effectId,
+            targets: undefined,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
+            convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+          } as any);
+        }
+
+        debug(2, `[requestCastSpell] No targets needed, queued spell payment step for ${cardName}`);
         if (costReduction.messages.length > 0) {
           debug(1, `[requestCastSpell] Cost reductions: ${costReduction.messages.join(', ')}`);
         }

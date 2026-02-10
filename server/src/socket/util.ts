@@ -22,7 +22,8 @@ import { canRespond, canAct, getCostAdjustmentInfo, isTransformBackFace } from "
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
-import { checkSpellTimingRestriction, hasValidTargetsForSpell } from "../../../rules-engine/src/castingRestrictions.js";
+import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
+import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -363,16 +364,11 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           continue;
         }
         
-        // Check for target availability
-        // Example: Delirium requires a creature controlled by the opponent whose turn it is
-        const targetCheck = hasValidTargetsForSpell(
-          card.oracle_text || "",
-          state as any,
-          playerId
-        );
-        
-        if (!targetCheck.hasTargets) {
-          debug(2, `[getPlayableCardIds] Card ${card.name} blocked - no valid targets: ${targetCheck.reason}`);
+        // Check for target availability using the same dynamic targeting logic as the target selector.
+        // This prevents marking targeted spells as playable when no legal targets exist.
+        const hasTargets = hasValidTargetsForSpell(state as any, playerId, card, { conservative: false });
+        if (!hasTargets) {
+          debug(2, `[getPlayableCardIds] Card ${card.name} blocked - no valid targets`);
           continue;
         }
         

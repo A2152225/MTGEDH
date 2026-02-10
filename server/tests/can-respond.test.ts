@@ -102,6 +102,58 @@ describe('canCastAnySpell', () => {
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return false when spell requires a creature target but no creatures exist', () => {
+    const ctx = createTestContext({
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'card1',
+              name: 'Murder',
+              type_line: 'Instant',
+              mana_cost: '{1}{B}{B}',
+              oracle_text: 'Destroy target creature.',
+            },
+          ],
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 2, red: 0, green: 0, colorless: 1 },
+      },
+      stack: [],
+    });
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return false when counterspell has no valid stack targets', () => {
+    const ctx = createTestContext({
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'card1',
+              name: 'Counterspell',
+              type_line: 'Instant',
+              mana_cost: '{U}{U}',
+              oracle_text: 'Counter target spell.',
+            },
+          ],
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+    });
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
   it('should return false when hand has instant but not enough mana', () => {
     const ctx = createTestContext({
       zones: {

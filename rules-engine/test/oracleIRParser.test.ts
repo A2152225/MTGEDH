@@ -1399,6 +1399,23 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses impulse exile-top with an ability-word prefix + at-beginning wrapper (Prosper-style)', () => {
+    const text =
+      'Deathtouch\n' +
+      'Mystic Arcanum — At the beginning of your end step, exile the top card of your library. Until the end of your next turn, you may play that card.\n' +
+      'Pact Boon — Whenever you play a card from exile, create a Treasure token.';
+
+    const ir = parseOracleTextToIR(text, 'Prosper, Tome-Bound');
+    const steps = ir.abilities.flatMap((a) => a.steps);
+    const impulse = steps.find((s) => s.kind === 'impulse_exile_top') as any;
+
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'you' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse with variable-amount exile "cards equal to <expr>" from top of target player library (corpus)', () => {
     // Corpus example: Rakdos, the Muscle (template as of 2026-02)
     const text =
