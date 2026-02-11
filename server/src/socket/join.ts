@@ -594,14 +594,17 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
             try {
               let hasSeed = false;
               try {
-                if (typeof (game as any).hasRngSeed === "function") {
-                  hasSeed = Boolean((game as any).hasRngSeed());
-                } else {
-                  hasSeed = !!(
-                    (game.state && (game.state as any).rngSeed) ||
-                    (game as any)._rngSeed
-                  );
-                }
+                // IMPORTANT:
+                // The rules-engine game always has an in-memory RNG seed (ctx.rngSeed) from createContext(),
+                // so hasRngSeed() is NOT a reliable signal that the seed was persisted.
+                // We treat game.state.rngSeed as the persisted marker and only generate/persist it once.
+                const persistedSeed =
+                  (game.state && (game.state as any).rngSeed) ??
+                  (game as any)._rngSeed;
+                hasSeed =
+                  typeof persistedSeed === "number" &&
+                  Number.isFinite(persistedSeed) &&
+                  persistedSeed !== 0;
               } catch {
                 hasSeed = false;
               }
@@ -614,20 +617,26 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     try {
                       (game as any).seedRng(seed);
                     } catch (e) {
-                      game.state = (game.state || {}) as any;
-                      (game.state as any).rngSeed = seed;
-                      (game as any)._rngSeed = seed;
+                      // fall back to state field only
                     }
                   } else {
-                    game.state = (game.state || {}) as any;
-                    (game.state as any).rngSeed = seed;
-                    (game as any)._rngSeed = seed;
+                    // no seedRng() available, just record seed for replay consistency
                   }
                 } catch (e) {
                   debugWarn(1, 
                     "joinGame: failed to set rng seed on game instance (continuing):",
                     e
                   );
+                }
+
+                // Always store the seed on state as the persisted marker.
+                // This prevents reseeding on reconnect and makes debugging easier.
+                try {
+                  game.state = (game.state || {}) as any;
+                  (game.state as any).rngSeed = seed;
+                  (game as any)._rngSeed = seed;
+                } catch {
+                  /* ignore */
                 }
 
                 try {

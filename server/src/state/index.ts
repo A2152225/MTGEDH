@@ -94,7 +94,14 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     seedRng: (seed: number) =>
       (ctx as any).seedRng
         ? (ctx as any).seedRng(seed)
-        : ((ctx.rngSeed = seed >>> 0), (ctx.rng = (mulberry32 as any)(seed)), ctx.bumpSeq()),
+        : ((ctx.rngSeed = seed >>> 0),
+          (ctx.rng = (mulberry32 as any)(seed)),
+          (() => {
+            try {
+              (ctx.state as any).rngSeed = seed >>> 0;
+            } catch {}
+          })(),
+          ctx.bumpSeq()),
     hasRngSeed: () => !!(ctx.rngSeed),
 
     // spectator grants

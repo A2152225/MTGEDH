@@ -43,6 +43,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
   switch (e.type) {
     case "rngSeed":
       ctx.rngSeed = (e as any).seed >>> 0;
+      try {
+        (ctx.state as any).rngSeed = ctx.rngSeed;
+      } catch {}
       ctx.rng = (function(seed: number) {
         let t = seed >>> 0;
         return () => {
