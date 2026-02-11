@@ -49,6 +49,7 @@ import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
+import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
@@ -2568,7 +2569,19 @@ async function handleStepResponse(
     if (step.type === ResolutionStepType.TARGET_SELECTION) {
       await handleTargetSelectionResponse(io, game, gameId, step, response);
     } else if (step.type === ResolutionStepType.DISCARD_SELECTION) {
-      handleDiscardResponse(io, game, gameId, step, response);
+      await handleDiscardResponse(io, game, gameId, step, response);
+    } else if (step.type === ResolutionStepType.TAP_UNTAP_TARGET) {
+      // Activation-cost tap flow: cancel should abort the activation.
+      if ((step as any)?.tapOtherAbilityAsCost === true) {
+        const pid = response.playerId;
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} cancelled an ability activation.`,
+          ts: Date.now(),
+        });
+      }
     } else if (step.type === ResolutionStepType.OPTION_CHOICE) {
       await handleOptionChoiceResponse(io, game, gameId, step, response);
     }
@@ -3115,6 +3128,8 @@ async function handleStepResponse(
       const stepData = step as any;
       const payload = response.selections as any;
 
+      const isTapOtherAsActivationCost = (stepData as any)?.tapOtherAbilityAsCost === true;
+
       const targetIds: string[] = Array.isArray(payload)
         ? payload.map((x: any) => String(x))
         : (Array.isArray(payload?.targetIds)
@@ -3224,29 +3239,198 @@ async function handleStepResponse(
         }
       }
 
-      if (affectedNames.length > 0) {
-        const targetsText = affectedNames.length === 1
-          ? affectedNames[0]
-          : `${affectedNames.slice(0, -1).join(', ')} and ${affectedNames[affectedNames.length - 1]}`;
+      // Normal TAP_UNTAP_TARGET use (effects) emits chat + persists a tap/untap event.
+      // Activation-cost use should NOT persist a separate tap event; those taps are
+      // persisted as part of activateBattlefieldAbility for deterministic replay.
+      if (!isTapOtherAsActivationCost) {
+        if (affectedNames.length > 0) {
+          const targetsText = affectedNames.length === 1
+            ? affectedNames[0]
+            : `${affectedNames.slice(0, -1).join(', ')} and ${affectedNames[affectedNames.length - 1]}`;
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${getPlayerName(game, pid)} used ${String(step.sourceName || 'an ability')} to ${action} ${targetsText}.`,
+            ts: Date.now(),
+          });
+        }
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, action === 'tap' ? 'permanent_tapped' : 'permanent_untapped', {
+            playerId: pid,
+            permanentIds: targetIds,
+            source: String(step.sourceName || ''),
+            ts: Date.now(),
+          });
+        } catch (e) {
+          debugWarn(1, 'appendEvent(tap/untap) failed:', e);
+        }
+      }
+
+      // Activation-cost tap flow: resume the battlefield ability activation.
+      if (isTapOtherAsActivationCost) {
+        const stepAny = stepData as any;
+        const controllerId = String(pid);
+        const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+        const abilityId = String(stepAny?.abilityId || '').trim();
+        const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
+        const abilityText = String(stepAny?.abilityText || step.description || '');
+        const manaCost = String(stepAny?.manaCost || '');
+        const requiresTap = Boolean(stepAny?.requiresTap);
+
+        if (action !== 'tap') {
+          emitToPlayer(io, controllerId, 'error', { code: 'INVALID_SELECTION', message: 'Activation cost requires tapping targets' });
+          break;
+        }
+
+        const battlefieldNow = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const sourcePerm = battlefieldNow.find((p: any) => p && String(p.id) === String(permanentId));
+        if (!sourcePerm) {
+          emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+          break;
+        }
+        if (String(sourcePerm.controller || '') !== controllerId) {
+          emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
+          break;
+        }
+        if (requiresTap && (sourcePerm as any).tapped) {
+          emitToPlayer(io, controllerId, 'error', { code: 'ALREADY_TAPPED', message: `${cardName} is already tapped` });
+          break;
+        }
+
+        // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the tap-other clause.
+        const remainingNonManaCostText = manaCost
+          .replace(/\{[^}]+\}/g, ' ')
+          .replace(/\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*\s+you\s+control\b/gi, ' ')
+          .replace(/[\s,]+/g, ' ')
+          .trim();
+        if (remainingNonManaCostText.length > 0) {
+          emitToPlayer(io, controllerId, 'error', { code: 'UNSUPPORTED_COST', message: `Unsupported activation cost (${remainingNonManaCostText}).` });
+          break;
+        }
+
+        // Pay mana portion of the activation cost (conservative: no Phyrexian and no X).
+        const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+        const manaOnly = manaSymbols
+          .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+          .join('');
+        if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+          emitToPlayer(io, controllerId, 'error', { code: 'UNSUPPORTED_COST', message: `Unsupported activation cost (${manaOnly || 'complex cost'})` });
+          break;
+        }
+
+        if (manaOnly) {
+          const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+          const parsedCost = parseManaCost(manaOnly);
+          const pool = getOrInitManaPool(game.state, controllerId) as any;
+          const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+          const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+          if (validationError) {
+            emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+            break;
+          }
+          consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[tapOtherAbilityAsCost]');
+        }
+
+        const tappedPermanentsForCost: string[] = [];
+        const tappedSet = new Set<string>();
+        for (const tid of targetIds) tappedSet.add(String(tid));
+
+        if (requiresTap) {
+          (sourcePerm as any).tapped = true;
+          tappedSet.add(String(permanentId));
+        }
+        for (const id of tappedSet) tappedPermanentsForCost.push(id);
+
+        // Put the ability on the stack.
+        const stackItem = {
+          id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          type: 'ability' as const,
+          controller: controllerId,
+          source: permanentId,
+          sourceName: cardName,
+          description: abilityText,
+        } as any;
+
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push(stackItem);
+
+        io.to(gameId).emit('stackUpdate', {
+          gameId,
+          stack: (game.state.stack || []).map((s: any) => ({
+            id: s.id,
+            type: s.type,
+            name: s.sourceName || s.card?.name || 'Ability',
+            controller: s.controller,
+            targets: s.targets,
+            source: s.source,
+            sourceName: s.sourceName,
+            description: s.description,
+          })),
+        });
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `${getPlayerName(game, pid)} used ${String(step.sourceName || 'an ability')} to ${action} ${targetsText}.`,
+          message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
           ts: Date.now(),
         });
+
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            tappedPermanents: tappedPermanentsForCost,
+          });
+        } catch {
+          // ignore persistence failures
+        }
+
+        broadcastGame(io, game, gameId);
+        break;
       }
 
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, action === 'tap' ? 'permanent_tapped' : 'permanent_untapped', {
-          playerId: pid,
-          permanentIds: targetIds,
-          source: String(step.sourceName || ''),
-          ts: Date.now(),
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(tap/untap) failed:', e);
+      // Catapult Master: after tapping 5 Soldiers, prompt to choose the exile target creature.
+      if ((stepData as any)?.catapultMasterTapCost === true) {
+        const sourcePermanentId = String((stepData as any)?.permanentId || step.sourceId || '').trim();
+        const sourceName = String((stepData as any)?.cardName || step.sourceName || 'Catapult Master');
+        const battlefieldNow = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const creatureTargets = battlefieldNow
+          .filter((p: any) => p && String(p.card?.type_line || '').toLowerCase().includes('creature'))
+          .map((p: any) => ({
+            id: String(p.id),
+            label: String(p.card?.name || 'Creature'),
+            description: String(p.card?.type_line || 'Creature'),
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            controller: p.controller,
+          }));
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: sourcePermanentId,
+          sourceName,
+          description: `${sourceName}: Choose target creature to exile.`,
+          mandatory: true,
+          validTargets: creatureTargets,
+          targetTypes: ['creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'target creature',
+
+          // Custom payload consumed by the handler above
+          catapultMasterExileTarget: true,
+          permanentId: sourcePermanentId,
+          cardName: sourceName,
+        } as any);
       }
 
       if (typeof game.bumpSeq === 'function') {
@@ -5749,7 +5933,7 @@ async function handleStepResponse(
     }
 
     case ResolutionStepType.DISCARD_SELECTION:
-      handleDiscardResponse(io, game, gameId, step, response);
+      await handleDiscardResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.COMMANDER_ZONE_CHOICE:
@@ -5757,7 +5941,7 @@ async function handleStepResponse(
       break;
       
     case ResolutionStepType.TARGET_SELECTION:
-      void handleTargetSelectionResponse(io, game, gameId, step, response);
+      await handleTargetSelectionResponse(io, game, gameId, step, response);
       break;
 
     case ResolutionStepType.MUTATE_TARGET_SELECTION:
@@ -5889,13 +6073,13 @@ async function handleStepResponse(
 /**
  * Handle discard selection response
  */
-function handleDiscardResponse(
+async function handleDiscardResponse(
   io: Server,
   game: any,
   gameId: string,
   step: ResolutionStep,
   response: ResolutionStepResponse
-): void {
+): Promise<void> {
   if (response.cancelled) {
     const stepAny = step as any;
     if (stepAny?.wardPayment === true) {
@@ -5922,6 +6106,18 @@ function handleDiscardResponse(
         });
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
       }
+    }
+
+    if ((step as any)?.discardAbilityAsCost === true) {
+      const pid = response.playerId;
+      const cardName = String((step as any)?.cardName || step.sourceName || 'Ability');
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${cardName}: ${getPlayerName(game, pid)} cancelled the activation.`,
+        ts: Date.now(),
+      });
     }
 
     return;
@@ -6017,6 +6213,131 @@ function handleDiscardResponse(
         : `${getPlayerName(game, pid)} discarded ${selections.length} card(s).`,
     ts: Date.now(),
   });
+
+  // Activated-ability discard-cost flow: resume the activation after the discard is applied.
+  if ((step as any)?.discardAbilityAsCost === true) {
+    try {
+      const stepAny = step as any;
+      const controllerId = String(pid);
+      const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+      const abilityId = String(stepAny?.abilityId || '').trim();
+      const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
+      const abilityText = String(stepAny?.abilityText || step.description || '');
+      const manaCost = String(stepAny?.manaCost || '');
+      const requiresTap = Boolean(stepAny?.requiresTap);
+
+      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const sourcePerm = battlefield.find((p: any) => p && String(p.id) === String(permanentId));
+      if (!sourcePerm) {
+        emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+        return;
+      }
+      if (String(sourcePerm.controller || '') !== controllerId) {
+        emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
+        return;
+      }
+      if (requiresTap && (sourcePerm as any).tapped) {
+        emitToPlayer(io, controllerId, 'error', { code: 'ALREADY_TAPPED', message: `${cardName} is already tapped` });
+        return;
+      }
+
+      // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the discard clause.
+      const remainingNonManaCostText = manaCost
+        .replace(/\{[^}]+\}/g, ' ')
+        .replace(/\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/gi, ' ')
+        .replace(/[\s,]+/g, ' ')
+        .trim();
+      if (remainingNonManaCostText.length > 0) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Unsupported activation cost (${remainingNonManaCostText}).`,
+        });
+        return;
+      }
+
+      // Pay mana portion of the activation cost (conservative: no Phyrexian and no X).
+      const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+      const manaOnly = manaSymbols
+        .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+        .join('');
+      if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+        emitToPlayer(io, controllerId, 'error', { code: 'UNSUPPORTED_COST', message: `Unsupported activation cost (${manaOnly || 'complex cost'})` });
+        return;
+      }
+
+      if (manaOnly) {
+        const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+        const parsedCost = parseManaCost(manaOnly);
+        const pool = getOrInitManaPool(game.state, controllerId) as any;
+        const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[discardAbilityAsCost]');
+      }
+
+      const tappedPermanentsForCost: string[] = [];
+      if (requiresTap && !(sourcePerm as any).tapped) {
+        (sourcePerm as any).tapped = true;
+        tappedPermanentsForCost.push(String(permanentId));
+      }
+
+      // Put the ability on the stack.
+      const stackItem = {
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: controllerId,
+        source: permanentId,
+        sourceName: cardName,
+        description: abilityText,
+      } as any;
+
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+
+      io.to(gameId).emit('stackUpdate', {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          playerId: controllerId,
+          permanentId,
+          abilityId: abilityId || undefined,
+          cardName,
+          abilityText,
+          tappedPermanents: tappedPermanentsForCost,
+          discardedCardIds: selections,
+        });
+      } catch {
+        // ignore persistence failures
+      }
+    } catch (err) {
+      debugError(1, '[Resolution] Failed to resume discard-cost activation', err);
+    }
+  }
 
   // Planeswalker helper: "You may discard a card. If you do, draw a card."
   const afterDiscardDrawCount = (step as any)?.afterDiscardDrawCount;
@@ -6459,6 +6780,34 @@ async function handleTargetSelectionResponse(
       }
     }
 
+    // Activated-ability additional-cost: sacrifice selection cancellation = activation cancelled.
+    if (stepAny?.sacrificeAbilityAsCost === true) {
+      const controllerId = String(stepAny?.playerId || pid);
+      const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${cardName}: ${getPlayerName(game, controllerId)} cancelled the activation.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    // Activated-ability additional-cost: remove-counters selection cancellation = activation cancelled.
+    if (stepAny?.removeCountersAbilityAsCost === true) {
+      const controllerId = String(stepAny?.playerId || pid);
+      const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${cardName}: ${getPlayerName(game, controllerId)} cancelled the activation.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
     // Default cancelled TARGET_SELECTION: no-op.
     return;
   }
@@ -6696,6 +7045,417 @@ async function handleTargetSelectionResponse(
   }
 
   // ========================================================================
+  // SACRIFICE AS AN ACTIVATION COST (battlefield abilities)
+  // These are enqueued as TARGET_SELECTION steps with sacrificeAbilityAsCost metadata.
+  // ========================================================================
+  if (stepAny?.sacrificeAbilityAsCost === true) {
+    const controllerId = String(step.playerId || pid);
+    const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+    const abilityId = String(stepAny?.abilityId || '').trim();
+    const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
+    const abilityText = String(stepAny?.abilityText || step.description || '');
+    const manaCost = String(stepAny?.manaCost || '');
+    const requiresTap = Boolean(stepAny?.requiresTap);
+    const sacrificeType = String(stepAny?.sacrificeType || '').trim();
+    const sacrificeSubtype = stepAny?.sacrificeSubtype ? String(stepAny?.sacrificeSubtype) : undefined;
+    const sacrificeCount = Number(stepAny?.sacrificeCount || selections.length || 1);
+    const mustBeOther = Boolean(stepAny?.mustBeOther);
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const sourcePerm = battlefield.find((p: any) => p && String(p.id) === String(permanentId));
+    if (!sourcePerm) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'PERMANENT_NOT_FOUND',
+        message: 'Permanent no longer on battlefield',
+      });
+      return;
+    }
+    if (String(sourcePerm.controller || '') !== controllerId) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'NOT_CONTROLLER',
+        message: 'You no longer control that permanent',
+      });
+      return;
+    }
+    if (requiresTap && (sourcePerm as any).tapped) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'ALREADY_TAPPED',
+        message: `${cardName} is already tapped`,
+      });
+      return;
+    }
+
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus a sacrifice clause.
+    // If other text remains (pay life, discard, tap other permanents, etc.), refuse to proceed.
+    const remainingNonManaCostText = manaCost
+      .replace(/\{[^}]+\}/g, ' ')
+      .replace(/\bsacrifice\b[^,]*/gi, ' ')
+      .replace(/[\s,]+/g, ' ')
+      .trim();
+    if (remainingNonManaCostText.length > 0) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'UNSUPPORTED_COST',
+        message: `Unsupported activation cost (${remainingNonManaCostText}).`,
+      });
+      return;
+    }
+
+    // Validate sacrifices still legal.
+    const sacrificedNames: string[] = [];
+    const sacrificedIds: string[] = [];
+
+    const matchesSacrificeRequirement = (perm: any): boolean => {
+      if (!perm) return false;
+      if (String(perm.controller || '') !== controllerId) return false;
+      if (mustBeOther && String(perm.id) === String(permanentId)) return false;
+      const tl = String(perm.card?.type_line || '').toLowerCase();
+
+      let okType = false;
+      switch (sacrificeType) {
+        case 'creature':
+          okType = tl.includes('creature');
+          break;
+        case 'artifact':
+          okType = tl.includes('artifact');
+          break;
+        case 'enchantment':
+          okType = tl.includes('enchantment');
+          break;
+        case 'land':
+          okType = tl.includes('land');
+          break;
+        case 'artifact_or_creature':
+          okType = tl.includes('artifact') || tl.includes('creature');
+          break;
+        case 'permanent':
+          okType = true;
+          break;
+        default:
+          // Unknown type: be conservative.
+          okType = false;
+      }
+      if (!okType) return false;
+      if (sacrificeSubtype) {
+        const sub = String(sacrificeSubtype).toLowerCase();
+        return tl.includes(sub);
+      }
+      return true;
+    };
+
+    for (const chosenId of selections) {
+      const chosenPerm = battlefield.find((p: any) => p && String(p.id) === String(chosenId));
+      if (!chosenPerm || !matchesSacrificeRequirement(chosenPerm)) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INVALID_SELECTION',
+          message: 'One or more chosen permanents can no longer be sacrificed for this cost',
+        });
+        return;
+      }
+    }
+
+    // Perform sacrifices.
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+
+    const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+    for (const chosenId of selections) {
+      const chosenPerm = battlefield.find((p: any) => p && String(p.id) === String(chosenId));
+      const nm = String(chosenPerm?.card?.name || 'permanent');
+      const ok = movePermanentToGraveyard(ctx, String(chosenId), true);
+      if (ok) {
+        sacrificedNames.push(nm);
+        sacrificedIds.push(String(chosenId));
+      }
+    }
+
+    if (sacrificedIds.length < sacrificeCount) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'SACRIFICE_FAILED',
+        message: 'Failed to sacrifice the required permanents',
+      });
+      return;
+    }
+
+    // Pay mana portion of the activation cost (conservative: no Phyrexian and no X).
+    const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+    const manaOnly = manaSymbols
+      .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+      .join('');
+
+    if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'UNSUPPORTED_COST',
+        message: `Unsupported activation cost (${manaOnly || 'complex cost'})`,
+      });
+      return;
+    }
+
+    if (manaOnly) {
+      const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+      const parsedCost = parseManaCost(manaOnly);
+      const pool = getOrInitManaPool(game.state, controllerId) as any;
+      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INSUFFICIENT_MANA',
+          message: validationError,
+        });
+        return;
+      }
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[sacrificeAbilityAsCost]');
+    }
+
+    const tappedPermanentsForCost: string[] = [];
+    if (requiresTap && !(sourcePerm as any).tapped) {
+      (sourcePerm as any).tapped = true;
+      tappedPermanentsForCost.push(String(permanentId));
+    }
+
+    // Put the ability on the stack.
+    const stackItem = {
+      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'ability' as const,
+      controller: controllerId,
+      source: permanentId,
+      sourceName: cardName,
+      description: abilityText,
+    } as any;
+
+    game.state.stack = game.state.stack || [];
+    game.state.stack.push(stackItem);
+
+    io.to(gameId).emit('stackUpdate', {
+      gameId,
+      stack: (game.state.stack || []).map((s: any) => ({
+        id: s.id,
+        type: s.type,
+        name: s.sourceName || s.card?.name || 'Ability',
+        controller: s.controller,
+        targets: s.targets,
+        source: s.source,
+        sourceName: s.sourceName,
+        description: s.description,
+      })),
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText} (sacrificed ${sacrificedNames.join(', ') || 'permanents'})`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+        playerId: controllerId,
+        permanentId,
+        abilityId: abilityId || undefined,
+        cardName,
+        abilityText,
+        tappedPermanents: tappedPermanentsForCost,
+        sacrificedPermanents: sacrificedIds,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
+  // REMOVE COUNTERS AS AN ACTIVATION COST (battlefield abilities)
+  // Enqueued as TARGET_SELECTION steps with removeCountersAbilityAsCost metadata.
+  // ========================================================================
+  if (stepAny?.removeCountersAbilityAsCost === true) {
+    const controllerId = String(step.playerId || pid);
+    const sourcePermanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+    const abilityId = String(stepAny?.abilityId || '').trim();
+    const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
+    const abilityText = String(stepAny?.abilityText || step.description || '');
+    const manaCost = String(stepAny?.manaCost || '');
+    const requiresTap = Boolean(stepAny?.requiresTap);
+    const removeCount = Number(stepAny?.removeCount || 1);
+    const counterTypeLabel = String(stepAny?.counterType || '').trim();
+    const counterKeyCandidatesRaw = Array.isArray(stepAny?.counterKeyCandidates) ? stepAny.counterKeyCandidates : undefined;
+    const counterKeyCandidates: string[] = counterKeyCandidatesRaw && counterKeyCandidatesRaw.length
+      ? counterKeyCandidatesRaw.map((x: any) => String(x))
+      : [counterTypeLabel];
+    const removeFromType = String(stepAny?.removeFromType || 'permanent').toLowerCase();
+    const mustBeOther = Boolean(stepAny?.mustBeOther);
+
+    if (!sourcePermanentId) {
+      emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Missing source permanent' });
+      return;
+    }
+    if (!Number.isFinite(removeCount) || removeCount <= 0) {
+      emitToPlayer(io, controllerId, 'error', { code: 'UNSUPPORTED_COST', message: 'Invalid counter removal count' });
+      return;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const sourcePerm = battlefield.find((p: any) => p && String(p.id) === String(sourcePermanentId));
+    if (!sourcePerm) {
+      emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+      return;
+    }
+    if (String(sourcePerm.controller || '') !== controllerId) {
+      emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
+      return;
+    }
+    if (requiresTap && (sourcePerm as any).tapped) {
+      emitToPlayer(io, controllerId, 'error', { code: 'ALREADY_TAPPED', message: `${cardName} is already tapped` });
+      return;
+    }
+
+    const chosenTargetId = String(selections?.[0] || '').trim();
+    const chosenPerm = battlefield.find((p: any) => p && String(p.id) === chosenTargetId);
+    if (!chosenPerm || String(chosenPerm.controller || '') !== controllerId) {
+      emitToPlayer(io, controllerId, 'error', { code: 'INVALID_SELECTION', message: 'Chosen permanent is no longer valid' });
+      return;
+    }
+    if (mustBeOther && String(chosenTargetId) === String(sourcePermanentId)) {
+      emitToPlayer(io, controllerId, 'error', { code: 'INVALID_SELECTION', message: 'You must choose another permanent' });
+      return;
+    }
+    const chosenTypeLine = String(chosenPerm.card?.type_line || '').toLowerCase();
+    if (removeFromType !== 'permanent' && !chosenTypeLine.includes(removeFromType)) {
+      emitToPlayer(io, controllerId, 'error', { code: 'INVALID_SELECTION', message: `Chosen permanent is not a ${removeFromType}` });
+      return;
+    }
+
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus a remove-counters clause.
+    const remainingNonManaCostText = manaCost
+      .replace(/\{[^}]+\}/g, ' ')
+      .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?\s+from\s+[^,]+\b/gi, ' ')
+      .replace(/[\s,]+/g, ' ')
+      .trim();
+    if (remainingNonManaCostText.length > 0) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'UNSUPPORTED_COST',
+        message: `Unsupported activation cost (${remainingNonManaCostText}).`,
+      });
+      return;
+    }
+
+    const counters = (chosenPerm as any).counters || {};
+    const actualKey = counterKeyCandidates.find((k) => Number(counters?.[k] || 0) >= removeCount);
+    const haveN = actualKey ? Number(counters?.[actualKey] || 0) : 0;
+    if (!actualKey || haveN < removeCount) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'INSUFFICIENT_COUNTERS',
+        message: `Selected permanent doesn't have enough ${counterTypeLabel || 'required'} counter(s). (Need ${removeCount}, have ${haveN})`,
+      });
+      return;
+    }
+
+    // Remove counters now (this is the chosen cost payment).
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+    const { updateCounters } = await import('../state/modules/counters_tokens.js');
+    updateCounters(ctx as any, String(chosenTargetId), { [actualKey]: -removeCount });
+
+    // Pay mana portion of the activation cost (conservative: no Phyrexian and no X).
+    const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+    const manaOnly = manaSymbols
+      .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+      .join('');
+    if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'UNSUPPORTED_COST',
+        message: `Unsupported activation cost (${manaOnly || 'complex cost'})`,
+      });
+      return;
+    }
+    if (manaOnly) {
+      const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+      const parsedCost = parseManaCost(manaOnly);
+      const pool = getOrInitManaPool(game.state, controllerId) as any;
+      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+        return;
+      }
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[removeCountersAbilityAsCost]');
+    }
+
+    const tappedPermanentsForCost: string[] = [];
+    if (requiresTap && !(sourcePerm as any).tapped) {
+      (sourcePerm as any).tapped = true;
+      tappedPermanentsForCost.push(String(sourcePermanentId));
+    }
+
+    // Put the ability on the stack.
+    const stackItem = {
+      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'ability' as const,
+      controller: controllerId,
+      source: sourcePermanentId,
+      sourceName: cardName,
+      description: abilityText,
+    } as any;
+    game.state.stack = game.state.stack || [];
+    game.state.stack.push(stackItem);
+
+    io.to(gameId).emit('stackUpdate', {
+      gameId,
+      stack: (game.state.stack || []).map((s: any) => ({
+        id: s.id,
+        type: s.type,
+        name: s.sourceName || s.card?.name || 'Ability',
+        controller: s.controller,
+        targets: s.targets,
+        source: s.source,
+        sourceName: s.sourceName,
+        description: s.description,
+      })),
+    });
+
+    const chosenName = String(chosenPerm?.card?.name || removeFromType || 'permanent');
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText} (removed ${removeCount} ${counterTypeLabel || actualKey} counter${removeCount === 1 ? '' : 's'} from ${chosenName})`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+        playerId: controllerId,
+        permanentId: sourcePermanentId,
+        abilityId: abilityId || undefined,
+        cardName,
+        abilityText,
+        tappedPermanents: tappedPermanentsForCost,
+        removedCountersForCost: [{ permanentId: String(chosenTargetId), counterType: actualKey, count: removeCount }],
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
   // DAMAGE-RECEIVED TRIGGER TARGETING (Brash Taunter, Boros Reckoner, etc.)
   // These triggers are enqueued as TARGET_SELECTION steps from pendingDamageTriggers.
   // ========================================================================
@@ -6925,6 +7685,79 @@ async function handleTargetSelectionResponse(
       ts: Date.now(),
     });
 
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
+  // Catapult Master follow-up targeting
+  // After paying the tap-5-Soldiers cost, exile the chosen target creature.
+  // ========================================================================
+  if (stepAny?.catapultMasterExileTarget === true) {
+    const sourcePermanentId = String(stepAny?.permanentId || stepAny?.catapultMasterPermanentId || step.sourceId || '').trim();
+    const sourceName = String(stepAny?.cardName || stepAny?.sourceName || step.sourceName || 'Catapult Master');
+    const targetPermanentId = String(selections[0] || '').trim();
+
+    if (!targetPermanentId) {
+      debugWarn(1, '[Resolution] catapultMasterExileTarget missing targetPermanentId');
+      return;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const targetPerm = battlefield.find((p: any) => p && String(p.id) === String(targetPermanentId));
+    if (!targetPerm) {
+      debugWarn(1, `[Resolution] catapultMasterExileTarget target not found: ${targetPermanentId}`);
+      return;
+    }
+
+    const targetTypeLine = String(targetPerm.card?.type_line || '').toLowerCase();
+    if (!targetTypeLine.includes('creature')) {
+      debugWarn(1, `[Resolution] catapultMasterExileTarget target is not a creature: ${targetPermanentId}`);
+      return;
+    }
+
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: (game.state as any)?.zones,
+      commandZone: (game.state as any)?.commandZone,
+      gameId,
+    } as unknown as GameContext;
+
+    const targetName = String(targetPerm.card?.name || 'creature');
+
+    try {
+      movePermanentToExile(ctx as any, targetPermanentId, {
+        exiledWithSourceId: sourcePermanentId || undefined,
+        exiledWithSourceName: sourceName || undefined,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] catapultMasterExileTarget movePermanentToExile failed:', e);
+      return;
+    }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'exilePermanent', {
+        playerId: pid,
+        permanentId: targetPermanentId,
+        sourcePermanentId: sourcePermanentId || undefined,
+        sourceName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] appendEvent(exilePermanent) failed:', e);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `🚫 ${getPlayerName(game, pid)} activated ${sourceName}: Exiled ${targetName}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
     broadcastGame(io, game, gameId);
     return;
   }

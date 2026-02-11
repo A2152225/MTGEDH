@@ -548,68 +548,92 @@ export function getTokenImageUrls(
   colors?: string[],
   abilities?: string[]
 ): { small?: string; normal?: string; large?: string; art_crop?: string } | undefined {
-  loadTokens();
-  
-  const nameLower = tokenName.toLowerCase();
-  const abilitiesLower = abilities?.map(a => a.toLowerCase()) || [];
-  const abilitiesSet = new Set(abilitiesLower); // Use Set for O(1) lookup
-  
-  debug(2, `[tokens] getTokenImageUrls: name=${tokenName}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}, abilities=${JSON.stringify(abilities)}`);
+  try {
+    loadTokens();
+    
+    const nameLower = tokenName.toLowerCase();
+    const abilitiesLower = abilities?.map(a => a.toLowerCase()) || [];
+    const abilitiesSet = new Set(abilitiesLower); // Use Set for O(1) lookup
+
+    const requestedColors = Array.isArray(colors)
+      ? colors
+          .map((c) => String(c || '').trim())
+          .filter(Boolean)
+          .map((c) => c.toUpperCase())
+      : undefined;
+    
+    debug(2, `[tokens] getTokenImageUrls: name=${tokenName}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}, abilities=${JSON.stringify(abilities)}`);
   
   // DYNAMIC TOKEN MATCHING
   // The primary method is to search Tokens.json with a scoring system
   // that matches on name, power/toughness, colors, and abilities
   // Fallback URLs are only used as a last resort if no match is found
   
-  const tokens = tokensByName.get(nameLower) || [];
+    const tokens = tokensByName.get(nameLower) || [];
   
   // Also search by type if name doesn't match directly
-  let searchTokens = tokens;
-  if (tokens.length === 0) {
-    const byType = tokensByType.get(nameLower) || [];
-    searchTokens = byType;
-  }
+    let searchTokens = tokens;
+    if (tokens.length === 0) {
+      const byType = tokensByType.get(nameLower) || [];
+      searchTokens = byType;
+    }
   
   // If we still have no tokens, try partial name matching
   // This handles cases like "Cat Soldier" where we might have tokens indexed differently
-  if (searchTokens.length === 0) {
-    // Search through all tokens for partial name matches
-    for (const [key, tokenList] of tokensByName.entries()) {
-      if (key.includes(nameLower) || nameLower.includes(key)) {
-        searchTokens = [...searchTokens, ...tokenList];
+    if (searchTokens.length === 0) {
+      // Search through all tokens for partial name matches
+      for (const [key, tokenList] of tokensByName.entries()) {
+        if (key.includes(nameLower) || nameLower.includes(key)) {
+          searchTokens = [...searchTokens, ...tokenList];
+        }
       }
     }
-  }
   
-  if (searchTokens.length > 0) {
-    // Score each token for best match
-    const NO_MATCH_SCORE = -1;
-    let bestMatch = searchTokens[0];
-    let bestScore = NO_MATCH_SCORE;
-    
-    for (const token of searchTokens) {
-      let score = 0;
+    if (searchTokens.length > 0) {
+      // Score each token for best match
+      const NO_MATCH_SCORE = -1;
+      let bestMatch = searchTokens[0];
+      let bestScore = NO_MATCH_SCORE;
+      
+      for (const token of searchTokens) {
+        let score = 0;
       
       // Match power/toughness (2 points each)
       if (power !== undefined && token.power === String(power)) score += 2;
       if (toughness !== undefined && token.toughness === String(toughness)) score += 2;
       
-      // Match colors - handle colorless case explicitly (3 points)
-      const tokenColors = token.colors || [];
-      if (colors !== undefined) {
-        if (colors.length === 0) {
-          // Looking for colorless - prefer tokens with no colors
-          if (tokenColors.length === 0) {
-            score += 3;
-          }
-        } else if (colors.length > 0) {
-          // Looking for specific colors
-          const colorMatch = colors.every(c => tokenColors.includes(c));
-          if (colorMatch && tokenColors.length === colors.length) {
-            score += 3;
+        // Match colors - handle colorless case explicitly (3 points)
+        const rawTokenColors = (token as any).colors;
+        const tokenColors = Array.isArray(rawTokenColors)
+          ? rawTokenColors
+              .map((c: any) => String(c || '').trim())
+              .filter(Boolean)
+              .map((c: string) => c.toUpperCase())
+          : typeof rawTokenColors === 'string'
+            ? [rawTokenColors.trim().toUpperCase()].filter(Boolean)
+            : [];
+
+        if (requestedColors !== undefined) {
+          if (requestedColors.length === 0) {
+            // Looking for colorless - prefer tokens with no colors
+            if (tokenColors.length === 0) {
+              score += 3;
+            }
+          } else {
+            // Looking for specific colors (exact match)
+            const tokenColorSet = new Set(tokenColors);
+            let allPresent = true;
+            for (const c of requestedColors) {
+              if (!tokenColorSet.has(c)) {
+                allPresent = false;
+                break;
+              }
+            }
+            if (allPresent && tokenColors.length === requestedColors.length) {
+              score += 3;
+            }
           }
         }
-      }
       
       // Match abilities/keywords (4 points each match, 5 bonus for all matches)
       if (abilitiesLower.length > 0) {
@@ -656,70 +680,66 @@ export function getTokenImageUrls(
         score += 3;
       }
       
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = token;
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = token;
+        }
+      }
+      
+      debug(2, `[tokens] Best dynamic match for ${nameLower}: ${bestMatch?.name} (score: ${bestScore})`);
+      
+      // If bestMatch has an image, return it
+      if (bestMatch?.image_uris?.normal || bestMatch?.image_uris?.small) {
+        return bestMatch.image_uris;
+      }
+      
+      // Try to find any match that has an image
+      const anyWithImage = searchTokens.find(t => t.image_uris?.normal || t.image_uris?.small);
+      if (anyWithImage) {
+        debug(2, `[tokens] Using fallback token with image: ${anyWithImage.name}`);
+        return anyWithImage.image_uris;
       }
     }
-    
-    debug(2, `[tokens] Best dynamic match for ${nameLower}: ${bestMatch?.name} (score: ${bestScore})`);
-    
-    // If bestMatch has an image, return it
-    if (bestMatch?.image_uris?.normal || bestMatch?.image_uris?.small) {
-      return bestMatch.image_uris;
-    }
-    
-    // Try to find any match that has an image
-    const anyWithImage = searchTokens.find(t => t.image_uris?.normal || t.image_uris?.small);
-    if (anyWithImage) {
-      debug(2, `[tokens] Using fallback token with image: ${anyWithImage.name}`);
-      return anyWithImage.image_uris;
-    }
-  }
   
   // FALLBACK: Only if dynamic matching completely fails
   // These are direct Scryfall URLs for specific token printings that may not be in Tokens.json
-  debug(2, `[tokens] Dynamic matching failed for ${nameLower}, trying fallback URLs`);
+    debug(2, `[tokens] Dynamic matching failed for ${nameLower}, trying fallback URLs`);
   
   // Build a dynamic fallback key based on characteristics
-  const colorArr = colors || [];
+    const colorArr = requestedColors || [];
   const isWhite = colorArr.some(c => c.toUpperCase() === 'W' || c.toLowerCase() === 'white');
   const isColorless = colorArr.length === 0;
-  const p = power !== undefined ? String(power) : '1';
-  const t = toughness !== undefined ? String(toughness) : '1';
+    const p = power !== undefined ? String(power) : '1';
+    const t = toughness !== undefined ? String(toughness) : '1';
   
   // Minimal fallback URLs - only for tokens that are commonly missing from Tokens.json
-  const FALLBACK_TOKEN_URLS: Record<string, { small?: string; normal?: string; large?: string; art_crop?: string }> = {
+    const FALLBACK_TOKEN_URLS: Record<string, { small?: string; normal?: string; large?: string; art_crop?: string }> = {
     // White 1/1 Soldier
     'soldier_white_1_1': {
       small: 'https://cards.scryfall.io/small/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
       normal: 'https://cards.scryfall.io/normal/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
       large: 'https://cards.scryfall.io/large/front/b/1/b1032d62-f64a-4b27-9a59-a5125625bf1f.jpg?1654171530',
     },
-  };
-  
-  // Try to build a fallback key from the token characteristics
-  let fallbackKey = nameLower.replace(/\s+/g, '_');
-  if (isWhite) fallbackKey += '_white';
-  else if (isColorless) fallbackKey += '_colorless';
-  fallbackKey += `_${p}_${t}`;
-  
-  const fallback = FALLBACK_TOKEN_URLS[fallbackKey];
-  if (fallback) {
-    debug(2, `[tokens] Using fallback URL for key: ${fallbackKey}`);
-    return fallback;
+    };
+
+    const fallbackKey = `${tokenName.toLowerCase().includes('soldier') ? 'soldier' : nameLower}_${isWhite ? 'white' : isColorless ? 'colorless' : 'multi'}_${p}_${t}`;
+    const fallback = FALLBACK_TOKEN_URLS[fallbackKey];
+    if (fallback) return fallback;
+
+    // Special-case: soldier tokens are very common and may be missing in some token datasets.
+    if (nameLower.includes('soldier') && isWhite && p === '1' && t === '1') {
+      return FALLBACK_TOKEN_URLS['soldier_white_1_1'];
+    }
+
+    return undefined;
+  } catch (err) {
+    debugWarn(1, '[tokens] getTokenImageUrls failed (non-fatal):', {
+      tokenName,
+      power,
+      toughness,
+    }, err);
+    return undefined;
   }
-  
-  // Try simpler fallback keys
-  const simpleKey = `${nameLower.split(' ')[0]}_${isWhite ? 'white' : 'colorless'}_${p}_${t}`;
-  const simpleFallback = FALLBACK_TOKEN_URLS[simpleKey];
-  if (simpleFallback) {
-    debug(2, `[tokens] Using simple fallback URL for key: ${simpleKey}`);
-    return simpleFallback;
-  }
-  
-  debug(2, `[tokens] No token image found for: ${tokenName}`);
-  return undefined;
 }
 
 /**

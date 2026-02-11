@@ -1642,6 +1642,59 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "permanent_tapped":
+      case "permanent_untapped": {
+        // Legacy/compat: bulk tap/untap emitted by some Resolution Queue steps.
+        const tapped = e.type === 'permanent_tapped';
+        const idsRaw = (e as any).permanentIds;
+        const ids = Array.isArray(idsRaw) ? idsRaw.map((x: any) => String(x)) : [];
+        if (ids.length === 0) break;
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          for (const permId of ids) {
+            const perm = battlefield.find((p: any) => p && String(p.id) === String(permId));
+            if (perm) {
+              (perm as any).tapped = tapped;
+            }
+          }
+
+          // Intervening-if support: record that a player tapped a nonland permanent this turn.
+          if (tapped) {
+            try {
+              const pid = String((e as any).playerId || '').trim();
+              if (pid) {
+                const stateAny = ctx.state as any;
+                stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+                stateAny.tappedNonlandPermanentThisTurnByPlayer[pid] = true;
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, `applyEvent(${e.type}): failed`, err);
+        }
+        break;
+      }
+
+      case 'exilePermanent': {
+        const permanentId = String((e as any).permanentId || '').trim();
+        if (!permanentId) break;
+        try {
+          const sourcePermanentId = (e as any).sourcePermanentId != null ? String((e as any).sourcePermanentId) : undefined;
+          const sourceName = (e as any).sourceName != null ? String((e as any).sourceName) : undefined;
+          movePermanentToExile(ctx as any, permanentId, {
+            exiledWithSourceId: sourcePermanentId,
+            exiledWithSourceName: sourceName,
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(exilePermanent): failed', err);
+        }
+        break;
+      }
+
       case "sacrificePermanent": {
         // Sacrifice a permanent (move to graveyard)
         const permId = (e as any).permanentId;
@@ -2115,6 +2168,87 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const permId = (e as any).permanentId;
           const abilityId = (e as any).abilityId;
           const abilityText = String((e as any).abilityText || '');
+
+          // If the server persisted which cards were discarded from hand to pay activation costs,
+          // apply those discards during replay so zones are deterministic.
+          try {
+            const discarded = (e as any).discardedCardIds;
+            const pid = playerId != null ? String(playerId) : '';
+            if (pid && Array.isArray(discarded) && discarded.length > 0) {
+              const zones = (ctx.state as any).zones || {};
+              const z = zones[pid];
+              if (z && Array.isArray(z.hand)) {
+                z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+
+                for (const cid of discarded) {
+                  const id = String(cid || '').trim();
+                  if (!id) continue;
+                  const idx = (z.hand as any[]).findIndex((c: any) => c && String(c.id) === id);
+                  if (idx === -1) continue;
+                  const [card] = (z.hand as any[]).splice(idx, 1);
+                  (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+                }
+
+                z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
+                z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted which permanents were sacrificed to pay activation costs,
+          // apply those sacrifices during replay so battlefield state is deterministic.
+          try {
+            const sacrificed = (e as any).sacrificedPermanents;
+            if (Array.isArray(sacrificed) && sacrificed.length > 0) {
+              for (const sid of sacrificed) {
+                const id = String(sid || '').trim();
+                if (!id) continue;
+                // Best-effort: only move if still on battlefield.
+                const bf = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+                if (!bf.some((p: any) => p && String(p.id) === id)) continue;
+                movePermanentToGraveyard(ctx as any, id, true);
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted which permanents were tapped to pay activation costs,
+          // apply those taps during replay so battlefield state is deterministic.
+          try {
+            const tapped = (e as any).tappedPermanents;
+            if (Array.isArray(tapped) && tapped.length > 0) {
+              const battlefield = ctx.state.battlefield || [];
+              const tappedSet = new Set(tapped.map((x: any) => String(x)));
+              for (const p of battlefield as any[]) {
+                if (!p) continue;
+                if (tappedSet.has(String(p.id))) {
+                  (p as any).tapped = true;
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted which counters were removed to pay activation costs,
+          // apply those counter removals during replay so battlefield state is deterministic.
+          try {
+            const removed = (e as any).removedCountersForCost;
+            if (Array.isArray(removed) && removed.length > 0) {
+              for (const entry of removed) {
+                const permanentId = String(entry?.permanentId || '').trim();
+                const counterType = String(entry?.counterType || '').trim();
+                const count = Number(entry?.count || 0);
+                if (!permanentId || !counterType || !Number.isFinite(count) || count <= 0) continue;
+                updateCounters(ctx as any, permanentId, { [counterType]: -count });
+              }
+            }
+          } catch {
+            // best-effort only
+          }
 
           // Intervening-if support: if we persisted deterministic Treasure spend metadata for this activation,
           // attach it to the matching ability stack item when present.

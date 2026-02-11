@@ -20,7 +20,7 @@ import {
   getCreatureCountManaAmount,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
-import { canPayManaCost } from "../state/modules/mana-check.js";
+import { canPayManaCost, getAvailableMana } from "../state/modules/mana-check.js";
 import { exchangePermanentOracleText, parseWordNumber } from "../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
@@ -5221,7 +5221,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const cost = match[1].trim();
       const effect = match[2].trim();
       // Filter out keyword abilities and keep only activated abilities
-      if (cost.includes('{') || cost.toLowerCase().includes('tap') || cost.toLowerCase().includes('sacrifice')) {
+      const costLower = cost.toLowerCase();
+      if (
+        cost.includes('{') ||
+        costLower.includes('tap') ||
+        costLower.includes('sacrifice') ||
+        costLower.includes('discard') ||
+        (costLower.includes('remove') && costLower.includes('counter'))
+      ) {
         abilities.push({ cost, effect });
       }
     }
@@ -5229,7 +5236,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (abilityIndex < abilities.length) {
       const ability = abilities[abilityIndex];
       abilityText = ability.effect;
-      requiresTap = ability.cost.toLowerCase().includes('{t}') || ability.cost.toLowerCase().includes('tap');
+      // Only treat the ability as requiring the SOURCE to tap when the cost includes an explicit tap symbol
+      // (or the old-style "Tap:" shorthand). Do NOT match "Tap an untapped creature you control" etc.
+      requiresTap = /\{t\}/i.test(ability.cost) || /^\s*tap\s*:/i.test(ability.cost);
       manaCost = ability.cost;
       
       // Detect sacrifice type from cost using shared utility
@@ -5249,7 +5258,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (abilities.length === 1) {
         const ability = abilities[0];
         abilityText = ability.effect;
-        requiresTap = ability.cost.toLowerCase().includes('{t}') || ability.cost.toLowerCase().includes('tap');
+        requiresTap = /\{t\}/i.test(ability.cost) || /^\s*tap\s*:/i.test(ability.cost);
         manaCost = ability.cost;
         
         const sacrificeInfo = parseSacrificeCost(ability.cost);
@@ -5330,6 +5339,206 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (abilityHasCondition || (utilityLandAbility?.activationCondition === 'attacked_with_two_or_more')) {
       const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
       debug(2, `[activateBattlefieldAbility] ${cardName} activation condition met: attacked with ${creaturesAttacked} creatures this turn`);
+    }
+
+    // ========================================================================
+    // Catapult Master
+    // "Tap five untapped Soldiers you control: Exile target creature."
+    // Implemented as: TAP_UNTAP_TARGET (tap 5 Soldiers) -> TARGET_SELECTION (choose creature to exile)
+    // ========================================================================
+    {
+      const abilityLower = String(abilityConditionText || abilityText || '').toLowerCase();
+      if (
+        String(cardName || '').toLowerCase().includes('catapult master') &&
+        /tap\s+five\s+untapped\s+soldiers?\s+you\s+control\s*:/i.test(abilityLower) &&
+        /exile\s+target\s+creature/i.test(abilityLower)
+      ) {
+        const availableSoldiers = (game.state.battlefield || []).filter((p: any) => {
+          if (!p || String(p.controller) !== String(pid)) return false;
+          if ((p as any).tapped) return false;
+          const tl = String(p.card?.type_line || '').toLowerCase();
+          return tl.includes('creature') && tl.includes('soldier');
+        });
+
+        if (availableSoldiers.length < 5) {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_CREATURES',
+            message: `Need 5 untapped Soldiers, but you only have ${availableSoldiers.length}.`,
+          });
+          return;
+        }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TAP_UNTAP_TARGET,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `Tap five untapped Soldiers you control to activate ${cardName}.`,
+          mandatory: true,
+          action: 'tap',
+          targetFilter: {
+            controller: 'you',
+            tapStatus: 'untapped',
+            types: ['soldier', 'creature'],
+          },
+          targetCount: 5,
+
+          // Custom payload consumed by socket/resolution.ts
+          catapultMasterTapCost: true,
+          permanentId,
+          abilityId,
+          cardName,
+        } as any);
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    }
+
+    // ========================================================================
+    // TAP OTHER PERMANENTS AS AN ACTIVATION COST (generic)
+    // Examples:
+    // - "Tap an untapped creature you control: ..."
+    // - "Tap two untapped artifacts you control: ..."
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
+    // "Tap N untapped <type/subtype> you control" clause. No mixed sacrifice/discard/etc.
+    // ========================================================================
+    {
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+
+      // Avoid mixing multiple interactive cost types for now.
+      if (costLower.includes('tap') && (costLower.includes('discard') || costLower.includes('sacrifice') || costLower.includes('exile'))) {
+        // Let other cost handlers (discard/sacrifice/etc.) handle their own errors/prompts.
+      } else {
+        const tapOtherMatch = costLower.match(
+          /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*)\s+you\s+control\b/i
+        );
+
+        if (tapOtherMatch) {
+          const mustBeOther = Boolean(tapOtherMatch[1]);
+          const rawCount = String(tapOtherMatch[2] || '').trim();
+          const targetCount = parseWordNumber(rawCount, 1);
+          const rawTypePhrase = String(tapOtherMatch[3] || '').trim();
+
+          // Conservative: reject obviously complex phrases ("with", "that", etc.)
+          if (/\b(with|that|without|attacking|blocking|equipped|enchanted)\b/i.test(rawTypePhrase)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: complex tap-other cost restrictions are not supported yet.`,
+            });
+            return;
+          }
+
+          // Ensure there are no other non-mana cost components besides the tap-other clause.
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(
+              /\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*\s+you\s+control\b/gi,
+              ' '
+            )
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: tap-other cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          // Derive a simple type filter for TAP_UNTAP_TARGET.
+          const ignored = new Set(['token', 'legendary', 'snow', 'basic', 'nontoken', 'nonbasic']);
+          const words = rawTypePhrase
+            .toLowerCase()
+            .split(/\s+/)
+            .map((w) => w.trim())
+            .filter((w) => w && !ignored.has(w))
+            .map((w) => (w.endsWith('s') ? w.slice(0, -1) : w));
+
+          const knownPermanentTypes = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle']);
+          const knownHits = words.filter((w) => knownPermanentTypes.has(w));
+          if (knownHits.length > 1) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: tap-other cost with multiple type keywords is not supported yet.`,
+            });
+            return;
+          }
+
+          const baseType = knownHits.length === 1 ? knownHits[0] : '';
+          const subtype = baseType ? '' : (words[0] || '');
+          const typesFilter: string[] = [];
+          if (baseType) {
+            typesFilter.push(baseType);
+          } else if (subtype) {
+            // Treat as creature subtype (e.g. Soldier) and also require creature.
+            typesFilter.push('creature', subtype);
+          } else {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: could not parse tap-other cost type.`,
+            });
+            return;
+          }
+
+          const battlefieldNow = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const validNow = battlefieldNow.filter((p: any) => {
+            if (!p || String(p.controller) !== String(pid)) return false;
+            if ((p as any).tapped) return false;
+            if (mustBeOther && String(p.id) === String(permanentId)) return false;
+            const tl = String(p.card?.type_line || '').toLowerCase();
+            return typesFilter.some((t) => tl.includes(String(t).toLowerCase()));
+          });
+
+          if (validNow.length < targetCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_TARGETS',
+              message: `Need ${targetCount} untapped ${rawTypePhrase}${targetCount === 1 ? '' : 's'} you control, but you only have ${validNow.length}.`,
+            });
+            return;
+          }
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .find((s: any) => s?.type === ResolutionStepType.TAP_UNTAP_TARGET && (s as any)?.tapOtherAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TAP_UNTAP_TARGET,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+              description: `${cardName}: Tap ${targetCount} untapped ${rawTypePhrase}${targetCount === 1 ? '' : 's'} you control to activate: ${abilityText}`,
+              mandatory: false,
+              action: 'tap',
+              targetFilter: {
+                controller: 'you',
+                tapStatus: 'untapped',
+                excludeSource: mustBeOther,
+                types: typesFilter,
+              },
+              targetCount,
+
+              // Custom payload consumed by socket/resolution.ts
+              tapOtherAbilityAsCost: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              manaCost: costStr,
+              requiresTap: Boolean(requiresTap),
+            } as any);
+          }
+
+          debug(2, `[activateBattlefieldAbility] ${cardName} requires tapping ${targetCount} permanent(s) (${rawTypePhrase}) as a cost. Queued TAP_UNTAP_TARGET.`);
+          broadcastGame(io, game, gameId);
+          return;
+        }
+      }
     }
 
     // ========================================================================
@@ -5529,8 +5738,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Custom payload consumed by socket/resolution.ts
           sacrificeAbilityAsCost: true,
           permanentId,
+          abilityId,
           cardName,
           abilityText,
+          manaCost,
           oracleText: (card?.oracle_text || oracleText || ''),
           requiresTap,
           sacrificeType,
@@ -5545,11 +5756,516 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Tap the permanent if required
-    if (requiresTap && !(permanent as any).tapped) {
-      (permanent as any).tapped = true;
+    // Track any permanents we tap as part of paying this activation's costs.
+    // This is persisted into the activateBattlefieldAbility event for replay determinism.
+    const tappedPermanentsForCost: string[] = [];
+
+    // Track any counters removed as part of paying this activation's costs.
+    // Persisted into activateBattlefieldAbility for deterministic replay.
+    const removedCountersForCost: Array<{ permanentId: string; counterType: string; count: number }> = [];
+
+    // Defer applying counter removal until we're sure this activation completes.
+    // (If we remove counters and later fail mana payment, we'd corrupt state.)
+    const pendingCounterRemovals: Array<{ counterType: string; count: number }> = [];
+
+    // ========================================================================
+    // REMOVE COUNTERS AS AN ACTIVATION COST (source permanent only)
+    // Examples:
+    // - "Remove a +1/+1 counter from ~: ..."
+    // - "Remove two charge counters from ~: ..."
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
+    // "Remove N <counterType> counter(s) from <this>" clause.
+    // ========================================================================
+    {
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+
+      // Avoid interfering with special-case storage-counter lands handled earlier.
+      if (costLower.includes('storage counter')) {
+        // no-op
+      } else if (costLower.includes('remove') && costLower.includes('counter')) {
+        const removeMatch = costStr.match(
+          /\bremove\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+([^,]+?)\s+counters?\s+from\s+([^,]+)\b/i
+        );
+
+        if (removeMatch) {
+          const rawCount = String(removeMatch[1] || '').trim();
+          const rawTypePhrase = String(removeMatch[2] || '').trim();
+          const rawSourceRef = String(removeMatch[3] || '').trim();
+
+          const removeCount = parseWordNumber(rawCount, 1);
+          if (removeCount <= 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: invalid counter removal count.`,
+            });
+            return;
+          }
+
+          // Only support removing from the source permanent (card name / this / it).
+          const srcRefLower = rawSourceRef.toLowerCase();
+          const nameLower = String(cardName || '').toLowerCase();
+          const refersToSource =
+            (nameLower && srcRefLower.includes(nameLower)) ||
+            /\b(this|this permanent|it|source)\b/i.test(srcRefLower);
+          if (!refersToSource) {
+            // Support "Remove N <counter> counters from (another/other)? (permanent type) you control".
+            if (!/\byou control\b/i.test(srcRefLower)) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: removing counters from another permanent as an activation cost is not supported yet.`,
+              });
+              return;
+            }
+
+            const mustBeOther = /\b(another|other)\b/i.test(srcRefLower);
+            const typeMatch = srcRefLower.match(/\b(creature|artifact|enchantment|land|permanent)\b/i);
+            const removeFromType = String(typeMatch?.[1] || 'permanent').toLowerCase();
+
+            // Normalize counter type.
+            let counterType = rawTypePhrase;
+            counterType = counterType.replace(/^\s*(?:a|an)\s+/i, '').trim();
+            if (/\+\s*1\s*\/\s*\+\s*1/i.test(counterType)) counterType = '+1/+1';
+            else if (/-\s*1\s*\/\s*-\s*1/i.test(counterType)) counterType = '-1/-1';
+            else if (/^\d+\s*\/\s*\d+$/i.test(counterType)) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: unsupported counter type (${counterType}).`,
+              });
+              return;
+            } else {
+              const first = counterType.split(/\s+/)[0];
+              counterType = String(first || '').toLowerCase();
+            }
+            if (!counterType) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: could not parse counter type.`,
+              });
+              return;
+            }
+
+            // Ensure no other non-mana cost components besides this remove-counters clause.
+            const remainingNonManaCostText = costStr
+              .replace(/\{[^}]+\}/g, ' ')
+              .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?\s+from\s+[^,]+\b/gi, ' ')
+              .replace(/[\s,]+/g, ' ')
+              .trim();
+            if (remainingNonManaCostText.length > 0) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: remove-counter cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+              });
+              return;
+            }
+
+            const battlefield = (game.state?.battlefield || []) as any[];
+            const matchesType = (perm: any): boolean => {
+              if (!perm) return false;
+              if (String(perm.controller || '') !== String(pid)) return false;
+              if (mustBeOther && String(perm.id) === String(permanentId)) return false;
+              const tl = String(perm.card?.type_line || '').toLowerCase();
+              if (removeFromType === 'permanent') return true;
+              return tl.includes(removeFromType);
+            };
+
+            const counterKeyCandidates = (() => {
+              const ct = String(counterType);
+              if (ct === '+1/+1') return ['+1/+1', 'p1p1', 'plus_one', 'plusone', 'plus1plus1', '+1+1'];
+              if (ct === '-1/-1') return ['-1/-1', 'm1m1', 'minus_one', 'minusone', 'minus1minus1', '-1-1'];
+              return [ct];
+            })();
+
+            const eligiblePermanents = battlefield.filter((p: any) => {
+              if (!matchesType(p)) return false;
+              const counters = (p as any).counters || {};
+              const has = counterKeyCandidates.some((k) => Number(counters?.[k] || 0) >= removeCount);
+              return has;
+            });
+
+            if (eligiblePermanents.length < 1) {
+              socket.emit('error', {
+                code: 'INSUFFICIENT_COUNTERS',
+                message: `You don't control an eligible ${removeFromType} with at least ${removeCount} ${counterType} counter(s).`,
+              });
+              return;
+            }
+
+            const validTargets = eligiblePermanents.map((p: any) => ({
+              id: p.id,
+              label: p.card?.name || 'Unknown',
+              description: p.card?.type_line || 'Permanent',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+
+            const existing = ResolutionQueueManager
+              .getStepsForPlayer(gameId, pid as any)
+              .find(
+                (s: any) =>
+                  s?.type === ResolutionStepType.TARGET_SELECTION &&
+                  (s as any)?.removeCountersAbilityAsCost === true &&
+                  String((s as any)?.permanentId || s?.sourceId) === String(permanentId)
+              );
+
+            if (!existing) {
+              ResolutionQueueManager.addStep(gameId, {
+                type: ResolutionStepType.TARGET_SELECTION,
+                playerId: pid as PlayerID,
+                sourceId: permanentId,
+                sourceName: cardName,
+                sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+                description: `${cardName}: Remove ${removeCount} ${counterType} counter${removeCount === 1 ? '' : 's'} from a ${mustBeOther ? 'different ' : ''}${removeFromType} you control to activate: ${abilityText}`,
+                mandatory: false,
+                validTargets,
+                targetTypes: ['remove_counter_cost'],
+                minTargets: 1,
+                maxTargets: 1,
+                targetDescription: `${removeFromType} you control`,
+
+                // Custom payload consumed by socket/resolution.ts
+                removeCountersAbilityAsCost: true,
+                permanentId,
+                abilityId,
+                cardName,
+                abilityText,
+                manaCost: costStr,
+                requiresTap,
+                removeCount,
+                counterType,
+                counterKeyCandidates,
+                removeFromType,
+                mustBeOther,
+              } as any);
+            }
+
+            debug(2, `[activateBattlefieldAbility] ${cardName} requires removing ${removeCount} ${counterType} counter(s) from a ${removeFromType} you control as a cost. Queued TARGET_SELECTION.`);
+            broadcastGame(io, game, gameId);
+            return;
+          }
+
+          // Normalize counter type.
+          let counterType = rawTypePhrase;
+          // Strip leading articles/words like "a" (if they made it into the type phrase).
+          counterType = counterType.replace(/^\s*(?:a|an)\s+/i, '').trim();
+          // Common explicit counter keys
+          if (/\+\s*1\s*\/\s*\+\s*1/i.test(counterType)) counterType = '+1/+1';
+          else if (/-\s*1\s*\/\s*-\s*1/i.test(counterType)) counterType = '-1/-1';
+          else if (/^\d+\s*\/\s*\d+$/i.test(counterType)) {
+            // "1/1" style should be treated as "+1/+1" or "-1/-1" only; reject.
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: unsupported counter type (${counterType}).`,
+            });
+            return;
+          }
+          else {
+            // Use first word for named counters (charge, loyalty, time, etc.).
+            const first = counterType.split(/\s+/)[0];
+            counterType = String(first || '').toLowerCase();
+          }
+
+          if (!counterType) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: could not parse counter type.`,
+            });
+            return;
+          }
+
+          // Ensure no other non-mana cost components besides this remove-counters clause.
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?\s+from\s+[^,]+\b/gi, ' ')
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: remove-counter cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          // Verify the source permanent still has enough counters.
+          const currentCounters = (permanent as any).counters || {};
+          const counterKeyCandidates = (() => {
+            const ct = String(counterType);
+            if (ct === '+1/+1') return ['+1/+1', 'p1p1', 'plus_one', 'plusone', 'plus1plus1', '+1+1'];
+            if (ct === '-1/-1') return ['-1/-1', 'm1m1', 'minus_one', 'minusone', 'minus1minus1', '-1-1'];
+            return [ct];
+          })();
+          const actualKey = counterKeyCandidates.find((k) => Number(currentCounters?.[k] || 0) >= removeCount);
+          const currentN = actualKey ? Number(currentCounters?.[actualKey] || 0) : 0;
+          if (!actualKey || currentN < removeCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_COUNTERS',
+              message: `${cardName} doesn't have enough ${counterType} counter(s). (Need ${removeCount}, have ${currentN})`,
+            });
+            return;
+          }
+
+          pendingCounterRemovals.push({ counterType: actualKey, count: removeCount });
+
+          // Strip this clause from manaCost so later mana-payment logic doesn't see non-mana text.
+          // Keep any remaining mana symbols / tap symbols intact.
+          try {
+            manaCost = String(manaCost || '')
+              .replace(
+                /\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?\s+from\s+[^,]+\b/gi,
+                ' '
+              )
+              .replace(/^[\s,]+|[\s,]+$/g, '')
+              .replace(/[\s,]+/g, ' ')
+              .trim();
+          } catch {
+            // best-effort only
+          }
+        }
+      }
     }
-    
+
+    // ========================================================================
+    // DISCARD AS AN ACTIVATION COST
+    // Example: "Discard a card: Draw a card." (no other non-mana cost components supported yet)
+    // ========================================================================
+    {
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+      if (costLower.includes('discard')) {
+        // Conservative: only support "discard a/one/two/... card(s)" with no type restriction.
+        const discardMatch = costLower.match(/\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i);
+        if (discardMatch) {
+          // Reject patterns like "discard a creature card" / "discard a land card" for now.
+          const qualified = costLower.match(/\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+\w+\s+card\b/i);
+          if (qualified && !/\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+card\b/i.test(costLower)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: discard-with-type restriction as an activation cost is not supported yet.`,
+            });
+            return;
+          }
+
+          // If this cost also includes a sacrifice clause, we don't yet support multi-step costs.
+          if (costLower.includes('sacrifice')) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: discard + sacrifice as an activation cost is not supported yet.`,
+            });
+            return;
+          }
+
+          const raw = String(discardMatch[1] || '').trim();
+          const discardCount = parseWordNumber(raw, 1);
+
+          // Ensure the cost contains no other non-mana cost components besides the discard clause.
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/gi, ' ')
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: discard cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          const zones = (game.state as any)?.zones?.[pid];
+          const hand = zones?.hand;
+          if (!zones || !Array.isArray(hand)) {
+            socket.emit('error', { code: 'NO_HAND', message: 'No hand found for discard cost' });
+            return;
+          }
+
+          if (hand.length < discardCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_CARDS',
+              message: `Need to discard ${discardCount} card(s), but you only have ${hand.length}.`,
+            });
+            return;
+          }
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .find((s: any) => s?.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.discardAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.DISCARD_SELECTION,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              description: `${cardName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'} to activate: ${abilityText}`,
+              mandatory: false,
+              hand: hand,
+              discardCount,
+              reason: 'activation_cost',
+
+              // Custom payload consumed by resolution.ts
+              discardAbilityAsCost: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              manaCost,
+              requiresTap,
+            } as any);
+          }
+
+          debug(2, `[activateBattlefieldAbility] ${cardName} requires discarding ${discardCount} card(s) as a cost. Queued DISCARD_SELECTION.`);
+          broadcastGame(io, game, gameId);
+          return;
+        }
+      }
+    }
+
+    const maybeAutoTapForSimpleNonHybridCost = (required: { colors: Record<string, number>; generic: number }): void => {
+      const manaPool = getOrInitManaPool(game.state, pid);
+      const requiredColors: Record<string, number> = required?.colors || {};
+      const requiredGeneric = Math.max(0, Number(required?.generic || 0));
+
+      const colorKeyBySymbol: Record<string, keyof typeof manaPool> = {
+        W: 'white',
+        U: 'blue',
+        B: 'black',
+        R: 'red',
+        G: 'green',
+        C: 'colorless',
+      } as any;
+
+      const poolColor = (sym: string) => {
+        const k = colorKeyBySymbol[String(sym || '').toUpperCase()];
+        return k ? Number((manaPool as any)[k] || 0) : 0;
+      };
+
+      // Remaining colored requirements after considering currently-floated mana.
+      const remainingColors: Record<string, number> = {};
+      for (const [sym, needRaw] of Object.entries(requiredColors)) {
+        const need = Math.max(0, Number(needRaw || 0));
+        if (need <= 0) continue;
+        const have = poolColor(sym);
+        const rem = Math.max(0, need - have);
+        if (rem > 0) remainingColors[String(sym).toUpperCase()] = rem;
+      }
+
+      const totalPool = () =>
+        (manaPool.white || 0) + (manaPool.blue || 0) + (manaPool.black || 0) +
+        (manaPool.red || 0) + (manaPool.green || 0) + (manaPool.colorless || 0);
+
+      let remainingGeneric = Math.max(0, requiredGeneric - totalPool());
+
+      const battlefield = (game.state.battlefield || []) as any[];
+      const candidates: Array<{ perm: any; prod: any; amount: number }>
+        = [];
+
+      for (const perm of battlefield) {
+        if (!perm || String(perm.controller) !== String(pid)) continue;
+        if ((perm as any).tapped) continue;
+        const c = perm.card;
+        if (!c) continue;
+
+        const typeLine = String(c.type_line || '').toLowerCase();
+        const isCreature = typeLine.includes('creature');
+        const isLand = typeLine.includes('land');
+        if (isCreature && !isLand && (perm as any).summoningSickness) {
+          const hasHaste = creatureHasHaste(perm, battlefield, pid);
+          if (!hasHaste) continue;
+        }
+
+        const oracleText = String(c.oracle_text || '').toLowerCase();
+        // Only auto-tap VERY simple mana sources: "{T}: Add ..." (no extra costs like "{1}, {T}" or "{T}, Sacrifice")
+        if (!/\{t\}\s*:\s*add\b/i.test(oracleText)) continue;
+        if (/\{t\}\s*,/i.test(oracleText)) continue;
+        if (oracleText.includes('sacrifice')) continue;
+        if (oracleText.includes('pay ')) continue;
+
+        const prod = calculateManaProduction(game.state, perm, pid);
+        const amt = Number(prod?.totalAmount || 0);
+        if (!Number.isFinite(amt) || amt <= 0) continue;
+
+        candidates.push({ perm, prod, amount: amt });
+      }
+
+      const chooseColorForProd = (prodColors: string[]): string => {
+        const colors = Array.isArray(prodColors) ? prodColors.map(c => String(c).toUpperCase()) : [];
+        // Prioritize a missing required color.
+        for (const sym of Object.keys(remainingColors)) {
+          if ((remainingColors[sym] || 0) > 0 && colors.includes(sym)) return sym;
+        }
+        // Otherwise, if it produces exactly one fixed color, use it.
+        if (colors.length === 1) return colors[0];
+        // Otherwise prefer colorless, else default to W.
+        if (colors.includes('C')) return 'C';
+        return 'W';
+      };
+
+      const tapAndAdd = (perm: any, prod: any, chosenSym: string, amount: number) => {
+        (perm as any).tapped = true;
+        tappedPermanentsForCost.push(String((perm as any).id));
+
+        const sym = String(chosenSym || '').toUpperCase();
+        const key = colorKeyBySymbol[sym] || 'colorless';
+        (manaPool as any)[key] = Number((manaPool as any)[key] || 0) + Math.max(1, amount);
+      };
+
+      // 1) Cover colored requirements first.
+      while (Object.values(remainingColors).some((n: any) => Number(n || 0) > 0)) {
+        let bestIdx = -1;
+        let bestScore = -1;
+        let bestColor = 'C';
+
+        for (let i = 0; i < candidates.length; i++) {
+          const cand = candidates[i];
+          const colors = Array.isArray(cand.prod?.colors) ? cand.prod.colors.map((x: any) => String(x).toUpperCase()) : [];
+          const color = chooseColorForProd(colors);
+          if (!remainingColors[color]) continue;
+
+          // Prefer sources that produce exactly 1 (avoid leftover) and match required color.
+          const amount = Number(cand.amount || 0);
+          const score = (amount === 1 ? 1000 : 0) + Math.min(10, amount);
+          if (score > bestScore) {
+            bestScore = score;
+            bestIdx = i;
+            bestColor = color;
+          }
+        }
+
+        if (bestIdx === -1) break;
+        const chosen = candidates.splice(bestIdx, 1)[0];
+        try {
+          const amount = Number(chosen.amount || 1);
+          tapAndAdd(chosen.perm, chosen.prod, bestColor, Math.min(amount, remainingColors[bestColor] || 1));
+          remainingColors[bestColor] = Math.max(0, (remainingColors[bestColor] || 0) - 1);
+        } catch {
+          // best-effort only
+        }
+      }
+
+      // 2) Cover generic requirement with remaining sources (prefer 1-mana producers to avoid leftover).
+      remainingGeneric = Math.max(0, requiredGeneric - totalPool());
+      candidates.sort((a, b) => {
+        const aAmt = Number(a.amount || 0);
+        const bAmt = Number(b.amount || 0);
+        const aPref = aAmt === 1 ? 0 : 1;
+        const bPref = bAmt === 1 ? 0 : 1;
+        if (aPref !== bPref) return aPref - bPref;
+        return aAmt - bAmt;
+      });
+
+      for (const cand of candidates) {
+        if (remainingGeneric <= 0) break;
+        try {
+          const colors = Array.isArray(cand.prod?.colors) ? cand.prod.colors.map((x: any) => String(x).toUpperCase()) : [];
+          const chosenColor = chooseColorForProd(colors);
+          tapAndAdd(cand.perm, cand.prod, chosenColor, 1);
+          remainingGeneric -= 1;
+        } catch {
+          // best-effort only
+        }
+      }
+    };
+
     // Parse and validate mana cost if present
     // Extract just the mana symbols from the cost string (excluding {T}, sacrifice, etc.)
     if (manaCost) {
@@ -5576,8 +6292,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             hybrid: parsedCost.hybrids, // Map hybrids to hybrid for compatibility
           };
           
-          // Check if we can pay the cost (considering Phyrexian mana can be paid with life)
-          if (!canPayManaCost(manaPool as unknown as Record<string, number>, costForCheck, playerLife)) {
+          // Check if we can pay the cost, including mana that could be produced by untapped sources.
+          // (Activated abilities allow activating mana abilities during cost payment.)
+          const availableForCheck = getAvailableMana(game.state, pid as any);
+          if (!canPayManaCost(availableForCheck as unknown as Record<string, number>, costForCheck, playerLife)) {
             socket.emit("error", {
               code: "INSUFFICIENT_MANA",
               message: `Cannot pay ${manaOnly} - insufficient mana or life`,
@@ -5691,23 +6409,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             // Consume the mana
             consumeManaFromPool(manaPool, manaToConsume.colors, manaToConsume.generic);
           } else {
-            // No hybrid costs - just validate and consume normally
-            const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
-            const validationError = validateManaPayment(
-              totalAvailable,
-              parsedCost.colors,
-              parsedCost.generic
-            );
-            
+            // Non-hybrid mana costs (including mixed colored+generic like {W}{1}).
+            // Attempt to auto-tap simple mana sources when the player has mana available on the field.
+            const totalAvailableBefore = calculateTotalAvailableMana(manaPool, undefined);
+            let validationError = validateManaPayment(totalAvailableBefore, parsedCost.colors, parsedCost.generic);
             if (validationError) {
-              socket.emit("error", {
-                code: "INSUFFICIENT_MANA",
-                message: validationError,
+              maybeAutoTapForSimpleNonHybridCost({ colors: parsedCost.colors, generic: parsedCost.generic });
+              const totalAvailableAfter = calculateTotalAvailableMana(manaPool, undefined);
+              validationError = validateManaPayment(totalAvailableAfter, parsedCost.colors, parsedCost.generic);
+            }
+
+            if (validationError) {
+              socket.emit('error', {
+                code: 'INSUFFICIENT_MANA',
+                message: `Cannot pay ${manaOnly}: ${validationError}`,
               });
               return;
             }
-            
-            // Consume the mana from the pool
+
             consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
           }
           
@@ -5764,6 +6483,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: "Can't activate abilities while a spell with split second is on the stack.",
         });
         return;
+      }
+
+      // Pay tap cost only after all other costs validate and any interactive prompts
+      // (e.g., Phyrexian/hybrid payment choice) have been handled.
+      if (requiresTap && !(permanent as any).tapped) {
+        (permanent as any).tapped = true;
+        tappedPermanentsForCost.push(String(permanentId));
       }
 
       // Check if this is a tutor effect (searches library)
@@ -5906,6 +6632,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // - Devotion-based abilities (Karametra's Acolyte)
       // - Creature-count abilities (Priest of Titania, Elvish Archdruid)
       // ========================================================================
+
+      // Tap as part of the cost for mana abilities.
+      if (requiresTap && !(permanent as any).tapped) {
+        (permanent as any).tapped = true;
+      }
       
       // Initialize mana pool if needed
       game.state.manaPool = game.state.manaPool || {};
@@ -6187,6 +6918,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
       }
     } catch {}
+
+    // Apply any deferred counter removals for activation costs now that we know the activation completed.
+    // This ensures we don't remove counters if the activation later fails due to mana payment, etc.
+    if (pendingCounterRemovals.length > 0) {
+      for (const entry of pendingCounterRemovals) {
+        const counterType = String(entry?.counterType || '').trim();
+        const count = Number(entry?.count || 0);
+        if (!counterType || !Number.isFinite(count) || count <= 0) continue;
+
+        try {
+          const ctx = {
+            state: game.state,
+            libraries: (game as any).libraries,
+            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+            rng: (game as any).rng,
+            gameId,
+          } as any;
+          const { updateCounters } = await import('../state/modules/counters_tokens.js');
+          updateCounters(ctx, String(permanentId), { [counterType]: -count });
+        } catch {
+          // best-effort direct mutation fallback
+          (permanent as any).counters = (permanent as any).counters || {};
+          const next = Math.max(0, Number((permanent as any).counters[counterType] || 0) - count);
+          if (next > 0) (permanent as any).counters[counterType] = next;
+          else delete (permanent as any).counters[counterType];
+        }
+
+        removedCountersForCost.push({ permanentId: String(permanentId), counterType, count });
+      }
+    }
     
     appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
       playerId: pid, 
@@ -6194,6 +6955,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityId,
       cardName,
       abilityText,
+      tappedPermanents: tappedPermanentsForCost,
+      removedCountersForCost,
     });
     
     broadcastGame(io, game, gameId);

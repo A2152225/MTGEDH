@@ -1,0 +1,1710 @@
+{
+  "scanned": {
+    "oracleCards": 0,
+    "atomicCards": 25868,
+    "permanentCardsConsidered": 0,
+    "activatedAbilityLines": 11431,
+    "activatedAbilityLinesWithTargets": 3559
+  },
+  "costCategoryCounts": {
+    "mana_in_cost": 7063,
+    "tap_self_{T}": 5703,
+    "cost_is_only_mana": 2868,
+    "sacrifice_self": 1389,
+    "sacrifice_other": 819,
+    "discard": 673,
+    "tap_other_as_cost": 291,
+    "exile_from_graveyard_as_cost": 269,
+    "remove_counters": 208,
+    "x_in_cost": 165,
+    "pay_life": 161,
+    "tap_untapped_you_control": 130,
+    "hybrid_mana": 126,
+    "return_permanent_you_control_as_cost": 75,
+    "energy_symbol_{E}": 61,
+    "snow_mana": 39,
+    "phyrexian_mana": 39,
+    "reveal_as_cost": 37,
+    "colorless_mana_symbol_{C}": 28,
+    "untap_symbol_{Q}": 19
+  },
+  "costCategoryExamples": {
+    "cost_is_only_mana": [
+      "\"Rumors of My Death . . .\" — Enchantment",
+      "+2 Mace — Artifact — Equipment",
+      "1996 World Champion — Summon Legend",
+      "A-Ancestral Katana — Artifact — Equipment",
+      "A-Bruenor Battlehammer — Legendary Creature — Dwarf Warrior",
+      "A-Druid Class — Enchantment — Class",
+      "A-Futurist Operative — Creature — Human Ninja",
+      "A-Geology Enthusiast — Creature — Human Artificer",
+      "A-Glamorous Outlaw — Creature — Vampire Rogue",
+      "A-Goggles of Night — Artifact — Equipment",
+      "A-Jackhammer — Artifact — Equipment",
+      "A-Kargan Intimidator — Creature — Human Warrior"
+    ],
+    "mana_in_cost": [
+      "\"Rumors of My Death . . .\" — Enchantment",
+      "+2 Mace — Artifact — Equipment",
+      "1996 World Champion — Summon Legend",
+      "A-Ancestral Katana — Artifact — Equipment",
+      "A-Bretagard Stronghold — Land",
+      "A-Bruenor Battlehammer — Legendary Creature — Dwarf Warrior",
+      "A-Cobbled Lancer — Creature — Zombie Horse",
+      "A-Dokuchi Silencer — Creature — Human Ninja",
+      "A-Dragonborn Looter — Creature — Dragon Rogue",
+      "A-Druid Class — Enchantment — Class",
+      "A-Dueling Coach — Creature — Human Monk",
+      "A-Dungeon Descent — Land"
+    ],
+    "reveal_as_cost": [
+      "A Killer Among Us — Enchantment",
+      "Bat- — Creature — Bat",
+      "Emissary of Grudges — Creature — Efreet",
+      "Guardian Archon — Creature — Archon",
+      "Half-Kitten, Half- — Creature — Cat",
+      "Half-Orc, Half- — Creature — Orc Warrior",
+      "Half-Shark, Half- — Creature — Shark",
+      "Half-Squirrel, Half- — Creature — Squirrel",
+      "Heir to Dragonfire — Creature — Human Warlock",
+      "Humming- — Creature — Bird",
+      "Illuminated Folio — Artifact",
+      "Infernal Spawn of Evil — Creature — Beast"
+    ],
+    "sacrifice_self": [
+      "A Killer Among Us — Enchantment",
+      "A-Prosperous Thief — Creature — Human Ninja",
+      "A-Stimulus Package — Enchantment",
+      "Abandoned Outpost — Land",
+      "Abzan Banner — Artifact",
+      "Abzan Monument — Artifact",
+      "Acidic Sliver — Creature — Sliver",
+      "Aeolipile — Artifact",
+      "Aerie Ouphes — Creature — Ouphe",
+      "Aether Spellbomb — Artifact",
+      "Aetherjacket — Artifact Creature — Thopter",
+      "Aftermath Analyst — Creature — Elf Detective"
+    ],
+    "tap_self_{T}": [
+      "A Realm Reborn — Enchantment",
+      "A-Base Camp — Land",
+      "A-Bretagard Stronghold — Land",
+      "A-Canopy Tactician — Creature — Elf Warrior",
+      "A-Carnelian Orb of Dragonkind — Artifact",
+      "A-Dragonborn Looter — Creature — Dragon Rogue",
+      "A-Dueling Coach — Creature — Human Monk",
+      "A-Dungeon Descent — Land",
+      "A-Find the Path — Enchantment — Aura",
+      "A-Geology Enthusiast — Creature — Human Artificer",
+      "A-Glittermonger — Creature — Elf Rogue",
+      "A-Hall of Tagsin — Land"
+    ],
+    "sacrifice_other": [
+      "A-Bretagard Stronghold — Land",
+      "A-Capenna Express — Artifact — Vehicle",
+      "A-Cauldron Familiar — Creature — Cat",
+      "A-Earthquake Dragon — Creature — Elemental Dragon",
+      "A-Haywire Mite — Artifact Creature — Insect",
+      "A-Navigation Orb — Artifact",
+      "A-Ominous Parcel — Artifact",
+      "A-Sepulcher Ghoul — Creature — Zombie",
+      "A-Skemfar Elderhall — Land",
+      "A-Skyclave Shadowcat — Creature — Cat Horror",
+      "A-Sprouting Goblin — Creature — Goblin Druid",
+      "A-Stimulus Package — Enchantment"
+    ],
+    "tap_other_as_cost": [
+      "A-Capenna Express — Artifact — Vehicle",
+      "Aboshan, Cephalid Emperor — Legendary Creature — Octopus Noble",
+      "Adagia, Windswept Bastion — Land — Planet",
+      "Adaptive Gemguard — Artifact Creature — Gnome",
+      "Adventurer's Airship — Artifact — Vehicle",
+      "Aethersphere Harvester — Artifact — Vehicle",
+      "Air Response Unit — Artifact — Vehicle",
+      "Alacrian Jaguar — Creature — Cat Mount",
+      "Altar Golem — Artifact Creature — Golem",
+      "Ancestor's Prophet — Creature — Human Cleric",
+      "Aphetto Grifter — Creature — Human Wizard",
+      "Apocalypse Runner — Artifact — Vehicle"
+    ],
+    "exile_from_graveyard_as_cost": [
+      "A-Cobbled Lancer — Creature — Zombie Horse",
+      "A-Tome Shredder — Creature — Wolf",
+      "Adorned Crocodile — Creature — Crocodile",
+      "Adorned Pouncer — Creature — Cat",
+      "Agent of Kotis — Creature — Human Rogue",
+      "Alchemist's Assistant — Creature — Monkey",
+      "Alms — Enchantment",
+      "Amphin Mutineer — Creature — Salamander Pirate",
+      "Angel of Grace — Creature — Angel",
+      "Angel of Indemnity — Creature — Angel Warrior",
+      "Angel of Sanctions — Creature — Angel",
+      "Anointer Priest — Creature — Human Cleric"
+    ],
+    "return_permanent_you_control_as_cost": [
+      "A-Dokuchi Silencer — Creature — Human Ninja",
+      "A-Moon-Circuit Hacker — Enchantment Creature — Human Ninja",
+      "A-Nashi, Moon Sage's Scion — Legendary Creature — Rat Ninja",
+      "A-Nezumi Prowler — Artifact Creature — Rat Ninja",
+      "A-Prosperous Thief — Creature — Human Ninja",
+      "A-Silver-Fur Master — Creature — Rat Ninja",
+      "A-Thousand-Faced Shadow — Creature — Human Ninja",
+      "Arcanis, the Omnipotent Avatar — Vanguard",
+      "Azra Smokeshaper — Creature — Azra Ninja",
+      "Blade-Blizzard Kitsune — Creature — Fox Ninja",
+      "Bronzehide Lion — Creature — Cat",
+      "Coiling Stalker — Creature — Snake Ninja"
+    ],
+    "discard": [
+      "A-Mishra, Excavation Prodigy — Legendary Creature — Human Artificer",
+      "A-Soul of Windgrace — Legendary Creature — Cat Avatar",
+      "A-Urza, Powerstone Prodigy — Legendary Creature — Human Artificer",
+      "Advanced Stitchwing — Creature — Zombie Horror",
+      "Aeromoeba — Creature — Elemental Beast",
+      "Agonasaur Rex — Creature — Dinosaur",
+      "Alabaster Host Intercessor — Creature — Phyrexian Samurai",
+      "Alexi, Zephyr Mage — Legendary Creature — Human Spellshaper",
+      "Altanak, the Thrice-Called — Legendary Creature — Insect Beast",
+      "Amok — Enchantment",
+      "Amugaba — Creature — Illusion",
+      "Angel of the God-Pharaoh — Creature — Angel"
+    ],
+    "snow_mana": [
+      "A-Narfi, Betrayer King — Legendary Snow Creature — Zombie Wizard",
+      "Adarkar Windform — Snow Creature — Illusion",
+      "Ascendant Spirit — Snow Creature — Spirit",
+      "Boreal Centaur — Snow Creature — Centaur Warrior",
+      "Boreal Griffin — Snow Creature — Griffin",
+      "Chillerpillar — Snow Creature — Insect",
+      "Chilling Shade — Snow Creature — Shade",
+      "Cover of Winter — Snow Enchantment",
+      "Diamond Faerie — Snow Creature — Faerie",
+      "Diamond Faerie Avatar — Vanguard",
+      "Faceless Haven — Snow Land",
+      "Frost Augur — Snow Creature — Human Wizard"
+    ],
+    "hybrid_mana": [
+      "A-Riveteers Initiate — Creature — Lizard Citizen",
+      "A-Silver-Fur Master — Creature — Rat Ninja",
+      "Aisha of Sparks and Smoke — Legendary Creature — Human Warrior",
+      "Architects of Will — Artifact Creature — Human Wizard",
+      "Arcus Acolyte — Creature — Human Cleric Archer",
+      "Azorius Locket — Artifact",
+      "Blistering Dieflyn — Creature — Imp",
+      "Boros Locket — Artifact",
+      "Boros Reckoner — Creature — Minotaur Wizard",
+      "Brokers Initiate — Creature — Cat Citizen",
+      "Brutal Hordechief — Creature — Orc Warrior",
+      "Cabaretti Initiate — Creature — Raccoon Citizen"
+    ],
+    "remove_counters": [
+      "A-Spell Satchel — Artifact",
+      "Academy Elite — Creature — Human Wizard",
+      "Ancient Hydra — Creature — Hydra",
+      "Apocalypse Hydra — Creature — Hydra",
+      "Arcbound Reclaimer — Artifact Creature — Golem",
+      "Arwen, Mortal Queen — Legendary Creature — Elf Noble",
+      "Atmosphere Surgeon — Creature — Phyrexian Wizard",
+      "Autograph Book — Artifact",
+      "Axiom Engraver — Creature — Phyrexian Wizard",
+      "Bag of Stroopwafels — Artifact — Food",
+      "Baku Altar — Artifact",
+      "Balduvian Hydra — Creature — Hydra"
+    ],
+    "tap_untapped_you_control": [
+      "Aboshan, Cephalid Emperor — Legendary Creature — Octopus Noble",
+      "Adaptive Gemguard — Artifact Creature — Gnome",
+      "Altar Golem — Artifact Creature — Golem",
+      "Ancestor's Prophet — Creature — Human Cleric",
+      "Aphetto Grifter — Creature — Human Wizard",
+      "Arachnus Spinner — Creature — Spider",
+      "Aura of Dominion — Enchantment — Aura",
+      "Azami, Lady of Scrolls — Legendary Creature — Human Wizard",
+      "Baylen, the Haymaker — Legendary Creature — Rabbit Warrior",
+      "Benthicore — Creature — Elemental",
+      "Birchlore Rangers — Creature — Elf Druid Ranger",
+      "Black Oak of Odunos — Creature — Zombie Treefolk"
+    ],
+    "pay_life": [
+      "Adanto Vanguard — Creature — Vampire Soldier",
+      "Aether Storm — Enchantment",
+      "Aetherflux Reservoir — Artifact",
+      "Anavolver — Creature — Volver",
+      "Apple of Eden, Isu Relic — Legendary Artifact",
+      "Arco-Flagellant — Creature — Human",
+      "Arguel's Blood Fast // Temple of Aclazotz — Legendary Enchantment",
+      "Arid Mesa — Land",
+      "Avacyn and Griselbrand — Legendary Creature — Angel Demon",
+      "Beledros Witherbloom — Legendary Creature — Elder Dragon",
+      "Blightsoil Druid — Creature — Elf Druid",
+      "Blood Celebrant — Creature — Human Cleric"
+    ],
+    "energy_symbol_{E}": [
+      "Aether Hub — Land",
+      "Aether Theorist — Creature — Vedalken Rogue",
+      "Aetherflux Conduit — Artifact",
+      "Aethergeode Miner — Creature — Dwarf Scout",
+      "Aethersphere Harvester — Artifact — Vehicle",
+      "Aethersquall Ancient — Creature — Leviathan",
+      "Aethertide Whale — Creature — Whale",
+      "Aethertorch Renegade — Creature — Human Rogue",
+      "Aetherwind Basker — Creature — Lizard",
+      "Aetherworks Marvel — Legendary Artifact",
+      "Architect of the Untamed — Creature — Elf Artificer Druid",
+      "Automated Assembly Line — Artifact"
+    ],
+    "phyrexian_mana": [
+      "Aetherblade Agent // Gitaxian Mindstinger — Creature — Human Rogue",
+      "Ayara, Widow of the Realm // Ayara, Furnace Queen — Legendary Creature — Elf Noble",
+      "Birthing Pod — Artifact",
+      "Blightreaper Thallid // Blightsower Thallid — Creature — Fungus",
+      "Blinding Souleater — Artifact Creature — Phyrexian Cleric",
+      "Bonded Herdbeast // Plated Kilnbeast — Creature — Beast",
+      "Captive Weird // Compleated Conjurer — Creature — Weird",
+      "Drivnod, Carnage Dominus — Legendary Creature — Phyrexian Horror",
+      "Etali, Primal Conqueror // Etali, Primal Sickness — Legendary Creature — Elder Dinosaur",
+      "Gnottvold Hermit // Chrome Host Hulk — Creature — Troll",
+      "Harried Artisan // Phyrexian Skyflayer — Creature — Human Artificer",
+      "Heliod, the Radiant Dawn // Heliod, the Warped Eclipse — Legendary Enchantment Creature — God"
+    ],
+    "x_in_cost": [
+      "Aladdin's Lamp — Artifact",
+      "Alexi, Zephyr Mage — Legendary Creature — Human Spellshaper",
+      "Alquist Proft, Master Sleuth — Legendary Creature — Human Detective",
+      "Anthroplasm — Creature — Shapeshifter",
+      "Arashi, the Sky Asunder — Legendary Creature — Spirit",
+      "Arcanis, the Omnipotent Avatar — Vanguard",
+      "Atalya, Samite Master — Legendary Creature — Human Cleric",
+      "Ballista Squad — Creature — Human Rebel",
+      "Banshee — Creature — Spirit",
+      "Barad-dûr — Legendary Land",
+      "Bargaining Table — Artifact",
+      "Belbe's Armor — Artifact"
+    ],
+    "colorless_mana_symbol_{C}": [
+      "Birthing Hulk — Creature — Eldrazi Drone",
+      "Blinding Drone — Creature — Eldrazi Drone",
+      "Deepfathom Skulker — Creature — Eldrazi",
+      "Dimensional Infiltrator — Creature — Eldrazi",
+      "Dread Defiler — Creature — Eldrazi",
+      "Drowner of Truth // Drowned Jungle — Creature — Eldrazi",
+      "Eldrazi Displacer — Creature — Eldrazi",
+      "Endbringer — Creature — Eldrazi",
+      "Essence Depleter — Creature — Eldrazi Drone",
+      "Havoc Sower — Creature — Eldrazi Drone",
+      "Idol of False Gods — Kindred Artifact — Eldrazi",
+      "Immobilizer Eldrazi — Creature — Eldrazi Drone"
+    ],
+    "untap_symbol_{Q}": [
+      "Crackleburr — Creature — Elemental",
+      "Duergar Mine-Captain — Creature — Dwarf Soldier",
+      "Farmstead Gleaner — Artifact Creature — Scarecrow",
+      "Gilder Bairn — Creature — Ouphe",
+      "Hateflayer — Creature — Elemental",
+      "Knacksaw Clique — Creature — Faerie Rogue",
+      "Leech Bonder — Creature — Merfolk Soldier",
+      "Merrow Grimeblotter — Creature — Merfolk Wizard",
+      "Merrow Wavebreakers — Creature — Merfolk Soldier",
+      "Order of Whiteclay — Creature — Kithkin Cleric",
+      "Pale Wayfarer — Creature — Spirit Giant",
+      "Patrol Signaler — Creature — Kithkin Soldier"
+    ]
+  },
+  "restrictionCounts": {
+    "activate_only_as_sorcery": 654,
+    "activate_once_each_turn": 114,
+    "activate_only_during_your_turn": 44
+  },
+  "restrictionExamples": {
+    "activate_only_as_sorcery": [
+      "A-Bretagard Stronghold — Land",
+      "A-Dungeon Descent — Land",
+      "A-Llanowar Loamspeaker — Creature — Elf Druid",
+      "A-Skemfar Elderhall — Land",
+      "Abzan Monument — Artifact",
+      "Adagia, Windswept Bastion — Land — Planet",
+      "Adaptive Gemguard — Artifact Creature — Gnome",
+      "Adorned Crocodile — Creature — Crocodile",
+      "Aetherblade Agent // Gitaxian Mindstinger — Creature — Human Rogue",
+      "Aetheric Amplifier — Artifact",
+      "Aetherjacket — Artifact Creature — Thopter",
+      "Aethersquall Ancient — Creature — Leviathan"
+    ],
+    "activate_once_each_turn": [
+      "A-Radha's Firebrand — Creature — Human Warrior",
+      "A-Sepulcher Ghoul — Creature — Zombie",
+      "A-Sunbathing Rootwalla — Creature — Lizard",
+      "Abzan Devotee — Creature — Dog Cleric",
+      "Aggressive Mining — Enchantment",
+      "Akki Avalanchers — Creature — Goblin Warrior",
+      "Avizoa — Creature — Jellyfish",
+      "Azimaet Drake — Creature — Drake",
+      "Barbarian Bully — Creature — Human Barbarian",
+      "Barrels of Blasting Jelly — Artifact",
+      "Basking Rootwalla — Creature — Lizard",
+      "Beetleform Mage — Creature — Human Insect Wizard"
+    ],
+    "activate_only_during_your_turn": [
+      "A-Steadfast Unicorn — Creature — Unicorn",
+      "Bitter Work — Enchantment",
+      "Chained Brute — Creature — Devil",
+      "Cinderhaze Wretch — Creature — Elemental Shaman",
+      "Crown of Doom — Artifact",
+      "Dementia Sliver — Creature — Sliver",
+      "Disrupting Scepter — Artifact",
+      "Eladamri, Korvecdal — Legendary Creature — Elf Warrior",
+      "Essence Reliquary — Artifact",
+      "Feasting Troll King — Creature — Troll Noble",
+      "Fleshformer — Creature — Human Wizard",
+      "Foggy Swamp Vinebender — Creature — Human Plant Ally"
+    ]
+  },
+  "comboCounts": {
+    "cost_is_only_mana + mana_in_cost": 2868,
+    "tap_self_{T}": 2817,
+    "mana_in_cost + tap_self_{T}": 1473,
+    "mana_in_cost + sacrifice_self + tap_self_{T}": 422,
+    "mana_in_cost + sacrifice_self": 405,
+    "discard + mana_in_cost": 402,
+    "mana_in_cost + sacrifice_other": 298,
+    "sacrifice_self + tap_self_{T}": 237,
+    "sacrifice_other": 231,
+    "sacrifice_self": 223,
+    "exile_from_graveyard_as_cost + mana_in_cost": 198,
+    "tap_other_as_cost": 159,
+    "mana_in_cost + sacrifice_other + tap_self_{T}": 143,
+    "sacrifice_other + tap_self_{T}": 119,
+    "tap_other_as_cost + tap_untapped_you_control": 117,
+    "discard": 82,
+    "discard + mana_in_cost + tap_self_{T}": 80,
+    "hybrid_mana + mana_in_cost": 73,
+    "(uncategorized)": 73,
+    "mana_in_cost + remove_counters": 71,
+    "mana_in_cost + tap_self_{T} + x_in_cost": 68,
+    "mana_in_cost + return_permanent_you_control_as_cost": 62,
+    "remove_counters": 56,
+    "remove_counters + tap_self_{T}": 49,
+    "pay_life + tap_self_{T}": 46,
+    "mana_in_cost + x_in_cost": 46,
+    "pay_life": 45,
+    "mana_in_cost + snow_mana": 34,
+    "mana_in_cost + phyrexian_mana": 30,
+    "mana_in_cost + pay_life": 30,
+    "energy_symbol_{E} + mana_in_cost": 29,
+    "discard + tap_self_{T}": 28,
+    "energy_symbol_{E} + mana_in_cost + tap_self_{T}": 28,
+    "discard + mana_in_cost + sacrifice_self + tap_self_{T}": 26,
+    "mana_in_cost + remove_counters + tap_self_{T}": 26,
+    "mana_in_cost + reveal_as_cost": 23,
+    "exile_from_graveyard_as_cost": 21,
+    "exile_from_graveyard_as_cost + mana_in_cost + tap_self_{T}": 17,
+    "hybrid_mana + mana_in_cost + tap_self_{T}": 15,
+    "colorless_mana_symbol_{C} + mana_in_cost": 15,
+    "pay_life + sacrifice_self + tap_self_{T}": 14,
+    "discard + mana_in_cost + x_in_cost": 13,
+    "exile_from_graveyard_as_cost + tap_self_{T}": 12,
+    "hybrid_mana + mana_in_cost + sacrifice_self + tap_self_{T}": 11,
+    "mana_in_cost + pay_life + tap_self_{T}": 11,
+    "mana_in_cost + untap_symbol_{Q}": 11,
+    "mana_in_cost + tap_other_as_cost + tap_untapped_you_control": 10,
+    "discard + mana_in_cost + tap_self_{T} + x_in_cost": 8,
+    "mana_in_cost + sacrifice_self + tap_self_{T} + x_in_cost": 8,
+    "colorless_mana_symbol_{C} + mana_in_cost + tap_self_{T}": 6,
+    "discard + mana_in_cost + sacrifice_self": 6,
+    "hybrid_mana + mana_in_cost + untap_symbol_{Q}": 6,
+    "return_permanent_you_control_as_cost": 6,
+    "discard + hybrid_mana + mana_in_cost": 5,
+    "mana_in_cost + sacrifice_self + x_in_cost": 5,
+    "pay_life + sacrifice_other": 5,
+    "reveal_as_cost": 5,
+    "discard + sacrifice_self": 5,
+    "mana_in_cost + reveal_as_cost + sacrifice_self": 5,
+    "mana_in_cost + snow_mana + tap_self_{T}": 4,
+    "exile_from_graveyard_as_cost + hybrid_mana + mana_in_cost": 4,
+    "mana_in_cost + phyrexian_mana + tap_self_{T}": 3,
+    "hybrid_mana + mana_in_cost + remove_counters": 3,
+    "discard + sacrifice_self + tap_self_{T}": 3,
+    "hybrid_mana + mana_in_cost + x_in_cost": 3,
+    "exile_from_graveyard_as_cost + mana_in_cost + x_in_cost": 3,
+    "return_permanent_you_control_as_cost + tap_self_{T}": 3,
+    "exile_from_graveyard_as_cost + mana_in_cost + sacrifice_self": 3,
+    "mana_in_cost + sacrifice_other + tap_self_{T} + x_in_cost": 2,
+    "mana_in_cost + return_permanent_you_control_as_cost + x_in_cost": 2,
+    "exile_from_graveyard_as_cost + mana_in_cost + sacrifice_self + tap_self_{T}": 2,
+    "colorless_mana_symbol_{C} + mana_in_cost + sacrifice_self": 2,
+    "hybrid_mana + mana_in_cost + sacrifice_other": 2,
+    "energy_symbol_{E} + mana_in_cost + sacrifice_self": 2,
+    "mana_in_cost + reveal_as_cost + tap_self_{T}": 2,
+    "colorless_mana_symbol_{C} + mana_in_cost + sacrifice_self + tap_self_{T}": 2,
+    "mana_in_cost + phyrexian_mana + sacrifice_other": 2,
+    "exile_from_graveyard_as_cost + mana_in_cost + tap_self_{T} + x_in_cost": 2,
+    "discard + exile_from_graveyard_as_cost + mana_in_cost": 2,
+    "discard + sacrifice_other": 2
+  },
+  "comboExamples": {
+    "cost_is_only_mana + mana_in_cost": [
+      "\"Rumors of My Death . . .\" — Enchantment",
+      "+2 Mace — Artifact — Equipment",
+      "1996 World Champion — Summon Legend",
+      "A-Ancestral Katana — Artifact — Equipment",
+      "A-Bruenor Battlehammer — Legendary Creature — Dwarf Warrior",
+      "A-Druid Class — Enchantment — Class",
+      "A-Futurist Operative — Creature — Human Ninja",
+      "A-Geology Enthusiast — Creature — Human Artificer",
+      "A-Glamorous Outlaw — Creature — Vampire Rogue",
+      "A-Goggles of Night — Artifact — Equipment",
+      "A-Jackhammer — Artifact — Equipment",
+      "A-Kargan Intimidator — Creature — Human Warrior"
+    ],
+    "reveal_as_cost + sacrifice_self": [
+      "A Killer Among Us — Enchantment"
+    ],
+    "tap_self_{T}": [
+      "A Realm Reborn — Enchantment",
+      "A-Base Camp — Land",
+      "A-Bretagard Stronghold — Land",
+      "A-Canopy Tactician — Creature — Elf Warrior",
+      "A-Carnelian Orb of Dragonkind — Artifact",
+      "A-Dungeon Descent — Land",
+      "A-Find the Path — Enchantment — Aura",
+      "A-Geology Enthusiast — Creature — Human Artificer",
+      "A-Glittermonger — Creature — Elf Rogue",
+      "A-Hall of Tagsin — Land",
+      "A-Jade Orb of Dragonkind — Artifact",
+      "A-Lantern of Revealing — Artifact"
+    ],
+    "mana_in_cost + sacrifice_other + tap_self_{T}": [
+      "A-Bretagard Stronghold — Land",
+      "A-Navigation Orb — Artifact",
+      "A-Ominous Parcel — Artifact",
+      "A-Skemfar Elderhall — Land",
+      "Akki Scrapchomper — Creature — Phyrexian Goblin",
+      "Angel's Herald — Creature — Human Cleric",
+      "Arcane Spyglass — Artifact",
+      "Arek, False Goldwarden — Legendary Creature — Human Cleric",
+      "Aron, Benalia's Ruin — Legendary Creature — Phyrexian Human",
+      "Bag of Devouring — Artifact",
+      "Behemoth's Herald — Creature — Elf Shaman",
+      "Blood Aspirant — Creature — Satyr Berserker"
+    ],
+    "sacrifice_other": [
+      "A-Capenna Express — Artifact — Vehicle",
+      "A-Cauldron Familiar — Creature — Cat",
+      "A-Sepulcher Ghoul — Creature — Zombie",
+      "A-Stimulus Package — Enchantment",
+      "Aggressive Mining — Enchantment",
+      "Akki Avalanchers — Creature — Goblin Warrior",
+      "Akul the Unrepentant — Legendary Creature — Scorpion Dragon Rogue",
+      "Altar of Dementia — Artifact",
+      "Arcbound Ravager — Artifact Creature — Beast",
+      "Ashnod's Altar — Artifact",
+      "Asmoranomardicadaistinaculdacar — Legendary Creature — Human Wizard",
+      "Atog — Creature — Atog"
+    ],
+    "tap_other_as_cost": [
+      "A-Capenna Express — Artifact — Vehicle",
+      "Adagia, Windswept Bastion — Land — Planet",
+      "Adventurer's Airship — Artifact — Vehicle",
+      "Aethersphere Harvester — Artifact — Vehicle",
+      "Air Response Unit — Artifact — Vehicle",
+      "Alacrian Jaguar — Creature — Cat Mount",
+      "Apocalypse Runner — Artifact — Vehicle",
+      "Aradara Express — Artifact — Vehicle",
+      "Atmospheric Greenhouse — Artifact — Spacecraft",
+      "Autarch Mammoth — Creature — Elephant Mount",
+      "Ballista Charger — Artifact — Vehicle",
+      "Bessie, the Doctor's Roadster — Legendary Artifact — Vehicle"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost": [
+      "A-Cobbled Lancer — Creature — Zombie Horse",
+      "Adorned Crocodile — Creature — Crocodile",
+      "Adorned Pouncer — Creature — Cat",
+      "Agent of Kotis — Creature — Human Rogue",
+      "Alchemist's Assistant — Creature — Monkey",
+      "Alms — Enchantment",
+      "Amphin Mutineer — Creature — Salamander Pirate",
+      "Angel of Grace — Creature — Angel",
+      "Angel of Indemnity — Creature — Angel Warrior",
+      "Angel of Sanctions — Creature — Angel",
+      "Anointer Priest — Creature — Human Cleric",
+      "Ashnod, Flesh Mechanist — Legendary Creature — Human Artificer"
+    ],
+    "mana_in_cost + return_permanent_you_control_as_cost": [
+      "A-Dokuchi Silencer — Creature — Human Ninja",
+      "A-Moon-Circuit Hacker — Enchantment Creature — Human Ninja",
+      "A-Nashi, Moon Sage's Scion — Legendary Creature — Rat Ninja",
+      "A-Nezumi Prowler — Artifact Creature — Rat Ninja",
+      "A-Prosperous Thief — Creature — Human Ninja",
+      "A-Thousand-Faced Shadow — Creature — Human Ninja",
+      "Azra Smokeshaper — Creature — Azra Ninja",
+      "Blade-Blizzard Kitsune — Creature — Fox Ninja",
+      "Bronzehide Lion — Creature — Cat",
+      "Coiling Stalker — Creature — Snake Ninja",
+      "Covert Technician — Artifact Creature — Human Ninja",
+      "Dokuchi Shadow-Walker — Creature — Ogre Ninja"
+    ],
+    "mana_in_cost + tap_self_{T}": [
+      "A-Dragonborn Looter — Creature — Dragon Rogue",
+      "A-Dueling Coach — Creature — Human Monk",
+      "A-Dungeon Descent — Land",
+      "A-Hall of Tagsin — Land",
+      "A-Lantern of Revealing — Artifact",
+      "A-Pyre-Sledge Arsonist — Creature — Lizard Shaman",
+      "A-Spell Satchel — Artifact",
+      "A-The One Ring — Legendary Artifact",
+      "A-Urza, Powerstone Prodigy — Legendary Creature — Human Artificer",
+      "Abandoned Air Temple — Land",
+      "Abbey Matron — Creature — Human Cleric",
+      "Abstergo Entertainment — Legendary Land"
+    ],
+    "mana_in_cost + sacrifice_other": [
+      "A-Earthquake Dragon — Creature — Elemental Dragon",
+      "A-Haywire Mite — Artifact Creature — Insect",
+      "A-Skyclave Shadowcat — Creature — Cat Horror",
+      "A-Uurg, Spawn of Turg — Legendary Creature — Frog Beast",
+      "Adric, Mathematical Genius — Legendary Creature — Human Artificer",
+      "Aerial Toastmaster — Artifact Creature — Cyborg Rigger",
+      "Agency Coroner — Creature — Ogre Cleric",
+      "Agent of Shauku — Creature — Human Mercenary",
+      "Ahn-Crop Invader — Creature — Zombie Minotaur Warrior",
+      "Ahriman — Creature — Eye Horror",
+      "Airdrop Condor — Creature — Bird",
+      "Ambush Commander — Creature — Elf"
+    ],
+    "discard + mana_in_cost + tap_self_{T}": [
+      "A-Mishra, Excavation Prodigy — Legendary Creature — Human Artificer",
+      "Arc Mage — Creature — Human Spellshaper",
+      "Avenger en-Dal — Creature — Human Spellshaper",
+      "Avishkar Raceway — Land",
+      "Balloon Peddler — Creature — Human Spellshaper",
+      "Blaster Mage — Creature — Human Spellshaper",
+      "Bog Witch — Creature — Human Spellshaper",
+      "Bola Warrior — Creature — Human Spellshaper Warrior",
+      "Bramble Familiar // Fetch Quest — Creature — Elemental Raccoon",
+      "Chandra's Regulator — Legendary Artifact",
+      "Charm Peddler — Creature — Human Spellshaper",
+      "Cho-Arrim Alchemist — Creature — Human Spellshaper"
+    ],
+    "mana_in_cost + snow_mana": [
+      "A-Narfi, Betrayer King — Legendary Snow Creature — Zombie Wizard",
+      "Adarkar Windform — Snow Creature — Illusion",
+      "Ascendant Spirit — Snow Creature — Spirit",
+      "Boreal Centaur — Snow Creature — Centaur Warrior",
+      "Boreal Griffin — Snow Creature — Griffin",
+      "Chillerpillar — Snow Creature — Insect",
+      "Chilling Shade — Snow Creature — Shade",
+      "Cover of Winter — Snow Enchantment",
+      "Diamond Faerie — Snow Creature — Faerie",
+      "Diamond Faerie Avatar — Vanguard",
+      "Faceless Haven — Snow Land",
+      "Frost Raptor — Snow Creature — Bird"
+    ],
+    "sacrifice_self + tap_self_{T}": [
+      "A-Prosperous Thief — Creature — Human Ninja",
+      "A-Stimulus Package — Enchantment",
+      "Abandoned Outpost — Land",
+      "Alchemist's Talent — Enchantment — Class",
+      "Amulet of Quoz — Artifact",
+      "Ancient Spring — Land",
+      "Archaeological Dig — Land",
+      "Armor Thrull — Creature — Thrull",
+      "Ashnod's Coupon — Artifact",
+      "Ashnod's Transmogrant — Artifact",
+      "Axgard Artisan — Creature — Dwarf Artificer",
+      "Bad River — Land"
+    ],
+    "hybrid_mana + mana_in_cost": [
+      "A-Riveteers Initiate — Creature — Lizard Citizen",
+      "Aisha of Sparks and Smoke — Legendary Creature — Human Warrior",
+      "Blistering Dieflyn — Creature — Imp",
+      "Boros Reckoner — Creature — Minotaur Wizard",
+      "Brokers Initiate — Creature — Cat Citizen",
+      "Brutal Hordechief — Creature — Orc Warrior",
+      "Cabaretti Initiate — Creature — Raccoon Citizen",
+      "Cindering Cutthroat — Creature — Lizard Assassin",
+      "Crag Puca — Creature — Shapeshifter",
+      "Creakwood Ghoul — Creature — Plant Zombie",
+      "Daghatar the Adamant — Legendary Creature — Human Warrior",
+      "Duergar Cave-Guard — Creature — Dwarf Warrior"
+    ],
+    "hybrid_mana + mana_in_cost + return_permanent_you_control_as_cost": [
+      "A-Silver-Fur Master — Creature — Rat Ninja"
+    ],
+    "discard + mana_in_cost": [
+      "A-Soul of Windgrace — Legendary Creature — Cat Avatar",
+      "Advanced Stitchwing — Creature — Zombie Horror",
+      "Agonasaur Rex — Creature — Dinosaur",
+      "Alabaster Host Intercessor — Creature — Phyrexian Samurai",
+      "Altanak, the Thrice-Called — Legendary Creature — Insect Beast",
+      "Amok — Enchantment",
+      "Amugaba — Creature — Illusion",
+      "Angel of the God-Pharaoh — Creature — Angel",
+      "Angel of the Ruins — Artifact Creature — Angel",
+      "Archfiend of Ifnir — Creature — Demon",
+      "Artificer's Intuition — Enchantment",
+      "Ash Barrens — Land"
+    ],
+    "remove_counters + tap_self_{T}": [
+      "A-Spell Satchel — Artifact",
+      "Benevolent Hydra — Creature — Hydra",
+      "Bolrac-Clan Crusher — Creature — Ogre Warrior",
+      "Braided Net // Braided Quipu — Artifact",
+      "Brigone, Soldier of Meletis — Legendary Creature — Human Soldier",
+      "Channeler Initiate — Creature — Human Druid",
+      "Component Pouch — Artifact",
+      "Dragon's Hoard — Artifact",
+      "Fain, the Broker — Legendary Creature — Human Warlock",
+      "Gemstone Mine — Land",
+      "Glistener Seer — Creature — Phyrexian Advisor",
+      "Hickory Woodlot — Land"
+    ],
+    "sacrifice_other + tap_self_{T}": [
+      "A-Sprouting Goblin — Creature — Goblin Druid",
+      "Acolyte of Aclazotz — Creature — Vampire Cleric",
+      "Animal Boneyard — Enchantment — Aura",
+      "Army Ants — Creature — Insect",
+      "Audacious Reshapers — Creature — Human Artificer",
+      "Ayara, First of Locthwain — Legendary Creature — Elf Noble",
+      "Ayara, Widow of the Realm // Ayara, Furnace Queen — Legendary Creature — Elf Noble",
+      "Baba Lysaga, Night Witch — Legendary Creature — Human Warlock",
+      "Barrage Ogre — Creature — Ogre Warrior",
+      "Bjorna, Nightfall Alchemist — Legendary Creature — Human",
+      "Blasting Station — Artifact",
+      "Blazing Torch — Artifact — Equipment"
+    ],
+    "exile_from_graveyard_as_cost + tap_self_{T}": [
+      "A-Tome Shredder — Creature — Wolf",
+      "Araumi of the Dead Tide — Legendary Creature — Merfolk Wizard",
+      "Ellie and Alan, Paleontologists — Legendary Creature — Human Scientist",
+      "Everbark Shaman — Creature — Treefolk Shaman",
+      "Immortal Coil — Artifact",
+      "Molt Tender — Creature — Insect Druid",
+      "Organ Grinder — Creature — Zombie",
+      "Painbringer — Creature — Human Minion",
+      "Scarblade Elite — Creature — Elf Assassin",
+      "Slagstone Refinery — Artifact",
+      "Tome Shredder — Creature — Wolf",
+      "Zombie Assassin — Creature — Zombie Assassin"
+    ],
+    "discard + tap_self_{T}": [
+      "A-Urza, Powerstone Prodigy — Legendary Creature — Human Artificer",
+      "Anje Falkenrath — Legendary Creature — Vampire",
+      "Anje Falkenrath // Anje Falkenrath — Legendary Creature — Vampire",
+      "Chamber of Manipulation — Enchantment — Aura",
+      "Fodder Tosser — Artifact",
+      "Hollowhead Sliver — Creature — Sliver",
+      "Interrogation Robot — Artifact Creature — Construct",
+      "Key to the City — Artifact",
+      "Krovikan Sorcerer — Creature — Human Wizard Sorcerer",
+      "Lys Alana Scarblade — Creature — Elf Assassin",
+      "Mad Prophet — Creature — Human Shaman",
+      "Mage il-Vec — Creature — Human Wizard"
+    ],
+    "tap_other_as_cost + tap_untapped_you_control": [
+      "Aboshan, Cephalid Emperor — Legendary Creature — Octopus Noble",
+      "Adaptive Gemguard — Artifact Creature — Gnome",
+      "Altar Golem — Artifact Creature — Golem",
+      "Ancestor's Prophet — Creature — Human Cleric",
+      "Aphetto Grifter — Creature — Human Wizard",
+      "Arachnus Spinner — Creature — Spider",
+      "Azami, Lady of Scrolls — Legendary Creature — Human Wizard",
+      "Baylen, the Haymaker — Legendary Creature — Rabbit Warrior",
+      "Benthicore — Creature — Elemental",
+      "Birchlore Rangers — Creature — Elf Druid Ranger",
+      "Boiling Rock Rioter — Creature — Human Rogue Ally",
+      "Bramblesnap — Creature — Elemental"
+    ],
+    "mana_in_cost + sacrifice_self + tap_self_{T}": [
+      "Abzan Banner — Artifact",
+      "Abzan Monument — Artifact",
+      "Aeolipile — Artifact",
+      "Aetherjacket — Artifact Creature — Thopter",
+      "Airship Engine Room — Land",
+      "Alchemist's Vial — Artifact",
+      "All-Fates Scroll — Artifact",
+      "All-You-Can-Eat Buffet — Enchantment",
+      "Ally Encampment — Land",
+      "Apocalypse Chime — Artifact",
+      "Apothecary White — Legendary Creature — Human Cleric",
+      "Apprentice Necromancer — Creature — Zombie Wizard"
+    ],
+    "mana_in_cost + remove_counters": [
+      "Academy Elite — Creature — Human Wizard",
+      "Ancient Hydra — Creature — Hydra",
+      "Apocalypse Hydra — Creature — Hydra",
+      "Arwen, Mortal Queen — Legendary Creature — Elf Noble",
+      "Barkhide Troll — Creature — Troll",
+      "Bladed Ambassador — Creature — Phyrexian Soldier",
+      "Brambleback Brute — Creature — Giant Warrior",
+      "Burdened Stoneback — Creature — Giant Warrior",
+      "By Gnome Means — Enchantment",
+      "Carnifex Demon — Creature — Phyrexian Demon",
+      "Conductor of Cacophony — Creature — Demon",
+      "Custodi Soulbinders — Creature — Human Cleric"
+    ],
+    "mana_in_cost + sacrifice_self": [
+      "Acidic Sliver — Creature — Sliver",
+      "Aether Spellbomb — Artifact",
+      "Aftermath Analyst — Creature — Elf Detective",
+      "Agent's Toolkit — Artifact — Clue",
+      "Air Nomad Legacy — Enchantment",
+      "Alquist Proft, Master Sleuth — Legendary Creature — Human Detective",
+      "Alseid of Life's Bounty — Enchantment Creature — Nymph",
+      "Angelic Sleuth — Creature — Angel Advisor",
+      "Antique Collector — Creature — Human Rogue",
+      "Armed with Proof — Enchantment",
+      "Auriok Replica — Artifact Creature — Cleric",
+      "Aurora Eidolon — Creature — Spirit"
+    ],
+    "pay_life": [
+      "Adanto Vanguard — Creature — Vampire Soldier",
+      "Aether Storm — Enchantment",
+      "Aetherflux Reservoir — Artifact",
+      "Arco-Flagellant — Creature — Human",
+      "Avacyn and Griselbrand — Legendary Creature — Angel Demon",
+      "Beledros Witherbloom — Legendary Creature — Elder Dragon",
+      "Carrion Howler — Creature — Zombie Wolf",
+      "Cavern Harpy — Creature — Harpy Beast",
+      "Champion of the Weird — Creature — Goblin Berserker",
+      "Cleaving Reaper — Creature — Angel Berserker",
+      "Crovax, Ascendant Hero — Legendary Creature — Human Noble",
+      "Cutthroat Contender — Creature — Vampire Warrior"
+    ],
+    "(uncategorized)": [
+      "Adaptive Training Post — Artifact",
+      "Aetherflux Car — Artifact — Vehicle",
+      "Arcane Spyglass — Artifact",
+      "Attunement — Enchantment",
+      "Broken Fall — Enchantment",
+      "Cadaverous Bloom — Enchantment",
+      "Charforger — Creature — Phyrexian Beast",
+      "Chicago Loop — Legendary Snow Land",
+      "Chimeric Egg — Artifact",
+      "Cycle of Life — Enchantment",
+      "Deathspore Thallid — Creature — Zombie Fungus",
+      "Drake Hatcher — Creature — Human Wizard"
+    ],
+    "sacrifice_self": [
+      "Aerie Ouphes — Creature — Ouphe",
+      "Ainok Strike Leader — Creature — Dog Warrior",
+      "Ajani's Aid — Enchantment",
+      "Alchemist's Apprentice — Creature — Human Wizard",
+      "Amateur Auteur — Creature — Human",
+      "Angelic Shield — Enchantment",
+      "Assemble the Entmoot — Enchantment",
+      "Atzocan Seer — Creature — Human Druid",
+      "Augur il-Vec — Creature — Human Cleric",
+      "Augur of Skulls — Creature — Skeleton Wizard",
+      "Aura of Silence — Enchantment",
+      "Aven Augur — Creature — Bird Wizard"
+    ],
+    "discard": [
+      "Aeromoeba — Creature — Elemental Beast",
+      "Anurid Brushhopper — Creature — Frog Beast",
+      "Aquamoeba — Creature — Elemental Beast",
+      "Ayula's Influence — Enchantment",
+      "Barbarian Bully — Creature — Human Barbarian",
+      "Baru, Fist of Krosa — Legendary Creature — Human Druid",
+      "Borborygmos Enraged — Legendary Creature — Cyclops",
+      "Cabal Initiate — Creature — Human Warlock",
+      "Cephalid Inkshrouder — Creature — Octopus",
+      "Chainer, Nightmare Adept — Legendary Creature — Human Minion",
+      "Chromium, the Mutable — Legendary Creature — Elder Dragon",
+      "Dream Trawler — Creature — Sphinx"
+    ],
+    "energy_symbol_{E} + mana_in_cost + tap_self_{T}": [
+      "Aether Hub — Land",
+      "Aether Theorist — Creature — Vedalken Rogue",
+      "Aetherflux Conduit — Artifact",
+      "Aethertorch Renegade — Creature — Human Rogue",
+      "Aetherworks Marvel — Legendary Artifact",
+      "Bespoke Battlewagon — Artifact — Vehicle",
+      "Consulate Turret — Artifact",
+      "Conversion Apparatus — Artifact",
+      "Deadlock Trap — Artifact",
+      "Dr. Madison Li — Legendary Creature — Human Scientist",
+      "Dynavolt Tower — Artifact",
+      "Janjeet Sentry — Creature — Vedalken Soldier"
+    ],
+    "mana_in_cost + phyrexian_mana": [
+      "Aetherblade Agent // Gitaxian Mindstinger — Creature — Human Rogue",
+      "Ayara, Widow of the Realm // Ayara, Furnace Queen — Legendary Creature — Elf Noble",
+      "Blightreaper Thallid // Blightsower Thallid — Creature — Fungus",
+      "Bonded Herdbeast // Plated Kilnbeast — Creature — Beast",
+      "Captive Weird // Compleated Conjurer — Creature — Weird",
+      "Etali, Primal Conqueror // Etali, Primal Sickness — Legendary Creature — Elder Dinosaur",
+      "Gnottvold Hermit // Chrome Host Hulk — Creature — Troll",
+      "Harried Artisan // Phyrexian Skyflayer — Creature — Human Artificer",
+      "Heliod, the Radiant Dawn // Heliod, the Warped Eclipse — Legendary Enchantment Creature — God",
+      "Herbology Instructor // Malady Invoker — Creature — Treefolk Druid",
+      "Immolating Souleater — Artifact Creature — Phyrexian Dog",
+      "Insatiable Souleater — Artifact Creature — Phyrexian Beast"
+    ],
+    "energy_symbol_{E} + mana_in_cost": [
+      "Aethergeode Miner — Creature — Dwarf Scout",
+      "Aethersphere Harvester — Artifact — Vehicle",
+      "Aethersquall Ancient — Creature — Leviathan",
+      "Aethertide Whale — Creature — Whale",
+      "Aetherwind Basker — Creature — Lizard",
+      "Architect of the Untamed — Creature — Elf Artificer Druid",
+      "Automated Assembly Line — Artifact",
+      "Bespoke Battlewagon — Artifact — Vehicle",
+      "Bristling Hydra — Creature — Hydra",
+      "Consulate Surveillance — Enchantment",
+      "Demon of Dark Schemes — Creature — Demon",
+      "Electrostatic Pummeler — Artifact Creature — Construct"
+    ],
+    "mana_in_cost + tap_self_{T} + x_in_cost": [
+      "Aladdin's Lamp — Artifact",
+      "Anthroplasm — Creature — Shapeshifter",
+      "Arashi, the Sky Asunder — Legendary Creature — Spirit",
+      "Atalya, Samite Master — Legendary Creature — Human Cleric",
+      "Ballista Squad — Creature — Human Rebel",
+      "Banshee — Creature — Spirit",
+      "Barad-dûr — Legendary Land",
+      "Bargaining Table — Artifact",
+      "Belbe's Armor — Artifact",
+      "Blast Zone — Land",
+      "Bruce Banner // The Incredible Hulk — Legendary Creature — Human Scientist Hero",
+      "Cabal Interrogator — Creature — Zombie Wizard"
+    ],
+    "discard + mana_in_cost + tap_self_{T} + x_in_cost": [
+      "Alexi, Zephyr Mage — Legendary Creature — Human Spellshaper",
+      "Cackling Witch — Creature — Human Spellshaper",
+      "Deepwood Elder — Creature — Dryad Spellshaper",
+      "Greel, Mind Raker — Legendary Creature — Horror Spellshaper",
+      "Hammer Mage — Creature — Human Spellshaper",
+      "Latulla, Keldon Overseer — Legendary Creature — Human Spellshaper",
+      "Pool of Vigorous Growth — Artifact",
+      "Vivien's Arkbow — Legendary Artifact"
+    ],
+    "mana_in_cost + sacrifice_other + tap_self_{T} + x_in_cost": [
+      "Alquist Proft, Master Sleuth — Legendary Creature — Human Detective",
+      "Lazotep Quarry — Land — Desert"
+    ],
+    "mana_in_cost + pay_life": [
+      "Anavolver — Creature — Volver",
+      "Arguel's Blood Fast // Temple of Aclazotz — Legendary Enchantment",
+      "Blood Celebrant — Creature — Human Cleric",
+      "Bloodtracker — Creature — Vampire Wizard",
+      "Book of Rass — Artifact",
+      "Chainer, Dementia Master — Legendary Creature — Human Minion",
+      "Degavolver — Creature — Volver",
+      "Erebos, God of the Dead — Legendary Enchantment Creature — God",
+      "Foul Familiar — Creature — Spirit",
+      "Greed — Enchantment",
+      "Grimclaw Bats — Creature — Bat",
+      "Lunar Convocation — Enchantment"
+    ],
+    "discard + mana_in_cost + sacrifice_self + tap_self_{T}": [
+      "Anje, Maid of Dishonor — Legendary Creature — Vampire",
+      "Arterial Alchemy — Enchantment",
+      "Bartered Cow — Creature — Ox",
+      "Belligerent Guest — Creature — Vampire",
+      "Blood Fountain — Artifact",
+      "Blood Petal Celebrant — Creature — Vampire",
+      "Blood Servitor — Artifact Creature — Construct",
+      "Bloodcrazed Socialite — Creature — Vampire",
+      "Bloodspatter Vampire — Creature — Vampire",
+      "Bloodtithe Harvester — Creature — Vampire",
+      "Bloodvial Purveyor — Creature — Vampire",
+      "Ceremonial Knife — Artifact — Equipment"
+    ],
+    "pay_life + sacrifice_other + tap_self_{T}": [
+      "Apple of Eden, Isu Relic — Legendary Artifact"
+    ],
+    "discard + mana_in_cost + x_in_cost": [
+      "Arashi, the Sky Asunder — Legendary Creature — Spirit",
+      "Ghost-Lit Drifter — Creature — Spirit",
+      "Jiwari, the Earth Aflame — Legendary Creature — Spirit",
+      "Knollspine Invocation — Enchantment",
+      "M'Odo, the Gnarled Oracle — Legendary Creature — Zombie Elf Wizard",
+      "Momir Vig, Simic Visionary Avatar — Vanguard",
+      "Rampaging War Mammoth — Creature — Elephant",
+      "Roaring Earth — Enchantment",
+      "Shark Typhoon — Enchantment",
+      "Shigeki, Jukai Visionary — Legendary Enchantment Creature — Snake Druid",
+      "Valor's Flagship — Legendary Artifact — Vehicle",
+      "Webstrike Elite — Creature — Insect Archer"
+    ],
+    "mana_in_cost + return_permanent_you_control_as_cost + x_in_cost": [
+      "Arcanis, the Omnipotent Avatar — Vanguard",
+      "Tameshi, Reality Architect — Legendary Creature — Moonfolk Wizard"
+    ],
+    "remove_counters": [
+      "Arcbound Reclaimer — Artifact Creature — Golem",
+      "Atmosphere Surgeon — Creature — Phyrexian Wizard",
+      "Balduvian Hydra — Creature — Hydra",
+      "Baton of Courage — Artifact",
+      "Cryptic Trilobite — Creature — Trilobite",
+      "Crystalline Crawler — Artifact Creature — Construct",
+      "Deathbringer Thoctar — Creature — Zombie Beast",
+      "Defender en-Vec — Creature — Human Cleric",
+      "Druids' Repository — Enchantment",
+      "Furnace Strider — Creature — Phyrexian Beast",
+      "Fylgja — Enchantment — Aura",
+      "Gemstone Array — Artifact"
+    ],
+    "discard + hybrid_mana + mana_in_cost": [
+      "Architects of Will — Artifact Creature — Human Wizard",
+      "Deadshot Minotaur — Creature — Minotaur",
+      "Glassdust Hulk — Artifact Creature — Golem",
+      "Monstrous Carabid — Creature — Insect",
+      "Sigil of the Nayan Gods — Enchantment — Aura"
+    ],
+    "hybrid_mana + mana_in_cost + tap_self_{T}": [
+      "Arcus Acolyte — Creature — Human Cleric Archer",
+      "Cascade Bluffs — Land",
+      "Crackleburr — Creature — Elemental",
+      "Fetid Heath — Land",
+      "Fire-Lit Thicket — Land",
+      "Flooded Grove — Land",
+      "Graven Cairns — Land",
+      "Mystic Gate — Land",
+      "Rhys the Redeemed — Legendary Creature — Elf Warrior",
+      "Rugged Prairie — Land",
+      "Sunken Ruins — Land",
+      "The Big Idea — Legendary Creature — Brainiac Villain"
+    ],
+    "pay_life + sacrifice_self + tap_self_{T}": [
+      "Arid Mesa — Land",
+      "Bloodstained Mire — Land",
+      "Flooded Strand — Land",
+      "Marsh Flats — Land",
+      "Misty Rainforest — Land",
+      "Polluted Delta — Land",
+      "Priest of Fell Rites — Creature — Human Warlock",
+      "Prismatic Vista — Land",
+      "Scalding Tarn — Land",
+      "Sinister Monolith — Artifact",
+      "Verdant Catacombs — Land",
+      "Windswept Heath — Land"
+    ],
+    "mana_in_cost + tap_other_as_cost + tap_untapped_you_control": [
+      "Aura of Dominion — Enchantment — Aura",
+      "Black Oak of Odunos — Creature — Zombie Treefolk",
+      "Dune Diviner — Creature — Snake Cleric",
+      "Otharri, Suns' Glory — Legendary Creature — Phoenix",
+      "Purple Pentapus — Creature — Octopus Starfish",
+      "Sanctuary Lockdown — Enchantment",
+      "Sigil Tracer — Creature — Merfolk Wizard",
+      "Symbiotic Deployment — Enchantment",
+      "Templar Knight — Creature — Human Knight",
+      "Volrath's Gardens — Enchantment"
+    ],
+    "mana_in_cost + remove_counters + tap_self_{T}": [
+      "Autograph Book — Artifact",
+      "Bag of Stroopwafels — Artifact — Food",
+      "Baku Altar — Artifact",
+      "Briber's Purse — Artifact",
+      "Conversion Chamber — Artifact",
+      "Incubation Sac — Artifact",
+      "Investigator's Journal — Artifact — Clue",
+      "Otherworldly Escort — Creature — Human Detective",
+      "Peter Parker's Camera — Artifact",
+      "Predation Steward — Creature — Phyrexian Elf Warrior",
+      "Reckoner Bankbuster — Artifact — Vehicle",
+      "Reckoner Bankbuster // Reckoner Bankbuster — Artifact — Vehicle"
+    ],
+    "discard + remove_counters + tap_self_{T}": [
+      "Axiom Engraver — Creature — Phyrexian Wizard"
+    ],
+    "hybrid_mana + mana_in_cost + sacrifice_self + tap_self_{T}": [
+      "Azorius Locket — Artifact",
+      "Boros Locket — Artifact",
+      "Dimir Locket — Artifact",
+      "Elvish Hexhunter — Creature — Elf Shaman",
+      "Golgari Locket — Artifact",
+      "Gruul Locket — Artifact",
+      "Izzet Locket — Artifact",
+      "Orzhov Locket — Artifact",
+      "Rakdos Locket — Artifact",
+      "Selesnya Locket — Artifact",
+      "Simic Locket — Artifact"
+    ],
+    "exile_from_graveyard_as_cost": [
+      "Back from the Brink — Enchantment",
+      "Baron Helmut Zemo — Legendary Creature — Human Noble Villain",
+      "Chitinous Crawler — Creature — Insect Horror",
+      "Earthrumbler — Artifact — Vehicle",
+      "Kethis, the Hidden Hand — Legendary Creature — Elf Advisor",
+      "Naktamun — Plane — Amonkhet",
+      "Necratog — Creature — Atog",
+      "Necropolis — Artifact Creature — Wall",
+      "Nettling Host — Creature — Phyrexian Horror",
+      "Psychatog — Creature — Atog",
+      "Psychic Frog — Creature — Frog",
+      "Salvage Titan — Artifact Creature — Golem"
+    ],
+    "mana_in_cost + reveal_as_cost": [
+      "Bat- — Creature — Bat",
+      "Half-Kitten, Half- — Creature — Cat",
+      "Half-Orc, Half- — Creature — Orc Warrior",
+      "Half-Shark, Half- — Creature — Shark",
+      "Half-Squirrel, Half- — Creature — Squirrel",
+      "Heir to Dragonfire — Creature — Human Warlock",
+      "Humming- — Creature — Bird",
+      "Infernal Spawn of Evil — Creature — Beast",
+      "Karlov's Crossbow — Artifact — Equipment",
+      "Monkey- — Creature — Monkey",
+      "Multi-Headed — Creature — Hydra",
+      "Ninja — Creature — Ninja"
+    ],
+    "colorless_mana_symbol_{C} + mana_in_cost": [
+      "Birthing Hulk — Creature — Eldrazi Drone",
+      "Deepfathom Skulker — Creature — Eldrazi",
+      "Dimensional Infiltrator — Creature — Eldrazi",
+      "Eldrazi Displacer — Creature — Eldrazi",
+      "Essence Depleter — Creature — Eldrazi Drone",
+      "Havoc Sower — Creature — Eldrazi Drone",
+      "Immobilizer Eldrazi — Creature — Eldrazi Drone",
+      "Kozilek's Pathfinder — Creature — Eldrazi",
+      "Kozilek's Shrieker — Creature — Eldrazi Drone",
+      "Maw of Kozilek — Creature — Eldrazi Drone",
+      "Mindmelter — Creature — Eldrazi Drone",
+      "Prophet of Distortion — Creature — Eldrazi Drone"
+    ],
+    "mana_in_cost + phyrexian_mana + sacrifice_other + tap_self_{T}": [
+      "Birthing Pod — Artifact"
+    ],
+    "pay_life + tap_self_{T}": [
+      "Blightsoil Druid — Creature — Elf Druid",
+      "Bloodsprout Talisman — Artifact",
+      "Bonecache Overseer — Creature — Squirrel Warlock",
+      "Boseiju, Who Shelters All — Legendary Land",
+      "Corrupted Crossroads — Land",
+      "Eumidian Hatchery — Land",
+      "Fiery Islet — Land",
+      "Forgotten Monument — Land — Cave",
+      "Gnarlroot Trapper — Creature — Elf Druid",
+      "Hall of the Bandit Lord — Legendary Land",
+      "Hashep Oasis — Land — Desert",
+      "Haunted Screen — Artifact"
+    ],
+    "colorless_mana_symbol_{C} + mana_in_cost + tap_self_{T}": [
+      "Blinding Drone — Creature — Eldrazi Drone",
+      "Endbringer — Creature — Eldrazi",
+      "Idol of False Gods — Kindred Artifact — Eldrazi",
+      "Sea Gate Wreckage — Land",
+      "Snapping Voidcraw — Creature — Eldrazi Turtle"
+    ],
+    "mana_in_cost + phyrexian_mana + tap_self_{T}": [
+      "Blinding Souleater — Artifact Creature — Phyrexian Cleric",
+      "Skrelv, Defector Mite — Legendary Artifact Creature — Phyrexian Mite",
+      "Synthesis Pod — Artifact"
+    ],
+    "discard + pay_life + sacrifice_other + tap_self_{T}": [
+      "Bloodsoaked Altar — Artifact"
+    ],
+    "discard + mana_in_cost + sacrifice_self": [
+      "Bomat Courier — Artifact Creature — Construct",
+      "Carnage Interpreter — Creature — Devil Detective",
+      "Connecting the Dots — Enchantment",
+      "Hostile Investigator — Creature — Ogre Rogue Detective",
+      "Kyren Archive — Artifact",
+      "Reverberating Summons — Enchantment"
+    ],
+    "mana_in_cost + x_in_cost": [
+      "Boommobile — Artifact — Vehicle",
+      "Bronzebeak Foragers — Creature — Dinosaur",
+      "Chimeric Coils — Artifact",
+      "Chimeric Staff — Artifact",
+      "Chromatic Armor — Enchantment — Aura",
+      "Crypt Rats — Creature — Rat",
+      "Death Kiss — Creature — Beholder",
+      "Deepfire Elemental — Creature — Elemental",
+      "Defenders of Humanity — Enchantment",
+      "Demonspine Whip — Artifact — Equipment",
+      "Domesticated Hydra — Creature — Hydra",
+      "Drana, Kalastria Bloodchief — Legendary Creature — Vampire Shaman"
+    ],
+    "mana_in_cost + sacrifice_other + x_in_cost": [
+      "Bosh, Iron Golem Avatar — Vanguard"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + tap_self_{T}": [
+      "Cabal Inquisitor — Creature — Human Minion",
+      "Cabal Surgeon — Creature — Human Minion",
+      "Dollhouse of Horrors — Artifact",
+      "Dread Rider — Creature — Spirit Knight",
+      "Great Arashin City — Land",
+      "Grim Lavamancer — Creature — Human Wizard",
+      "Havengul Runebinder — Creature — Human Wizard",
+      "Kessig Wolfrider — Creature — Human Knight",
+      "Littjara Glade-Warden — Creature — Shapeshifter",
+      "Mines of Moria — Legendary Land",
+      "Moorland Haunt — Land",
+      "Rank Officer — Creature — Zombie Soldier"
+    ],
+    "energy_symbol_{E} + mana_in_cost + sacrifice_other": [
+      "Chthonian Nightmare — Enchantment"
+    ],
+    "mana_in_cost + sacrifice_self + tap_self_{T} + x_in_cost": [
+      "Cinder Elemental — Creature — Elemental",
+      "Goblin Dynamo — Creature — Goblin Mutant",
+      "Mask of the Jadecrafter — Artifact",
+      "Orcish Settlers — Creature — Orc",
+      "Rod of Absorption — Artifact",
+      "Runed Arch — Artifact",
+      "Treasure Vault — Artifact Land",
+      "Wizard's Rockets — Artifact"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + sacrifice_self + tap_self_{T}": [
+      "Coin of Fate — Artifact",
+      "Dauntless Scrapbot — Artifact Creature — Robot"
+    ],
+    "mana_in_cost + remove_counters + tap_other_as_cost + tap_untapped_you_control": [
+      "Coral Reef — Enchantment"
+    ],
+    "hybrid_mana + mana_in_cost + untap_symbol_{Q}": [
+      "Crackleburr — Creature — Elemental",
+      "Duergar Mine-Captain — Creature — Dwarf Soldier",
+      "Gilder Bairn — Creature — Ouphe",
+      "Merrow Grimeblotter — Creature — Merfolk Wizard",
+      "Puresight Merrow — Creature — Merfolk Wizard",
+      "Silkbind Faerie — Creature — Faerie Rogue"
+    ],
+    "mana_in_cost + pay_life + tap_self_{T}": [
+      "Cruel Sadist — Creature — Human Assassin",
+      "Forsworn Paladin — Creature — Human Knight",
+      "Fountainport — Land",
+      "Gilt-Blade Prowler — Creature — Human Rogue",
+      "Glass-Cast Heart — Artifact",
+      "Ring of the Lucii — Legendary Artifact",
+      "Standing Stones — Artifact",
+      "The Cauldron of Eternity — Legendary Artifact",
+      "Trading Post — Artifact",
+      "Treasure Dredger — Creature — Human Rogue",
+      "Westvale Abbey // Ormendahl, Profane Prince — Land"
+    ],
+    "mana_in_cost + sacrifice_self + x_in_cost": [
+      "Dauntless Dismantler — Creature — Human Artificer",
+      "Hearth Kami — Creature — Spirit",
+      "Pain Kami — Creature — Spirit",
+      "Pernicious Deed — Enchantment",
+      "Snake Basket — Artifact"
+    ],
+    "hybrid_mana + mana_in_cost + remove_counters": [
+      "Deity of Scars — Creature — Spirit Avatar",
+      "Hovel Hurler — Creature — Giant Warrior",
+      "Quillspike — Creature — Beast"
+    ],
+    "discard + sacrifice_self + tap_self_{T}": [
+      "Diamond Lion — Artifact Creature — Cat",
+      "Surly Badgersaur — Creature — Badger Dinosaur",
+      "Veronica, Dissident Scribe — Legendary Creature — Human Artificer Rogue"
+    ],
+    "colorless_mana_symbol_{C} + exile_from_graveyard_as_cost + mana_in_cost": [
+      "Dread Defiler — Creature — Eldrazi"
+    ],
+    "mana_in_cost + tap_other_as_cost": [
+      "Dread Wight — Creature — Zombie"
+    ],
+    "discard + mana_in_cost + sacrifice_other + tap_self_{T}": [
+      "Dreamscape Artist — Creature — Human Spellshaper"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + phyrexian_mana": [
+      "Drivnod, Carnage Dominus — Legendary Creature — Phyrexian Horror"
+    ],
+    "colorless_mana_symbol_{C} + mana_in_cost + sacrifice_self": [
+      "Drowner of Truth // Drowned Jungle — Creature — Eldrazi",
+      "Vile Redeemer — Creature — Eldrazi"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + sacrifice_other": [
+      "Effluence Devourer — Creature — Crocodile"
+    ],
+    "hybrid_mana + mana_in_cost + sacrifice_other": [
+      "Elite Headhunter — Creature — Human Knight",
+      "Shilgengar, Sire of Famine — Legendary Creature — Elder Demon"
+    ],
+    "pay_life + sacrifice_other": [
+      "Ellie, Vengeful Hunter — Legendary Creature — Human Survivor",
+      "Razaketh, the Foulblooded — Legendary Creature — Demon",
+      "The Multifaceted Phyrexian — Legendary Creature — Phyrexian Ninja",
+      "Warren Soultrader — Creature — Zombie Goblin Wizard",
+      "Yawgmoth, Thran Physician — Legendary Creature — Human Cleric"
+    ],
+    "reveal_as_cost": [
+      "Emissary of Grudges — Creature — Efreet",
+      "Guardian Archon — Creature — Archon",
+      "Masterful Ninja — Creature — Troll Ninja",
+      "Sasaya, Orochi Ascendant // Sasaya's Essence — Legendary Creature — Snake Monk",
+      "Stalking Leonin — Creature — Cat Archer"
+    ],
+    "energy_symbol_{E} + mana_in_cost + sacrifice_self": [
+      "Era of Innovation — Enchantment",
+      "Gonti's Machinations — Enchantment"
+    ],
+    "hybrid_mana + mana_in_cost + x_in_cost": [
+      "Evershrike — Creature — Elemental Spirit",
+      "Oona, Queen of the Fae — Legendary Creature — Faerie Wizard",
+      "Roalesk, Prime Specimen — Legendary Creature — Human Mutant"
+    ],
+    "discard + mana_in_cost + sacrifice_other": [
+      "Falkenrath Pit Fighter — Creature — Vampire Warrior"
+    ],
+    "mana_in_cost + untap_symbol_{Q}": [
+      "Farmstead Gleaner — Artifact Creature — Scarecrow",
+      "Hateflayer — Creature — Elemental",
+      "Knacksaw Clique — Creature — Faerie Rogue",
+      "Leech Bonder — Creature — Merfolk Soldier",
+      "Merrow Wavebreakers — Creature — Merfolk Soldier",
+      "Order of Whiteclay — Creature — Kithkin Cleric",
+      "Pale Wayfarer — Creature — Spirit Giant",
+      "Patrol Signaler — Creature — Kithkin Soldier",
+      "Pili-Pala — Artifact Creature — Scarecrow",
+      "Safehold Sentry — Creature — Elf Warrior",
+      "Umbral Mantle — Artifact — Equipment"
+    ],
+    "hybrid_mana + mana_in_cost + sacrifice_other + tap_self_{T} + x_in_cost": [
+      "Fiend Artisan — Creature — Nightmare"
+    ],
+    "mana_in_cost + snow_mana + tap_self_{T}": [
+      "Frost Augur — Snow Creature — Human Wizard",
+      "Icebind Pillar — Snow Artifact",
+      "Pilfering Hawk — Snow Creature — Bird",
+      "Scrying Sheets — Snow Land"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + x_in_cost": [
+      "Graywater's Fixer — Creature — Lizard Mercenary",
+      "Ludevic, Necrogenius // Olag, Ludevic's Hubris — Legendary Creature — Human Wizard",
+      "Rot-Curse Rakshasa — Creature — Demon"
+    ],
+    "hybrid_mana + mana_in_cost + sacrifice_self": [
+      "Grazing Kelpie — Creature — Beast"
+    ],
+    "energy_symbol_{E} + mana_in_cost + sacrifice_self + tap_self_{T}": [
+      "HELIOS One — Land"
+    ],
+    "return_permanent_you_control_as_cost + tap_self_{T}": [
+      "Harold and Bob, First Numens — Legendary Creature — Treefolk Mutant",
+      "Old-Growth Troll — Creature — Troll Warrior",
+      "Wonderscape Sage — Creature — Moonfolk Wizard"
+    ],
+    "discard + mana_in_cost + pay_life + tap_self_{T}": [
+      "Heirloom Mirror // Inherited Fiend — Artifact"
+    ],
+    "mana_in_cost + phyrexian_mana + x_in_cost": [
+      "Hex Parasite — Artifact Creature — Phyrexian Insect"
+    ],
+    "mana_in_cost + sacrifice_self + tap_other_as_cost": [
+      "Hold for Questioning — Enchantment — Aura"
+    ],
+    "return_permanent_you_control_as_cost": [
+      "Icebreaker Kraken — Snow Creature — Kraken",
+      "Pearl Lake Ancient — Creature — Leviathan",
+      "Quirion Ranger — Creature — Elf Ranger",
+      "Scryb Ranger — Creature — Faerie Ranger",
+      "Trench Behemoth — Creature — Kraken",
+      "Wirewood Symbiote — Creature — Insect"
+    ],
+    "mana_in_cost + reveal_as_cost + tap_self_{T}": [
+      "Illuminated Folio — Artifact",
+      "Rarity — Legendary Creature — Unicorn"
+    ],
+    "mana_in_cost + pay_life + x_in_cost": [
+      "Ink-Eyes, Servant of Oni Avatar — Vanguard"
+    ],
+    "discard + sacrifice_self": [
+      "Insolent Neonate — Creature — Vampire",
+      "Lion's Eye Diamond — Artifact",
+      "Masked Meower — Creature — Spider Cat Hero",
+      "Overeager Apprentice — Creature — Human Minion",
+      "Plague Reaver — Creature — Beast"
+    ],
+    "exile_from_graveyard_as_cost + hybrid_mana + mana_in_cost": [
+      "Ishkanah, Broodmother — Legendary Creature — Spider",
+      "Maestros Initiate — Creature — Human Citizen",
+      "Stoic Grove-Guide — Creature — Elf Druid",
+      "Symbiote Spider-Man — Legendary Creature — Symbiote Spider Hero"
+    ],
+    "mana_in_cost + pay_life + tap_self_{T} + x_in_cost": [
+      "Krumar Initiate — Creature — Human Cleric"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + sacrifice_self": [
+      "Lazav, Wearer of Faces — Legendary Creature — Shapeshifter Detective",
+      "Nyla, Shirshu Sleuth — Legendary Creature — Mole Beast",
+      "Raven Eagle — Creature — Bird Assassin"
+    ],
+    "discard + hybrid_mana + mana_in_cost + tap_self_{T}": [
+      "Lluwen, Imperfect Naturalist — Legendary Creature — Elf Druid"
+    ],
+    "discard + tap_other_as_cost + tap_untapped_you_control": [
+      "Maro Avatar — Vanguard"
+    ],
+    "mana_in_cost + reveal_as_cost + sacrifice_self": [
+      "Martyr of Ashes — Creature — Human Shaman",
+      "Martyr of Bones — Creature — Human Wizard",
+      "Martyr of Frost — Creature — Human Wizard",
+      "Martyr of Sands — Creature — Human Cleric",
+      "Martyr of Spores — Creature — Human Shaman"
+    ],
+    "mana_in_cost + return_permanent_you_control_as_cost + tap_self_{T}": [
+      "Master Transmuter — Artifact Creature — Human Artificer"
+    ],
+    "exile_from_graveyard_as_cost + sacrifice_self + tap_self_{T}": [
+      "Mastermind Plum — Legendary Creature — Human Wizard"
+    ],
+    "colorless_mana_symbol_{C} + mana_in_cost + sacrifice_self + tap_self_{T}": [
+      "Mirrorpool — Land"
+    ],
+    "mana_in_cost + phyrexian_mana + sacrifice_other": [
+      "Mondrak, Glory Dominus — Legendary Creature — Phyrexian Horror",
+      "Zopandrel, Hunger Dominus — Legendary Creature — Phyrexian Horror"
+    ],
+    "mana_in_cost + sacrifice_self + snow_mana + tap_self_{T}": [
+      "Mouth of Ronom — Snow Land"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + tap_self_{T} + x_in_cost": [
+      "Necropolis Fiend — Creature — Demon",
+      "Osgir, the Reconstructor — Legendary Creature — Giant Artificer"
+    ],
+    "remove_counters + sacrifice_other": [
+      "Quest for the Gemblades — Enchantment"
+    ],
+    "discard + mana_in_cost + pay_life + sacrifice_self": [
+      "Sinister Concoction — Enchantment"
+    ],
+    "discard + exile_from_graveyard_as_cost + mana_in_cost": [
+      "Sinuous Striker — Creature — Snake Warrior",
+      "Sunscourge Champion — Creature — Human Wizard"
+    ],
+    "discard + sacrifice_other": [
+      "Skoa, Embermage — Legendary Creature — Goblin Wizard",
+      "Tomb of Annihilation — Dungeon"
+    ],
+    "reveal_as_cost + tap_other_as_cost + tap_untapped_you_control": [
+      "Sky Hussar — Creature — Human Knight"
+    ],
+    "tap_self_{T} + untap_symbol_{Q}": [
+      "Snow Mercy — Snow Enchantment"
+    ],
+    "discard + mana_in_cost + phyrexian_mana": [
+      "Solphim, Mayhem Dominus — Legendary Creature — Phyrexian Horror"
+    ],
+    "colorless_mana_symbol_{C} + mana_in_cost + sacrifice_other": [
+      "Spawn-Gang Commander — Creature — Eldrazi Goblin",
+      "World Breaker — Creature — Eldrazi"
+    ],
+    "mana_in_cost + pay_life + sacrifice_self": [
+      "Stirge — Creature — Insect Bat"
+    ],
+    "mana_in_cost + pay_life + sacrifice_other": [
+      "Strands of Night — Enchantment"
+    ],
+    "discard + pay_life": [
+      "Street Wraith — Creature — Wraith"
+    ],
+    "mana_in_cost + pay_life + sacrifice_other + tap_self_{T}": [
+      "Susur Secundi, Void Altar — Land — Planet"
+    ],
+    "exile_from_graveyard_as_cost + mana_in_cost + sacrifice_other + tap_self_{T}": [
+      "Tawnos, Solemn Survivor — Legendary Creature — Human Artificer"
+    ],
+    "discard + mana_in_cost + untap_symbol_{Q}": [
+      "Vikya, Scorching Stalwart — Legendary Creature — Human Warrior"
+    ]
+  },
+  "rawExamples": {
+    "activatedLines": [
+      {
+        "card": "\"Rumors of My Death . . .\"",
+        "typeLine": "Enchantment",
+        "costPart": "{3}{B}, Exile a permanent you control with a League of Dastardly Doom watermark",
+        "effectPart": "Return a permanent card with a League of Dastardly Doom watermark from your graveyard to the battlefield.",
+        "categories": [
+          "cost_is_only_mana",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "{3}{B}, Exile a permanent you control with a League of Dastardly Doom watermark: Return a permanent card with a League of Dastardly Doom watermark from your graveyard to the battlefield."
+      },
+      {
+        "card": "+2 Mace",
+        "typeLine": "Artifact — Equipment",
+        "costPart": "Equip {3} ({3}",
+        "effectPart": "Attach to target creature you control. Equip only as a sorcery.)",
+        "categories": [
+          "cost_is_only_mana",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "Equip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)"
+      },
+      {
+        "card": "1996 World Champion",
+        "typeLine": "Summon Legend",
+        "costPart": "{0}",
+        "effectPart": "Discard your hand to search your library for 1996 World Champion and reveal it to all players. Shuffle your library and put 1996 World Champion on top of it. Use this ability only at the beginning of your upkeep, and only if 1996 World Champion is in your library.",
+        "categories": [
+          "cost_is_only_mana",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "{0}: Discard your hand to search your library for 1996 World Champion and reveal it to all players. Shuffle your library and put 1996 World Champion on top of it. Use this ability only at the beginning of your upkeep, and only if 1996 World Champion is in your library."
+      },
+      {
+        "card": "A Killer Among Us",
+        "typeLine": "Enchantment",
+        "costPart": "Sacrifice this enchantment, Reveal the creature type you chose",
+        "effectPart": "If target attacking creature token is the chosen type, put three +1/+1 counters on it and it gains deathtouch until end of turn.",
+        "categories": [
+          "reveal_as_cost",
+          "sacrifice_self"
+        ],
+        "restrictions": [],
+        "fullLine": "Sacrifice this enchantment, Reveal the creature type you chose: If target attacking creature token is the chosen type, put three +1/+1 counters on it and it gains deathtouch until end of turn."
+      },
+      {
+        "card": "A Realm Reborn",
+        "typeLine": "Enchantment",
+        "costPart": "Other permanents you control have \"{T}",
+        "effectPart": "Add one mana of any color.\"",
+        "categories": [
+          "tap_self_{T}"
+        ],
+        "restrictions": [],
+        "fullLine": "Other permanents you control have \"{T}: Add one mana of any color.\""
+      },
+      {
+        "card": "A-Ancestral Katana",
+        "typeLine": "Artifact — Equipment",
+        "costPart": "Equip {2} ({2}",
+        "effectPart": "Attach to target creature you control. Equip only as a sorcery.)",
+        "categories": [
+          "cost_is_only_mana",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "Equip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)"
+      },
+      {
+        "card": "A-Base Camp",
+        "typeLine": "Land",
+        "costPart": "{T}",
+        "effectPart": "Add {C}.",
+        "categories": [
+          "tap_self_{T}"
+        ],
+        "restrictions": [],
+        "fullLine": "{T}: Add {C}."
+      },
+      {
+        "card": "A-Base Camp",
+        "typeLine": "Land",
+        "costPart": "{T}",
+        "effectPart": "Add one mana of any color. Spend this mana only to cast a Cleric, Rogue, Warrior, or Wizard spell or to activate an ability of a Cleric, Rogue, Warrior, or Wizard.",
+        "categories": [
+          "tap_self_{T}"
+        ],
+        "restrictions": [],
+        "fullLine": "{T}: Add one mana of any color. Spend this mana only to cast a Cleric, Rogue, Warrior, or Wizard spell or to activate an ability of a Cleric, Rogue, Warrior, or Wizard."
+      },
+      {
+        "card": "A-Bretagard Stronghold",
+        "typeLine": "Land",
+        "costPart": "{T}",
+        "effectPart": "Add {G}.",
+        "categories": [
+          "tap_self_{T}"
+        ],
+        "restrictions": [
+          "activate_only_as_sorcery"
+        ],
+        "fullLine": "{T}: Add {G}."
+      },
+      {
+        "card": "A-Bretagard Stronghold",
+        "typeLine": "Land",
+        "costPart": "{G}{W}{W}, {T}, Sacrifice Bretagard Stronghold",
+        "effectPart": "Distribute two +1/+1 counters among one or two target creatures you control. They gain vigilance and lifelink until end of turn. Activate only as a sorcery.",
+        "categories": [
+          "mana_in_cost",
+          "sacrifice_other",
+          "tap_self_{T}"
+        ],
+        "restrictions": [
+          "activate_only_as_sorcery"
+        ],
+        "fullLine": "{G}{W}{W}, {T}, Sacrifice Bretagard Stronghold: Distribute two +1/+1 counters among one or two target creatures you control. They gain vigilance and lifelink until end of turn. Activate only as a sorcery."
+      },
+      {
+        "card": "A-Bruenor Battlehammer",
+        "typeLine": "Legendary Creature — Dwarf Warrior",
+        "costPart": "{0}",
+        "effectPart": "Attach target Equipment you control to target creature you control. Activate only as a sorcery and only once each turn.",
+        "categories": [
+          "cost_is_only_mana",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "{0}: Attach target Equipment you control to target creature you control. Activate only as a sorcery and only once each turn."
+      },
+      {
+        "card": "A-Canopy Tactician",
+        "typeLine": "Creature — Elf Warrior",
+        "costPart": "{T}",
+        "effectPart": "Add {G}{G}{G}.",
+        "categories": [
+          "tap_self_{T}"
+        ],
+        "restrictions": [],
+        "fullLine": "{T}: Add {G}{G}{G}."
+      },
+      {
+        "card": "A-Capenna Express",
+        "typeLine": "Artifact — Vehicle",
+        "costPart": "Sacrifice a Treasure",
+        "effectPart": "Capenna Express becomes an artifact creature until end of turn.",
+        "categories": [
+          "sacrifice_other"
+        ],
+        "restrictions": [],
+        "fullLine": "Sacrifice a Treasure: Capenna Express becomes an artifact creature until end of turn."
+      },
+      {
+        "card": "A-Capenna Express",
+        "typeLine": "Artifact — Vehicle",
+        "costPart": "Crew 3 (Tap any number of creatures you control with total power 3 or more",
+        "effectPart": "This Vehicle becomes an artifact creature until end of turn.)",
+        "categories": [
+          "tap_other_as_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "Crew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)"
+      },
+      {
+        "card": "A-Carnelian Orb of Dragonkind",
+        "typeLine": "Artifact",
+        "costPart": "{T}",
+        "effectPart": "Add one mana of any color. If that mana is spent on a Dragon creature spell, it gains haste until end of turn.",
+        "categories": [
+          "tap_self_{T}"
+        ],
+        "restrictions": [],
+        "fullLine": "{T}: Add one mana of any color. If that mana is spent on a Dragon creature spell, it gains haste until end of turn."
+      },
+      {
+        "card": "A-Cauldron Familiar",
+        "typeLine": "Creature — Cat",
+        "costPart": "Sacrifice a Food",
+        "effectPart": "Return Cauldron Familiar from your graveyard to the battlefield.",
+        "categories": [
+          "sacrifice_other"
+        ],
+        "restrictions": [],
+        "fullLine": "Sacrifice a Food: Return Cauldron Familiar from your graveyard to the battlefield."
+      },
+      {
+        "card": "A-Cobbled Lancer",
+        "typeLine": "Creature — Zombie Horse",
+        "costPart": "{1}{U}, Exile Cobbled Lancer from your graveyard",
+        "effectPart": "Draw a card.",
+        "categories": [
+          "exile_from_graveyard_as_cost",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "{1}{U}, Exile Cobbled Lancer from your graveyard: Draw a card."
+      },
+      {
+        "card": "A-Dokuchi Silencer",
+        "typeLine": "Creature — Human Ninja",
+        "costPart": "Ninjutsu {1}{B} ({1}{B}, Return an unblocked attacker you control to hand",
+        "effectPart": "Put this card onto the battlefield from your hand tapped and attacking.)",
+        "categories": [
+          "mana_in_cost",
+          "return_permanent_you_control_as_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "Ninjutsu {1}{B} ({1}{B}, Return an unblocked attacker you control to hand: Put this card onto the battlefield from your hand tapped and attacking.)"
+      },
+      {
+        "card": "A-Dragonborn Looter",
+        "typeLine": "Creature — Dragon Rogue",
+        "costPart": "{1}, {T}",
+        "effectPart": "Draw a card, then discard a card.",
+        "categories": [
+          "mana_in_cost",
+          "tap_self_{T}"
+        ],
+        "restrictions": [],
+        "fullLine": "{1}, {T}: Draw a card, then discard a card."
+      },
+      {
+        "card": "A-Druid Class",
+        "typeLine": "Enchantment — Class",
+        "costPart": "{2}{G}",
+        "effectPart": "Level 2",
+        "categories": [
+          "cost_is_only_mana",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "{2}{G}: Level 2"
+      },
+      {
+        "card": "A-Druid Class",
+        "typeLine": "Enchantment — Class",
+        "costPart": "{2}{G}",
+        "effectPart": "Level 3",
+        "categories": [
+          "cost_is_only_mana",
+          "mana_in_cost"
+        ],
+        "restrictions": [],
+        "fullLine": "{2}{G}: Level 3"
+      },
+      {
+        "card": "A-Dueling Coach",
+        "typeLine": "Creature — Human Monk",
+        "costPart": "{W}, {T}",
+        "effectPart": "Put a +1/+1 counter on each creature you control with a +1/+1 counter on it.",
+        "categories": [
+          "mana_in_cost",
+          "tap_self_{T}"
+        ],
+        "restrictions": [],
+        "fullLine": "{W}, {T}: Put a +1/+1 counter on each creature you control with a +1/+1 counter on it."
+      },
+      {
+        "card": "A-Dungeon Descent",
+        "typeLine": "Land",
+        "costPart": "{T}",
+        "effectPart": "Add {C}.",
+        "categories": [
+          "tap_self_{T}"
+        ],
+        "restrictions": [
+          "activate_only_as_sorcery"
+        ],
+        "fullLine": "{T}: Add {C}."
+      },
+      {
+        "card": "A-Dungeon Descent",
+        "typeLine": "Land",
+        "costPart": "{1}, {T}, Tap an untapped legendary creature you control",
+        "effectPart": "Venture into the dungeon. Activate only as a sorcery.",
+        "categories": [
+          "mana_in_cost",
+          "tap_self_{T}"
+        ],
+        "restrictions": [
+          "activate_only_as_sorcery"
+        ],
+        "fullLine": "{1}, {T}, Tap an untapped legendary creature you control: Venture into the dungeon. Activate only as a sorcery."
+      },
+      {
+        "card": "A-Earthquake Dragon",
+        "typeLine": "Creature — Elemental Dragon",
+        "costPart": "{2}{G}, Sacrifice a land",
+        "effectPart": "Return A-Earthquake Dragon from your graveyard to your hand.",
+        "categories": [
+          "mana_in_cost",
+          "sacrifice_other"
+        ],
+        "restrictions": [],
+        "fullLine": "{2}{G}, Sacrifice a land: Return A-Earthquake Dragon from your graveyard to your hand."
+      }
+    ]
+  }
+}

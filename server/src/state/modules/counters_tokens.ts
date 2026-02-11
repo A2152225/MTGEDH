@@ -881,6 +881,41 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
   
   if (isCommander && card) {
+    // During replay we cannot prompt; choose a deterministic default.
+    // We default to moving the commander to the command zone (matches AI behavior).
+    const isReplaying = Boolean((ctx as any).isReplaying);
+    if (isReplaying) {
+      try {
+        // Ensure command-zone tracking includes this commander.
+        if (commandZone && owner) {
+          commandZone[owner] = commandZone[owner] || { commanderIds: [], inCommandZone: [] };
+          const info: any = commandZone[owner];
+          info.inCommandZone = Array.isArray(info.inCommandZone) ? info.inCommandZone : [];
+          if (card.id && !info.inCommandZone.includes(card.id)) {
+            info.inCommandZone.push(card.id);
+          }
+        }
+
+        // Place card in the player's command zone zone container.
+        if (owner) {
+          const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
+          (ownerZone as any).commandZone = Array.isArray((ownerZone as any).commandZone) ? (ownerZone as any).commandZone : [];
+          (ownerZone as any).commandZone.push({ ...card, zone: 'command' });
+          (ownerZone as any).commandZoneCount = (ownerZone as any).commandZone.length;
+        }
+      } catch {
+        // best-effort only
+      }
+
+      bumpSeq();
+      try {
+        recalculatePlayerEffects(ctx);
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+
     ResolutionQueueManager.addStep(ctx.gameId, {
       type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
       playerId: owner,

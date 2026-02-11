@@ -4931,7 +4931,18 @@ function executeTriggerEffect(
       const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
       
       // Get token image from Scryfall data
-      const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+      let tokenImageUrls: any = undefined;
+      try {
+        tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+      } catch (e) {
+        debugWarn(1, '[executeTriggerEffect] getTokenImageUrls failed (continuing without image):', {
+          tokenName,
+          power,
+          toughness,
+          colors,
+        }, e);
+        tokenImageUrls = undefined;
+      }
       debug(2, `[executeTriggerEffect] Token ${i+1}/${tokensToCreate}: imageUrls=${tokenImageUrls ? 'found' : 'NOT FOUND'}, normal=${tokenImageUrls?.normal?.substring(0, 50) || 'none'}...`);
       
       const token = {
