@@ -5227,7 +5227,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         costLower.includes('tap') ||
         costLower.includes('sacrifice') ||
         costLower.includes('discard') ||
-        (costLower.includes('remove') && costLower.includes('counter'))
+        (costLower.includes('remove') && costLower.includes('counter')) ||
+        (costLower.includes('pay') && costLower.includes('life')) ||
+        costLower.includes('exile') ||
+        costLower.includes('return')
       ) {
         abilities.push({ cost, effect });
       }
@@ -5542,6 +5545,129 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     // ========================================================================
+    // RETURN A PERMANENT YOU CONTROL TO ITS OWNER'S HAND AS AN ACTIVATION COST (generic)
+    // Examples:
+    // - "Return a creature you control to its owner's hand: Draw a card."
+    // - "{1}, Return another land you control to its owner's hand: ..."
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
+    // "Return (another)? a|an|one|1 <type> you control to its owner's hand" clause.
+    // No mixing with discard/sacrifice/remove-counters/tap-other/exile/pay-life/etc.
+    // ========================================================================
+    {
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+
+      if (costLower.includes('return') && costLower.includes("you control") && (costLower.includes("owner's hand") || costLower.includes("owner’s hand"))) {
+        const returnMatch = costStr.match(
+          /\breturn\s+(another\s+|other\s+)?(a|an|one|1)\s+(creature|artifact|enchantment|land|permanent|nonland\s+permanent)\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/i
+        );
+
+        if (returnMatch) {
+          // Reject choice-based or mixed costs for now.
+          if (/\bor\b/i.test(costStr)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: return-to-hand costs with choices ("or") are not supported yet.`,
+            });
+            return;
+          }
+
+          const mustBeOther = Boolean(returnMatch[1]);
+          const rawType = String(returnMatch[3] || '').trim().toLowerCase();
+
+          // Ensure there are no other non-mana cost components besides the return clause.
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(
+              /\breturn\s+(?:another\s+|other\s+)?(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi,
+              ' '
+            )
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: return-to-hand cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          const battlefieldNow = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const matchesType = (perm: any): boolean => {
+            if (!perm) return false;
+            if (String(perm.controller || '') !== String(pid)) return false;
+            if (mustBeOther && String(perm.id) === String(permanentId)) return false;
+            const tl = String(perm.card?.type_line || '').toLowerCase();
+            if (rawType === 'permanent') return true;
+            if (rawType === 'nonland permanent') return !tl.includes('land');
+            return tl.includes(rawType);
+          };
+
+          const eligible = battlefieldNow.filter(matchesType);
+          if (eligible.length < 1) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_TARGETS',
+              message: `Cannot activate ${cardName}: you control no valid ${rawType} to return to hand for the cost.`,
+            });
+            return;
+          }
+
+          const validTargets = eligible.map((p: any) => ({
+            id: String(p.id),
+            label: String(p.card?.name || 'Permanent'),
+            description: String(p.card?.type_line || rawType),
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .find(
+              (s: any) =>
+                s?.type === ResolutionStepType.TARGET_SELECTION &&
+                (s as any)?.returnToHandAbilityAsCost === true &&
+                String((s as any)?.permanentId || s?.sourceId) === String(permanentId)
+            );
+
+          if (!existing) {
+            const activatedAbilityText = String(abilityConditionText || '').trim() || `${costStr}: ${abilityText}`;
+
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+              description: `${cardName}: Return ${mustBeOther ? 'another ' : ''}${rawType} you control to its owner's hand to activate: ${abilityText}`,
+              mandatory: false,
+              validTargets,
+              targetTypes: ['return_to_hand_cost'],
+              minTargets: 1,
+              maxTargets: 1,
+              targetDescription: `${rawType} you control`,
+
+              // Custom payload consumed by socket/resolution.ts
+              returnToHandAbilityAsCost: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              manaCost: costStr,
+              requiresTap,
+              returnType: rawType,
+              mustBeOther,
+              activatedAbilityText,
+            } as any);
+          }
+
+          debug(2, `[activateBattlefieldAbility] ${cardName} requires returning ${mustBeOther ? 'another ' : ''}${rawType} you control to hand as a cost. Queued TARGET_SELECTION.`);
+          broadcastGame(io, game, gameId);
+          return;
+        }
+      }
+    }
+
+    // ========================================================================
     // Blight as an activated-ability cost (e.g., "{T}, Blight 1: ...")
     // Queue a TARGET_SELECTION step to pay Blight, then resume activation from resolution.ts.
     // ========================================================================
@@ -5642,6 +5768,199 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const sacrificeInfo = parseSacrificeCost(manaCost || '');
       const sacrificeCount = sacrificeInfo.sacrificeCount || 1;
       const mustBeOther = sacrificeInfo.mustBeOther || false;
+
+      // If the cost also requires a discard, prompt for discard first, then enqueue sacrifice.
+      // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
+      // discard clause and exactly one sacrifice clause.
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+
+      if (costLower.includes('discard')) {
+        const discardMatch = costLower.match(
+          /\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i
+        );
+        const discardTypedMatch = costLower.match(
+          /\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+cards?\b/i
+        );
+
+        if (discardMatch || discardTypedMatch) {
+          // Reject choice-based or mixed costs for now.
+          if (/\bor\b/i.test(costStr)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: discard + sacrifice costs with choices ("or") are not supported yet.`,
+            });
+            return;
+          }
+
+          // Ensure the cost contains no other non-mana cost components besides discard + sacrifice.
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(
+              /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
+              ' '
+            )
+            .replace(/\bsacrifice\b[^,]*/gi, ' ')
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: discard + sacrifice cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          const typedRestriction = discardTypedMatch ? String(discardTypedMatch[2] || '').trim().toLowerCase() : '';
+          const rawDiscard = String((discardTypedMatch?.[1] || discardMatch?.[1]) || '').trim();
+          const discardCount = parseWordNumber(rawDiscard, 1);
+          if (!Number.isFinite(discardCount) || discardCount <= 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: invalid discard count.`,
+            });
+            return;
+          }
+
+          const zones = (game.state as any)?.zones?.[pid];
+          const hand = zones?.hand;
+          if (!zones || !Array.isArray(hand)) {
+            socket.emit('error', { code: 'NO_HAND', message: 'No hand found for discard cost' });
+            return;
+          }
+
+          const eligibleHand = (() => {
+            if (!typedRestriction) return hand;
+            return (hand as any[]).filter((c: any) => {
+              const tl = String(c?.type_line || '').toLowerCase();
+              switch (typedRestriction) {
+                case 'creature':
+                case 'artifact':
+                case 'enchantment':
+                case 'land':
+                case 'instant':
+                case 'sorcery':
+                case 'planeswalker':
+                  return tl.includes(typedRestriction);
+                case 'nonland':
+                  return !tl.includes('land');
+                case 'noncreature':
+                  return !tl.includes('creature');
+                default:
+                  return false;
+              }
+            });
+          })();
+
+          if (eligibleHand.length < discardCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_CARDS',
+              message: typedRestriction
+                ? `Need to discard ${discardCount} ${typedRestriction} card(s), but you only have ${eligibleHand.length}.`
+                : `Need to discard ${discardCount} card(s), but you only have ${hand.length}.`,
+            });
+            return;
+          }
+
+          // Compute eligible permanents for sacrifice (same rules as sacrifice-only flow).
+          const eligiblePermanents = battlefield.filter((p: any) => {
+            if (p.controller !== pid) return false;
+            if (mustBeOther && p.id === permanentId) return false;
+            const permTypeLine = (p.card?.type_line || '').toLowerCase();
+            let matchesType = false;
+            switch (sacrificeType) {
+              case 'creature':
+                matchesType = permTypeLine.includes('creature');
+                break;
+              case 'artifact':
+                matchesType = permTypeLine.includes('artifact');
+                break;
+              case 'enchantment':
+                matchesType = permTypeLine.includes('enchantment');
+                break;
+              case 'land':
+                matchesType = permTypeLine.includes('land');
+                break;
+              case 'permanent':
+                matchesType = true;
+                break;
+              case 'artifact_or_creature':
+                matchesType = permTypeLine.includes('artifact') || permTypeLine.includes('creature');
+                break;
+              default:
+                matchesType = false;
+            }
+            if (!matchesType) return false;
+            if (sacrificeSubtype) {
+              const subtypeLower = sacrificeSubtype.toLowerCase();
+              return permTypeLine.includes(subtypeLower);
+            }
+            return true;
+          });
+
+          let sacrificeLabel = sacrificeSubtype ? sacrificeSubtype : sacrificeType;
+          let sacrificeLabelPlural = sacrificeLabel + 's';
+          if (sacrificeType === 'artifact_or_creature') {
+            sacrificeLabel = 'artifact or creature';
+            sacrificeLabelPlural = 'artifacts and/or creatures';
+          }
+
+          if (eligiblePermanents.length < sacrificeCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_SACRIFICE_TARGETS',
+              message: `You don't control enough ${sacrificeLabelPlural} to sacrifice. (Need ${sacrificeCount}, have ${eligiblePermanents.length})`,
+            });
+            return;
+          }
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .find(
+              (s: any) =>
+                s?.type === ResolutionStepType.DISCARD_SELECTION &&
+                (s as any)?.discardAbilityAsCost === true &&
+                (s as any)?.discardAndSacrificeAbilityAsCost === true &&
+                String((s as any)?.permanentId || s?.sourceId) === String(permanentId)
+            );
+
+          if (!existing) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.DISCARD_SELECTION,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              description: `${cardName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'} to activate: ${abilityText}`,
+              mandatory: false,
+              hand: eligibleHand,
+              discardCount,
+              currentHandSize: eligibleHand.length,
+              maxHandSize: Math.max(7, eligibleHand.length),
+              reason: 'activation_cost',
+
+              // Custom payload consumed by resolution.ts
+              discardAbilityAsCost: true,
+              discardAndSacrificeAbilityAsCost: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              manaCost,
+              requiresTap,
+              discardTypeRestriction: typedRestriction || undefined,
+
+              // Sacrifice continuation context
+              sacrificeType,
+              sacrificeSubtype,
+              sacrificeCount,
+              mustBeOther,
+            } as any);
+          }
+
+          debug(2, `[activateBattlefieldAbility] ${cardName} requires discard + sacrifice as a cost. Queued DISCARD_SELECTION (will continue to sacrifice).`);
+          broadcastGame(io, game, gameId);
+          return;
+        }
+      }
       
       // Get eligible permanents for sacrifice
       const eligiblePermanents = battlefield.filter((p: any) => {
@@ -5760,6 +6079,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // This is persisted into the activateBattlefieldAbility event for replay determinism.
     const tappedPermanentsForCost: string[] = [];
 
+    // Track life paid as part of paying this activation's costs.
+    // Persisted into activateBattlefieldAbility for deterministic replay.
+    let pendingLifePaymentForCost = 0;
+
     // Track any counters removed as part of paying this activation's costs.
     // Persisted into activateBattlefieldAbility for deterministic replay.
     const removedCountersForCost: Array<{ permanentId: string; counterType: string; count: number }> = [];
@@ -5767,6 +6090,259 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Defer applying counter removal until we're sure this activation completes.
     // (If we remove counters and later fail mana payment, we'd corrupt state.)
     const pendingCounterRemovals: Array<{ counterType: string; count: number }> = [];
+
+    // ========================================================================
+    // PAY LIFE AS AN ACTIVATION COST (generic)
+    // Examples:
+    // - "Pay 2 life: Draw a card."
+    // - "{T}, Pay 1 life: Add {C}."
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
+    // "Pay N life" clause. No mixing with discard/sacrifice/remove-counters/tap-other/etc.
+    // ========================================================================
+    {
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+
+      if (costLower.includes('pay') && costLower.includes('life')) {
+        const payLifeMatch = costStr.match(
+          /\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i
+        );
+
+        if (payLifeMatch) {
+          // Reject choice-based or mixed costs for now.
+          if (/\bor\b/i.test(costStr)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: "pay life" costs with choices ("or") are not supported yet.`,
+            });
+            return;
+          }
+
+          // Ensure there are no other non-mana cost components besides the pay-life clause.
+          // (We allow mana symbols inside braces and {T}/{Q}.)
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(
+              /\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi,
+              ' '
+            )
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: pay-life cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          const raw = String(payLifeMatch[1] || '').trim();
+          const lifeToPay = parseWordNumber(raw, 1);
+          if (!Number.isFinite(lifeToPay) || lifeToPay <= 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: invalid life payment amount.`,
+            });
+            return;
+          }
+
+          const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+          if (!Number.isFinite(currentLife) || currentLife < lifeToPay) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_LIFE',
+              message: `Cannot activate ${cardName}: need to pay ${lifeToPay} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+            });
+            return;
+          }
+
+          pendingLifePaymentForCost = lifeToPay;
+
+          // Strip this clause from manaCost so later mana-payment logic doesn't see non-mana text.
+          try {
+            manaCost = String(manaCost || '')
+              .replace(
+                /\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi,
+                ' '
+              )
+              .replace(/^[\s,]+|[\s,]+$/g, '')
+              .replace(/[\s,]+/g, ' ')
+              .trim();
+          } catch {
+            // best-effort only
+          }
+        }
+      }
+    }
+
+    // ========================================================================
+    // EXILE FROM YOUR GRAVEYARD AS AN ACTIVATION COST
+    // Examples:
+    // - "Exile a card from your graveyard: Draw a card."
+    // - "Exile a creature card from your graveyard: ..."
+    // - "{1}, Exile two cards from your graveyard: ..."
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
+    // "Exile N (optional <type>) card(s) from your graveyard" clause.
+    // ========================================================================
+    {
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+
+      if (costLower.includes('exile') && costLower.includes('from your graveyard')) {
+        const exileMatch = costStr.match(
+          /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\s+from\s+your\s+graveyard\b/i
+        );
+        const exileTypedMatch = costStr.match(
+          /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+cards?\s+from\s+your\s+graveyard\b/i
+        );
+
+        if (exileMatch || exileTypedMatch) {
+          const typedRestriction = exileTypedMatch ? String(exileTypedMatch[2] || '').trim().toLowerCase() : '';
+          // Reject choice-based or mixed costs for now.
+          if (/\bor\b/i.test(costStr)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: exile-from-graveyard costs with choices ("or") are not supported yet.`,
+            });
+            return;
+          }
+
+          // Ensure there are no other non-mana cost components besides the exile clause.
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(
+              /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
+              ' '
+            )
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: exile-from-graveyard cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          const raw = String((exileTypedMatch?.[1] || exileMatch?.[1]) || '').trim();
+          const exileCount = parseWordNumber(raw, 1);
+          if (!Number.isFinite(exileCount) || exileCount <= 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: invalid exile count.`,
+            });
+            return;
+          }
+
+          const zones = (game.state as any)?.zones?.[pid];
+          const graveyard = zones?.graveyard;
+          if (!zones || !Array.isArray(graveyard)) {
+            socket.emit('error', { code: 'NO_GRAVEYARD', message: 'No graveyard found for exile cost' });
+            return;
+          }
+
+          const eligibleGraveyard = (() => {
+            if (!typedRestriction) return graveyard;
+            return (graveyard as any[]).filter((c: any) => {
+              const tl = String(c?.type_line || '').toLowerCase();
+              switch (typedRestriction) {
+                case 'creature':
+                case 'artifact':
+                case 'enchantment':
+                case 'land':
+                case 'instant':
+                case 'sorcery':
+                case 'planeswalker':
+                  return tl.includes(typedRestriction);
+                case 'nonland':
+                  return !tl.includes('land');
+                case 'noncreature':
+                  return !tl.includes('creature');
+                default:
+                  return false;
+              }
+            });
+          })();
+
+          if (eligibleGraveyard.length < exileCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_CARDS',
+              message: typedRestriction
+                ? `Need to exile ${exileCount} ${typedRestriction} card(s) from your graveyard, but you only have ${eligibleGraveyard.length}.`
+                : `Need to exile ${exileCount} card(s) from your graveyard, but you only have ${graveyard.length}.`,
+            });
+            return;
+          }
+
+          const validTargets = (eligibleGraveyard as any[]).map((c: any) => ({
+            id: String(c?.id || ''),
+            name: String(c?.name || 'Unknown'),
+            typeLine: String(c?.type_line || ''),
+            manaCost: String(c?.mana_cost || ''),
+            imageUrl: (c as any)?.image_uris?.small || (c as any)?.image_uris?.normal,
+          })).filter((t: any) => Boolean(t.id));
+
+          if (validTargets.length < exileCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_CARDS',
+              message: `Need to exile ${exileCount} card(s) from your graveyard, but there are only ${validTargets.length} selectable card(s).`,
+            });
+            return;
+          }
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .find(
+              (s: any) =>
+                s?.type === ResolutionStepType.GRAVEYARD_SELECTION &&
+                (s as any)?.graveyardExileAbilityAsCost === true &&
+                String((s as any)?.permanentId || s?.sourceId) === String(permanentId)
+            );
+
+          if (!existing) {
+            const effectId = `gy_exile_cost_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const activatedAbilityText = String(abilityConditionText || '').trim() || `${costStr}: ${abilityText}`;
+
+            const typePhrase = typedRestriction ? `${typedRestriction} ` : '';
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.GRAVEYARD_SELECTION,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+              description: `${cardName}: Exile ${exileCount} ${typePhrase}card${exileCount === 1 ? '' : 's'} from your graveyard to activate: ${abilityText}`,
+              mandatory: false,
+
+              // Required GraveyardSelectionStep fields
+              effectId,
+              cardName,
+              title: `${cardName} — Exile from graveyard` ,
+              targetPlayerId: String(pid),
+              minTargets: exileCount,
+              maxTargets: exileCount,
+              destination: 'exile',
+              validTargets,
+              imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+
+              // Custom payload consumed by socket/resolution.ts
+              graveyardExileAbilityAsCost: true,
+              permanentId,
+              abilityId,
+              abilityText,
+              manaCost: costStr,
+              requiresTap,
+              activatedAbilityText,
+              exileCount,
+            } as any);
+          }
+
+          debug(2, `[activateBattlefieldAbility] ${cardName} requires exiling ${exileCount} card(s) from graveyard as a cost. Queued GRAVEYARD_SELECTION.`);
+          broadcastGame(io, game, gameId);
+          return;
+        }
+      }
+    }
 
     // ========================================================================
     // REMOVE COUNTERS AS AN ACTIVATION COST (source permanent only)
@@ -6028,22 +6604,163 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // DISCARD AS AN ACTIVATION COST
     // Example: "Discard a card: Draw a card." (no other non-mana cost components supported yet)
     // ========================================================================
+    // ========================================================================
+    // EXILE FROM YOUR HAND AS AN ACTIVATION COST
+    // Examples:
+    // - "Exile a card from your hand: Draw a card."
+    // - "Exile an instant card from your hand: ..."
+    // - "{1}, Exile two cards from your hand: ..."
+    // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
+    // "Exile N (optional <type>) card(s) from your hand" clause. No mixing with discard/sacrifice/remove-counters/tap-other/etc.
+    // ========================================================================
+    {
+      const costStr = String(manaCost || '');
+      const costLower = costStr.toLowerCase();
+
+      if (costLower.includes('exile') && costLower.includes('from your hand')) {
+        const exileMatch = costStr.match(
+          /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\s+from\s+your\s+hand\b/i
+        );
+        const exileTypedMatch = costStr.match(
+          /\bexile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+cards?\s+from\s+your\s+hand\b/i
+        );
+
+        if (exileMatch || exileTypedMatch) {
+          const typedRestriction = exileTypedMatch ? String(exileTypedMatch[2] || '').trim().toLowerCase() : '';
+          // Reject choice-based or mixed costs for now.
+          if (/\bor\b/i.test(costStr)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: exile-from-hand costs with choices ("or") are not supported yet.`,
+            });
+            return;
+          }
+
+          const remainingNonManaCostText = costStr
+            .replace(/\{[^}]+\}/g, ' ')
+            .replace(
+              /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+hand\b/gi,
+              ' '
+            )
+            .replace(/[\s,]+/g, ' ')
+            .trim();
+
+          if (remainingNonManaCostText.length > 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: exile-from-hand cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+            });
+            return;
+          }
+
+          const raw = String((exileTypedMatch?.[1] || exileMatch?.[1]) || '').trim();
+          const exileCount = parseWordNumber(raw, 1);
+          if (!Number.isFinite(exileCount) || exileCount <= 0) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: invalid exile count.`,
+            });
+            return;
+          }
+
+          const zones = (game.state as any)?.zones?.[pid];
+          const hand = zones?.hand;
+          if (!zones || !Array.isArray(hand)) {
+            socket.emit('error', { code: 'NO_HAND', message: 'No hand found for exile cost' });
+            return;
+          }
+
+          const eligibleHand = (() => {
+            if (!typedRestriction) return hand;
+            return (hand as any[]).filter((c: any) => {
+              const tl = String(c?.type_line || '').toLowerCase();
+              switch (typedRestriction) {
+                case 'creature':
+                case 'artifact':
+                case 'enchantment':
+                case 'land':
+                case 'instant':
+                case 'sorcery':
+                case 'planeswalker':
+                  return tl.includes(typedRestriction);
+                case 'nonland':
+                  return !tl.includes('land');
+                case 'noncreature':
+                  return !tl.includes('creature');
+                default:
+                  return false;
+              }
+            });
+          })();
+
+          if (eligibleHand.length < exileCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_CARDS',
+              message: typedRestriction
+                ? `Need to exile ${exileCount} ${typedRestriction} card(s) from your hand, but you only have ${eligibleHand.length}.`
+                : `Need to exile ${exileCount} card(s) from your hand, but you only have ${hand.length}.`,
+            });
+            return;
+          }
+
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, pid as any)
+            .find((s: any) => s?.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.exileFromHandAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
+
+          if (!existing) {
+            const activatedAbilityText = String(abilityConditionText || '').trim() || `${costStr}: ${abilityText}`;
+
+            const typePhrase = typedRestriction ? `${typedRestriction} ` : '';
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.DISCARD_SELECTION,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+              description: `${cardName}: Exile ${exileCount} ${typePhrase}card${exileCount === 1 ? '' : 's'} from your hand to activate: ${abilityText}`,
+              mandatory: false,
+              hand: eligibleHand,
+              discardCount: exileCount,
+              currentHandSize: eligibleHand.length,
+              maxHandSize: Math.max(7, eligibleHand.length),
+              reason: 'activation_cost',
+
+              // Custom extensions consumed by resolution.ts
+              destination: 'exile',
+              exileFromHandAbilityAsCost: true,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              manaCost: costStr,
+              requiresTap,
+              activatedAbilityText,
+              exileCount,
+            } as any);
+          }
+
+          debug(2, `[activateBattlefieldAbility] ${cardName} requires exiling ${exileCount} card(s) from hand as a cost. Queued DISCARD_SELECTION (destination=exile).`);
+          broadcastGame(io, game, gameId);
+          return;
+        }
+      }
+    }
+
     {
       const costStr = String(manaCost || '');
       const costLower = costStr.toLowerCase();
       if (costLower.includes('discard')) {
-        // Conservative: only support "discard a/one/two/... card(s)" with no type restriction.
+        // Conservative: support "discard N card(s)" and "discard N <type> card(s)" where <type> is a single keyword.
+        // Examples:
+        // - "Discard a card"
+        // - "Discard a creature card"
+        // - "Discard two land cards"
         const discardMatch = costLower.match(/\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i);
-        if (discardMatch) {
-          // Reject patterns like "discard a creature card" / "discard a land card" for now.
-          const qualified = costLower.match(/\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+\w+\s+card\b/i);
-          if (qualified && !/\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+card\b/i.test(costLower)) {
-            socket.emit('error', {
-              code: 'UNSUPPORTED_COST',
-              message: `Cannot activate ${cardName}: discard-with-type restriction as an activation cost is not supported yet.`,
-            });
-            return;
-          }
+        const discardTypedMatch = costLower.match(
+          /\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+cards?\b/i
+        );
+        if (discardMatch || discardTypedMatch) {
+          const typedRestriction = discardTypedMatch ? String(discardTypedMatch[2] || '').trim().toLowerCase() : '';
 
           // If this cost also includes a sacrifice clause, we don't yet support multi-step costs.
           if (costLower.includes('sacrifice')) {
@@ -6054,13 +6771,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          const raw = String(discardMatch[1] || '').trim();
+          const raw = String((discardTypedMatch?.[1] || discardMatch?.[1]) || '').trim();
           const discardCount = parseWordNumber(raw, 1);
 
           // Ensure the cost contains no other non-mana cost components besides the discard clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
-            .replace(/\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/gi, ' ')
+            .replace(
+              /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
+              ' '
+            )
             .replace(/[\s,]+/g, ' ')
             .trim();
           if (remainingNonManaCostText.length > 0) {
@@ -6078,10 +6798,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          if (hand.length < discardCount) {
+          const eligibleHand = (() => {
+            if (!typedRestriction) return hand;
+            return (hand as any[]).filter((c: any) => {
+              const tl = String(c?.type_line || '').toLowerCase();
+              switch (typedRestriction) {
+                case 'creature':
+                case 'artifact':
+                case 'enchantment':
+                case 'land':
+                case 'instant':
+                case 'sorcery':
+                case 'planeswalker':
+                  return tl.includes(typedRestriction);
+                case 'nonland':
+                  return !tl.includes('land');
+                case 'noncreature':
+                  return !tl.includes('creature');
+                default:
+                  return false;
+              }
+            });
+          })();
+
+          if (eligibleHand.length < discardCount) {
             socket.emit('error', {
               code: 'INSUFFICIENT_CARDS',
-              message: `Need to discard ${discardCount} card(s), but you only have ${hand.length}.`,
+              message: typedRestriction
+                ? `Need to discard ${discardCount} ${typedRestriction} card(s), but you only have ${eligibleHand.length}.`
+                : `Need to discard ${discardCount} card(s), but you only have ${hand.length}.`,
             });
             return;
           }
@@ -6098,8 +6843,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               sourceName: cardName,
               description: `${cardName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'} to activate: ${abilityText}`,
               mandatory: false,
-              hand: hand,
+              hand: eligibleHand,
               discardCount,
+              currentHandSize: eligibleHand.length,
+              maxHandSize: Math.max(7, eligibleHand.length),
               reason: 'activation_cost',
 
               // Custom payload consumed by resolution.ts
@@ -6110,6 +6857,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               abilityText,
               manaCost,
               requiresTap,
+              discardTypeRestriction: typedRestriction || undefined,
             } as any);
           }
 
@@ -6494,6 +7242,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       // Check if this is a tutor effect (searches library)
       const tutorInfo = detectTutorEffect(abilityText);
+
+      const activatedAbilityTextForStack = String(abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
       
       if (tutorInfo.isTutor) {
         // This is a tutor effect - handle library search
@@ -6508,6 +7258,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           source: permanentId,
           sourceName: cardName,
           description: abilityText,
+          activatedAbilityText: activatedAbilityTextForStack,
           abilityType: 'tutor',
           searchParams: {
             filter,
@@ -6596,6 +7347,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         source: permanentId,
         sourceName: cardName,
         description: abilityText,
+        activatedAbilityText: activatedAbilityTextForStack,
       } as any;
       
       game.state.stack = game.state.stack || [];
@@ -6948,6 +7700,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         removedCountersForCost.push({ permanentId: String(permanentId), counterType, count });
       }
     }
+
+    // Apply any deferred life payment for activation costs now that we know the activation completed.
+    // This ensures we don't pay life if the activation later fails due to mana payment, etc.
+    if (pendingLifePaymentForCost > 0) {
+      try {
+        (game.state as any).life = (game.state as any).life || {};
+        const cur = Number((game.state as any).life?.[pid] ?? 40);
+        (game.state as any).life[pid] = Math.max(0, cur - Number(pendingLifePaymentForCost || 0));
+      } catch {
+        // best-effort only
+      }
+    }
+
+    const activatedAbilityText = String(abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
     
     appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
       playerId: pid, 
@@ -6955,8 +7721,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityId,
       cardName,
       abilityText,
+      activatedAbilityText,
       tappedPermanents: tappedPermanentsForCost,
       removedCountersForCost,
+      lifePaidForCost: pendingLifePaymentForCost,
     });
     
     broadcastGame(io, game, gameId);

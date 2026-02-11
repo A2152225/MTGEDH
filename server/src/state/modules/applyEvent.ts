@@ -2168,6 +2168,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const permId = (e as any).permanentId;
           const abilityId = (e as any).abilityId;
           const abilityText = String((e as any).abilityText || '');
+          const activatedAbilityText = String((e as any).activatedAbilityText || '');
 
           // If the server persisted which cards were discarded from hand to pay activation costs,
           // apply those discards during replay so zones are deterministic.
@@ -2197,6 +2198,34 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
+          // If the server persisted which cards were exiled from hand to pay activation costs,
+          // apply those exiles during replay so zones are deterministic.
+          try {
+            const exiledFromHand = (e as any).exiledCardIdsFromHandForCost;
+            const pid = playerId != null ? String(playerId) : '';
+            if (pid && Array.isArray(exiledFromHand) && exiledFromHand.length > 0) {
+              const zones = (ctx.state as any).zones || {};
+              const z = zones[pid];
+              if (z && Array.isArray(z.hand)) {
+                z.exile = Array.isArray(z.exile) ? z.exile : [];
+
+                for (const cid of exiledFromHand) {
+                  const id = String(cid || '').trim();
+                  if (!id) continue;
+                  const idx = (z.hand as any[]).findIndex((c: any) => c && String(c.id) === id);
+                  if (idx === -1) continue;
+                  const [card] = (z.hand as any[]).splice(idx, 1);
+                  (z.exile as any[]).push({ ...card, zone: 'exile' });
+                }
+
+                z.handCount = Array.isArray(z.hand) ? z.hand.length : z.handCount;
+                if (z.exileCount !== undefined) z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           // If the server persisted which permanents were sacrificed to pay activation costs,
           // apply those sacrifices during replay so battlefield state is deterministic.
           try {
@@ -2209,6 +2238,24 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const bf = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
                 if (!bf.some((p: any) => p && String(p.id) === id)) continue;
                 movePermanentToGraveyard(ctx as any, id, true);
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted which permanents were returned to hand to pay activation costs,
+          // apply those bounces during replay so battlefield/zones are deterministic.
+          try {
+            const returned = (e as any).returnedPermanentsToHandForCost;
+            if (Array.isArray(returned) && returned.length > 0) {
+              for (const rid of returned) {
+                const id = String(rid || '').trim();
+                if (!id) continue;
+                // Best-effort: only move if still on battlefield.
+                const bf = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+                if (!bf.some((p: any) => p && String(p.id) === id)) continue;
+                movePermanentToHand(ctx as any, id);
               }
             }
           } catch {
@@ -2244,6 +2291,68 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const count = Number(entry?.count || 0);
                 if (!permanentId || !counterType || !Number.isFinite(count) || count <= 0) continue;
                 updateCounters(ctx as any, permanentId, { [counterType]: -count });
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted life paid to activate this ability, apply it during replay.
+          try {
+            const paid = Number((e as any).lifePaidForCost || 0);
+            const pid = playerId != null ? String(playerId) : '';
+            if (pid && Number.isFinite(paid) && paid > 0) {
+              (ctx.state as any).life = (ctx.state as any).life || {};
+              const cur = Number((ctx.state as any).life?.[pid] ?? 40);
+              (ctx.state as any).life[pid] = Math.max(0, cur - paid);
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted which cards were exiled from the activator's graveyard to pay activation costs,
+          // apply those exiles during replay so zones are deterministic.
+          try {
+            const exiled = (e as any).exiledCardIdsFromGraveyardForCost;
+            const pid = playerId != null ? String(playerId) : '';
+            if (pid && Array.isArray(exiled) && exiled.length > 0) {
+              const zones = (ctx.state as any).zones || {};
+              const z = zones[pid];
+              if (z && Array.isArray(z.graveyard)) {
+                z.exile = Array.isArray(z.exile) ? z.exile : [];
+
+                for (const cid of exiled) {
+                  const id = String(cid || '').trim();
+                  if (!id) continue;
+                  const idx = (z.graveyard as any[]).findIndex((c: any) => c && String(c.id) === id);
+                  if (idx === -1) continue;
+                  const [card] = (z.graveyard as any[]).splice(idx, 1);
+                  (z.exile as any[]).push({ ...card, zone: 'exile' });
+                }
+
+                z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : z.graveyardCount;
+                if (z.exileCount !== undefined) z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted the full activated ability text (including cost),
+          // attach it to the matching ability stack item to support intervening-if inference.
+          try {
+            if (activatedAbilityText) {
+              const stack = Array.isArray((stateAny as any).stack) ? (stateAny as any).stack : (Array.isArray(ctx.state.stack) ? ctx.state.stack : []);
+              if (Array.isArray(stack) && stack.length > 0) {
+                for (let i = stack.length - 1; i >= 0; i--) {
+                  const item = stack[i];
+                  if (!item || String(item.type || '') !== 'ability') continue;
+                  if (playerId != null && String(item.controller) !== String(playerId)) continue;
+                  if (permId != null && String(item.source) !== String(permId)) continue;
+                  if (abilityText && String(item.description || '') !== abilityText) continue;
+                  (item as any).activatedAbilityText = activatedAbilityText;
+                  break;
+                }
               }
             }
           } catch {

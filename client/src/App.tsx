@@ -1772,7 +1772,9 @@ export function App() {
       if (step.type === 'discard_selection') {
         const discardCount = Number(step.discardCount || 0);
         if (discardCount > 0) {
-          const reason: 'cleanup' | 'effect' = step.reason === 'effect' ? 'effect' : 'cleanup';
+          // Treat anything other than explicit cleanup as an effect-style prompt.
+          // This includes activation-cost prompts which use reason: 'activation_cost'.
+          const reason: 'cleanup' | 'effect' = step.reason === 'cleanup' ? 'cleanup' : 'effect';
           setDiscardCount(discardCount);
           setDiscardMaxHandSize(Number(step.maxHandSize || 7));
           setDiscardResolutionStepId(String(step.id));

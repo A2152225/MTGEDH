@@ -536,7 +536,7 @@ export interface DiscardSelectionStep extends BaseResolutionStep {
   readonly discardCount: number;
   readonly currentHandSize: number;
   readonly maxHandSize: number;
-  readonly reason: 'cleanup' | 'effect';
+  readonly reason: 'cleanup' | 'effect' | 'activation_cost';
 }
 
 /**
