@@ -4,7 +4,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
-import GameManager from "../GameManager";
+import GameManager from "../GameManager.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**

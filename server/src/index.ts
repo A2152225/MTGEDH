@@ -21,7 +21,7 @@ import type {
   InterServerEvents,
   SocketData,
 } from "../../shared/src/events";
-import GameManager from "./GameManager"; // NEW: import GameManager
+import GameManager from "./GameManager.js"; // NEW: import GameManager
 import { initCLI, setHttpServer } from "./cli"; // CLI support for server management
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";

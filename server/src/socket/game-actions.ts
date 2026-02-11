@@ -3,7 +3,7 @@ import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
 import { processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder } from "./resolution.js";
 import { appendEvent } from "../db";
-import { GameManager } from "../GameManager";
+import { GameManager } from "../GameManager.js";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
 import { requiresColorChoice } from "./color-choice";

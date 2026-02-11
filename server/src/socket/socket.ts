@@ -16,7 +16,7 @@ import { registerDisconnectHandlers } from "./disconnect";
 
 // NEW: import DB delete + GameManager delete + creator check
 import { deleteGame as deleteGameFromDb, isGameCreator } from "../db";
-import GameManager from "../GameManager";
+import GameManager from "../GameManager.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 // Shared globals

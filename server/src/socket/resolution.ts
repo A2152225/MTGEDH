@@ -1670,6 +1670,58 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         }
       }
     }
+
+    // Validate HAND_TO_BOTTOM (London mulligan) before completing the step.
+    // If we complete the step first, invalid input would permanently consume the step and desync the mulligan flow.
+    if (step.type === ResolutionStepType.HAND_TO_BOTTOM) {
+      if (cancelled) {
+        socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
+        return;
+      }
+
+      const rawSelections = response.selections;
+      if (!Array.isArray(rawSelections) || !rawSelections.every((s) => typeof s === 'string')) {
+        socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid selection format for HAND_TO_BOTTOM" });
+        return;
+      }
+
+      const selectedIds = rawSelections as string[];
+      const uniqueSelections = Array.from(new Set(selectedIds));
+      if (uniqueSelections.length !== selectedIds.length) {
+        socket.emit("error", { code: "INVALID_SELECTION", message: "Duplicate card selected" });
+        return;
+      }
+
+      const stepData = step as any;
+      const mulliganState = (game.state as any)?.mulliganState?.[pid];
+      const pendingBottomCount = Number(mulliganState?.pendingBottomCount || 0);
+      const expected = pendingBottomCount > 0
+        ? pendingBottomCount
+        : Number(stepData?.cardsToBottom || 0);
+
+      if (!Number.isFinite(expected) || expected < 0 || selectedIds.length !== expected) {
+        socket.emit("error", {
+          code: "INVALID_SELECTION",
+          message: `Must select exactly ${expected} card${expected === 1 ? '' : 's'} to put to bottom`,
+        });
+        return;
+      }
+
+      if (expected > 0) {
+        const zones = (game.state as any)?.zones?.[pid];
+        const hand = zones?.hand;
+        if (!Array.isArray(hand)) {
+          socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+          return;
+        }
+
+        const handIds = new Set(hand.map((c: any) => c?.id).filter(Boolean));
+        if (!selectedIds.every((id) => handIds.has(id))) {
+          socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Selected card not found in hand" });
+          return;
+        }
+      }
+    }
     
     // Complete the step
     const completedStep = ResolutionQueueManager.completeStep(gameId, stepId, response);

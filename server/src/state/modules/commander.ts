@@ -26,15 +26,27 @@ export function setCommander(
   const { commandZone, libraries, pendingInitialDraw, bumpSeq, state } = ctx;
   const zones = state.zones = state.zones || {};
   const info = commandZone[playerId] ?? { commanderIds: [], commanderNames: [], tax: 0, taxById: {}, inCommandZone: [] };
+
+  const commanderIdsInput: any[] = Array.isArray(commanderIds)
+    ? commanderIds
+    : (typeof commanderIds === 'string' ? [commanderIds] : []);
+  const commanderNamesInput: any[] = Array.isArray(commanderNames)
+    ? commanderNames
+    : (typeof commanderNames === 'string' ? [commanderNames] : []);
   
   // Filter out any undefined, null, or empty string IDs to prevent corruption
-  const cleanCommanderIds = commanderIds.filter((id) => id && typeof id === 'string' && id.trim() !== '');
-  const cleanCommanderNames = commanderNames.filter((name) => name && typeof name === 'string' && name.trim() !== '');
+  const cleanCommanderIds = commanderIdsInput.filter((id) => id && typeof id === 'string' && id.trim() !== '');
+  const cleanCommanderNames = commanderNamesInput.filter((name) => name && typeof name === 'string' && name.trim() !== '');
   
-  if (cleanCommanderIds.length !== commanderIds.length) {
-    debugWarn(1, `[setCommander] Filtered out ${commanderIds.length - cleanCommanderIds.length} invalid commander IDs`, {
-      original: commanderIds,
-      cleaned: cleanCommanderIds
+  if (cleanCommanderIds.length !== commanderIdsInput.length) {
+    const originalCount = commanderIdsInput.length;
+    const cleanedCount = cleanCommanderIds.length;
+    const sample = commanderIdsInput.slice(0, 5).map((v) => (typeof v === 'string' ? v : `{${typeof v}}`));
+    debugWarn(1, `[setCommander] Filtered out ${originalCount - cleanedCount} invalid commander IDs`, {
+      originalCount,
+      cleanedCount,
+      originalSample: sample,
+      cleaned: cleanCommanderIds,
     });
   }
   
