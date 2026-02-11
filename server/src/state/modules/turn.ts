@@ -4501,10 +4501,12 @@ export function nextStep(ctx: GameContext) {
         const stepUpper = (nextStep ?? '').toUpperCase();
         const isUntapStep = stepUpper === "UNTAP";
         const isCleanupStep = stepUpper === "CLEANUP";
+        const stackLen = Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack.length : 0;
         
-        // Grant priority in all steps except UNTAP and CLEANUP
-        // This includes main phases, combat steps, upkeep, draw, end step, etc.
-        const shouldGrantPriority = !isUntapStep && !isCleanupStep;
+        // Grant priority in all steps except UNTAP.
+        // Cleanup normally doesn't grant priority, but if the stack is non-empty we must grant priority
+        // so players can respond/resolve (Rule 514.3 style behavior).
+        const shouldGrantPriority = !isUntapStep && (!isCleanupStep || stackLen > 0);
         
         if (shouldGrantPriority) {
           // Always grant priority to the active player first
@@ -4519,7 +4521,7 @@ export function nextStep(ctx: GameContext) {
           // Also clear priorityClaimed set - players need to claim priority again each step
           (ctx as any).state.priorityClaimed = new Set<string>();
           
-          debug(2, `${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
+          debug(2, `${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${stackLen})`);
           
           // DEBUG: Log turn player's hand and ability to act
           try {
@@ -4564,7 +4566,7 @@ export function nextStep(ctx: GameContext) {
             debugWarn(1, `${ts()} [nextStep] Failed to run auto-pass check:`, err);
           }
         } else {
-          // UNTAP and CLEANUP steps don't grant priority normally
+          // UNTAP (and cleanups with an empty stack) don't grant priority normally.
           (ctx as any).state.priority = null;
           debug(2, `${ts()} [nextStep] Step ${nextStep ?? 'unknown'} does not grant priority (Rule 502.1/514.1)`);
         }

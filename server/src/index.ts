@@ -24,6 +24,7 @@ import type {
 import GameManager from "./GameManager"; // NEW: import GameManager
 import { initCLI, setHttpServer } from "./cli"; // CLI support for server management
 import { debug, debugWarn, debugError } from "./utils/debug.js";
+import { BOOT_ID } from "./utils/bootId.js";
 
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -286,6 +287,7 @@ app.get("*", (req, res) => {
 // Main bootstrap: initialize DB first, then create HTTP + Socket.IO servers and register handlers.
 async function main() {
   try {
+    debug(1, "[Server] Boot", { bootId: BOOT_ID, pid: process.pid, node: process.version, port: PORT });
     debug(2, "[Server] Initializing database...");
     await initDb();
     debug(2, "[Server] Database initialized successfully.");

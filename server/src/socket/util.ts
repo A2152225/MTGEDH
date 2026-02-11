@@ -27,6 +27,7 @@ import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js"
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 
@@ -1240,7 +1241,7 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
   // Defensive validation: reject invalid/falsy gameId early to prevent creating games with no id.
   if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
     const msg = `ensureGame called with invalid gameId: ${String(gameId)}`;
-    debugError(1, "[ensureGame] " + msg);
+    debugError(1, "[ensureGame] " + msg, { bootId: BOOT_ID });
     throw new Error(msg);
   }
 
@@ -1270,12 +1271,13 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
       } catch (err) {
         debugWarn(2,
           "ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:",
+          { bootId: BOOT_ID, gameId },
           err
         );
       }
     }
   } catch (err) {
-    debugWarn(2, "ensureGame: GameManager not usable, falling back:", err);
+    debugWarn(2, "ensureGame: GameManager not usable, falling back:", { bootId: BOOT_ID, gameId }, err);
   }
 
   // Original fallback behavior - but first check if the game exists in the database
@@ -1286,7 +1288,8 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
     // This prevents re-creating games that were previously deleted.
     if (!gameExistsInDb(gameId)) {
       debug(1, 
-        `[ensureGame] game ${gameId} does not exist in database, not recreating (may have been deleted)`
+        `[ensureGame] game ${gameId} does not exist in database, not recreating (may have been deleted)`,
+        { bootId: BOOT_ID, gameId }
       );
       return undefined;
     }
@@ -1312,6 +1315,7 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
     } catch (err) {
       debugWarn(1, 
         "ensureGame: replay persisted events failed, continuing with fresh state:",
+        { bootId: BOOT_ID, gameId },
         err
       );
     }
@@ -1348,12 +1352,12 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
               let strategy = (player as any).strategy || AIStrategy.BASIC;
               const difficulty = (player as any).difficulty ?? 0.5;
               aiModule.registerAIPlayer(gameId, player.id as any, player.name || 'AI Opponent', strategy as any, difficulty);
-              debug(1, '[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name, strategy, difficulty });
+              debug(1, '[ensureGame] Re-registered AI player after replay:', { bootId: BOOT_ID, gameId, playerId: player.id, name: player.name, strategy, difficulty });
             }
           }
         }
       }).catch(err => {
-        debugWarn(1, '[ensureGame] Error re-registering AI players:', err);
+        debugWarn(1, '[ensureGame] Error re-registering AI players:', { bootId: BOOT_ID, gameId }, err);
       });
     }
 
@@ -1783,8 +1787,12 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
         if (!pendingSummary.hasPending) {
           // STUCK STATE DETECTED: Priority is null but there are no pending steps
           // and we're in a phase that should have priority
-          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] STUCK STATE DETECTED: Priority is null in ${phase}/${step} with no pending resolution steps!`);
-          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] Restoring priority to turn player to fix stuck game (ID: ${debugCallId})`);
+          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] STUCK STATE DETECTED: Priority is null in ${phase}/${step} with no pending resolution steps!`,
+            { bootId: BOOT_ID, gameId, debugCallId, phase, step }
+          );
+          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] Restoring priority to turn player to fix stuck game (ID: ${debugCallId})`,
+            { bootId: BOOT_ID, gameId, debugCallId }
+          );
           
           // Restore priority to turn player
           const turnPlayer = stateAny.turnPlayer;
@@ -2155,14 +2163,41 @@ export function schedulePriorityTimeout(
     // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
     const currentPhase = String((game.state as any)?.phase || '').toLowerCase();
     if (currentPhase === 'pre_game') {
-      debug(2, `[schedulePriorityTimeout] In pre_game phase, not scheduling timeout for game ${gameId}`);
+      debug(2, `[schedulePriorityTimeout] In pre_game phase, not scheduling timeout for game ${gameId}`, { bootId: BOOT_ID, gameId });
       return;
     }
     
-    // If priority is null (no player has priority), auto-advance to next step
-    // This happens in steps like DRAW where there are no triggers - only turn-based actions
+    // If priority is null (no player has priority), auto-advance to next step.
+    // This is intended for steps like UNTAP/CLEANUP where we normally don't grant priority.
+    // IMPORTANT: Never auto-advance while the stack is non-empty.
+    // Otherwise we can skip stack resolution and end up in a later step/turn with spells still on the stack.
     if (!game.state.priority) {
-      debug(2, `[schedulePriorityTimeout] Priority is null, auto-advancing step for game ${gameId}`);
+      const stackLen = Array.isArray((game.state as any).stack) ? ((game.state as any).stack as any[]).length : 0;
+
+      if (stackLen > 0) {
+        debugWarn(1, `[schedulePriorityTimeout] Priority is null but stack is non-empty (len=${stackLen}); not auto-advancing for game ${gameId}`,
+          { bootId: BOOT_ID, gameId, stackLen }
+        );
+        // Best-effort recovery: ensure some player has priority so the stack can be resolved.
+        try {
+          if (typeof (game as any).passPriority === 'function') {
+            // passPriority with no args will assign priority to the first active player.
+            (game as any).passPriority();
+          } else if ((game.state as any).turnPlayer) {
+            (game.state as any).priority = (game.state as any).turnPlayer;
+          }
+        } catch {
+          // ignore
+        }
+        try {
+          broadcastGame(io, game, gameId);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      debug(2, `[schedulePriorityTimeout] Priority is null, auto-advancing step for game ${gameId}`, { bootId: BOOT_ID, gameId });
       // Schedule immediate step advancement
       priorityTimers.set(
         gameId,
@@ -2172,7 +2207,9 @@ export function schedulePriorityTimeout(
             (game as any).nextStep();
             appendGameEvent(game, gameId, "nextStep", { reason: 'noPriority' });
             broadcastGame(io, game, gameId);
-            debug(2, `[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`);
+            debug(2, `[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`,
+              { bootId: BOOT_ID, gameId }
+            );
           }
         }, 0)
       );

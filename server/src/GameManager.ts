@@ -16,6 +16,7 @@ import { createInitialGameState } from "./state/index.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
+import { BOOT_ID } from "./utils/bootId.js";
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
 
@@ -658,6 +659,7 @@ class GameManagerClass {
             debug(1, 
               "[GameManager] ensureGame: replayed persisted events",
               {
+                bootId: BOOT_ID,
                 gameId,
                 count: replayEvents.length,
               }
@@ -665,19 +667,21 @@ class GameManagerClass {
           } catch (replayErr) {
             debugWarn(1, 
               "[GameManager] ensureGame: replay failed (non-fatal)",
+              { bootId: BOOT_ID, gameId },
               replayErr
             );
           }
         } else {
           debugWarn(1, 
             "[GameManager] ensureGame: game.replay is not a function; skipping event replay",
-            { gameId }
+            { bootId: BOOT_ID, gameId }
           );
         }
       }
     } catch (e) {
       debugWarn(1, 
         "[GameManager] ensureGame: getEvents/replay failed (non-fatal)",
+        { bootId: BOOT_ID, gameId },
         e
       );
     }
