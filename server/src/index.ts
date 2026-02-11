@@ -4,16 +4,14 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 // registerSocketHandlers comes from the socket index (folder)
-// games Map is exported from socket/socket.ts — import it directly
-import { registerSocketHandlers } from "./socket";
-import { games as socketGames } from "./socket/socket";
+import { registerSocketHandlers } from "./socket/index.js";
 import {
   initDb,
   listGames as dbListGames,
   deleteGame as dbDeleteGame,
-} from "./db";
-import { listDecks, saveDeck } from "./db/decks";
-import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions";
+} from "./db/index.js";
+import { listDecks, saveDeck } from "./db/decks.js";
+import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions.js";
 import { parseDecklist, clearPlaneswalkerCache } from "./services/scryfall";
 import type {
   ClientToServerEvents,
@@ -55,7 +53,7 @@ app.get("/api/games", (req, res) => {
     const persisted = dbListGames();
     const enriched = persisted.map((row) => {
       const id = row.game_id;
-      const inMem = socketGames.get(id);
+      const inMem = GameManager.getGame(id);
       const playersCount = inMem
         ? inMem.state && Array.isArray(inMem.state.players)
           ? inMem.state.players.length
@@ -243,18 +241,6 @@ app.delete("/admin/games/:id", (req, res) => {
         `DELETE /admin/games/${id}: GameManager.deleteGame threw`,
         e
       );
-    }
-
-    // Remove in-memory game from legacy socketGames Map if present
-    try {
-      const hadLegacy = socketGames.delete(id);
-      if (hadLegacy) {
-        debug(1, 
-          `DELETE /admin/games/${id}: removed from socketGames legacy map`
-        );
-      }
-    } catch (e) {
-      debugWarn(1, "Failed to remove in-memory game from socketGames:", e);
     }
 
     // Remove persisted rows (events + games metadata)

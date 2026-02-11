@@ -3,7 +3,7 @@ import { randomBytes } from "crypto";
 import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
 import { appendEvent, updateGameCreatorPlayerId, getGameCreator } from "../db";
 import { computeDiff } from "../utils/diff";
-import { games } from "./socket";
+import { games } from "./socket.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**

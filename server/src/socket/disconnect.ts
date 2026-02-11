@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { games, priorityTimers } from "./socket";
+import { games, priorityTimers } from "./socket.js";
 import { broadcastGame } from "./util";
 import { appendEvent } from "../db";
 import { debug, debugWarn, debugError } from "../utils/debug.js";

@@ -4,7 +4,7 @@ import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.j
 import crypto from "crypto";
 import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced } from "./util";
 import { appendEvent } from "../db";
-import { games } from "./socket";
+import { games } from "./socket.js";
 import { 
   permanentHasCreatureType,
   findPermanentsWithCreatureType 

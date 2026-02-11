@@ -2869,7 +2869,35 @@ async function handleStepResponse(
       (game.state as any).mulliganState[pid] = {
         hasKeptHand: true,
         mulligansTaken,
+        pendingBottomCount: 0,
+        pendingBottomStepId: null,
       };
+
+      // Defensive: if duplicate HAND_TO_BOTTOM steps were enqueued (double-clicks, reconnect races, etc.),
+      // cancel any remaining ones so the player isn't prompted again.
+      try {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        const remaining = queue.steps.filter(
+          (s: any) => s && s.playerId === pid && s.type === ResolutionStepType.HAND_TO_BOTTOM
+        );
+        if (remaining.length > 0) {
+          debugWarn(1, '[Resolution] Cancelling duplicate HAND_TO_BOTTOM steps', {
+            gameId,
+            playerId: pid,
+            count: remaining.length,
+            stepIds: remaining.map((s: any) => s.id),
+          });
+          for (const s of remaining) {
+            try {
+              ResolutionQueueManager.cancelStep(gameId, s.id);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();

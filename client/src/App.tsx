@@ -326,6 +326,7 @@ export function App() {
   const [mulliganBottomModalOpen, setMulliganBottomModalOpen] = useState(false);
   const [mulliganBottomCount, setMulliganBottomCount] = useState(0);
   const [mulliganBottomStepId, setMulliganBottomStepId] = useState<string | null>(null);
+  const [mulliganBottomLastSubmittedStepId, setMulliganBottomLastSubmittedStepId] = useState<string | null>(null);
 
    // Cleanup discard selection modal state
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
@@ -1790,8 +1791,12 @@ export function App() {
       else if (step.type === 'hand_to_bottom' && step.reason === 'mulligan') {
         const cardsToBottom = Number(step.cardsToBottom || 0);
         if (cardsToBottom > 0) {
+          const incomingStepId = String(step.id || '');
+          if (incomingStepId && mulliganBottomLastSubmittedStepId === incomingStepId) {
+            return;
+          }
           setMulliganBottomCount(cardsToBottom);
-          setMulliganBottomStepId(String(step.id));
+          setMulliganBottomStepId(incomingStepId || String(step.id));
           setMulliganBottomModalOpen(true);
         }
       }
@@ -2624,7 +2629,7 @@ export function App() {
     return () => {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
     };
-  }, [safeView?.id, openConfirmFromResolutionStep, you]);
+  }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId]);
 
   // Explore prompt handler
   // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
@@ -2786,20 +2791,43 @@ export function App() {
 
   // Auto-open mulligan bottom modal when pending bottom selection detected (from state)
   React.useEffect(() => {
-    if (pendingBottomCount > 0 && !hasKeptHand) {
-      setMulliganBottomCount(pendingBottomCount);
-      const stepIdFromState = (mulliganState as any)?.pendingBottomStepId;
-      if (typeof stepIdFromState === 'string' && stepIdFromState.length > 0) {
-        setMulliganBottomStepId(stepIdFromState);
-      } else {
-        // Best-effort fallback: ask server for the next resolution step
-        if (safeView?.id) {
-          socket.emit('getMyNextResolutionStep', { gameId: safeView.id });
-        }
+    if (pendingBottomCount <= 0 || hasKeptHand) return;
+
+    const stepIdFromState = (mulliganState as any)?.pendingBottomStepId;
+    if (typeof stepIdFromState === 'string' && stepIdFromState.length > 0) {
+      if (mulliganBottomLastSubmittedStepId && stepIdFromState === mulliganBottomLastSubmittedStepId) {
+        return;
       }
-      setMulliganBottomModalOpen(true);
+      setMulliganBottomCount(pendingBottomCount);
+      setMulliganBottomStepId(stepIdFromState);
+      if (!mulliganBottomModalOpen) {
+        setMulliganBottomModalOpen(true);
+      }
+      return;
     }
-  }, [pendingBottomCount, hasKeptHand, mulliganState, safeView?.id]);
+
+    // If we don't have a step id yet, request it; don't open a modal the user can't submit.
+    if (safeView?.id) {
+      socket.emit('getMyNextResolutionStep', { gameId: safeView.id });
+    }
+  }, [
+    pendingBottomCount,
+    hasKeptHand,
+    mulliganState,
+    safeView?.id,
+    mulliganBottomLastSubmittedStepId,
+    mulliganBottomModalOpen,
+  ]);
+
+  // Auto-close mulligan bottom modal once the server clears the pending state.
+  React.useEffect(() => {
+    if (!mulliganBottomModalOpen) return;
+    if (hasKeptHand || pendingBottomCount === 0) {
+      setMulliganBottomModalOpen(false);
+      setMulliganBottomCount(0);
+      setMulliganBottomStepId(null);
+    }
+  }, [mulliganBottomModalOpen, hasKeptHand, pendingBottomCount]);
 
   // Show mulligan buttons if player hasn't kept their hand yet
   // This should work even if we've moved past PRE_GAME (e.g., to UNTAP)
@@ -5570,6 +5598,7 @@ export function App() {
               console.warn('[mulligan] Missing resolution stepId; cannot submit HAND_TO_BOTTOM selection.');
               return;
             }
+            setMulliganBottomLastSubmittedStepId(mulliganBottomStepId);
             socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
               stepId: mulliganBottomStepId,

@@ -1,15 +1,10 @@
 
-Tuesday, February 10, 2026 9:40:25 PM
+Tuesday, February 10, 2026 10:15:04 PM
 
 > @mtgedh/server@0.1.0 dev
 > tsx watch --watch-path=src src/index.ts
 
-[Server] Boot {
-  bootId: '86f33d92-007a-411b-a0a1-ff2162493981',
-  pid: 5072,
-  node: 'v22.20.0',
-  port: 3001
-}
+[Server] Boot { bootId: '89bf354a-9de0-4662-8dbf-581d066455a0', pid: 42068, node: 'v22.20.0', port: 3001 }
 [Server] Initializing database...
 [Server] Database initialized successfully.
 [SCRYFALL] No planeswalker cache clearing needed (0 planeswalkers in cache, all have loyalty field)
@@ -24,95 +19,42 @@ Tuesday, February 10, 2026 9:40:25 PM
 ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 
 mtgedh> [Resolution] Priority management handler initialized
-Socket connected: VDmmmP7vGt2hOAOxAAAB
-[socket] deleteGame requested {
-  gameId: 'game_mlh4fpku',
-  bySocket: 'VDmmmP7vGt2hOAOxAAAB',
-  socketPlayerId: undefined,
-  claimedPlayerId: undefined,
-  resolvedPlayerId: undefined,
-  isCreator: false,
-  activePlayerCount: 0,
-  noActivePlayers: true
-}
-[socket] GameManager.deleteGame { gameId: 'game_mlh4fpku', removed: false }
-[socket] deleteGameFromDb { gameId: 'game_mlh4fpku', dbOk: true }
-[AI] Creating game with multiple AI opponents: {
-  gameId: 'game_mlhfa89i',
-  playerName: 'A2',
-  aiCount: 1,
-  aiNames: [ 'AI Opponent 1' ],
-  aiDifficulties: [ 0.5 ]
-}
-[GameManager] Created game game_mlhfa89i using full rules engine (createInitialGameState)
+Socket connected: QVFUwpPwZicn1tOWAAAB
+[AI] Creating game with multiple AI opponents: { gameId: 'game_mlhgjpio', playerName: 'A2', aiCount: 1, aiNames: [ 'AI Opponent 1' ], aiDifficulties: [ 0.5 ] }
+[GameManager] Created game game_mlhgjpio using full rules engine (createInitialGameState)
 [DB] Running insert: INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at, created_by_socket_id, created_by_player_id) VALUES (?, ?, ?, ?, ?, ?)
-[DB] Params: {
-  gameId: 'game_mlhfa89i',
-  format: 'commander',
-  startingLife: 40,
-  now: 1770777642808,
-  createdBySocketId: undefined,
-  createdByPlayerId: undefined
-}
+[DB] Params: { gameId: 'game_mlhgjpio', format: 'commander', startingLife: 40, now: 1770779759948, createdBySocketId: undefined, createdByPlayerId: undefined }
 [DB] Running update: UPDATE games SET format = ?, starting_life = ? WHERE game_id = ?
-[DB] Params: { format: 'commander', startingLife: 40, gameId: 'game_mlhfa89i' }
-[AI] Created new game via GameManager: game_mlhfa89i
-[AI] AI player joined game via game.join(): { aiPlayerId: 'p_jjz2vu3w', aiName: 'AI Opponent 1' }
+[DB] Params: { format: 'commander', startingLife: 40, gameId: 'game_mlhgjpio' }
+[AI] Created new game via GameManager: game_mlhgjpio
+[AI] AI player joined game via game.join(): { aiPlayerId: 'p_f26dx8ll', aiName: 'AI Opponent 1' }
 [AI] Loading deck for AI Opponent 1: { deckId: 'deck_1764197085965_ohucj3', deckName: 'King Maker' }
 [DB] Running insert: INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at, created_by_socket_id, created_by_player_id) VALUES (?, ?, ?, ?, ?, ?)
-[DB] Params: {
-  gameId: 'game_mlhfa89i',
-  format: 'commander',
-  startingLife: 40,
-  now: 1770777642826,
-  createdBySocketId: undefined,
-  createdByPlayerId: undefined
-}
+[DB] Params: { gameId: 'game_mlhgjpio', format: 'commander', startingLife: 40, now: 1770779759966, createdBySocketId: undefined, createdByPlayerId: undefined }
 [DB] Running update: UPDATE games SET format = ?, starting_life = ? WHERE game_id = ?
-[DB] Params: { format: 'commander', startingLife: 40, gameId: 'game_mlhfa89i' }
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[DB] Params: { format: 'commander', startingLife: 40, gameId: 'game_mlhgjpio' }
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 0, firstKnown: [] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[join] Set game creator for game_mlhfa89i to player p_sgi5mhxa
-[Automation] Auto-pass for turn disabled for p_sgi5mhxa in game game_mlhfa89i
-[Automation] Auto-pass for turn state in game game_mlhfa89i: {}
-[Automation] Auto-pass enabled for p_sgi5mhxa in game game_mlhfa89i
-[Automation] Auto-pass players in game game_mlhfa89i: [ 'p_sgi5mhxa' ]
-[deck] listSavedDecks called { gameId: 'game_mlhfa89i', folder: undefined, playerId: 'p_sgi5mhxa' }
-[importDeckResolved] Importing 100 cards for player p_jjz2vu3w
-[importDeckResolved] Mapped 100 cards. First card: Kynaios and Tiro of Meletis (card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_1bd6b0101363e3c7)
-[importDeckResolved] Library set for player p_jjz2vu3w. Final library size: 100
-[AI] Deck imported for AI Opponent 1: {
-  aiPlayerId: 'p_jjz2vu3w',
-  deckName: 'King Maker',
-  resolvedCount: 100
-}
-[AI] Persisted deckImportResolved event for AI Opponent 1: { aiPlayerId: 'p_jjz2vu3w', cardCount: 100 }
-[AI] Added AI player to auto-pass set: { gameId: 'game_mlhfa89i', playerId: 'p_jjz2vu3w' }
-[AI] Registered AI player: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
-  name: 'AI Opponent 1',
-  strategy: 'basic',
-  difficulty: 0.5
-}
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+  zones: { p_f26dx8ll: { handCount: 0, firstKnown: [] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[join] Set game creator for game_mlhgjpio to player p_wn4kdkwk
+[Automation] Auto-pass for turn disabled for p_wn4kdkwk in game game_mlhgjpio
+[Automation] Auto-pass for turn state in game game_mlhgjpio: {}
+[Automation] Auto-pass enabled for p_wn4kdkwk in game game_mlhgjpio
+[Automation] Auto-pass players in game game_mlhgjpio: [ 'p_wn4kdkwk' ]
+[importDeckResolved] Importing 100 cards for player p_f26dx8ll
+[importDeckResolved] Mapped 100 cards. First card: Kynaios and Tiro of Meletis (card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_77ee12e5dcc5dfd8)
+[importDeckResolved] Library set for player p_f26dx8ll. Final library size: 100
+[AI] Deck imported for AI Opponent 1: { aiPlayerId: 'p_f26dx8ll', deckName: 'King Maker', resolvedCount: 100 }
+[AI] Persisted deckImportResolved event for AI Opponent 1: { aiPlayerId: 'p_f26dx8ll', cardCount: 100 }
+[AI] Added AI player to auto-pass set: { gameId: 'game_mlhgjpio', playerId: 'p_f26dx8ll' }
+[AI] Registered AI player: { gameId: 'game_mlhgjpio', playerId: 'p_f26dx8ll', name: 'AI Opponent 1', strategy: 'basic',difficulty: 0.5 }
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 0, firstKnown: [] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 0, firstKnown: [] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -121,87 +63,64 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 0, firstKnown: [] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 0, firstKnown: [] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:45.962Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777645962_ydys4) ==========
-2026-02-11T02:40:45.963Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:45.963Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777645962_ydys4)
-[AI] Triggering auto-commander selection for: { gameId: 'game_mlhfa89i', aiPlayerId: 'p_jjz2vu3w' }
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+2026-02-11T03:16:02.534Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779762534_3r42i) ==========
+2026-02-11T03:16:02.534Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:02.534Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779762534_3r42i)
+[AI] Triggering auto-commander selection for: { gameId: 'game_mlhgjpio', aiPlayerId: 'p_f26dx8ll' }
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: false,
   hasHand: false,
   handCount: 0,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI needs to select commander
-[deck] canImportWithoutWipe {
-  gameId: 'game_mlhfa89i',
-  phaseStr: 'PRE_GAME',
-  seqVal: 5,
-  isPreGame: true
-}
-[deck] importDeck called { gameId: 'game_mlhfa89i', playerId: 'p_sgi5mhxa' }
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: false,
   hasHand: false,
   handCount: 0,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI needs to select commander
 [AI] Deck color identity: WURG
 [AI] Selected single commander from first card (exact identity match): Kynaios and Tiro of Meletis
-[AI] Auto-selecting commander for AI: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] Auto-selecting commander for AI: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   commanderNames: [ 'Kynaios and Tiro of Meletis' ],
-  commanderIds: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_1bd6b0101363e3c7' ],
-  colorIdentity: [ 'W', 'U', 'R', 'G' ]
-}
-[setCommander] Initialized inCommandZone for p_jjz2vu3w: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_1bd6b0101363e3c7']
-[setCommander] Library size before commander removal: 100, Commander IDs to remove: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_1bd6b0101363e3c7' ]
-[setCommander] Found commander "Kynaios and Tiro of Meletis" (card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_1bd6b0101363e3c7) in library at index 0
+  commanderIds: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_77ee12e5dcc5dfd8' ],
+  colorIdentity: [ 'W', 'U', 'R', 'G' ] }
+[setCommander] Initialized inCommandZone for p_f26dx8ll: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_77ee12e5dcc5dfd8']
+[setCommander] Library size before commander removal: 100, Commander IDs to remove: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_77ee12e5dcc5dfd8' ]
+[setCommander] Found commander "Kynaios and Tiro of Meletis" (card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_77ee12e5dcc5dfd8) in library at index 0
 [setCommander] Removing 1 commander(s) from library at indices: [ 0 ] library size before: 100
-[setCommander] Removed card at index 0: Kynaios and Tiro of Meletis (card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_1bd6b0101363e3c7)
+[setCommander] Removed card at index 0: Kynaios and Tiro of Meletis (card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_77ee12e5dcc5dfd8)
 [setCommander] Library size after removal: 99
-[setCommander] Updated zones[p_jjz2vu3w].libraryCount to 99
+[setCommander] Updated zones[p_f26dx8ll].libraryCount to 99
 [AI] After setCommander - hand count: 7
-[AI] Persisted opening draw events (shuffle + draw) for player p_jjz2vu3w
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+[AI] Persisted opening draw events (shuffle + draw) for player p_f26dx8ll
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] }} }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -212,79 +131,56 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:46.579Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777646579_s9fj6) ==========
-2026-02-11T02:40:46.579Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:46.579Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777646579_s9fj6)
-[AI] Commander set for AI player: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
-  commanderNames: [ 'Kynaios and Tiro of Meletis' ],
-  finalHandCount: 7
-}
+2026-02-11T03:16:03.161Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779763161_q0mzy) ==========
+2026-02-11T03:16:03.161Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:03.161Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779763161_q0mzy)
+[AI] Commander set for AI player: { gameId: 'game_mlhgjpio', playerId: 'p_f26dx8ll', commanderNames: [ 'Kynaios and Tiro of Meletis' ], finalHandCount: 7 }
 [AI] Commander selection complete, continuing game flow
-[AI] autoSelectAICommander: player already has commander, skipping {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
-  commanderIds: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_1bd6b0101363e3c7' ]
-}
+[AI] autoSelectAICommander: player already has commander, skipping { gameId: 'game_mlhgjpio', playerId: 'p_f26dx8ll', commanderIds: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_77ee12e5dcc5dfd8' ] }
 [AI] Commander selection complete, continuing game flow
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI evaluating hand for mulligan decision
-[AI] AI making mulligan decision: { gameId: 'game_mlhfa89i', playerId: 'p_jjz2vu3w' }
-[AI] Mulligan analysis: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] AI making mulligan decision: { gameId: 'game_mlhgjpio', playerId: 'p_f26dx8ll' }
+[AI] Mulligan analysis: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   handSize: 7,
   currentMulligans: 0,
   effectiveHandSizeAfterMulligan: 7,
-  landCount: 4,
+  landCount: 3,
   manaSourceCount: 1,
-  totalManaProduction: 5,
-  lowCostSpellCount: 3,
+  totalManaProduction: 4,
+  lowCostSpellCount: 4,
   midCostSpellCount: 0,
-  highCostSpellCount: 0
-}
+  highCostSpellCount: 0 }
 [AI] Hand has good land count (3-5 lands), keeping
 [AI] AI keeping hand
 [AI] AI is ready to start game (hand kept)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] }} }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -295,118 +191,85 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:46.885Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777646885_7fqky) ==========
-2026-02-11T02:40:46.885Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:46.885Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777646885_7fqky)
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+2026-02-11T03:16:03.467Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779763467_sdknj) ==========
+2026-02-11T03:16:03.467Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:03.467Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779763467_sdknj)
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[deck] importDeck resolved cards {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
+[deck] listSavedDecks called { gameId: 'game_mlhgjpio', folder: undefined, playerId: 'p_wn4kdkwk' }
+[deck] canImportWithoutWipe { gameId: 'game_mlhgjpio', phaseStr: 'PRE_GAME', seqVal: 9, isPreGame: true }
+[deck] importDeck called { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk' }
+[deck] importDeck resolved cards { gameId: 'game_mlhgjpio',
+  playerId: 'p_wn4kdkwk',
   resolvedCount: 100,
   missingCount: 0,
-  firstCard: {
-    name: 'Neera, Wild Mage',
-    id: 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1',
-    type_line: 'Legendary Creature ΓÇö Human Elf Shaman'
-  },
-  lastCard: {
-    name: 'The Eternity Elevator',
-    id: '1bb90ab9-43b9-4991-806a-0afc4d8caf5f_mlhfahb2_2s_e950f7d8',
-    type_line: 'Legendary Artifact ΓÇö Spacecraft'
-  }
-}
-[deck] importDeck pregame-check {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  phaseStr: 'PRE_GAME',
-  seqVal: 9,
-  isPreGame: true
-}
-[deck] clearPlayerTransientZonesForImport { gameId: 'game_mlhfa89i', playerId: 'p_sgi5mhxa' }
-[deck] addPendingInitialDrawFlag {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  pendingInitialDrawSize: 1
-}
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+  firstCard:
+   { name: 'Neera, Wild Mage', id: 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9', type_line: 'Legendary Creature ΓÇö Human Elf Shaman' },
+  lastCard:
+   { name: 'The Eternity Elevator', id: '1bb90ab9-43b9-4991-806a-0afc4d8caf5f_mlhgk07j_2s_065ce9ad', type_line: 'Legendary Artifact ΓÇö Spacecraft' } }
+[deck] importDeck pregame-check { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', phaseStr: 'PRE_GAME', seqVal: 9, isPreGame: true }
+[deck] clearPlayerTransientZonesForImport { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk' }
+[deck] addPendingInitialDrawFlag { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', pendingInitialDrawSize: 1 }
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] }} }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -417,65 +280,37 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:47.394Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777647394_nki43) ==========
-2026-02-11T02:40:47.394Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:47.394Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777647394_nki43)
-[deck] importDeck (pre-game) emitting suggestCommanders {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  names: [ 'Neera, Wild Mage', 'Baeloth Barrityl, Entertainer' ]
-}
-[deck] getImportedDeckCandidates {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  candidatesCount: 100
-}
-[import] applyConfirmedImport start {
-  gameId: 'game_mlhfa89i',
-  initiator: 'p_sgi5mhxa',
-  cards: 100,
-  importerOnly: true,
-  confirmId: 'imp_1770777647391_p2zb69'
-}
-[import] importer-only apply: skipping full reset { gameId: 'game_mlhfa89i' }
-[importDeckResolved] Importing 100 cards for player p_sgi5mhxa
-[importDeckResolved] Mapped 100 cards. First card: Neera, Wild Mage (e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1)
-[importDeckResolved] Library set for player p_sgi5mhxa. Final library size: 100
-[import] importDeckResolved attempted { gameId: 'game_mlhfa89i', playerId: 'p_sgi5mhxa' }
-[import] state.zones libraryCount update (no library array duplication) { gameId: 'game_mlhfa89i', playerId: 'p_sgi5mhxa', libraryCount: 100 }
-[deck] addPendingInitialDrawFlag {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  pendingInitialDrawSize: 1
-}
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:11.411Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779771411_qlxuh) ==========
+2026-02-11T03:16:11.411Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:11.411Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779771411_qlxuh)
+[deck] importDeck (pre-game) emitting suggestCommanders { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', names: [ 'Neera, Wild Mage', 'Baeloth Barrityl, Entertainer' ] }
+[deck] getImportedDeckCandidates { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', candidatesCount: 100 }
+[import] applyConfirmedImport start { gameId: 'game_mlhgjpio', initiator: 'p_wn4kdkwk', cards: 100, importerOnly: true,confirmId: 'imp_1770779771408_ak5fbn' }
+[import] importer-only apply: skipping full reset { gameId: 'game_mlhgjpio' }
+[importDeckResolved] Importing 100 cards for player p_wn4kdkwk
+[importDeckResolved] Mapped 100 cards. First card: Neera, Wild Mage (e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9)
+[importDeckResolved] Library set for player p_wn4kdkwk. Final library size: 100
+[import] importDeckResolved attempted { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk' }
+[import] state.zones libraryCount update (no library array duplication) { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', libraryCount: 100 }
+[deck] addPendingInitialDrawFlag { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', pendingInitialDrawSize: 1 }
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] }} }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -486,53 +321,31 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:47.600Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777647600_nbb46) ==========
-2026-02-11T02:40:47.600Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:47.600Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777647600_nbb46)
-[commander] emitImportedDeckCandidatesToPlayer {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  candidatesCount: 100
-}
-[commander] emitSuggestCommandersToPlayer {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  names: [ 'Neera, Wild Mage', 'Baeloth Barrityl, Entertainer' ]
-}
-[import] suggestCommanders emitted (importerSocket) {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  names: [ 'Neera, Wild Mage', 'Baeloth Barrityl, Entertainer' ]
-}
-[import] importApplied sent to player sockets { gameId: 'game_mlhfa89i', playerId: 'p_sgi5mhxa' }
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:11.623Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779771623_wfl9p) ==========
+2026-02-11T03:16:11.623Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:11.623Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779771623_wfl9p)
+[commander] emitImportedDeckCandidatesToPlayer { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', candidatesCount: 100 }
+[commander] emitSuggestCommandersToPlayer { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', names: [ 'Neera, Wild Mage', 'Baeloth Barrityl, Entertainer' ] }
+[import] suggestCommanders emitted (importerSocket) { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', names: [ 'Neera,Wild Mage', 'Baeloth Barrityl, Entertainer' ] }
+[import] importApplied sent to player sockets { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk' }
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] }} }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -543,37 +356,27 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:47.603Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777647603_bw7f6) ==========
-2026-02-11T02:40:47.603Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:47.603Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777647603_bw7f6)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:11.625Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779771625_djc1s) ==========
+2026-02-11T03:16:11.625Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:11.625Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779771625_djc1s)
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] }} }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -584,128 +387,96 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 0, firstKnown: [] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 0, firstKnown: [] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:47.604Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777647604_lr8zs) ==========
-2026-02-11T02:40:47.604Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:47.604Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777647604_lr8zs)
-[import] applyConfirmedImport complete {
-  gameId: 'game_mlhfa89i',
-  initiator: 'p_sgi5mhxa',
-  confirmId: 'imp_1770777647391_p2zb69'
-}
-[deck] getImportedDeckCandidates {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  candidatesCount: 100
-}
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+2026-02-11T03:16:11.626Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779771626_c12kz) ==========
+2026-02-11T03:16:11.626Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:11.626Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779771626_c12kz)
+[import] applyConfirmedImport complete { gameId: 'game_mlhgjpio', initiator: 'p_wn4kdkwk', confirmId: 'imp_1770779771408_ak5fbn' }
+[deck] getImportedDeckCandidates { gameId: 'game_mlhgjpio', playerId: 'p_wn4kdkwk', candidatesCount: 100 }
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[commander] setCommander incoming {
-  gameId: 'game_mlhfa89i',
-  from: 'p_sgi5mhxa',
+[commander] setCommander incoming { gameId: 'game_mlhgjpio',
+  from: 'p_wn4kdkwk',
   commanderNames: [ 'Neera, Wild Mage' ],
-  commanderIds: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1' ]
-}
-[commander] setCommander idsToApply {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
+  commanderIds: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9' ] }
+[commander] setCommander idsToApply { gameId: 'game_mlhgjpio',
+  playerId: 'p_wn4kdkwk',
   names: [ 'Neera, Wild Mage' ],
-  idsToApply: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1' ]
-}
-[commander-socket] Calling game.setCommander for player p_sgi5mhxa with names: [ 'Neera, Wild Mage' ] ids: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1' ]
-[setCommander] Initialized inCommandZone for p_sgi5mhxa: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1' ]
-[setCommander] Library size before commander removal: 100, Commander IDs to remove: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1' ]
-[setCommander] Found commander "Neera, Wild Mage" (e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1) in libraryat index 0
+  idsToApply: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9' ] }
+[commander-socket] Calling game.setCommander for player p_wn4kdkwk with names: [ 'Neera, Wild Mage' ] ids: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9' ]
+[setCommander] Initialized inCommandZone for p_wn4kdkwk: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9' ]
+[setCommander] Library size before commander removal: 100, Commander IDs to remove: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9' ]
+[setCommander] Found commander "Neera, Wild Mage" (e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9) in libraryat index 0
 [setCommander] Removing 1 commander(s) from library at indices: [ 0 ] library size before: 100
-[setCommander] Removed card at index 0: Neera, Wild Mage (e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1)
+[setCommander] Removed card at index 0: Neera, Wild Mage (e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9)
 [setCommander] Library size after removal: 99
-[setCommander] Updated zones[p_sgi5mhxa].libraryCount to 99
-[commander] Persisted opening draw events (shuffle + draw 7) for player p_sgi5mhxa
-[DEBUG_CMD] after setCommander {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_sgi5mhxa',
-  commanderIds: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhfahb1_1_ebabb5e1' ],
+[setCommander] Updated zones[p_wn4kdkwk].libraryCount to 99
+[commander] Persisted opening draw events (shuffle + draw 7) for player p_wn4kdkwk
+[DEBUG_CMD] after setCommander { gameId: 'game_mlhgjpio',
+  playerId: 'p_wn4kdkwk',
+  commanderIds: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mlhgk07i_1_c36bd5d9' ],
   commanderNames: [ 'Neera, Wild Mage' ],
   libraryCount: 92,
-  libraryTop: null
-}
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+  libraryTop: null }
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -716,61 +487,44 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:40:49.681Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777649681_j9za9) ==========
-2026-02-11T02:40:49.681Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:40:49.681Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777649681_j9za9)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+2026-02-11T03:16:13.240Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779773240_g9a4r) ==========
+2026-02-11T03:16:13.240Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:13.240Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779773240_g9a4r)
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -781,102 +535,70 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:41:03.600Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777663600_9r10z) ==========
-2026-02-11T02:41:03.600Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:41:03.600Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777663600_9r10z)
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+2026-02-11T03:16:21.136Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779781136_9zvab) ==========
+2026-02-11T03:16:21.136Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:21.136Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779781136_9zvab)
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] Waiting for other players to keep their hands
-[priority] Entering resolution mode - priority will return to p_jjz2vu3w after resolution completes
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+[priority] Entering resolution mode - priority will return to p_f26dx8ll after resolution completes
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_jjz2vu3w, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_f26dx8ll, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:41:05.736Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777665736_obrz8) ==========
-2026-02-11T02:41:05.736Z [checkAndTriggerAutoPass] Priority: null, Phase: pre_game, Step: undefined
-2026-02-11T02:41:05.736Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1770777665736_obrz8)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:24.428Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779784428_sgro4) ==========
+2026-02-11T03:16:24.428Z [checkAndTriggerAutoPass] Priority: null, Phase: pre_game, Step: undefined
+2026-02-11T03:16:24.428Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1770779784428_sgro4)
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_jjz2vu3w, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_f26dx8ll, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=null, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:41:05.737Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777665737_ct1j2) ==========
-2026-02-11T02:41:05.737Z [checkAndTriggerAutoPass] Priority: null, Phase: pre_game, Step: undefined
-2026-02-11T02:41:05.737Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1770777665737_ct1j2)
-[priority] Exiting resolution mode - priority restored to p_jjz2vu3w
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:24.430Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779784430_p8kiq) ==========
+2026-02-11T03:16:24.430Z [checkAndTriggerAutoPass] Priority: null, Phase: pre_game, Step: undefined
+2026-02-11T03:16:24.430Z [checkAndTriggerAutoPass] Priority is null due to active resolution (1 pending steps), returning (ID: autopass_1770779784430_p8kiq)
+[priority] Exiting resolution mode - priority restored to p_f26dx8ll
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -887,38 +609,28 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:41:21.999Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777681999_toig3) ==========
-2026-02-11T02:41:21.999Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:41:21.999Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777681999_toig3)
-[Resolution] Step step-1770777665734-1 completed by p_sgi5mhxa: hand_to_bottom
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:44.714Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779804714_pxbh0) ==========
+2026-02-11T03:16:44.714Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:44.714Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779804714_pxbh0)
+[Resolution] Step step-1770779784426-1 completed by p_wn4kdkwk: hand_to_bottom
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 6, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_jjz2vu3w, match=true
-[getPlayableCardIds] Player p_jjz2vu3w: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 6, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_f26dx8ll, match=true
+[getPlayableCardIds] Player p_f26dx8ll: step=undefined, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
@@ -929,1276 +641,382 @@ Socket connected: VDmmmP7vGt2hOAOxAAAB
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_jjz2vu3w: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_jjz2vu3w: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_jjz2vu3w: No actions available - returning FALSE
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
+[canAct] p_f26dx8ll: step=, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_f26dx8ll: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_f26dx8ll: No actions available - returning FALSE
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 6, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_jjz2vu3w, viewerId=p_sgi5mhxa, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 6, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_f26dx8ll, viewerId=p_wn4kdkwk, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-2026-02-11T02:41:22.006Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777682006_1b567) ==========
-2026-02-11T02:41:22.006Z [checkAndTriggerAutoPass] Priority: p_jjz2vu3w, Phase: pre_game, Step: undefined
-2026-02-11T02:41:22.006Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770777682006_1b567)
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+2026-02-11T03:16:44.719Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779804719_t1b1p) ==========
+2026-02-11T03:16:44.719Z [checkAndTriggerAutoPass] Priority: p_f26dx8ll, Phase: pre_game, Step: undefined
+2026-02-11T03:16:44.720Z [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: autopass_1770779804719_t1b1p)
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'PRE_GAME',
   step: '',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: true,
-  hasPriority: true
-}
+  hasPriority: true }
 [AI] AI is active player in pre_game, checking if ready to advance
 [AI] All players ready, AI advancing from pre_game to beginning phase
-2026-02-11T02:41:22.309Z [nextTurn] Reset planeswalker loyalty activation counters for player p_sgi5mhxa
-2026-02-11T02:41:22.309Z [nextTurn] Cleared autoPassForTurn flags for new turn
-2026-02-11T02:41:22.309Z [nextTurn] Cleared noncreatureSpellsCastThisTurn for new turn
-2026-02-11T02:41:22.309Z [nextTurn] Cleared spellsCastFromHandThisTurn for new turn
-2026-02-11T02:41:22.309Z [nextTurn] Cleared spellsCastThisTurn for new turn
-2026-02-11T02:41:22.309Z [nextTurn] Cleared playedCardFromExileThisTurn for new turn
-2026-02-11T02:41:22.309Z [nextTurn] Advanced to player p_sgi5mhxa, phase=beginning, step=UNTAP
-[calculateMaxLandsPerTurn] Calculating for player p_jjz2vu3w, battlefield has 0 permanents
-[calculateMaxLandsPerTurn] Final result for p_jjz2vu3w: 1 lands per turn
-[calculateMaxLandsPerTurn] Calculating for player p_sgi5mhxa, battlefield has 0 permanents
-[calculateMaxLandsPerTurn] Final result for p_sgi5mhxa: 1 lands per turn
+2026-02-11T03:16:45.031Z [nextTurn] Reset planeswalker loyalty activation counters for player p_wn4kdkwk
+2026-02-11T03:16:45.031Z [nextTurn] Cleared autoPassForTurn flags for new turn
+2026-02-11T03:16:45.031Z [nextTurn] Cleared noncreatureSpellsCastThisTurn for new turn
+2026-02-11T03:16:45.031Z [nextTurn] Cleared spellsCastFromHandThisTurn for new turn
+2026-02-11T03:16:45.031Z [nextTurn] Cleared spellsCastThisTurn for new turn
+2026-02-11T03:16:45.031Z [nextTurn] Cleared playedCardFromExileThisTurn for new turn
+2026-02-11T03:16:45.031Z [nextTurn] Advanced to player p_wn4kdkwk, phase=beginning, step=UNTAP
+[calculateMaxLandsPerTurn] Calculating for player p_f26dx8ll, battlefield has 0 permanents
+[calculateMaxLandsPerTurn] Final result for p_f26dx8ll: 1 lands per turn
+[calculateMaxLandsPerTurn] Calculating for player p_wn4kdkwk, battlefield has 0 permanents
+[calculateMaxLandsPerTurn] Final result for p_wn4kdkwk: 1 lands per turn
 [recalculateHandVisibility] Players with hand reveal effects: none
 [AI] Advanced game from pre_game to beginning phase via nextTurn
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 6, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_jjz2vu3w, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 6, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_f26dx8ll, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 6, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_sgi5mhxa, match=true
-[getPlayableCardIds] Player p_sgi5mhxa: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 6, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_wn4kdkwk, match=true
+[getPlayableCardIds] Player p_wn4kdkwk: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
 [getPlayableCardIds] Checking 6 cards in hand
+[getPlayableCardIds] Card Tibalt's Trickery blocked - no valid targets
 [getPlayableCardIds] Not checking lands: isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] Checking 1 commanders in command zone
 [getPlayableCardIds] Commander Neera, Wild Mage not playable - canCastNow=false, canPay=false
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_sgi5mhxa: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-[canRespond] p_sgi5mhxa: checking instant-speed responses only
-[canRespond] p_sgi5mhxa: No instant-speed responses available (returning false)
+[canAct] p_wn4kdkwk: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+[canRespond] p_wn4kdkwk: checking instant-speed responses only
+[canRespond] p_wn4kdkwk: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-2026-02-11T02:41:22.312Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777682312_f2ay1) ==========
-2026-02-11T02:41:22.312Z [checkAndTriggerAutoPass] Priority: p_sgi5mhxa, Phase: beginning, Step: UNTAP
-[canAct] p_sgi5mhxa: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-2026-02-11T02:41:22.312Z [checkAndTriggerAutoPass] canAct check: p_sgi5mhxa isActive=true canAct=false (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.312Z [checkAndTriggerAutoPass] p_sgi5mhxa CANNOT ACT - proceeding with auto-pass (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.312Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_sgi5mhxa with 150ms delay (ID: autopass_1770777682312_f2ay1)
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+2026-02-11T03:16:45.037Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779805037_nrkme) ==========
+2026-02-11T03:16:45.037Z [checkAndTriggerAutoPass] Priority: p_wn4kdkwk, Phase: beginning, Step: UNTAP
+[canAct] p_wn4kdkwk: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+2026-02-11T03:16:45.037Z [checkAndTriggerAutoPass] canAct check: p_wn4kdkwk isActive=true canAct=false (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.037Z [checkAndTriggerAutoPass] p_wn4kdkwk CANNOT ACT - proceeding with auto-pass (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.037Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_wn4kdkwk with 150ms delay (ID: autopass_1770779805037_nrkme)
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'BEGINNING',
   step: 'UNTAP',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: false,
-  hasPriority: false
-}
-[Automation] Auto-pass for turn disabled for p_sgi5mhxa in game game_mlhfa89i
-[Automation] Auto-pass for turn state in game game_mlhfa89i: {}
-2026-02-11T02:41:22.478Z [executeAutoPass] ========== EXECUTING for p_sgi5mhxa (ID: autopass_1770777682312_f2ay1) ==========
-2026-02-11T02:41:22.478Z [executeAutoPass] Phase: beginning, Step: UNTAP
-[canAct] p_sgi5mhxa: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-2026-02-11T02:41:22.478Z [executeAutoPass] Re-check: p_sgi5mhxa canAct=false (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.478Z [executeAutoPass] Proceeding with auto-pass for p_sgi5mhxa (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.478Z [executeAutoPass] Set _autoPassInProgress flag for p_sgi5mhxa (ID: autopass_1770777682312_f2ay1)
-[priority] autoPassLoop starting - active players: p_jjz2vu3w, p_sgi5mhxa, autoPassEnabled: p_sgi5mhxa, p_jjz2vu3w, currentPriority: p_jjz2vu3w, turnPlayer: p_sgi5mhxa
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
-[priority] autoPassLoop - checking p_jjz2vu3w (non-active): canAct=false, stack.length=0, step=UNTAP
-[priority] Auto-passing for p_jjz2vu3w - no available actions
-2026-02-11T02:41:22.480Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.483Z [executeAutoPass] Advancing step after auto-pass for p_sgi5mhxa (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.500Z [nextStep] ========== CALLED ==========
-2026-02-11T02:41:22.500Z [nextStep] Game: game_mlhfa89i
-2026-02-11T02:41:22.500Z [nextStep] Current: beginning/UNTAP
-2026-02-11T02:41:22.500Z [nextStep] Priority: p_jjz2vu3w, Turn: p_sgi5mhxa
-2026-02-11T02:41:22.500Z [nextStep] Call stack:
+  hasPriority: false }
+[Automation] Auto-pass for turn disabled for p_wn4kdkwk in game game_mlhgjpio
+[Automation] Auto-pass for turn state in game game_mlhgjpio: {}
+2026-02-11T03:16:45.199Z [executeAutoPass] ========== EXECUTING for p_wn4kdkwk (ID: autopass_1770779805037_nrkme) ==========
+2026-02-11T03:16:45.199Z [executeAutoPass] Phase: beginning, Step: UNTAP
+[canAct] p_wn4kdkwk: step=UNTAP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+2026-02-11T03:16:45.199Z [executeAutoPass] Re-check: p_wn4kdkwk canAct=false (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.199Z [executeAutoPass] Proceeding with auto-pass for p_wn4kdkwk (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.199Z [executeAutoPass] Set _autoPassInProgress flag for p_wn4kdkwk (ID: autopass_1770779805037_nrkme)
+[priority] autoPassLoop starting - active players: p_f26dx8ll, p_wn4kdkwk, autoPassEnabled: p_wn4kdkwk, p_f26dx8ll, currentPriority: p_f26dx8ll, turnPlayer: p_wn4kdkwk
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
+[priority] autoPassLoop - checking p_f26dx8ll (non-active): canAct=false, stack.length=0, step=UNTAP
+[priority] Auto-passing for p_f26dx8ll - no available actions
+2026-02-11T03:16:45.200Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.203Z [executeAutoPass] Advancing step after auto-pass for p_wn4kdkwk (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.222Z [nextStep] ========== CALLED ==========
+2026-02-11T03:16:45.222Z [nextStep] Game: game_mlhgjpio
+2026-02-11T03:16:45.222Z [nextStep] Current: beginning/UNTAP
+2026-02-11T03:16:45.222Z [nextStep] Priority: p_f26dx8ll, Turn: p_wn4kdkwk
+2026-02-11T03:16:45.222Z [nextStep] Call stack:
         at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:90:21)
         at Timeout.executeAutoPass (D:\Git\MTGEDH\server\src\socket\util.ts:2058:31)
         at listOnTimeout (node:internal/timers:588:17)
         at process.processTimers (node:internal/timers:523:7)
-2026-02-11T02:41:22.500Z [nextStep] Advanced to phase=beginning, step=UPKEEP
-2026-02-11T02:41:22.501Z [nextStep] Granting priority to active player p_sgi5mhxa (step: UPKEEP, stack size: 0)
-[canAct] p_sgi5mhxa: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-[canRespond] p_sgi5mhxa: checking instant-speed responses only
-[canRespond] p_sgi5mhxa: No instant-speed responses available (returning false)
-2026-02-11T02:41:22.501Z [nextStep] DEBUG - Turn Player p_sgi5mhxa:
-2026-02-11T02:41:22.501Z [nextStep]   Hand (6): Thundering Falls, Whims of the Fates, And├║ril, Narsil Reforged, Mountain, Mindmoil, Minamo, School at Water's Edge
-2026-02-11T02:41:22.501Z [nextStep]   canAct: false, canRespond: false
-2026-02-11T02:41:22.501Z [nextStep] Checking if auto-pass should apply after granting priority
-[priority] autoPassLoop starting - active players: p_jjz2vu3w, p_sgi5mhxa, autoPassEnabled: p_sgi5mhxa, p_jjz2vu3w, currentPriority: p_sgi5mhxa, turnPlayer: p_sgi5mhxa
-[canAct] p_sgi5mhxa: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-[priority] autoPassLoop - checking p_sgi5mhxa (ACTIVE): canAct=false, stack.length=0, step=UPKEEP
-[priority] Auto-passing for p_sgi5mhxa - no available actions
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
-[priority] autoPassLoop - checking p_jjz2vu3w (non-active): canAct=false, stack.length=0, step=UPKEEP
-[priority] Auto-passing for p_jjz2vu3w - no available actions
-2026-02-11T02:41:22.502Z [nextStep] All players auto-passed after granting priority - caller should advance step
-2026-02-11T02:41:22.502Z [executeAutoPass] Cleared _autoPassInProgress flag for p_sgi5mhxa (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.502Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1770777682312_f2ay1)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:45.222Z [nextStep] Advanced to phase=beginning, step=UPKEEP
+2026-02-11T03:16:45.223Z [nextStep] Granting priority to active player p_wn4kdkwk (step: UPKEEP, stack size: 0)
+[canAct] p_wn4kdkwk: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+[canRespond] p_wn4kdkwk: checking instant-speed responses only
+[canRespond] p_wn4kdkwk: No instant-speed responses available (returning false)
+2026-02-11T03:16:45.223Z [nextStep] DEBUG - Turn Player p_wn4kdkwk:
+2026-02-11T03:16:45.223Z [nextStep]   Hand (6): Izzet Boilerworks, Island, Krark's Thumb, Tibalt's Trickery, Izzet Signet, Otawara, Soaring City
+2026-02-11T03:16:45.223Z [nextStep]   canAct: false, canRespond: false
+2026-02-11T03:16:45.223Z [nextStep] Checking if auto-pass should apply after granting priority
+[priority] autoPassLoop starting - active players: p_f26dx8ll, p_wn4kdkwk, autoPassEnabled: p_wn4kdkwk, p_f26dx8ll, currentPriority: p_wn4kdkwk, turnPlayer: p_wn4kdkwk
+[canAct] p_wn4kdkwk: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+[priority] autoPassLoop - checking p_wn4kdkwk (ACTIVE): canAct=false, stack.length=0, step=UPKEEP
+[priority] Auto-passing for p_wn4kdkwk - no available actions
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
+[priority] autoPassLoop - checking p_f26dx8ll (non-active): canAct=false, stack.length=0, step=UPKEEP
+[priority] Auto-passing for p_f26dx8ll - no available actions
+2026-02-11T03:16:45.225Z [nextStep] All players auto-passed after granting priority - caller should advance step
+2026-02-11T03:16:45.225Z [executeAutoPass] Cleared _autoPassInProgress flag for p_wn4kdkwk (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.225Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1770779805037_nrkme)
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 6, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_jjz2vu3w, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 6, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_f26dx8ll, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 6, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_sgi5mhxa, match=true
-[getPlayableCardIds] Player p_sgi5mhxa: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 6, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_wn4kdkwk, match=true
+[getPlayableCardIds] Player p_wn4kdkwk: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
 [getPlayableCardIds] Checking 6 cards in hand
+[getPlayableCardIds] Card Tibalt's Trickery blocked - no valid targets
 [getPlayableCardIds] Not checking lands: isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] Checking 1 commanders in command zone
 [getPlayableCardIds] Commander Neera, Wild Mage not playable - canCastNow=false, canPay=false
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_sgi5mhxa: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-[canRespond] p_sgi5mhxa: checking instant-speed responses only
-[canRespond] p_sgi5mhxa: No instant-speed responses available (returning false)
+[canAct] p_wn4kdkwk: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+[canRespond] p_wn4kdkwk: checking instant-speed responses only
+[canRespond] p_wn4kdkwk: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-2026-02-11T02:41:22.505Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777682505_s3dwp) ==========
-2026-02-11T02:41:22.505Z [checkAndTriggerAutoPass] Priority: p_sgi5mhxa, Phase: beginning, Step: UPKEEP
-[canAct] p_sgi5mhxa: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-2026-02-11T02:41:22.505Z [checkAndTriggerAutoPass] canAct check: p_sgi5mhxa isActive=true canAct=false (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.505Z [checkAndTriggerAutoPass] p_sgi5mhxa CANNOT ACT - proceeding with auto-pass (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.505Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_sgi5mhxa with 150ms delay (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.505Z [executeAutoPass] Broadcast complete (ID: autopass_1770777682312_f2ay1)
-2026-02-11T02:41:22.665Z [executeAutoPass] ========== EXECUTING for p_sgi5mhxa (ID: autopass_1770777682505_s3dwp) ==========
-2026-02-11T02:41:22.665Z [executeAutoPass] Phase: beginning, Step: UPKEEP
-[canAct] p_sgi5mhxa: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-2026-02-11T02:41:22.665Z [executeAutoPass] Re-check: p_sgi5mhxa canAct=false (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.665Z [executeAutoPass] Proceeding with auto-pass for p_sgi5mhxa (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.665Z [executeAutoPass] Set _autoPassInProgress flag for p_sgi5mhxa (ID: autopass_1770777682505_s3dwp)
-[priority] autoPassLoop starting - active players: p_jjz2vu3w, p_sgi5mhxa, autoPassEnabled: p_sgi5mhxa, p_jjz2vu3w, currentPriority: p_jjz2vu3w, turnPlayer: p_sgi5mhxa
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
-[priority] autoPassLoop - checking p_jjz2vu3w (non-active): canAct=false, stack.length=0, step=UPKEEP
-[priority] Auto-passing for p_jjz2vu3w - no available actions
-2026-02-11T02:41:22.665Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.665Z [executeAutoPass] Advancing step after auto-pass for p_sgi5mhxa (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.665Z [nextStep] ========== CALLED ==========
-2026-02-11T02:41:22.666Z [nextStep] Game: game_mlhfa89i
-2026-02-11T02:41:22.666Z [nextStep] Current: beginning/UPKEEP
-2026-02-11T02:41:22.666Z [nextStep] Priority: p_jjz2vu3w, Turn: p_sgi5mhxa
-2026-02-11T02:41:22.666Z [nextStep] Call stack:
+2026-02-11T03:16:45.227Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779805227_6v4eo) ==========
+2026-02-11T03:16:45.227Z [checkAndTriggerAutoPass] Priority: p_wn4kdkwk, Phase: beginning, Step: UPKEEP
+[canAct] p_wn4kdkwk: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+2026-02-11T03:16:45.228Z [checkAndTriggerAutoPass] canAct check: p_wn4kdkwk isActive=true canAct=false (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.228Z [checkAndTriggerAutoPass] p_wn4kdkwk CANNOT ACT - proceeding with auto-pass (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.228Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_wn4kdkwk with 150ms delay (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.228Z [executeAutoPass] Broadcast complete (ID: autopass_1770779805037_nrkme)
+2026-02-11T03:16:45.387Z [executeAutoPass] ========== EXECUTING for p_wn4kdkwk (ID: autopass_1770779805227_6v4eo) ==========
+2026-02-11T03:16:45.387Z [executeAutoPass] Phase: beginning, Step: UPKEEP
+[canAct] p_wn4kdkwk: step=UPKEEP, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+2026-02-11T03:16:45.387Z [executeAutoPass] Re-check: p_wn4kdkwk canAct=false (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.387Z [executeAutoPass] Proceeding with auto-pass for p_wn4kdkwk (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.387Z [executeAutoPass] Set _autoPassInProgress flag for p_wn4kdkwk (ID: autopass_1770779805227_6v4eo)
+[priority] autoPassLoop starting - active players: p_f26dx8ll, p_wn4kdkwk, autoPassEnabled: p_wn4kdkwk, p_f26dx8ll, currentPriority: p_f26dx8ll, turnPlayer: p_wn4kdkwk
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
+[priority] autoPassLoop - checking p_f26dx8ll (non-active): canAct=false, stack.length=0, step=UPKEEP
+[priority] Auto-passing for p_f26dx8ll - no available actions
+2026-02-11T03:16:45.387Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.387Z [executeAutoPass] Advancing step after auto-pass for p_wn4kdkwk (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.388Z [nextStep] ========== CALLED ==========
+2026-02-11T03:16:45.388Z [nextStep] Game: game_mlhgjpio
+2026-02-11T03:16:45.388Z [nextStep] Current: beginning/UPKEEP
+2026-02-11T03:16:45.388Z [nextStep] Priority: p_f26dx8ll, Turn: p_wn4kdkwk
+2026-02-11T03:16:45.388Z [nextStep] Call stack:
         at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:90:21)
         at Timeout.executeAutoPass (D:\Git\MTGEDH\server\src\socket\util.ts:2058:31)
         at listOnTimeout (node:internal/timers:588:17)
         at process.processTimers (node:internal/timers:523:7)
-2026-02-11T02:41:22.666Z [nextStep] Advanced to phase=beginning, step=DRAW
-2026-02-11T02:41:22.666Z [nextStep] Drew 1 card(s) for p_sgi5mhxa at draw step (base: 1, additional: 0)
-2026-02-11T02:41:22.666Z [nextStep] Granting priority to active player p_sgi5mhxa (step: DRAW, stack size: 0)
-[canAct] p_sgi5mhxa: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-[canRespond] p_sgi5mhxa: checking instant-speed responses only
-[canRespond] p_sgi5mhxa: No instant-speed responses available (returning false)
-2026-02-11T02:41:22.666Z [nextStep] DEBUG - Turn Player p_sgi5mhxa:
-2026-02-11T02:41:22.666Z [nextStep]   Hand (7): Thundering Falls, Whims of the Fates, And├║ril, Narsil Reforged, Mountain, Mindmoil, Minamo, School at Water's Edge, Windfall
-2026-02-11T02:41:22.666Z [nextStep]   canAct: false, canRespond: false
-2026-02-11T02:41:22.666Z [nextStep] Checking if auto-pass should apply after granting priority
-[priority] autoPassLoop starting - active players: p_jjz2vu3w, p_sgi5mhxa, autoPassEnabled: p_sgi5mhxa, p_jjz2vu3w, currentPriority: p_sgi5mhxa, turnPlayer: p_sgi5mhxa
-[canAct] p_sgi5mhxa: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-[priority] autoPassLoop - checking p_sgi5mhxa (ACTIVE): canAct=false, stack.length=0, step=DRAW
-[priority] Auto-passing for p_sgi5mhxa - no available actions
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
-[priority] autoPassLoop - checking p_jjz2vu3w (non-active): canAct=false, stack.length=0, step=DRAW
-[priority] Auto-passing for p_jjz2vu3w - no available actions
-2026-02-11T02:41:22.666Z [nextStep] All players auto-passed after granting priority - caller should advance step
-2026-02-11T02:41:22.666Z [executeAutoPass] Cleared _autoPassInProgress flag for p_sgi5mhxa (ID: autopass_1770777682505_s3dwp)
-2026-02-11T02:41:22.666Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1770777682505_s3dwp)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:45.388Z [nextStep] Advanced to phase=beginning, step=DRAW
+2026-02-11T03:16:45.388Z [nextStep] Drew 1 card(s) for p_wn4kdkwk at draw step (base: 1, additional: 0)
+2026-02-11T03:16:45.388Z [nextStep] Granting priority to active player p_wn4kdkwk (step: DRAW, stack size: 0)
+[canAct] p_wn4kdkwk: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+[canRespond] p_wn4kdkwk: checking instant-speed responses only
+[canRespond] p_wn4kdkwk: No instant-speed responses available (returning false)
+2026-02-11T03:16:45.388Z [nextStep] DEBUG - Turn Player p_wn4kdkwk:
+2026-02-11T03:16:45.388Z [nextStep]   Hand (7): Izzet Boilerworks, Island, Krark's Thumb, Tibalt's Trickery, Izzet Signet, Otawara, Soaring City, Mountain
+2026-02-11T03:16:45.388Z [nextStep]   canAct: false, canRespond: false
+2026-02-11T03:16:45.388Z [nextStep] Checking if auto-pass should apply after granting priority
+[priority] autoPassLoop starting - active players: p_f26dx8ll, p_wn4kdkwk, autoPassEnabled: p_wn4kdkwk, p_f26dx8ll, currentPriority: p_wn4kdkwk, turnPlayer: p_wn4kdkwk
+[canAct] p_wn4kdkwk: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+[priority] autoPassLoop - checking p_wn4kdkwk (ACTIVE): canAct=false, stack.length=0, step=DRAW
+[priority] Auto-passing for p_wn4kdkwk - no available actions
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
+[priority] autoPassLoop - checking p_f26dx8ll (non-active): canAct=false, stack.length=0, step=DRAW
+[priority] Auto-passing for p_f26dx8ll - no available actions
+2026-02-11T03:16:45.389Z [nextStep] All players auto-passed after granting priority - caller should advance step
+2026-02-11T03:16:45.389Z [executeAutoPass] Cleared _autoPassInProgress flag for p_wn4kdkwk (ID: autopass_1770779805227_6v4eo)
+2026-02-11T03:16:45.389Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1770779805227_6v4eo)
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_jjz2vu3w, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_f26dx8ll, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_sgi5mhxa, match=true
-[getPlayableCardIds] Player p_sgi5mhxa: step=DRAW, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_wn4kdkwk, match=true
+[getPlayableCardIds] Player p_wn4kdkwk: step=DRAW, isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
 [getPlayableCardIds] Checking 7 cards in hand
+[getPlayableCardIds] Card Tibalt's Trickery blocked - no valid targets
 [getPlayableCardIds] Not checking lands: isMainPhase=false, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] Checking 1 commanders in command zone
 [getPlayableCardIds] Commander Neera, Wild Mage not playable - canCastNow=false, canPay=false
 [getPlayableCardIds] Returning 0 playable card(s): []
 [normalizeViewForEmit] getPlayableCardIds returned 0 cards
 [normalizeViewForEmit] Not setting view.playableCards - no playable cards found
-[canAct] p_sgi5mhxa: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-[canRespond] p_sgi5mhxa: checking instant-speed responses only
-[canRespond] p_sgi5mhxa: No instant-speed responses available (returning false)
+[canAct] p_wn4kdkwk: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+[canRespond] p_wn4kdkwk: checking instant-speed responses only
+[canRespond] p_wn4kdkwk: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=false, canRespond=false
-2026-02-11T02:41:22.668Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777682668_ewsgs) ==========
-2026-02-11T02:41:22.668Z [checkAndTriggerAutoPass] Priority: p_sgi5mhxa, Phase: beginning, Step: DRAW
-[canAct] p_sgi5mhxa: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-2026-02-11T02:41:22.668Z [checkAndTriggerAutoPass] canAct check: p_sgi5mhxa isActive=true canAct=false (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.668Z [checkAndTriggerAutoPass] p_sgi5mhxa CANNOT ACT - proceeding with auto-pass (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.668Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_sgi5mhxa with 150ms delay (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.668Z [executeAutoPass] Broadcast complete (ID: autopass_1770777682505_s3dwp)
-[AI] handleAIGameFlow: {
-  gameId: 'game_mlhfa89i',
-  playerId: 'p_jjz2vu3w',
+2026-02-11T03:16:45.390Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779805390_f0rb1) ==========
+2026-02-11T03:16:45.390Z [checkAndTriggerAutoPass] Priority: p_wn4kdkwk, Phase: beginning, Step: DRAW
+[canAct] p_wn4kdkwk: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+2026-02-11T03:16:45.390Z [checkAndTriggerAutoPass] canAct check: p_wn4kdkwk isActive=true canAct=false (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.390Z [checkAndTriggerAutoPass] p_wn4kdkwk CANNOT ACT - proceeding with auto-pass (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.390Z [checkAndTriggerAutoPass] Scheduling auto-pass for p_wn4kdkwk with 150ms delay (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.390Z [executeAutoPass] Broadcast complete (ID: autopass_1770779805227_6v4eo)
+[AI] handleAIGameFlow: { gameId: 'game_mlhgjpio',
+  playerId: 'p_f26dx8ll',
   phase: 'BEGINNING',
   step: 'DRAW',
   hasCommander: true,
   hasHand: true,
   handCount: 7,
   isAITurn: false,
-  hasPriority: false
-}
-2026-02-11T02:41:22.819Z [executeAutoPass] ========== EXECUTING for p_sgi5mhxa (ID: autopass_1770777682668_ewsgs) ==========
-2026-02-11T02:41:22.819Z [executeAutoPass] Phase: beginning, Step: DRAW
-[canAct] p_sgi5mhxa: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
-[canAct] p_sgi5mhxa: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_sgi5mhxa: No actions available - returning FALSE
-2026-02-11T02:41:22.819Z [executeAutoPass] Re-check: p_sgi5mhxa canAct=false (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.819Z [executeAutoPass] Proceeding with auto-pass for p_sgi5mhxa (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.819Z [executeAutoPass] Set _autoPassInProgress flag for p_sgi5mhxa (ID: autopass_1770777682668_ewsgs)
-[priority] autoPassLoop starting - active players: p_jjz2vu3w, p_sgi5mhxa, autoPassEnabled: p_sgi5mhxa, p_jjz2vu3w, currentPriority: p_jjz2vu3w, turnPlayer: p_sgi5mhxa
-[canRespond] p_jjz2vu3w: checking instant-speed responses only
-[canRespond] p_jjz2vu3w: No instant-speed responses available (returning false)
-[priority] autoPassLoop - checking p_jjz2vu3w (non-active): canAct=false, stack.length=0, step=DRAW
-[priority] Auto-passing for p_jjz2vu3w - no available actions
-2026-02-11T02:41:22.819Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.820Z [executeAutoPass] Advancing step after auto-pass for p_sgi5mhxa (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.820Z [nextStep] ========== CALLED ==========
-2026-02-11T02:41:22.820Z [nextStep] Game: game_mlhfa89i
-2026-02-11T02:41:22.820Z [nextStep] Current: beginning/DRAW
-2026-02-11T02:41:22.820Z [nextStep] Priority: p_jjz2vu3w, Turn: p_sgi5mhxa
-2026-02-11T02:41:22.820Z [nextStep] Call stack:
+  hasPriority: false }
+2026-02-11T03:16:45.543Z [executeAutoPass] ========== EXECUTING for p_wn4kdkwk (ID: autopass_1770779805390_f0rb1) ==========
+2026-02-11T03:16:45.543Z [executeAutoPass] Phase: beginning, Step: DRAW
+[canAct] p_wn4kdkwk: step=DRAW, isMainPhase=false, stackIsEmpty=true, isTurnPlayer=true
+[canAct] p_wn4kdkwk: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wn4kdkwk: No actions available - returning FALSE
+2026-02-11T03:16:45.543Z [executeAutoPass] Re-check: p_wn4kdkwk canAct=false (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.543Z [executeAutoPass] Proceeding with auto-pass for p_wn4kdkwk (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.543Z [executeAutoPass] Set _autoPassInProgress flag for p_wn4kdkwk (ID: autopass_1770779805390_f0rb1)
+[priority] autoPassLoop starting - active players: p_f26dx8ll, p_wn4kdkwk, autoPassEnabled: p_wn4kdkwk, p_f26dx8ll, currentPriority: p_f26dx8ll, turnPlayer: p_wn4kdkwk
+[canRespond] p_f26dx8ll: checking instant-speed responses only
+[canRespond] p_f26dx8ll: No instant-speed responses available (returning false)
+[priority] autoPassLoop - checking p_f26dx8ll (non-active): canAct=false, stack.length=0, step=DRAW
+[priority] Auto-passing for p_f26dx8ll - no available actions
+2026-02-11T03:16:45.543Z [executeAutoPass] passPriority result: changed=true, advanceStep=true, resolvedNow=false (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.543Z [executeAutoPass] Advancing step after auto-pass for p_wn4kdkwk (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.544Z [nextStep] ========== CALLED ==========
+2026-02-11T03:16:45.544Z [nextStep] Game: game_mlhgjpio
+2026-02-11T03:16:45.544Z [nextStep] Current: beginning/DRAW
+2026-02-11T03:16:45.544Z [nextStep] Priority: p_f26dx8ll, Turn: p_wn4kdkwk
+2026-02-11T03:16:45.544Z [nextStep] Call stack:
         at Object.nextStep (D:\Git\MTGEDH\server\src\state\index.ts:90:21)
         at Timeout.executeAutoPass (D:\Git\MTGEDH\server\src\socket\util.ts:2058:31)
         at listOnTimeout (node:internal/timers:588:17)
         at process.processTimers (node:internal/timers:523:7)
-2026-02-11T02:41:22.821Z [clearManaPool] Processed mana pools for all players
-2026-02-11T02:41:22.821Z [nextStep] Advanced to phase=precombatMain, step=MAIN1
-2026-02-11T02:41:22.821Z [nextStep] Checking precombat main triggers for p_sgi5mhxa, found 0 trigger(s)
-2026-02-11T02:41:22.821Z [nextStep] Granting priority to active player p_sgi5mhxa (step: MAIN1, stack size: 0)
-[canAct] p_sgi5mhxa: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[calculateMaxLandsPerTurn] Calculating for player p_sgi5mhxa, battlefield has 0 permanents
-[calculateMaxLandsPerTurn] Final result for p_sgi5mhxa: 1 lands per turn
-[canPlayLand] p_sgi5mhxa: Checking hand with 7 cards
-[canPlayLand] p_sgi5mhxa: Sample cards in hand: [Thundering Falls(Land ΓÇö Island Mounta), Whims of the Fates(Sorcery),And├║ril, Narsil Reforged(Legendary Artifact ΓÇö)]
-[canPlayLand] p_sgi5mhxa: Found land in hand: Thundering Falls (Land ΓÇö Island Mountain) - returning TRUE
-[canAct] p_sgi5mhxa: Turn player in main phase can play land - returning TRUE
-[canRespond] p_sgi5mhxa: checking instant-speed responses only
-[canRespond] p_sgi5mhxa: No instant-speed responses available (returning false)
-2026-02-11T02:41:22.821Z [nextStep] DEBUG - Turn Player p_sgi5mhxa:
-2026-02-11T02:41:22.821Z [nextStep]   Hand (7): Thundering Falls, Whims of the Fates, And├║ril, Narsil Reforged, Mountain, Mindmoil, Minamo, School at Water's Edge, Windfall
-2026-02-11T02:41:22.821Z [nextStep]   canAct: true, canRespond: false
-2026-02-11T02:41:22.821Z [nextStep] Checking if auto-pass should apply after granting priority
-[priority] autoPassLoop starting - active players: p_jjz2vu3w, p_sgi5mhxa, autoPassEnabled: p_sgi5mhxa, p_jjz2vu3w, currentPriority: p_sgi5mhxa, turnPlayer: p_sgi5mhxa
-[canAct] p_sgi5mhxa: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[calculateMaxLandsPerTurn] Calculating for player p_sgi5mhxa, battlefield has 0 permanents
-[calculateMaxLandsPerTurn] Final result for p_sgi5mhxa: 1 lands per turn
-[canPlayLand] p_sgi5mhxa: Checking hand with 7 cards
-[canPlayLand] p_sgi5mhxa: Sample cards in hand: [Thundering Falls(Land ΓÇö Island Mounta), Whims of the Fates(Sorcery),And├║ril, Narsil Reforged(Legendary Artifact ΓÇö)]
-[canPlayLand] p_sgi5mhxa: Found land in hand: Thundering Falls (Land ΓÇö Island Mountain) - returning TRUE
-[canAct] p_sgi5mhxa: Turn player in main phase can play land - returning TRUE
-[priority] autoPassLoop - checking p_sgi5mhxa (ACTIVE): canAct=true, stack.length=0, step=MAIN1
-[priority] autoPassLoop - stopping at p_sgi5mhxa: active player can act
-2026-02-11T02:41:22.822Z [nextStep] Auto-pass stopped, player p_sgi5mhxa has priority
-2026-02-11T02:41:22.822Z [executeAutoPass] Cleared _autoPassInProgress flag for p_sgi5mhxa (ID: autopass_1770777682668_ewsgs)
-2026-02-11T02:41:22.822Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1770777682668_ewsgs)
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_jjz2vu3w',
+2026-02-11T03:16:45.544Z [clearManaPool] Processed mana pools for all players
+2026-02-11T03:16:45.544Z [nextStep] Advanced to phase=precombatMain, step=MAIN1
+2026-02-11T03:16:45.544Z [nextStep] Checking precombat main triggers for p_wn4kdkwk, found 0 trigger(s)
+2026-02-11T03:16:45.544Z [nextStep] Granting priority to active player p_wn4kdkwk (step: MAIN1, stack size: 0)
+[canAct] p_wn4kdkwk: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[calculateMaxLandsPerTurn] Calculating for player p_wn4kdkwk, battlefield has 0 permanents
+[calculateMaxLandsPerTurn] Final result for p_wn4kdkwk: 1 lands per turn
+[canPlayLand] p_wn4kdkwk: Checking hand with 7 cards
+[canPlayLand] p_wn4kdkwk: Sample cards in hand: [Izzet Boilerworks(Land), Island(Basic Land ΓÇö Island), Krark's Thumb(Legendary Artifact)]
+[canPlayLand] p_wn4kdkwk: Found land in hand: Izzet Boilerworks (Land) - returning TRUE
+[canAct] p_wn4kdkwk: Turn player in main phase can play land - returning TRUE
+[canRespond] p_wn4kdkwk: checking instant-speed responses only
+[canRespond] p_wn4kdkwk: No instant-speed responses available (returning false)
+2026-02-11T03:16:45.545Z [nextStep] DEBUG - Turn Player p_wn4kdkwk:
+2026-02-11T03:16:45.545Z [nextStep]   Hand (7): Izzet Boilerworks, Island, Krark's Thumb, Tibalt's Trickery, Izzet Signet, Otawara, Soaring City, Mountain
+2026-02-11T03:16:45.545Z [nextStep]   canAct: true, canRespond: false
+2026-02-11T03:16:45.545Z [nextStep] Checking if auto-pass should apply after granting priority
+[priority] autoPassLoop starting - active players: p_f26dx8ll, p_wn4kdkwk, autoPassEnabled: p_wn4kdkwk, p_f26dx8ll, currentPriority: p_wn4kdkwk, turnPlayer: p_wn4kdkwk
+[canAct] p_wn4kdkwk: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[calculateMaxLandsPerTurn] Calculating for player p_wn4kdkwk, battlefield has 0 permanents
+[calculateMaxLandsPerTurn] Final result for p_wn4kdkwk: 1 lands per turn
+[canPlayLand] p_wn4kdkwk: Checking hand with 7 cards
+[canPlayLand] p_wn4kdkwk: Sample cards in hand: [Izzet Boilerworks(Land), Island(Basic Land ΓÇö Island), Krark's Thumb(Legendary Artifact)]
+[canPlayLand] p_wn4kdkwk: Found land in hand: Izzet Boilerworks (Land) - returning TRUE
+[canAct] p_wn4kdkwk: Turn player in main phase can play land - returning TRUE
+[priority] autoPassLoop - checking p_wn4kdkwk (ACTIVE): canAct=true, stack.length=0, step=MAIN1
+[priority] autoPassLoop - stopping at p_wn4kdkwk: active player can act
+2026-02-11T03:16:45.545Z [nextStep] Auto-pass stopped, player p_wn4kdkwk has priority
+2026-02-11T03:16:45.545Z [executeAutoPass] Cleared _autoPassInProgress flag for p_wn4kdkwk (ID: autopass_1770779805390_f0rb1)
+2026-02-11T03:16:45.545Z [executeAutoPass] Broadcasting state after auto-pass (ID: autopass_1770779805390_f0rb1)
+[VIEW_FOR_DEBUG] { viewer: 'p_f26dx8ll',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_jjz2vu3w, match=false
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ true, true, true ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [ false, false, false ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_f26dx8ll, match=false
 [normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority
-[VIEW_FOR_DEBUG] {
-  viewer: 'p_sgi5mhxa',
+[VIEW_FOR_DEBUG] { viewer: 'p_wn4kdkwk',
   stackLength: 0,
   stackItems: [],
-  zones: {
-    p_jjz2vu3w: { handCount: 7, firstKnown: [Array] },
-    p_sgi5mhxa: { handCount: 7, firstKnown: [Array] }
-  }
-}
-[normalizeViewForEmit] Checking playable cards: priority=p_sgi5mhxa, viewerId=p_sgi5mhxa, match=true
-[getPlayableCardIds] Player p_sgi5mhxa: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isMyTurn=true
+  zones: { p_f26dx8ll: { handCount: 7, firstKnown: [ false, false, false ] }, p_wn4kdkwk: { handCount: 7, firstKnown: [true, true, true ] } } }
+[normalizeViewForEmit] Checking playable cards: priority=p_wn4kdkwk, viewerId=p_wn4kdkwk, match=true
+[getPlayableCardIds] Player p_wn4kdkwk: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isMyTurn=true
 [getPlayableCardIds] manaPool= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] availableMana= { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
 [getPlayableCardIds] Total available mana: 0
 [getPlayableCardIds] Checking 7 cards in hand
-[getPlayableCardIds] Card Whims of the Fates not playable - cannot pay cost {5}{R} (after reduction: {"generic":5,"colors":{"W":0,"U":0,"B":0,"R":1,"G":0,"C":0},"hasX":false})
-[getPlayableCardIds] Card And├║ril, Narsil Reforged not playable - cannot pay cost {2} (after reduction: {"generic":2,"colors":{"W":0,"U":0,"B":0,"R":0,"G":0,"C":0},"hasX":false})
-[getPlayableCardIds] Card Mindmoil not playable - cannot pay cost {4}{R} (after reduction: {"generic":4,"colors":{"W":0,"U":0,"B":0,"R":1,"G":0,"C":0},"hasX":false})
-[getPlayableCardIds] Card Windfall not playable - cannot pay cost {2}{U} (after reduction: {"generic":2,"colors":{"W":0,"U":1,"B":0,"R":0,"G":0,"C":0},"hasX":false})
-[calculateMaxLandsPerTurn] Calculating for player p_sgi5mhxa, battlefield has 0 permanents
-[calculateMaxLandsPerTurn] Final result for p_sgi5mhxa: 1 lands per turn
+[getPlayableCardIds] Card Krark's Thumb not playable - cannot pay cost {2} (after reduction: {"generic":2,"colors":{"W":0,"U":0,"B":0,"R":0,"G":0,"C":0},"hasX":false})
+[getPlayableCardIds] Card Tibalt's Trickery blocked - no valid targets
+[getPlayableCardIds] Card Izzet Signet not playable - cannot pay cost {2} (after reduction: {"generic":2,"colors":{"W":0,"U":0,"B":0,"R":0,"G":0,"C":0},"hasX":false})
+[calculateMaxLandsPerTurn] Calculating for player p_wn4kdkwk, battlefield has 0 permanents
+[calculateMaxLandsPerTurn] Final result for p_wn4kdkwk: 1 lands per turn
 [getPlayableCardIds] Checking lands: landsPlayed=0, max=1
-[getPlayableCardIds] Land Thundering Falls (17260fff-b239-4af4-9306-3236ae3fa5a5_mlhfahb2_27_5e9b6ee8) is playable
-[getPlayableCardIds] Land Mountain (295b92bc-d66f-45d8-9bbe-5f5f13e39fd4_mlhfahb2_2k_164450be) is playable
-[getPlayableCardIds] Land Minamo, School at Water's Edge (7536292c-da25-41c8-ba28-1e35758a7f3d_mlhfahb2_21_3f4ad542) isplayable
+[getPlayableCardIds] Land Izzet Boilerworks (bfac9395-7ca5-48dd-ab83-7c26ada12f61_mlhgk07j_23_c770566f) is playable
+[getPlayableCardIds] Land Island (b0da67fb-1cb2-4105-ab5c-b7c680b8116c_mlhgk07j_2d_4aed5e96) is playable
+[getPlayableCardIds] Land Otawara, Soaring City (486d7edc-d983-41f0-8b78-c99aecd72996_mlhgk07i_1x_815d460a) is playable
+[getPlayableCardIds] Land Mountain (295b92bc-d66f-45d8-9bbe-5f5f13e39fd4_mlhgk07j_2p_5c2d2c61) is playable
 [getPlayableCardIds] Checking 1 commanders in command zone
 [getPlayableCardIds] Commander Neera, Wild Mage not playable - canCastNow=true, canPay=false
-[getPlayableCardIds] Returning 3 playable card(s): [
-  '17260fff-b239-4af4-9306-3236ae3fa5a5_mlhfahb2_27_5e9b6ee8',
-  '295b92bc-d66f-45d8-9bbe-5f5f13e39fd4_mlhfahb2_2k_164450be',
-  '7536292c-da25-41c8-ba28-1e35758a7f3d_mlhfahb2_21_3f4ad542'
-]
-[normalizeViewForEmit] getPlayableCardIds returned 3 cards
-[normalizeViewForEmit] Set view.playableCards with 3 cards
-[canAct] p_sgi5mhxa: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[calculateMaxLandsPerTurn] Calculating for player p_sgi5mhxa, battlefield has 0 permanents
-[calculateMaxLandsPerTurn] Final result for p_sgi5mhxa: 1 lands per turn
-[canPlayLand] p_sgi5mhxa: Checking hand with 7 cards
-[canPlayLand] p_sgi5mhxa: Sample cards in hand: [Thundering Falls(Land ΓÇö Island Mounta), Whims of the Fates(Sorcery),And├║ril, Narsil Reforged(Legendary Artifact ΓÇö)]
-[canPlayLand] p_sgi5mhxa: Found land in hand: Thundering Falls (Land ΓÇö Island Mountain) - returning TRUE
-[canAct] p_sgi5mhxa: Turn player in main phase can play land - returning TRUE
-[canRespond] p_sgi5mhxa: checking instant-speed responses only
-[canRespond] p_sgi5mhxa: No instant-speed responses available (returning false)
+[getPlayableCardIds] Returning 4 playable card(s): [ 'bfac9395-7ca5-48dd-ab83-7c26ada12f61_mlhgk07j_23_c770566f',
+  'b0da67fb-1cb2-4105-ab5c-b7c680b8116c_mlhgk07j_2d_4aed5e96',
+  '486d7edc-d983-41f0-8b78-c99aecd72996_mlhgk07i_1x_815d460a',
+  '295b92bc-d66f-45d8-9bbe-5f5f13e39fd4_mlhgk07j_2p_5c2d2c61' ]
+[normalizeViewForEmit] getPlayableCardIds returned 4 cards
+[normalizeViewForEmit] Set view.playableCards with 4 cards
+[canAct] p_wn4kdkwk: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[calculateMaxLandsPerTurn] Calculating for player p_wn4kdkwk, battlefield has 0 permanents
+[calculateMaxLandsPerTurn] Final result for p_wn4kdkwk: 1 lands per turn
+[canPlayLand] p_wn4kdkwk: Checking hand with 7 cards
+[canPlayLand] p_wn4kdkwk: Sample cards in hand: [Izzet Boilerworks(Land), Island(Basic Land ΓÇö Island), Krark's Thumb(Legendary Artifact)]
+[canPlayLand] p_wn4kdkwk: Found land in hand: Izzet Boilerworks (Land) - returning TRUE
+[canAct] p_wn4kdkwk: Turn player in main phase can play land - returning TRUE
+[canRespond] p_wn4kdkwk: checking instant-speed responses only
+[canRespond] p_wn4kdkwk: No instant-speed responses available (returning false)
 [normalizeViewForEmit] Set canAct=true, canRespond=false
-2026-02-11T02:41:22.825Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770777682825_4lvgz) ==========
-2026-02-11T02:41:22.825Z [checkAndTriggerAutoPass] Priority: p_sgi5mhxa, Phase: precombatMain, Step: MAIN1
-[canAct] p_sgi5mhxa: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
-[calculateMaxLandsPerTurn] Calculating for player p_sgi5mhxa, battlefield has 0 permanents
-[calculateMaxLandsPerTurn] Final result for p_sgi5mhxa: 1 lands per turn
-[canPlayLand] p_sgi5mhxa: Checking hand with 7 cards
-[canPlayLand] p_sgi5mhxa: Sample cards in hand: [Thundering Falls(Land ΓÇö Island Mounta), Whims of the Fates(Sorcery),And├║ril, Narsil Reforged(Legendary Artifact ΓÇö)]
-[canPlayLand] p_sgi5mhxa: Found land in hand: Thundering Falls (Land ΓÇö Island Mountain) - returning TRUE
-[canAct] p_sgi5mhxa: Turn player in main phase can play land - returning TRUE
-2026-02-11T02:41:22.826Z [checkAndTriggerAutoPass] canAct check: p_sgi5mhxa isActive=true canAct=true (ID: autopass_1770777682825_4lvgz)
-2026-02-11T02:41:22.826Z [checkAndTriggerAutoPass] p_sgi5mhxa CAN ACT - returning early, NO auto-pass (ID: autopass_1770777682825_4lvgz)
-2026-02-11T02:41:22.826Z [executeAutoPass] Broadcast complete (ID: autopass_1770777682668_ewsgs)
-Restarting 'src/index.ts'
-[Server] Boot {
-  bootId: '2b17bd26-6d46-4a47-9c36-ebb9cf306ce4',
-  pid: 89308,
-  node: 'v22.20.0',
-  port: 3001
-}
-[Server] Initializing database...
-[Server] Database initialized successfully.
-[SCRYFALL] No planeswalker cache clearing needed (0 planeswalkers in cache, all have loyalty field)
-[Socket] GameManager configured with IO server for rules engine integration
-[Resolution] AI handler initialized
-Restarting 'src/index.ts'
-[Server] Boot {
-  bootId: '65d43d86-23b6-4e2c-892b-f2ccc640bd0f',
-  pid: 63156,
-  node: 'v22.20.0',
-  port: 3001
-}
-[Server] Initializing database...
-[Server] Database initialized successfully.
-[SCRYFALL] No planeswalker cache clearing needed (0 planeswalkers in cache, all have loyalty field)
-[Socket] GameManager configured with IO server for rules engine integration
-[Resolution] AI handler initialized
-[Server] Running at http://127.0.0.1:3001
-[CLI] Detected Windows PowerShell. If CLI commands are not working correctly,
-[CLI] try using cmd.exe, Windows Terminal, or Git Bash instead.
-
-ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
-  MTGEDH Server CLI - Type "help" for available commands
-ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
-
-mtgedh> [Resolution] Priority management handler initialized
-Socket connected: HkNpQF8cGCrpNwPsAAAB
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-[GameManager] Ensured game game_mlhfa89i using full rules engine (createInitialGameState)
-node.exe : [GameManager] ensureGame: getEvents/replay failed (non-fatal) {
-At line:1 char:1
-+ & "C:\Program Files\nodejs/node.exe" "C:\Users\A2\AppData\Roaming\npm ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: ([GameManager] e...d (non-fatal) {:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
-
-  bootId: '65d43d86-23b6-4e2c-892b-f2ccc640bd0f',
-  gameId: 'game_mlhfa89i'
-} RangeError: Maximum call stack size exceeded
-    at debug (node:internal/util/debuglog:98:7)
-    at logger (node:internal/util/debuglog:115:22)
-    at node:internal/source_map/prepare_stack_trace:68:7
-    at Array.map (<anonymous>)
-    at prepareStackTraceWithSourceMaps (node:internal/source_map/prepare_stack_trace:45:44)
-    at Function.ErrorPrepareStackTrace (node:internal/errors:162:10)
-    at prepareStackTraceCallback (node:internal/errors:144:29)
-    at getStackString (node:internal/util/inspect:1437:13)
-    at formatError (node:internal/util/inspect:1634:15)
-    at formatRaw (node:internal/util/inspect:1067:14)
-applyEvent: failed to apply event setCommander RangeError: Maximum call stack size exceeded
-    at formatRaw (node:internal/util/inspect:1148:10)
-    at formatValue (node:internal/util/inspect:922:10)
-    at inspect (node:internal/util/inspect:409:10)
-    at formatWithOptionsInternal (node:internal/util/inspect:2579:40)
-    at formatWithOptions (node:internal/util/inspect:2441:10)
-    at console.value (node:internal/console/constructor:336:14)
-    at console.log (node:internal/console/constructor:384:61)
-    at debug (file:///D:/Git/MTGEDH/server/src/utils/debug.ts:1:612)
-    at setCommander (file:///D:/Git/MTGEDH/server/src/state/modules/commander.ts:1:1137)
-    at applyEvent (file:///D:/Git/MTGEDH/server/src/state/modules/applyEvent.ts:1:9415)
-applyEvent: failed to apply event setCommander RangeError: Maximum call stack size exceeded
-    at formatRaw (node:internal/util/inspect:1148:10)
-    at formatValue (node:internal/util/inspect:922:10)
-    at inspect (node:internal/util/inspect:409:10)
-    at formatWithOptionsInternal (node:internal/util/inspect:2579:40)
-    at formatWithOptions (node:internal/util/inspect:2441:10)
-    at console.value (node:internal/console/constructor:336:14)
-    at console.log (node:internal/console/constructor:384:61)
-    at debug (file:///D:/Git/MTGEDH/server/src/utils/debug.ts:1:612)
-    at setCommander (file:///D:/Git/MTGEDH/server/src/state/modules/commander.ts:1:1137)
-    at applyEvent (file:///D:/Git/MTGEDH/server/src/state/modules/applyEvent.ts:1:9415)
-applyEvent: failed to apply event setCommander RangeError: Maximum call stack size exceeded
-    at formatRaw (node:internal/util/inspect:1148:10)
-    at formatValue (node:internal/util/inspect:922:10)
-    at inspect (node:internal/util/inspect:409:10)
-    at formatWithOptionsInternal (node:internal/util/inspect:2579:40)
-    at formatWithOptions (node:internal/util/inspect:2441:10)
-    at console.value (node:internal/console/constructor:336:14)
-    at console.log (node:internal/console/constructor:384:61)
-    at debug (file:///D:/Git/MTGEDH/server/src/utils/debug.ts:1:612)
-    at setCommander (file:///D:/Git/MTGEDH/server/src/state/modules/commander.ts:1:1137)
-    at applyEvent (file:///D:/Git/MTGEDH/server/src/state/modules/applyEvent.ts:1:9415)
-applyEvent: failed to apply event setCommander RangeError: Maximum call stack size exceeded
-    at formatRaw (node:internal/util/inspect:1148:10)
-    at formatValue (node:internal/util/inspect:922:10)
-    at inspect (node:internal/util/inspect:409:10)
-    at formatWithOptionsInternal (node:internal/util/inspect:2579:40)
-    at formatWithOptions (node:internal/util/inspect:2441:10)
-    at console.value (node:internal/console/constructor:336:14)
-    at console.log (node:internal/console/constructor:384:61)
-    at debug (file:///D:/Git/MTGEDH/server/src/utils/debug.ts:1:612)
-    at setCommander (file:///D:/Git/MTGEDH/server/src/state/modules/commander.ts:1:1137)
-    at applyEvent (file:///D:/Git/MTGEDH/server/src/state/modules/applyEvent.ts:1:9415)
+2026-02-11T03:16:45.548Z [checkAndTriggerAutoPass] ========== CALLED (ID: autopass_1770779805548_smmel) ==========
+2026-02-11T03:16:45.548Z [checkAndTriggerAutoPass] Priority: p_wn4kdkwk, Phase: precombatMain, Step: MAIN1
+[canAct] p_wn4kdkwk: step=MAIN1, isMainPhase=true, stackIsEmpty=true, isTurnPlayer=true
+[calculateMaxLandsPerTurn] Calculating for player p_wn4kdkwk, battlefield has 0 permanents
+[calculateMaxLandsPerTurn] Final result for p_wn4kdkwk: 1 lands per turn
+[canPlayLand] p_wn4kdkwk: Checking hand with 7 cards
+[canPlayLand] p_wn4kdkwk: Sample cards in hand: [Izzet Boilerworks(Land), Island(Basic Land ΓÇö Island), Krark's Thumb(Legendary Artifact)]
+[canPlayLand] p_wn4kdkwk: Found land in hand: Izzet Boilerworks (Land) - returning TRUE
+[canAct] p_wn4kdkwk: Turn player in main phase can play land - returning TRUE
+2026-02-11T03:16:45.548Z [checkAndTriggerAutoPass] canAct check: p_wn4kdkwk isActive=true canAct=true (ID: autopass_1770779805548_smmel)
+2026-02-11T03:16:45.548Z [checkAndTriggerAutoPass] p_wn4kdkwk CAN ACT - returning early, NO auto-pass (ID: autopass_1770779805548_smmel)
+2026-02-11T03:16:45.548Z [executeAutoPass] Broadcast complete (ID: autopass_1770779805390_f0rb1)
