@@ -47,8 +47,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)", () => {
-  const gameId = 'test_return_to_hand_activation_cost_resolution_queue';
+describe('Blight X as activation cost via Resolution Queue (integration)', () => {
+  const gameId = 'test_blight_x_activation_cost_resolution_queue';
 
   beforeAll(async () => {
     await initDb();
@@ -61,7 +61,7 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
     games.delete(gameId as any);
   });
 
-  it("supports 'Pay 2 life, Return a creature you control...' (life deferred until selection submit)", async () => {
+  it('enqueues X_VALUE_SELECTION then TARGET_SELECTION and resumes activation with counters + tap applied', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -71,11 +71,6 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
     (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [p1]: 40 };
-
-    // Some integration tests persist games; force a clean stack for isolation.
-    (game.state as any).stack = [];
-
-    // Deterministic priority baseline.
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
@@ -86,36 +81,25 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
         owner: p1,
         tapped: false,
         card: {
-          name: 'Test Engine',
+          name: 'Test Blight Engine',
           type_line: 'Artifact',
-          oracle_text: "Pay 2 life, Return a creature you control to its owner's hand: Draw a card.",
+          oracle_text: '{T}, Blight X: Draw a card.',
           image_uris: { small: 'https://example.com/engine.jpg' },
         },
       },
       {
-        id: 'c_1',
+        id: 'cre_1',
         controller: p1,
         owner: p1,
         tapped: false,
+        counters: {},
         card: {
           name: 'Test Creature',
           type_line: 'Creature — Bear',
           oracle_text: '',
-          image_uris: { small: 'https://example.com/bear.jpg' },
         },
       },
     ];
-
-    (game.state as any).zones = {
-      [p1]: {
-        hand: [],
-        graveyard: [],
-        exile: [],
-        handCount: 0,
-        graveyardCount: 0,
-        exileCount: 0,
-      },
-    };
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -128,38 +112,48 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
     expect(typeof handlers['activateBattlefieldAbility']).toBe('function');
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
 
-    const queue = ResolutionQueueManager.getQueue(gameId);
+    let queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.length).toBe(1);
 
-    const step = queue.steps[0] as any;
-    expect(step.type).toBe('target_selection');
-    expect(step.playerId).toBe(p1);
-    expect(step.returnToHandAbilityAsCost).toBe(true);
-    expect(step.lifeToPayForCost).toBe(2);
-    expect(step.minTargets).toBe(1);
-    expect(step.maxTargets).toBe(1);
-    expect(Array.isArray(step.validTargets)).toBe(true);
-    expect(step.validTargets.some((t: any) => t && String(t.id) === 'c_1')).toBe(true);
-
-    // Life is not paid until the selection is confirmed.
-    expect((game.state as any).life?.[p1]).toBe(40);
+    const xStep = queue.steps[0] as any;
+    expect(xStep.type).toBe('x_value_selection');
+    expect(xStep.playerId).toBe(p1);
+    expect(xStep.keywordBlight).toBe(true);
+    expect(String(xStep.keywordBlightStage)).toBe('ability_activation_cost_choose_x');
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
     await handlers['submitResolutionResponse']({
       gameId,
-      stepId: step.id,
-      selections: ['c_1'],
+      stepId: xStep.id,
+      selections: 2,
     });
 
-    expect((game.state as any).life?.[p1]).toBe(38);
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+
+    const targetStep = queue.steps[0] as any;
+    expect(targetStep.type).toBe('target_selection');
+    expect(targetStep.keywordBlight).toBe(true);
+    expect(String(targetStep.keywordBlightStage)).toBe('ability_activation_cost');
+    expect(Number(targetStep.keywordBlightN)).toBe(2);
+    expect(Array.isArray(targetStep.validTargets)).toBe(true);
+    expect((targetStep.validTargets as any[]).some((t: any) => String(t?.id) === 'cre_1')).toBe(true);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: targetStep.id,
+      selections: ['cre_1'],
+    });
 
     const battlefield = (game.state as any).battlefield || [];
-    expect(battlefield.some((p: any) => p && p.id === 'c_1')).toBe(false);
+    const source = (battlefield as any[]).find((p: any) => p && String(p.id) === 'src_1');
+    const creature = (battlefield as any[]).find((p: any) => p && String(p.id) === 'cre_1');
+    expect(source).toBeDefined();
+    expect(Boolean(source.tapped)).toBe(true);
 
-    const zones = (game.state as any).zones?.[p1];
-    expect(zones).toBeDefined();
-    expect(Array.isArray(zones.hand)).toBe(true);
-    expect((zones.hand as any[]).some((c: any) => c && String(c.name || '').includes('Test Creature'))).toBe(true);
+    expect(creature).toBeDefined();
+    const counters = (creature as any).counters || {};
+    expect(Number(counters['-1/-1'] || 0)).toBe(2);
 
     const stack = (game.state as any).stack || [];
     expect(stack.length).toBe(1);

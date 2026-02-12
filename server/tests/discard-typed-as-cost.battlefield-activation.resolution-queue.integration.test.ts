@@ -162,4 +162,101 @@ describe('Discard typed card as activation cost via Resolution Queue (integratio
 
     expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
+
+  it('supports discard-as-cost that also pays life (deferred until discard selection resolves)', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).stack = [];
+
+    const p1 = 'p1';
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_2',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Test Engine',
+          type_line: 'Artifact',
+          oracle_text: 'Pay 2 life, Discard a card: Draw a card.',
+          image_uris: { small: 'https://example.com/engine.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          {
+            id: 'h_any',
+            name: 'Random Card',
+            type_line: 'Instant',
+            mana_cost: '{G}',
+            image_uris: { small: 'https://example.com/random.jpg' },
+            zone: 'hand',
+          },
+        ],
+        graveyard: [],
+        exile: [],
+        handCount: 1,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    expect(typeof handlers['activateBattlefieldAbility']).toBe('function');
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_2', abilityId: 'src_2-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('discard_selection');
+    expect(step.playerId).toBe(p1);
+    expect(step.discardAbilityAsCost).toBe(true);
+    expect(step.discardCount).toBe(1);
+    expect(step.lifeToPayForCost).toBe(2);
+
+    // Life is NOT paid until the player confirms the discard selection.
+    expect(Number((game.state as any).life?.[p1])).toBe(40);
+
+    expect(typeof handlers['submitResolutionResponse']).toBe('function');
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: ['h_any'],
+    });
+
+    expect(Number((game.state as any).life?.[p1])).toBe(38);
+
+    const zones = (game.state as any).zones?.[p1];
+    expect(zones).toBeDefined();
+    expect((zones.hand as any[]).some((c: any) => c && c.id === 'h_any')).toBe(false);
+    expect((zones.graveyard as any[]).some((c: any) => c && c.id === 'h_any')).toBe(true);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack.length).toBe(1);
+    expect(String(stack[0].type)).toBe('ability');
+    expect(String(stack[0].source)).toBe('src_2');
+    expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
+
+    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
+  });
 });

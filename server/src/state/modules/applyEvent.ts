@@ -2338,6 +2338,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
+          // If the server persisted Blight N as an activation cost ("put N -1/-1 counters on a creature you control"),
+          // apply the counters during replay so battlefield state is deterministic.
+          try {
+            const blightTargetId = String((e as any).blightTargetPermanentIdForCost || '').trim();
+            const blightN = Number((e as any).blightNForCost || 0);
+            if (blightTargetId && Number.isFinite(blightN) && blightN > 0) {
+              updateCounters(ctx as any, blightTargetId, { '-1/-1': blightN });
+            }
+          } catch {
+            // best-effort only
+          }
+
           // If the server persisted the full activated ability text (including cost),
           // attach it to the matching ability stack item to support intervening-if inference.
           try {

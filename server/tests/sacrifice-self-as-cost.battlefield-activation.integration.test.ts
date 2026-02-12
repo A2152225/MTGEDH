@@ -47,8 +47,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)", () => {
-  const gameId = 'test_return_to_hand_activation_cost_resolution_queue';
+describe('Sacrifice self as activation cost (integration)', () => {
+  const gameId = 'test_sacrifice_self_activation_cost';
 
   beforeAll(async () => {
     await initDb();
@@ -61,7 +61,7 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
     games.delete(gameId as any);
   });
 
-  it("supports 'Pay 2 life, Return a creature you control...' (life deferred until selection submit)", async () => {
+  it('sacrifices the source immediately and puts the ability on the stack', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -71,13 +71,25 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
     (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [p1]: 40 };
-
-    // Some integration tests persist games; force a clean stack for isolation.
-    (game.state as any).stack = [];
-
-    // Deterministic priority baseline.
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        library: [],
+        graveyard: [],
+        exile: [],
+        handCount: 0,
+        libraryCount: 0,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
 
     (game.state as any).battlefield = [
       {
@@ -85,37 +97,15 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
         controller: p1,
         owner: p1,
         tapped: false,
+        isToken: false,
         card: {
-          name: 'Test Engine',
+          name: 'Test Sacrifice Artifact',
           type_line: 'Artifact',
-          oracle_text: "Pay 2 life, Return a creature you control to its owner's hand: Draw a card.",
-          image_uris: { small: 'https://example.com/engine.jpg' },
-        },
-      },
-      {
-        id: 'c_1',
-        controller: p1,
-        owner: p1,
-        tapped: false,
-        card: {
-          name: 'Test Creature',
-          type_line: 'Creature — Bear',
-          oracle_text: '',
-          image_uris: { small: 'https://example.com/bear.jpg' },
+          oracle_text: '{2}, {T}, Sacrifice this artifact: You gain 3 life.',
+          image_uris: { small: 'https://example.com/art.jpg' },
         },
       },
     ];
-
-    (game.state as any).zones = {
-      [p1]: {
-        hand: [],
-        graveyard: [],
-        exile: [],
-        handCount: 0,
-        graveyardCount: 0,
-        exileCount: 0,
-      },
-    };
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -128,44 +118,19 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
     expect(typeof handlers['activateBattlefieldAbility']).toBe('function');
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
 
-    const queue = ResolutionQueueManager.getQueue(gameId);
-    expect(queue.steps.length).toBe(1);
-
-    const step = queue.steps[0] as any;
-    expect(step.type).toBe('target_selection');
-    expect(step.playerId).toBe(p1);
-    expect(step.returnToHandAbilityAsCost).toBe(true);
-    expect(step.lifeToPayForCost).toBe(2);
-    expect(step.minTargets).toBe(1);
-    expect(step.maxTargets).toBe(1);
-    expect(Array.isArray(step.validTargets)).toBe(true);
-    expect(step.validTargets.some((t: any) => t && String(t.id) === 'c_1')).toBe(true);
-
-    // Life is not paid until the selection is confirmed.
-    expect((game.state as any).life?.[p1]).toBe(40);
-
-    expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({
-      gameId,
-      stepId: step.id,
-      selections: ['c_1'],
-    });
-
-    expect((game.state as any).life?.[p1]).toBe(38);
-
     const battlefield = (game.state as any).battlefield || [];
-    expect(battlefield.some((p: any) => p && p.id === 'c_1')).toBe(false);
+    expect((battlefield as any[]).some((p: any) => p && String(p.id) === 'src_1')).toBe(false);
 
     const zones = (game.state as any).zones?.[p1];
     expect(zones).toBeDefined();
-    expect(Array.isArray(zones.hand)).toBe(true);
-    expect((zones.hand as any[]).some((c: any) => c && String(c.name || '').includes('Test Creature'))).toBe(true);
+    expect(Array.isArray(zones.graveyard)).toBe(true);
+    expect((zones.graveyard as any[]).some((c: any) => String(c?.name || '') === 'Test Sacrifice Artifact')).toBe(true);
 
     const stack = (game.state as any).stack || [];
     expect(stack.length).toBe(1);
     expect(String(stack[0].type)).toBe('ability');
     expect(String(stack[0].source)).toBe('src_1');
-    expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
+    expect(String(stack[0].description || '').toLowerCase()).toContain('gain 3 life');
 
     expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });

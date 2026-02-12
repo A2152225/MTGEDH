@@ -5415,18 +5415,152 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (costLower.includes('tap') && (costLower.includes('discard') || costLower.includes('sacrifice') || costLower.includes('exile'))) {
         // Let other cost handlers (discard/sacrifice/etc.) handle their own errors/prompts.
       } else {
-        const tapOtherMatch = costLower.match(
+        const tapOtherMatchRestrictionAfter = costLower.match(
+          /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*)\s+you\s+control\s+with\s+(power|toughness)\s+(\d+)\s+or\s+(less|greater)\b/i
+        );
+
+        const tapOtherMatchRestrictionBefore = costLower.match(
+          /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?)\s+you\s+control\b/i
+        );
+
+        const tapOtherMatchBase = costLower.match(
           /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*)\s+you\s+control\b/i
         );
 
+        const tapOtherMatch = tapOtherMatchRestrictionAfter || tapOtherMatchRestrictionBefore || tapOtherMatchBase;
+
         if (tapOtherMatch) {
+          // Optional supported additional clause: "Pay N life" (non-interactive).
+          // IMPORTANT: do not actually pay life until the tap-target step resolves;
+          // otherwise canceling the step would incorrectly charge life.
+          let lifeToPayForCost: number | undefined;
+          {
+            const payLifeMatch = costStr.match(/\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i);
+            if (payLifeMatch) {
+              // Conservative: reject choice-based pay-life costs ("or") and multiple pay-life clauses.
+              const multiple = (costLower.match(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi) || []).length;
+              if (multiple > 1 || /\bor\b/i.test(costStr)) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: pay-life costs with choices ("or") are not supported yet.`,
+                });
+                return;
+              }
+
+              const raw = String(payLifeMatch[1] || '').trim();
+              const n = parseWordNumber(raw, 1);
+              if (!Number.isFinite(n) || n <= 0) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: invalid life payment amount.`,
+                });
+                return;
+              }
+
+              const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+              if (!Number.isFinite(currentLife) || currentLife < n) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_LIFE',
+                  message: `Cannot activate ${cardName}: need to pay ${n} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+                });
+                return;
+              }
+
+              lifeToPayForCost = n;
+            }
+          }
+
           const mustBeOther = Boolean(tapOtherMatch[1]);
           const rawCount = String(tapOtherMatch[2] || '').trim();
           const targetCount = parseWordNumber(rawCount, 1);
           const rawTypePhrase = String(tapOtherMatch[3] || '').trim();
 
-          // Conservative: reject obviously complex phrases ("with", "that", etc.)
-          if (/\b(with|that|without|attacking|blocking|equipped|enchanted)\b/i.test(rawTypePhrase)) {
+          // Optional supported restriction: "with power/toughness N or less/greater".
+          let baseTypePhrase = rawTypePhrase;
+          let minPower: number | undefined;
+          let maxPower: number | undefined;
+          let minToughness: number | undefined;
+          let maxToughness: number | undefined;
+
+          const hasRestrictionAfter = tapOtherMatch === tapOtherMatchRestrictionAfter;
+
+          const powerRestr = rawTypePhrase.match(/^(.*?)\s+with\s+power\s+(\d+)\s+or\s+(less|greater)\b/i);
+          const toughRestr = rawTypePhrase.match(/^(.*?)\s+with\s+toughness\s+(\d+)\s+or\s+(less|greater)\b/i);
+
+          const afterKind = hasRestrictionAfter ? String((tapOtherMatchRestrictionAfter as any)?.[4] || '') : '';
+          const afterN = hasRestrictionAfter ? String((tapOtherMatchRestrictionAfter as any)?.[5] || '') : '';
+          const afterDir = hasRestrictionAfter ? String((tapOtherMatchRestrictionAfter as any)?.[6] || '') : '';
+
+          const afterIsPower = hasRestrictionAfter && afterKind.toLowerCase() === 'power';
+          const afterIsToughness = hasRestrictionAfter && afterKind.toLowerCase() === 'toughness';
+
+          const afterRestr = hasRestrictionAfter
+            ? { kind: afterKind.toLowerCase(), n: parseInt(afterN, 10), dir: afterDir.toLowerCase() }
+            : null;
+
+          const afterHasValid = Boolean(afterRestr && Number.isFinite(afterRestr.n) && (afterRestr.dir === 'less' || afterRestr.dir === 'greater') && (afterRestr.kind === 'power' || afterRestr.kind === 'toughness'));
+          if ((powerRestr && toughRestr) || ((powerRestr || toughRestr) && afterHasValid)) {
+            socket.emit('error', {
+              code: 'UNSUPPORTED_COST',
+              message: `Cannot activate ${cardName}: multiple tap-other restrictions are not supported yet.`,
+            });
+            return;
+          }
+
+          if (afterHasValid && afterIsPower) {
+            baseTypePhrase = rawTypePhrase;
+            const n = afterRestr!.n;
+            if (!Number.isFinite(n) || n < 0) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: invalid power restriction.`,
+              });
+              return;
+            }
+            if (afterRestr!.dir === 'less') maxPower = n;
+            else minPower = n;
+          } else if (afterHasValid && afterIsToughness) {
+            baseTypePhrase = rawTypePhrase;
+            const n = afterRestr!.n;
+            if (!Number.isFinite(n) || n < 0) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: invalid toughness restriction.`,
+              });
+              return;
+            }
+            if (afterRestr!.dir === 'less') maxToughness = n;
+            else minToughness = n;
+          } else if (powerRestr) {
+            baseTypePhrase = String(powerRestr[1] || '').trim();
+            const n = parseInt(String(powerRestr[2] || '0'), 10);
+            const dir = String(powerRestr[3] || '').toLowerCase();
+            if (!Number.isFinite(n) || n < 0) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: invalid power restriction.`,
+              });
+              return;
+            }
+            if (dir === 'less') maxPower = n;
+            else minPower = n;
+          } else if (toughRestr) {
+            baseTypePhrase = String(toughRestr[1] || '').trim();
+            const n = parseInt(String(toughRestr[2] || '0'), 10);
+            const dir = String(toughRestr[3] || '').toLowerCase();
+            if (!Number.isFinite(n) || n < 0) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: invalid toughness restriction.`,
+              });
+              return;
+            }
+            if (dir === 'less') maxToughness = n;
+            else minToughness = n;
+          }
+
+          // Conservative: reject other complex phrases.
+          if (/(\bthat\b|\bwithout\b|\battacking\b|\bblocking\b|\bequipped\b|\benchanted\b)/i.test(rawTypePhrase)) {
             socket.emit('error', {
               code: 'UNSUPPORTED_COST',
               message: `Cannot activate ${cardName}: complex tap-other cost restrictions are not supported yet.`,
@@ -5434,11 +5568,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
 
+          // If we parsed a power/toughness restriction, the base type must be creature-like.
+          if ((minPower !== undefined || maxPower !== undefined || minToughness !== undefined || maxToughness !== undefined) && !/\bcreature\b/i.test(baseTypePhrase)) {
+            // Allow subtype-only phrasing (e.g. "soldier") which we interpret as creature.
+            // But still reject clearly non-creature types.
+            const isClearlyNonCreature = /\b(artifact|enchantment|land|planeswalker|battle)\b/i.test(baseTypePhrase);
+            if (isClearlyNonCreature) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: power/toughness restrictions are only supported for creatures.`,
+              });
+              return;
+            }
+          }
+
           // Ensure there are no other non-mana cost components besides the tap-other clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
             .replace(
-              /\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*\s+you\s+control\b/gi,
+              /\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\s+you\s+control(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\b/gi,
               ' '
             )
             .replace(/[\s,]+/g, ' ')
@@ -5454,7 +5603,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
           // Derive a simple type filter for TAP_UNTAP_TARGET.
           const ignored = new Set(['token', 'legendary', 'snow', 'basic', 'nontoken', 'nonbasic']);
-          const words = rawTypePhrase
+          const words = baseTypePhrase
             .toLowerCase()
             .split(/\s+/)
             .map((w) => w.trim())
@@ -5463,23 +5612,38 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
           const knownPermanentTypes = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle']);
           const knownHits = words.filter((w) => knownPermanentTypes.has(w));
+
+          let requireAllTypes = false;
+          const typesFilter: string[] = [];
+
           if (knownHits.length > 1) {
-            socket.emit('error', {
-              code: 'UNSUPPORTED_COST',
-              message: `Cannot activate ${cardName}: tap-other cost with multiple type keywords is not supported yet.`,
-            });
-            return;
+            // Support multi-type keywords like "artifact creature" by requiring ALL types.
+            // Conservative: only allow phrases that are exactly known permanent types.
+            if (!words.every((w) => knownPermanentTypes.has(w))) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: tap-other cost with multiple type keywords is not supported yet.`,
+              });
+              return;
+            }
+
+            requireAllTypes = true;
+            for (const w of words) {
+              if (!typesFilter.includes(w)) typesFilter.push(w);
+            }
+          } else {
+            const baseType = knownHits.length === 1 ? knownHits[0] : '';
+            const subtype = baseType ? '' : (words[0] || '');
+            if (baseType) {
+              typesFilter.push(baseType);
+            } else if (subtype) {
+              // Treat as creature subtype (e.g. Soldier) and also require creature.
+              requireAllTypes = true;
+              typesFilter.push('creature', subtype);
+            }
           }
 
-          const baseType = knownHits.length === 1 ? knownHits[0] : '';
-          const subtype = baseType ? '' : (words[0] || '');
-          const typesFilter: string[] = [];
-          if (baseType) {
-            typesFilter.push(baseType);
-          } else if (subtype) {
-            // Treat as creature subtype (e.g. Soldier) and also require creature.
-            typesFilter.push('creature', subtype);
-          } else {
+          if (typesFilter.length < 1) {
             socket.emit('error', {
               code: 'UNSUPPORTED_COST',
               message: `Cannot activate ${cardName}: could not parse tap-other cost type.`,
@@ -5493,7 +5657,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             if ((p as any).tapped) return false;
             if (mustBeOther && String(p.id) === String(permanentId)) return false;
             const tl = String(p.card?.type_line || '').toLowerCase();
-            return typesFilter.some((t) => tl.includes(String(t).toLowerCase()));
+            const matchesAny = typesFilter.some((t) => tl.includes(String(t).toLowerCase()));
+            if (!matchesAny) return false;
+            if (requireAllTypes) {
+              const matchesAll = typesFilter.every((t) => tl.includes(String(t).toLowerCase()));
+              return matchesAll;
+            }
+
+            if (minPower !== undefined || maxPower !== undefined) {
+              const pwr = getEffectivePower(p);
+              if (minPower !== undefined && pwr < minPower) return false;
+              if (maxPower !== undefined && pwr > maxPower) return false;
+            }
+            if (minToughness !== undefined || maxToughness !== undefined) {
+              const tgh = getEffectiveToughness(p);
+              if (minToughness !== undefined && tgh < minToughness) return false;
+              if (maxToughness !== undefined && tgh > maxToughness) return false;
+            }
+
+            return true;
           });
 
           if (validNow.length < targetCount) {
@@ -5523,6 +5705,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 tapStatus: 'untapped',
                 excludeSource: mustBeOther,
                 types: typesFilter,
+                requireAllTypes,
+                minPower,
+                maxPower,
+                minToughness,
+                maxToughness,
               },
               targetCount,
 
@@ -5534,6 +5721,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               abilityText,
               manaCost: costStr,
               requiresTap: Boolean(requiresTap),
+              lifeToPayForCost,
             } as any);
           }
 
@@ -5563,6 +5751,45 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         );
 
         if (returnMatch) {
+          // Optional supported additional clause: "Pay N life" (non-interactive).
+          // IMPORTANT: do not actually pay life until the target-selection step resolves;
+          // otherwise canceling the step would incorrectly charge life.
+          let lifeToPayForCost: number | undefined;
+          {
+            const payLifeMatch = costStr.match(/\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i);
+            if (payLifeMatch) {
+              const multiple = (costLower.match(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi) || []).length;
+              if (multiple > 1 || /\bor\b/i.test(costStr)) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: pay-life costs with choices ("or") are not supported yet.`,
+                });
+                return;
+              }
+
+              const raw = String(payLifeMatch[1] || '').trim();
+              const n = parseWordNumber(raw, 1);
+              if (!Number.isFinite(n) || n <= 0) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: invalid life payment amount.`,
+                });
+                return;
+              }
+
+              const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+              if (!Number.isFinite(currentLife) || currentLife < n) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_LIFE',
+                  message: `Cannot activate ${cardName}: need to pay ${n} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+                });
+                return;
+              }
+
+              lifeToPayForCost = n;
+            }
+          }
+
           // Reject choice-based or mixed costs for now.
           if (/\bor\b/i.test(costStr)) {
             socket.emit('error', {
@@ -5578,6 +5805,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Ensure there are no other non-mana cost components besides the return clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
             .replace(
               /\breturn\s+(?:another\s+|other\s+)?(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi,
               ' '
@@ -5657,6 +5885,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               returnType: rawType,
               mustBeOther,
               activatedAbilityText,
+              lifeToPayForCost,
             } as any);
           }
 
@@ -5676,10 +5905,59 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (blightCostMatch) {
       const raw = String(blightCostMatch[1] || '').trim();
       if (raw.toLowerCase() === 'x') {
-        socket.emit('error', {
-          code: 'UNSUPPORTED_COST',
-          message: `Cannot activate ${cardName}: Blight X as an activation cost is not supported yet.`,
-        });
+        // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus "Blight X".
+        const remainingNonManaCostText = blightCostStr
+          .replace(/\{[^}]+\}/g, ' ')
+          .replace(/\bblight\s+\w+\b/gi, ' ')
+          .replace(/[\s,]+/g, ' ')
+          .trim();
+
+        if (remainingNonManaCostText.length > 0) {
+          socket.emit('error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Cannot activate ${cardName}: Blight cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+          });
+          return;
+        }
+
+        // Store pending activation to resume after X selection + Blight target selection.
+        const activationId = `blight_activation_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        (game.state as any).pendingBlightAbilityActivations = (game.state as any).pendingBlightAbilityActivations || {};
+        (game.state as any).pendingBlightAbilityActivations[activationId] = {
+          playerId: pid,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText,
+          manaCost,
+          requiresTap,
+          timestamp: Date.now(),
+          activatedAbilityText: String(abilityConditionText || '').trim() || `${blightCostStr}: ${abilityText}`,
+        };
+
+        // Choose X (min 0, max 20 for UI sanity).
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.X_VALUE_SELECTION,
+          playerId: pid as PlayerID,
+          description: `${cardName}: Choose X for Blight X (cancel to abort activation).`,
+          mandatory: false,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+
+          minValue: 0,
+          maxValue: 20,
+
+          // Custom payload consumed by resolution.ts.
+          keywordBlight: true,
+          keywordBlightStage: 'ability_activation_cost_choose_x',
+          keywordBlightController: pid,
+          keywordBlightSourceName: `${cardName} — Blight X`,
+          keywordBlightActivationId: activationId,
+        } as any);
+
+        debug(2, `[activateBattlefieldAbility] ${cardName} requires Blight X as activation cost; queued X_VALUE_SELECTION (activationId: ${activationId})`);
+        broadcastGame(io, game, gameId);
         return;
       }
 
@@ -6079,6 +6357,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // This is persisted into the activateBattlefieldAbility event for replay determinism.
     const tappedPermanentsForCost: string[] = [];
 
+    // Track any permanents we sacrifice as part of paying this activation's costs.
+    // Persisted into activateBattlefieldAbility for deterministic replay.
+    const sacrificedPermanentsForCost: string[] = [];
+
     // Track life paid as part of paying this activation's costs.
     // Persisted into activateBattlefieldAbility for deterministic replay.
     let pendingLifePaymentForCost = 0;
@@ -6129,47 +6411,68 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             .replace(/[\s,]+/g, ' ')
             .trim();
 
+          let deferToSpecializedHandler = false;
+
           if (remainingNonManaCostText.length > 0) {
-            socket.emit('error', {
-              code: 'UNSUPPORTED_COST',
-              message: `Cannot activate ${cardName}: pay-life cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
-            });
-            return;
+            // Mixed costs: allow other dedicated handlers to process supported combinations
+            // like discard/exile-from-hand/tap-other + pay life, deferring life payment
+            // until the relevant Resolution Queue step resolves.
+            const remainingLower = remainingNonManaCostText.toLowerCase();
+            const looksLikeSupportedTapOther = /\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\b/i.test(remainingLower) && /\byou\s+control\b/i.test(remainingLower);
+            const looksLikeSupportedDiscard = /\bdiscard\b/i.test(remainingLower);
+            const looksLikeSupportedExileFromHand = /\bexile\b/i.test(remainingLower) && /\bfrom\s+your\s+hand\b/i.test(remainingLower);
+            const looksLikeSupportedExileFromGraveyard = /\bexile\b/i.test(remainingLower) && /\bfrom\s+your\s+graveyard\b/i.test(remainingLower);
+            const looksLikeSupportedReturnToHand = /\breturn\b/i.test(remainingLower) && /\byou\s+control\b/i.test(remainingLower) && /\bowner(?:'|’)s\s+hand\b/i.test(remainingLower);
+
+            if (looksLikeSupportedTapOther || looksLikeSupportedDiscard || looksLikeSupportedExileFromHand || looksLikeSupportedExileFromGraveyard || looksLikeSupportedReturnToHand) {
+              // Defer entirely to the specialized cost handler.
+              // IMPORTANT: do not pre-strip the pay-life clause from manaCost here;
+              // the specialized handler needs to parse and carry it into the Resolution step.
+              deferToSpecializedHandler = true;
+            } else {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: pay-life cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+              });
+              return;
+            }
           }
 
-          const raw = String(payLifeMatch[1] || '').trim();
-          const lifeToPay = parseWordNumber(raw, 1);
-          if (!Number.isFinite(lifeToPay) || lifeToPay <= 0) {
-            socket.emit('error', {
-              code: 'UNSUPPORTED_COST',
-              message: `Cannot activate ${cardName}: invalid life payment amount.`,
-            });
-            return;
-          }
+          if (!deferToSpecializedHandler) {
+            const raw = String(payLifeMatch[1] || '').trim();
+            const lifeToPay = parseWordNumber(raw, 1);
+            if (!Number.isFinite(lifeToPay) || lifeToPay <= 0) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: invalid life payment amount.`,
+              });
+              return;
+            }
 
-          const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
-          if (!Number.isFinite(currentLife) || currentLife < lifeToPay) {
-            socket.emit('error', {
-              code: 'INSUFFICIENT_LIFE',
-              message: `Cannot activate ${cardName}: need to pay ${lifeToPay} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
-            });
-            return;
-          }
+            const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+            if (!Number.isFinite(currentLife) || currentLife < lifeToPay) {
+              socket.emit('error', {
+                code: 'INSUFFICIENT_LIFE',
+                message: `Cannot activate ${cardName}: need to pay ${lifeToPay} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+              });
+              return;
+            }
 
-          pendingLifePaymentForCost = lifeToPay;
+            pendingLifePaymentForCost = lifeToPay;
 
-          // Strip this clause from manaCost so later mana-payment logic doesn't see non-mana text.
-          try {
-            manaCost = String(manaCost || '')
-              .replace(
-                /\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi,
-                ' '
-              )
-              .replace(/^[\s,]+|[\s,]+$/g, '')
-              .replace(/[\s,]+/g, ' ')
-              .trim();
-          } catch {
-            // best-effort only
+            // Strip this clause from manaCost so later mana-payment logic doesn't see non-mana text.
+            try {
+              manaCost = String(manaCost || '')
+                .replace(
+                  /\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi,
+                  ' '
+                )
+                .replace(/^[\s,]+|[\s,]+$/g, '')
+                .replace(/[\s,]+/g, ' ')
+                .trim();
+            } catch {
+              // best-effort only
+            }
           }
         }
       }
@@ -6198,6 +6501,45 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
         if (exileMatch || exileTypedMatch) {
           const typedRestriction = exileTypedMatch ? String(exileTypedMatch[2] || '').trim().toLowerCase() : '';
+
+          // Optional supported additional clause: "Pay N life" (non-interactive).
+          // IMPORTANT: do not actually pay life until the graveyard selection step resolves;
+          // otherwise canceling the step would incorrectly charge life.
+          let lifeToPayForCost: number | undefined;
+          {
+            const payLifeMatch = costStr.match(/\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i);
+            if (payLifeMatch) {
+              const multiple = (costLower.match(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi) || []).length;
+              if (multiple > 1 || /\bor\b/i.test(costStr)) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: pay-life costs with choices ("or") are not supported yet.`,
+                });
+                return;
+              }
+
+              const raw = String(payLifeMatch[1] || '').trim();
+              const n = parseWordNumber(raw, 1);
+              if (!Number.isFinite(n) || n <= 0) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: invalid life payment amount.`,
+                });
+                return;
+              }
+
+              const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+              if (!Number.isFinite(currentLife) || currentLife < n) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_LIFE',
+                  message: `Cannot activate ${cardName}: need to pay ${n} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+                });
+                return;
+              }
+
+              lifeToPayForCost = n;
+            }
+          }
           // Reject choice-based or mixed costs for now.
           if (/\bor\b/i.test(costStr)) {
             socket.emit('error', {
@@ -6210,6 +6552,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Ensure there are no other non-mana cost components besides the exile clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
             .replace(
               /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
               ' '
@@ -6334,6 +6677,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               requiresTap,
               activatedAbilityText,
               exileCount,
+              lifeToPayForCost,
             } as any);
           }
 
@@ -6627,6 +6971,46 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
         if (exileMatch || exileTypedMatch) {
           const typedRestriction = exileTypedMatch ? String(exileTypedMatch[2] || '').trim().toLowerCase() : '';
+
+          // Optional supported additional clause: "Pay N life" (non-interactive).
+          // IMPORTANT: do not actually pay life until the discard/exile step resolves;
+          // otherwise canceling the step would incorrectly charge life.
+          let lifeToPayForCost: number | undefined;
+          {
+            const payLifeMatch = costStr.match(/\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i);
+            if (payLifeMatch) {
+              const multiple = (costLower.match(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi) || []).length;
+              if (multiple > 1 || /\bor\b/i.test(costStr)) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: pay-life costs with choices ("or") are not supported yet.`,
+                });
+                return;
+              }
+
+              const raw = String(payLifeMatch[1] || '').trim();
+              const n = parseWordNumber(raw, 1);
+              if (!Number.isFinite(n) || n <= 0) {
+                socket.emit('error', {
+                  code: 'UNSUPPORTED_COST',
+                  message: `Cannot activate ${cardName}: invalid life payment amount.`,
+                });
+                return;
+              }
+
+              const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+              if (!Number.isFinite(currentLife) || currentLife < n) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_LIFE',
+                  message: `Cannot activate ${cardName}: need to pay ${n} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+                });
+                return;
+              }
+
+              lifeToPayForCost = n;
+            }
+          }
+
           // Reject choice-based or mixed costs for now.
           if (/\bor\b/i.test(costStr)) {
             socket.emit('error', {
@@ -6638,6 +7022,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
             .replace(
               /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+hand\b/gi,
               ' '
@@ -6736,6 +7121,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               requiresTap,
               activatedAbilityText,
               exileCount,
+              lifeToPayForCost,
             } as any);
           }
 
@@ -6750,6 +7136,45 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const costStr = String(manaCost || '');
       const costLower = costStr.toLowerCase();
       if (costLower.includes('discard')) {
+        // Optional supported additional clause: "Pay N life" (non-interactive).
+        // IMPORTANT: do not actually pay life until the discard step resolves;
+        // otherwise canceling the step would incorrectly charge life.
+        let lifeToPayForCost: number | undefined;
+        {
+          const payLifeMatch = costStr.match(/\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i);
+          if (payLifeMatch) {
+            const multiple = (costLower.match(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi) || []).length;
+            if (multiple > 1 || /\bor\b/i.test(costStr)) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: pay-life costs with choices ("or") are not supported yet.`,
+              });
+              return;
+            }
+
+            const raw = String(payLifeMatch[1] || '').trim();
+            const n = parseWordNumber(raw, 1);
+            if (!Number.isFinite(n) || n <= 0) {
+              socket.emit('error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Cannot activate ${cardName}: invalid life payment amount.`,
+              });
+              return;
+            }
+
+            const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
+            if (!Number.isFinite(currentLife) || currentLife < n) {
+              socket.emit('error', {
+                code: 'INSUFFICIENT_LIFE',
+                message: `Cannot activate ${cardName}: need to pay ${n} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+              });
+              return;
+            }
+
+            lifeToPayForCost = n;
+          }
+        }
+
         // Conservative: support "discard N card(s)" and "discard N <type> card(s)" where <type> is a single keyword.
         // Examples:
         // - "Discard a card"
@@ -6777,6 +7202,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Ensure the cost contains no other non-mana cost components besides the discard clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
+            .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
             .replace(
               /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
               ' '
@@ -6858,6 +7284,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               manaCost,
               requiresTap,
               discardTypeRestriction: typedRestriction || undefined,
+              lifeToPayForCost,
             } as any);
           }
 
@@ -7240,6 +7667,52 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         tappedPermanentsForCost.push(String(permanentId));
       }
 
+      // Sacrifice the source as part of the activation cost (e.g., "Sacrifice this artifact").
+      // Conservative: only support self-sacrifice costs that don't include additional non-mana components.
+      if (sacrificeType === 'self') {
+        const costStr = String(manaCost || '');
+        const remainingNonManaCostText = costStr
+          .replace(/\{[^}]+\}/g, ' ')
+          // Strip "Sacrifice ~" and "Sacrifice this ..." clauses.
+          .replace(/\bsacrifice\s+(?:~|this)\b[^,]*/gi, ' ')
+          .replace(/[\s,]+/g, ' ')
+          .trim();
+
+        if (remainingNonManaCostText.length > 0) {
+          socket.emit('error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Cannot activate ${cardName}: sacrifice-self cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+          });
+          return;
+        }
+
+        try {
+          const ctx = {
+            state: game.state,
+            libraries: (game as any).libraries,
+            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+            rng: (game as any).rng,
+            gameId,
+          } as any;
+          const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+          const moved = movePermanentToGraveyard(ctx, String(permanentId), true);
+          if (!moved) {
+            socket.emit('error', {
+              code: 'PERMANENT_NOT_FOUND',
+              message: 'Permanent no longer on battlefield',
+            });
+            return;
+          }
+          sacrificedPermanentsForCost.push(String(permanentId));
+        } catch {
+          socket.emit('error', {
+            code: 'SACRIFICE_FAILED',
+            message: `Failed to sacrifice ${cardName} as part of the activation cost.`,
+          });
+          return;
+        }
+      }
+
       // Check if this is a tutor effect (searches library)
       const tutorInfo = detectTutorEffect(abilityText);
 
@@ -7388,6 +7861,51 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Tap as part of the cost for mana abilities.
       if (requiresTap && !(permanent as any).tapped) {
         (permanent as any).tapped = true;
+      }
+
+      // Sacrifice the source as part of the activation cost for mana abilities
+      // (e.g., "{T}, Sacrifice this artifact: Add one mana of any color").
+      if (sacrificeType === 'self') {
+        const costStr = String(manaCost || '');
+        const remainingNonManaCostText = costStr
+          .replace(/\{[^}]+\}/g, ' ')
+          .replace(/\bsacrifice\s+(?:~|this)\b[^,]*/gi, ' ')
+          .replace(/[\s,]+/g, ' ')
+          .trim();
+
+        if (remainingNonManaCostText.length > 0) {
+          socket.emit('error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Cannot activate ${cardName}: sacrifice-self cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
+          });
+          return;
+        }
+
+        try {
+          const ctx = {
+            state: game.state,
+            libraries: (game as any).libraries,
+            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+            rng: (game as any).rng,
+            gameId,
+          } as any;
+          const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+          const moved = movePermanentToGraveyard(ctx, String(permanentId), true);
+          if (!moved) {
+            socket.emit('error', {
+              code: 'PERMANENT_NOT_FOUND',
+              message: 'Permanent no longer on battlefield',
+            });
+            return;
+          }
+          sacrificedPermanentsForCost.push(String(permanentId));
+        } catch {
+          socket.emit('error', {
+            code: 'SACRIFICE_FAILED',
+            message: `Failed to sacrifice ${cardName} as part of the activation cost.`,
+          });
+          return;
+        }
       }
       
       // Initialize mana pool if needed
@@ -7723,6 +8241,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityText,
       activatedAbilityText,
       tappedPermanents: tappedPermanentsForCost,
+      sacrificedPermanents: sacrificedPermanentsForCost,
       removedCountersForCost,
       lifePaidForCost: pendingLifePaymentForCost,
     });

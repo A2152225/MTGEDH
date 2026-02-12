@@ -21,6 +21,7 @@ import {
   getPlayerName,
   emitToPlayer,
   getEffectivePower,
+  getEffectiveToughness,
   appendGameEvent,
   parseManaCost,
   getOrInitManaPool,
@@ -253,6 +254,11 @@ async function handleAIResolutionStep(
         const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
         const tapStatus: 'tapped' | 'untapped' | 'any' = targetFilter.tapStatus || 'any';
         const excludeSource = targetFilter.excludeSource === true;
+        const requireAllTypes = targetFilter.requireAllTypes === true;
+        const minPower = targetFilter.minPower !== undefined ? Number(targetFilter.minPower) : undefined;
+        const maxPower = targetFilter.maxPower !== undefined ? Number(targetFilter.maxPower) : undefined;
+        const minToughness = targetFilter.minToughness !== undefined ? Number(targetFilter.minToughness) : undefined;
+        const maxToughness = targetFilter.maxToughness !== undefined ? Number(targetFilter.maxToughness) : undefined;
 
         const candidates = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
           if (!perm || typeof perm.id !== 'string') return false;
@@ -262,8 +268,24 @@ async function handleAIResolutionStep(
           const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
           if (types.length > 0) {
             const typeLine = String(perm.card?.type_line || '').toLowerCase();
-            const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
-            if (!matchesAny) return false;
+            if (requireAllTypes) {
+              const matchesAll = types.every((t: any) => typeLine.includes(String(t).toLowerCase()));
+              if (!matchesAll) return false;
+            } else {
+              const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
+              if (!matchesAny) return false;
+            }
+          }
+
+          if (minPower !== undefined || maxPower !== undefined) {
+            const pwr = getEffectivePower(perm);
+            if (minPower !== undefined && pwr < minPower) return false;
+            if (maxPower !== undefined && pwr > maxPower) return false;
+          }
+          if (minToughness !== undefined || maxToughness !== undefined) {
+            const tgh = getEffectiveToughness(perm);
+            if (minToughness !== undefined && tgh < minToughness) return false;
+            if (maxToughness !== undefined && tgh > maxToughness) return false;
           }
 
           if (controllerFilter === 'you' && perm.controller !== step.playerId) return false;
@@ -3158,6 +3180,11 @@ async function handleStepResponse(
       const tapStatus: 'tapped' | 'untapped' | 'any' = targetFilter.tapStatus || 'any';
       const excludeSource = targetFilter.excludeSource === true;
       const sourceId = String(step.sourceId || stepData.sourceId || '');
+      const requireAllTypes = targetFilter.requireAllTypes === true;
+      const minPower = targetFilter.minPower !== undefined ? Number(targetFilter.minPower) : undefined;
+      const maxPower = targetFilter.maxPower !== undefined ? Number(targetFilter.maxPower) : undefined;
+      const minToughness = targetFilter.minToughness !== undefined ? Number(targetFilter.minToughness) : undefined;
+      const maxToughness = targetFilter.maxToughness !== undefined ? Number(targetFilter.maxToughness) : undefined;
 
       // Validate targets exist and satisfy basic filters
       const targets: any[] = [];
@@ -3211,12 +3238,38 @@ async function handleStepResponse(
         const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
         if (types.length > 0) {
           const typeLine = String(perm.card?.type_line || '').toLowerCase();
-          const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
-          if (!matchesAny) {
+          if (requireAllTypes) {
+            const matchesAll = types.every((t: any) => typeLine.includes(String(t).toLowerCase()));
+            if (!matchesAll) {
+              emitToPlayer(io, pid as any, 'error', {
+                code: 'INVALID_TARGET',
+                message: 'Target does not match required type',
+              });
+              return;
+            }
+          } else {
+            const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
+            if (!matchesAny) {
             emitToPlayer(io, pid as any, 'error', {
               code: 'INVALID_TARGET',
               message: 'Target does not match required type',
             });
+            return;
+            }
+          }
+        }
+
+        if (minPower !== undefined || maxPower !== undefined) {
+          const pwr = getEffectivePower(perm);
+          if ((minPower !== undefined && pwr < minPower) || (maxPower !== undefined && pwr > maxPower)) {
+            emitToPlayer(io, pid as any, 'error', { code: 'INVALID_TARGET', message: 'Target does not match required power' });
+            return;
+          }
+        }
+        if (minToughness !== undefined || maxToughness !== undefined) {
+          const tgh = getEffectiveToughness(perm);
+          if ((minToughness !== undefined && tgh < minToughness) || (maxToughness !== undefined && tgh > maxToughness)) {
+            emitToPlayer(io, pid as any, 'error', { code: 'INVALID_TARGET', message: 'Target does not match required toughness' });
             return;
           }
         }
@@ -3279,6 +3332,7 @@ async function handleStepResponse(
         const abilityText = String(stepAny?.abilityText || step.description || '');
         const manaCost = String(stepAny?.manaCost || '');
         const requiresTap = Boolean(stepAny?.requiresTap);
+        const lifeToPayForCost = stepAny?.lifeToPayForCost !== undefined ? Number(stepAny.lifeToPayForCost) : 0;
 
         if (action !== 'tap') {
           emitToPlayer(io, controllerId, 'error', { code: 'INVALID_SELECTION', message: 'Activation cost requires tapping targets' });
@@ -3303,7 +3357,8 @@ async function handleStepResponse(
         // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the tap-other clause.
         const remainingNonManaCostText = manaCost
           .replace(/\{[^}]+\}/g, ' ')
-          .replace(/\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*\s+you\s+control\b/gi, ' ')
+          .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
+          .replace(/\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\s+you\s+control(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\b/gi, ' ')
           .replace(/[\s,]+/g, ' ')
           .trim();
         if (remainingNonManaCostText.length > 0) {
@@ -3332,6 +3387,20 @@ async function handleStepResponse(
             break;
           }
           consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[tapOtherAbilityAsCost]');
+        }
+
+        if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+          const stateAny = game.state as any;
+          stateAny.life = stateAny.life || {};
+          const currentLife = Number(stateAny.life?.[controllerId] ?? 40);
+          if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+            emitToPlayer(io, controllerId, 'error', {
+              code: 'INSUFFICIENT_LIFE',
+              message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+            });
+            break;
+          }
+          stateAny.life[controllerId] = Math.max(0, currentLife - lifeToPayForCost);
         }
 
         const tappedPermanentsForCost: string[] = [];
@@ -3389,6 +3458,7 @@ async function handleStepResponse(
             cardName,
             abilityText,
             tappedPermanents: tappedPermanentsForCost,
+            lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
           });
         } catch {
           // ignore persistence failures
@@ -5935,6 +6005,10 @@ async function handleStepResponse(
     case ResolutionStepType.DISCARD_SELECTION:
       await handleDiscardResponse(io, game, gameId, step, response);
       break;
+
+    case ResolutionStepType.X_VALUE_SELECTION:
+      await handleXValueSelectionResponse(io, game, gameId, step, response);
+      break;
       
     case ResolutionStepType.COMMANDER_ZONE_CHOICE:
       handleCommanderZoneResponse(io, game, gameId, step, response);
@@ -6067,6 +6141,112 @@ async function handleStepResponse(
     // Add more handlers as needed
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
+  }
+}
+
+async function handleXValueSelectionResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const stepAny = step as any;
+
+  // Currently only used for deterministic Blight X activation costs.
+  if (stepAny?.keywordBlight === true && String(stepAny?.keywordBlightStage || '') === 'ability_activation_cost_choose_x') {
+    const controllerId = String(stepAny?.keywordBlightController || pid);
+    const activationId = String(stepAny?.keywordBlightActivationId || '').trim();
+    const sourceName = String(stepAny?.keywordBlightSourceName || step.sourceName || 'Blight X');
+
+    if (!activationId) {
+      debugWarn(1, `[Resolution] Blight X: missing activation id`);
+      return;
+    }
+
+    if (response.cancelled) {
+      try {
+        if ((game.state as any)?.pendingBlightAbilityActivations?.[activationId]) {
+          delete (game.state as any).pendingBlightAbilityActivations[activationId];
+        }
+      } catch {
+        // best-effort only
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} cancelled the activation.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    let xValue: number | null = null;
+    const sel: any = response.selections as any;
+    if (typeof sel === 'number') xValue = sel;
+    else if (typeof sel === 'string') xValue = Number(sel);
+    else if (sel && typeof sel === 'object' && sel.xValue != null) xValue = Number(sel.xValue);
+
+    xValue = Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue as number)) : null;
+    if (xValue == null) {
+      debugWarn(1, `[Resolution] Blight X: invalid xValue selection: ${JSON.stringify(response.selections)}`);
+      return;
+    }
+
+    const pending = (game.state as any)?.pendingBlightAbilityActivations?.[activationId];
+    if (!pending) {
+      debugWarn(1, `[Resolution] Blight X: pending activation not found (${activationId})`);
+      return;
+    }
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const validTargets = battlefield
+      .filter((p: any) => p && String(p.controller || '') === controllerId)
+      .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+      .map((p: any) => ({
+        id: p.id,
+        label: p.card?.name || 'Creature',
+        description: p.card?.type_line || 'creature',
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+      }));
+
+    if (validTargets.length === 0) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'NO_VALID_TARGETS',
+        message: `Cannot pay Blight ${xValue} (you control no creatures).`,
+      });
+      return;
+    }
+
+    // Enqueue the actual blight target selection step (handled by handleTargetSelectionResponse).
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: controllerId as any,
+      description: `${String(pending.cardName || step.sourceName || 'Ability')}: Blight ${xValue} — Choose a creature you control to put ${xValue} -1/-1 counter${xValue === 1 ? '' : 's'} on it (cancel to abort activation).`,
+      mandatory: false,
+      sourceId: String(pending.permanentId || step.sourceId || ''),
+      sourceName: String(pending.cardName || step.sourceName || 'Ability'),
+      sourceImage: stepAny?.sourceImage,
+      validTargets,
+      targetTypes: ['creature'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: 'creature you control',
+
+      keywordBlight: true,
+      keywordBlightStage: 'ability_activation_cost',
+      keywordBlightController: controllerId,
+      keywordBlightN: xValue,
+      keywordBlightSourceName: `${String(pending.cardName || step.sourceName || 'Ability')} — Blight ${xValue}`,
+      keywordBlightActivationId: activationId,
+    } as any);
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
   }
 }
 
@@ -6388,6 +6568,7 @@ async function handleDiscardResponse(
       // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the discard clause.
       const remainingNonManaCostText = manaCost
         .replace(/\{[^}]+\}/g, ' ')
+        .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
         .replace(
           /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
           ' '
@@ -6423,6 +6604,20 @@ async function handleDiscardResponse(
           return;
         }
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[discardAbilityAsCost]');
+      }
+
+      // Optional deferred life payment (validated at activation time; applied now so cancel doesn't charge life)
+      const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+      if (lifeToPayForCost > 0) {
+        const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'INSUFFICIENT_LIFE',
+            message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+          });
+          return;
+        }
+        (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
       }
 
       const tappedPermanentsForCost: string[] = [];
@@ -6477,6 +6672,7 @@ async function handleDiscardResponse(
           abilityText,
           tappedPermanents: tappedPermanentsForCost,
           discardedCardIds: selections,
+          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
         });
       } catch {
         // ignore persistence failures
@@ -6517,6 +6713,7 @@ async function handleDiscardResponse(
       // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the exile-from-hand clause.
       const remainingNonManaCostText = manaCost
         .replace(/\{[^}]+\}/g, ' ')
+        .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
         .replace(/\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+hand\b/gi, ' ')
         .replace(/[\s,]+/g, ' ')
         .trim();
@@ -6549,6 +6746,20 @@ async function handleDiscardResponse(
           return;
         }
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[exileFromHandAbilityAsCost]');
+      }
+
+      // Optional deferred life payment (validated at activation time; applied now so cancel doesn't charge life)
+      const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+      if (lifeToPayForCost > 0) {
+        const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'INSUFFICIENT_LIFE',
+            message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+          });
+          return;
+        }
+        (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
       }
 
       const tappedPermanentsForCost: string[] = [];
@@ -6604,6 +6815,7 @@ async function handleDiscardResponse(
           tappedPermanents: tappedPermanentsForCost,
           exiledCardIdsFromHandForCost: selections,
           activatedAbilityText: activatedAbilityText || undefined,
+          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
         });
       } catch {
         // ignore persistence failures
@@ -7769,6 +7981,7 @@ async function handleTargetSelectionResponse(
     const mustBeOther = Boolean(stepAny?.mustBeOther);
     const returnType = String(stepAny?.returnType || 'permanent').toLowerCase();
     const activatedAbilityText = String(stepAny?.activatedAbilityText || '').trim();
+    const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
 
     if (!sourcePermanentId) {
       emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Missing source permanent' });
@@ -7817,6 +8030,7 @@ async function handleTargetSelectionResponse(
     // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the return clause.
     const remainingNonManaCostText = manaCost
       .replace(/\{[^}]+\}/g, ' ')
+      .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
       .replace(/\breturn\s+(?:another\s+|other\s+)?(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi, ' ')
       .replace(/[\s,]+/g, ' ')
       .trim();
@@ -7826,6 +8040,43 @@ async function handleTargetSelectionResponse(
         message: `Unsupported activation cost (${remainingNonManaCostText}).`,
       });
       return;
+    }
+
+    // Validate deferred life payment (actual payment happens after the target selection resolves)
+    if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+      const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+      if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INSUFFICIENT_LIFE',
+          message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+        });
+        return;
+      }
+    }
+
+    // Validate and then pay mana portion of the activation cost (conservative: no Phyrexian and no X).
+    const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+    const manaOnly = manaSymbols
+      .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+      .join('');
+    if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+      emitToPlayer(io, controllerId, 'error', { code: 'UNSUPPORTED_COST', message: `Unsupported activation cost (${manaOnly || 'complex cost'})` });
+      return;
+    }
+    let consumeMana: (() => Promise<void>) | undefined;
+    if (manaOnly) {
+      const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+      const parsedCost = parseManaCost(manaOnly);
+      const pool = getOrInitManaPool(game.state, controllerId) as any;
+      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+        return;
+      }
+      consumeMana = async () => {
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[returnToHandAbilityAsCost]');
+      };
     }
 
     // Apply the return-to-hand cost.
@@ -7845,26 +8096,21 @@ async function handleTargetSelectionResponse(
       return;
     }
 
-    // Pay mana portion of the activation cost (conservative: no Phyrexian and no X).
-    const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
-    const manaOnly = manaSymbols
-      .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
-      .join('');
-    if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
-      emitToPlayer(io, controllerId, 'error', { code: 'UNSUPPORTED_COST', message: `Unsupported activation cost (${manaOnly || 'complex cost'})` });
-      return;
+    if (consumeMana) {
+      await consumeMana();
     }
-    if (manaOnly) {
-      const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
-      const parsedCost = parseManaCost(manaOnly);
-      const pool = getOrInitManaPool(game.state, controllerId) as any;
-      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      if (validationError) {
-        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+
+    // Optional deferred life payment (validated at activation time; applied now so cancel doesn't charge life)
+    if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+      const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+      if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INSUFFICIENT_LIFE',
+          message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+        });
         return;
       }
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[returnToHandAbilityAsCost]');
+      (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
     }
 
     const tappedPermanentsForCost: string[] = [];
@@ -7922,6 +8168,7 @@ async function handleTargetSelectionResponse(
         tappedPermanents: tappedPermanentsForCost,
         returnedPermanentsToHandForCost: [chosenId],
         activatedAbilityText: activatedAbilityText || undefined,
+        lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
       });
     } catch {
       // ignore persistence failures
@@ -8453,10 +8700,12 @@ async function handleTargetSelectionResponse(
         delete (game.state as any).pendingBlightAbilityActivations[activationId];
 
         const permanentId = String(pending.permanentId || '');
+        const abilityId = String(pending.abilityId || '');
         const abilityText = String(pending.abilityText || '');
         const cardName = String(pending.cardName || pending.sourceName || 'Ability');
         const requiresTap = Boolean(pending.requiresTap);
         const manaCost = String(pending.manaCost || '');
+        const activatedAbilityText = String(pending.activatedAbilityText || '').trim();
 
         // Defensive: we only support resuming activations whose costs are strictly
         // (mana symbols and/or {T}/{Q}) plus the already-paid "Blight N".
@@ -8530,9 +8779,11 @@ async function handleTargetSelectionResponse(
           consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic);
         }
 
+        const tappedPermanentsForCost: string[] = [];
         // Tap as part of cost.
         if (requiresTap && !(perm as any).tapped) {
           (perm as any).tapped = true;
+          tappedPermanentsForCost.push(String(permanentId));
         }
 
         // Put the ability on the stack.
@@ -8569,6 +8820,23 @@ async function handleTargetSelectionResponse(
           message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
           ts: Date.now(),
         });
+
+        // Persist deterministic evidence so replay applies the Blight counters and tap.
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            activatedAbilityText: activatedAbilityText || undefined,
+            tappedPermanents: tappedPermanentsForCost,
+            blightTargetPermanentIdForCost: String(targetId || ''),
+            blightNForCost: safeN,
+          });
+        } catch {
+          // ignore persistence failures
+        }
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         broadcastGame(io, game, gameId);
@@ -18126,6 +18394,7 @@ async function handleGraveyardSelectionResponse(
       // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the exile-from-graveyard clause.
       const remainingNonManaCostText = manaCost
         .replace(/\{[^}]+\}/g, ' ')
+        .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
         .replace(
           /\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+graveyard\b/gi,
           ' '
@@ -18161,6 +18430,20 @@ async function handleGraveyardSelectionResponse(
           return;
         }
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[graveyardExileAbilityAsCost]');
+      }
+
+      // Optional deferred life payment (validated at activation time; applied now so cancel doesn't charge life)
+      const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+      if (lifeToPayForCost > 0) {
+        const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'INSUFFICIENT_LIFE',
+            message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+          });
+          return;
+        }
+        (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
       }
 
       const tappedPermanentsForCost: string[] = [];
@@ -18215,6 +18498,7 @@ async function handleGraveyardSelectionResponse(
           activatedAbilityText,
           tappedPermanents: tappedPermanentsForCost,
           exiledCardIdsFromGraveyardForCost: movedCardIds,
+          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
         });
       } catch {
         // ignore persistence failures
