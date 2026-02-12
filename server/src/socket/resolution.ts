@@ -1694,6 +1694,57 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    // Validate DISCARD_SELECTION before completing the step.
+    // If we complete the step first, invalid input would permanently consume the step and desync hand state.
+    if (step.type === ResolutionStepType.DISCARD_SELECTION) {
+      const stepAny = step as any;
+      const discardCount = Number(stepAny.discardCount || 0);
+      const reason = String(stepAny.reason || 'effect');
+
+      if (cancelled) {
+        // Cleanup discards and explicitly mandatory discards cannot be cancelled.
+        if (reason === 'cleanup' || (stepAny.mandatory === true && discardCount > 0)) {
+          socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
+          return;
+        }
+      } else {
+        const rawSelections = response.selections;
+        if (!Array.isArray(rawSelections) || !rawSelections.every((s) => typeof s === 'string')) {
+          socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid discard selection format" });
+          return;
+        }
+
+        const selectedIds = rawSelections as string[];
+        const uniqueSelections = Array.from(new Set(selectedIds));
+        if (uniqueSelections.length !== selectedIds.length) {
+          socket.emit("error", { code: "INVALID_SELECTION", message: "Duplicate card selected" });
+          return;
+        }
+
+        if (!Number.isFinite(discardCount) || discardCount < 0) {
+          socket.emit("error", { code: "INVALID_STEP", message: "Invalid discard count" });
+          return;
+        }
+
+        if (selectedIds.length !== discardCount) {
+          socket.emit("error", {
+            code: "INVALID_SELECTION",
+            message: `Must select exactly ${discardCount} card${discardCount === 1 ? '' : 's'} to discard`,
+          });
+          return;
+        }
+
+        if (discardCount > 0) {
+          const hand = Array.isArray(stepAny.hand) ? stepAny.hand : [];
+          const handIds = new Set(hand.map((c: any) => c?.id).filter(Boolean));
+          if (!selectedIds.every((id) => handIds.has(id))) {
+            socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Selected card not found in hand" });
+            return;
+          }
+        }
+      }
+    }
+
     // Validate HAND_TO_BOTTOM (London mulligan) before completing the step.
     // If we complete the step first, invalid input would permanently consume the step and desync the mulligan flow.
     if (step.type === ResolutionStepType.HAND_TO_BOTTOM) {
@@ -1742,6 +1793,198 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         if (!selectedIds.every((id) => handIds.has(id))) {
           socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Selected card not found in hand" });
           return;
+        }
+      }
+    }
+
+    // Validate MANA_COLOR_SELECTION before completing the step.
+    // If we complete first, invalid input would permanently consume the step and desync mana generation.
+    if (step.type === ResolutionStepType.MANA_COLOR_SELECTION) {
+      if (cancelled) {
+        socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
+        return;
+      }
+
+      const stepAny = step as any;
+      const selectionKind = String(stepAny.selectionKind || 'any_color');
+      const rawSelections = response.selections as any;
+
+      if (selectionKind === 'distribution') {
+        if (!rawSelections || typeof rawSelections !== 'object' || Array.isArray(rawSelections)) {
+          socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid distribution format" });
+          return;
+        }
+
+        const totalAmount = Number(stepAny.totalAmount ?? stepAny.amount ?? 0);
+        const availableColors: string[] = Array.isArray(stepAny.availableColors)
+          ? stepAny.availableColors
+          : (Array.isArray(stepAny.allowedColors) ? stepAny.allowedColors : ['W', 'U', 'B', 'R', 'G']);
+
+        let totalDistributed = 0;
+        for (const [color, amountRaw] of Object.entries(rawSelections)) {
+          if (!availableColors.includes(String(color))) {
+            socket.emit("error", { code: "INVALID_COLOR", message: `${String(color)} is not an available color for this ability` });
+            return;
+          }
+          const amount = Number(amountRaw || 0);
+          if (!Number.isFinite(amount) || amount < 0) {
+            socket.emit("error", { code: "INVALID_DISTRIBUTION", message: `Invalid amount for ${String(color)}` });
+            return;
+          }
+          totalDistributed += amount;
+        }
+
+        if (totalAmount > 0 && totalDistributed !== totalAmount) {
+          socket.emit("error", {
+            code: "INVALID_DISTRIBUTION",
+            message: `Total mana distributed (${totalDistributed}) doesn't match required amount (${totalAmount})`,
+          });
+          return;
+        }
+      } else {
+        if (typeof rawSelections !== 'string') {
+          socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid color selection" });
+          return;
+        }
+
+        const poolKeyToCode: Record<string, string> = {
+          white: 'W',
+          blue: 'U',
+          black: 'B',
+          red: 'R',
+          green: 'G',
+          colorless: 'C',
+        };
+
+        const chosenKey = String(rawSelections);
+        const chosenCode = poolKeyToCode[chosenKey];
+        if (!chosenCode) {
+          socket.emit("error", { code: "INVALID_COLOR", message: `Invalid color selection (${chosenKey})` });
+          return;
+        }
+
+        const allowedCodes: string[] | undefined = Array.isArray(stepAny.allowedColors) ? stepAny.allowedColors : undefined;
+        if (allowedCodes && allowedCodes.length > 0 && !allowedCodes.includes(chosenCode)) {
+          socket.emit("error", { code: "INVALID_COLOR", message: `That color isn't allowed for this ability` });
+          return;
+        }
+      }
+    }
+
+    // Validate GRAVEYARD_SELECTION before completing the step.
+    // If we complete first, invalid input would permanently consume the step and desync graveyard/zone changes.
+    if (step.type === ResolutionStepType.GRAVEYARD_SELECTION && !cancelled) {
+      const stepAny = step as any;
+
+      let selectedCardIds: string[] = [];
+      const raw = response.selections as any;
+      if (Array.isArray(raw)) {
+        selectedCardIds = raw.map((s: any) => String(s)).filter(Boolean);
+      } else if (raw && typeof raw === 'object') {
+        if (Array.isArray(raw.selectedCardIds)) {
+          selectedCardIds = raw.selectedCardIds.map((s: any) => String(s)).filter(Boolean);
+        }
+      } else {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid graveyard selection format' });
+        return;
+      }
+
+      const uniqueSelections = Array.from(new Set(selectedCardIds));
+      if (uniqueSelections.length !== selectedCardIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card selected' });
+        return;
+      }
+
+      const minTargets = Math.max(0, Number(stepAny.minTargets ?? 0));
+      const maxTargets = Math.max(minTargets, Number(stepAny.maxTargets ?? minTargets));
+      if (selectedCardIds.length < minTargets || selectedCardIds.length > maxTargets) {
+        socket.emit('error', {
+          code: 'INVALID_SELECTION_COUNT',
+          message: `Select ${minTargets === maxTargets ? minTargets : `${minTargets}-${maxTargets}`} card(s).`,
+        });
+        return;
+      }
+
+      const validTargets: any[] = Array.isArray(stepAny.validTargets) ? stepAny.validTargets : [];
+      const validIds = new Set(validTargets.map((t: any) => String(t?.id || '')).filter(Boolean));
+      for (const id of selectedCardIds) {
+        if (!validIds.has(String(id))) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Invalid graveyard card selection' });
+          return;
+        }
+      }
+
+      // Collect evidence validation: ensure chosen cards meet required total mana value.
+      const purpose = String(stepAny.purpose || '').trim();
+      const destination = String(stepAny.destination || '').trim().toLowerCase();
+      const collectEvidenceMinManaValue = Number(stepAny.collectEvidenceMinManaValue ?? 0);
+      const targetPlayerId = String(stepAny.targetPlayerId || pid || '').trim();
+
+      if (
+        purpose.toLowerCase() === 'collectevidence' &&
+        destination === 'exile' &&
+        Number.isFinite(collectEvidenceMinManaValue) &&
+        collectEvidenceMinManaValue > 0 &&
+        selectedCardIds.length > 0
+      ) {
+        try {
+          const zones = (game.state as any)?.zones;
+          const gy = zones?.[targetPlayerId]?.graveyard;
+          if (!Array.isArray(gy)) {
+            socket.emit('error', { code: 'NO_GRAVEYARD', message: 'Graveyard not found' });
+            return;
+          }
+
+          const { cardManaValue } = await import('../state/utils.js');
+          const chosen = selectedCardIds
+            .map((id) => (gy as any[]).find((c: any) => c && String(c.id) === String(id)))
+            .filter(Boolean);
+
+          if (chosen.length !== selectedCardIds.length) {
+            socket.emit('error', { code: 'INVALID_TARGET', message: 'Selected card not found in graveyard' });
+            return;
+          }
+
+          const total = chosen.reduce((sum: number, c: any) => sum + (cardManaValue(c) || 0), 0);
+          if (!(total >= collectEvidenceMinManaValue)) {
+            socket.emit('error', {
+              code: 'CANNOT_COLLECT_EVIDENCE',
+              message: `Collect evidence ${collectEvidenceMinManaValue}: selected cards total mana value ${total} (need ${collectEvidenceMinManaValue} or more).`,
+            });
+            return;
+          }
+        } catch {
+          socket.emit('error', {
+            code: 'CANNOT_COLLECT_EVIDENCE',
+            message: 'Collect evidence validation failed; please try again.',
+          });
+          return;
+        }
+      }
+    }
+
+    // Validate phyrexian MANA_PAYMENT_CHOICE before completing the step.
+    // If we complete first, malformed input would permanently consume the step.
+    if (step.type === ResolutionStepType.MANA_PAYMENT_CHOICE) {
+      const stepAny = step as any;
+      if (stepAny.phyrexianManaChoice === true && !cancelled) {
+        const rawSelections = response.selections as any;
+        if (!Array.isArray(rawSelections)) {
+          socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid Phyrexian payment selection" });
+          return;
+        }
+
+        const phyrexianCosts: any[] = Array.isArray(stepAny.phyrexianCosts) ? stepAny.phyrexianCosts : [];
+        for (const choice of rawSelections) {
+          const idx = Number(choice?.index);
+          if (!Number.isFinite(idx) || idx < 0 || idx >= phyrexianCosts.length) {
+            socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid Phyrexian payment index" });
+            return;
+          }
+          if (choice?.payWithLife !== undefined && typeof choice.payWithLife !== 'boolean') {
+            socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid Phyrexian payment selection" });
+            return;
+          }
         }
       }
     }
@@ -2588,7 +2831,10 @@ async function handleStepResponse(
   if (response.cancelled) {
     // Most cancelled steps are a no-op. Some steps (e.g. Ward payments / optional costs)
     // need custom cancellation semantics handled in their normal handlers.
-    if (step.type === ResolutionStepType.TARGET_SELECTION) {
+    if (step.type === ResolutionStepType.MANA_PAYMENT_CHOICE) {
+      // Let the normal handler run so it can clean up (e.g. abort spell payment) or
+      // abort a player-initiated activation.
+    } else if (step.type === ResolutionStepType.TARGET_SELECTION) {
       await handleTargetSelectionResponse(io, game, gameId, step, response);
     } else if (step.type === ResolutionStepType.DISCARD_SELECTION) {
       await handleDiscardResponse(io, game, gameId, step, response);
@@ -2607,7 +2853,7 @@ async function handleStepResponse(
     } else if (step.type === ResolutionStepType.OPTION_CHOICE) {
       await handleOptionChoiceResponse(io, game, gameId, step, response);
     }
-    return;
+    if (step.type !== ResolutionStepType.MANA_PAYMENT_CHOICE) return;
   }
   
   const pid = response.playerId;
@@ -4293,6 +4539,54 @@ async function handleStepResponse(
       } catch {}
 
       // Persist replay-stable evidence for "added mana with this ability this turn".
+      // If this mana ability activation had additional costs (e.g., "Pay N life", "Sacrifice this"),
+      // apply and persist those here, because the activation path may have returned early to wait
+      // for this selection.
+      try {
+        const lifeToPay = Number(stepData.lifeToPayForCost || 0);
+        const tappedPermanentsForCost: string[] = Array.isArray(stepData.tappedPermanentsForCost)
+          ? stepData.tappedPermanentsForCost.map((x: any) => String(x))
+          : [];
+        const sacrificedPermanentsForCost: string[] = Array.isArray(stepData.sacrificedPermanentsForCost)
+          ? stepData.sacrificedPermanentsForCost.map((x: any) => String(x))
+          : [];
+
+        const hasEvidence = (lifeToPay > 0) || tappedPermanentsForCost.length > 0 || sacrificedPermanentsForCost.length > 0;
+        if (hasEvidence) {
+          if (lifeToPay > 0) {
+            try {
+              (game.state as any).life = (game.state as any).life || {};
+              const cur = Number((game.state as any).life?.[pid] ?? 40);
+              if (!Number.isFinite(cur) || cur < lifeToPay) {
+                emitToPlayer(io, pid as any, 'error', {
+                  code: 'INSUFFICIENT_LIFE',
+                  message: `Need to pay ${lifeToPay} life to complete this activation.`
+                });
+                break;
+              }
+              (game.state as any).life[pid] = Math.max(0, cur - lifeToPay);
+            } catch {
+              // best-effort only
+            }
+          }
+
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: pid,
+            permanentId,
+            abilityId,
+            cardName,
+            abilityText: '',
+            activatedAbilityText: '',
+            tappedPermanents: tappedPermanentsForCost,
+            sacrificedPermanents: sacrificedPermanentsForCost,
+            removedCountersForCost: [],
+            lifePaidForCost: lifeToPay,
+          });
+        }
+      } catch (e) {
+        debugWarn(1, '[Resolution] activateBattlefieldAbility (mana color selection evidence) failed:', e);
+      }
+
       try {
         const manaColor = selectionKind === 'distribution'
           ? 'MULTI'
@@ -4389,6 +4683,21 @@ async function handleStepResponse(
           code: 'UNSUPPORTED_STEP',
           message: 'Unsupported mana payment choice step',
         });
+        break;
+      }
+
+      if (response.cancelled) {
+        const cardName = String(stepData.cardName || stepData.sourceName || step.sourceName || 'ability');
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} cancelled activating ${cardName}.`,
+          ts: Date.now(),
+        });
+
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
         break;
       }
 
@@ -4580,12 +4889,18 @@ async function handleStepResponse(
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
 
       try {
+        const tappedPermanentsForCost: string[] = [];
+        if (requiresTap) tappedPermanentsForCost.push(String(permanentId));
         appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
           playerId: pid,
           permanentId,
+          abilityId: stepData.abilityId,
           cardName,
           abilityText,
-          phyrexianLifePaid: totalLifeToPay,
+          tappedPermanents: tappedPermanentsForCost,
+          sacrificedPermanents: [],
+          removedCountersForCost: [],
+          lifePaidForCost: totalLifeToPay > 0 ? totalLifeToPay : undefined,
           ...(treasureMeta.manaFromTreasureSpentKnown === true && typeof treasureMeta.manaFromTreasureSpent === 'boolean'
             ? {
                 manaFromTreasureSpentKnown: true,
@@ -6503,6 +6818,7 @@ async function handleDiscardResponse(
         );
 
       if (!existingSacrificeStep) {
+        const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as any,
@@ -6529,6 +6845,9 @@ async function handleDiscardResponse(
           sacrificeSubtype,
           sacrificeCount,
           mustBeOther,
+
+          // Optional deferred life payment (validated at activation time; paid after final step)
+          lifeToPayForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
 
           // Carry deterministic evidence from the discard step.
           discardedCardIdsForCost: selections,
@@ -7556,6 +7875,7 @@ async function handleTargetSelectionResponse(
     const abilityText = String(stepAny?.abilityText || step.description || '');
     const manaCost = String(stepAny?.manaCost || '');
     const requiresTap = Boolean(stepAny?.requiresTap);
+    const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
     const sacrificeType = String(stepAny?.sacrificeType || '').trim();
     const sacrificeSubtype = stepAny?.sacrificeSubtype ? String(stepAny?.sacrificeSubtype) : undefined;
     const sacrificeCount = Number(stepAny?.sacrificeCount || selections.length || 1);
@@ -7593,6 +7913,7 @@ async function handleTargetSelectionResponse(
 
     let remainingNonManaCostText = manaCost
       .replace(/\{[^}]+\}/g, ' ')
+      .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
       .replace(/\bsacrifice\b[^,]*/gi, ' ');
 
     if ((stepAny as any)?.discardAndSacrificeAbilityAsCost === true) {
@@ -7606,6 +7927,50 @@ async function handleTargetSelectionResponse(
         message: `Unsupported activation cost (${remainingNonManaCostText}).`,
       });
       return;
+    }
+
+    // Validate mana + life before performing irreversible zone changes.
+    const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+    const manaOnly = manaSymbols
+      .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+      .join('');
+
+    if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'UNSUPPORTED_COST',
+        message: `Unsupported activation cost (${manaOnly || 'complex cost'})`,
+      });
+      return;
+    }
+
+    let consumeMana: (() => Promise<void>) | undefined;
+    if (manaOnly) {
+      const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
+      const parsedCost = parseManaCost(manaOnly);
+      const pool = getOrInitManaPool(game.state, controllerId) as any;
+      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INSUFFICIENT_MANA',
+          message: validationError,
+        });
+        return;
+      }
+      consumeMana = async () => {
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[sacrificeAbilityAsCost]');
+      };
+    }
+
+    if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+      const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+      if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INSUFFICIENT_LIFE',
+          message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+        });
+        return;
+      }
     }
 
     // Validate sacrifices still legal.
@@ -7689,34 +8054,21 @@ async function handleTargetSelectionResponse(
       return;
     }
 
-    // Pay mana portion of the activation cost (conservative: no Phyrexian and no X).
-    const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
-    const manaOnly = manaSymbols
-      .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
-      .join('');
-
-    if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
-      emitToPlayer(io, controllerId, 'error', {
-        code: 'UNSUPPORTED_COST',
-        message: `Unsupported activation cost (${manaOnly || 'complex cost'})`,
-      });
-      return;
+    if (consumeMana) {
+      await consumeMana();
     }
 
-    if (manaOnly) {
-      const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
-      const parsedCost = parseManaCost(manaOnly);
-      const pool = getOrInitManaPool(game.state, controllerId) as any;
-      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      if (validationError) {
+    // Optional deferred life payment (validated at activation time; applied now so cancel doesn't charge life)
+    if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+      const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+      if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
         emitToPlayer(io, controllerId, 'error', {
-          code: 'INSUFFICIENT_MANA',
-          message: validationError,
+          code: 'INSUFFICIENT_LIFE',
+          message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
         });
         return;
       }
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[sacrificeAbilityAsCost]');
+      (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
     }
 
     const tappedPermanentsForCost: string[] = [];
@@ -7774,6 +8126,7 @@ async function handleTargetSelectionResponse(
         discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
           ? ((stepAny as any).discardedCardIdsForCost as any[]).map((x: any) => String(x)).filter(Boolean)
           : undefined,
+        lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
       });
     } catch {
       // ignore persistence failures

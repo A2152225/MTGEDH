@@ -47,8 +47,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe('Discard + sacrifice as activation cost via Resolution Queue (integration)', () => {
-  const gameId = 'test_discard_and_sacrifice_activation_cost_resolution_queue';
+describe('Pay-life + sacrifice as activation cost via Resolution Queue (integration)', () => {
+  const gameId = 'test_pay_life_and_sacrifice_activation_cost_resolution_queue';
 
   beforeAll(async () => {
     await initDb();
@@ -61,7 +61,7 @@ describe('Discard + sacrifice as activation cost via Resolution Queue (integrati
     games.delete(gameId as any);
   });
 
-  it('supports Pay 2 life + discard + sacrifice (life deferred until final step)', async () => {
+  it("enqueues TARGET_SELECTION with lifeToPayForCost and defers life until selection submit", async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -71,6 +71,8 @@ describe('Discard + sacrifice as activation cost via Resolution Queue (integrati
     (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [p1]: 40 };
+
+    // Deterministic priority baseline.
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
@@ -86,7 +88,7 @@ describe('Discard + sacrifice as activation cost via Resolution Queue (integrati
         card: {
           name: 'Test Engine',
           type_line: 'Artifact',
-          oracle_text: 'Pay 2 life, Discard a card, Sacrifice a creature: Draw a card.',
+          oracle_text: 'Pay 2 life, Sacrifice a creature: Draw a card.',
           image_uris: { small: 'https://example.com/engine.jpg' },
         },
       },
@@ -105,18 +107,10 @@ describe('Discard + sacrifice as activation cost via Resolution Queue (integrati
 
     (game.state as any).zones = {
       [p1]: {
-        hand: [
-          {
-            id: 'h_1',
-            name: 'Hand Card',
-            type_line: 'Instant',
-            mana_cost: '{U}',
-            zone: 'hand',
-          },
-        ],
+        hand: [],
         graveyard: [],
         exile: [],
-        handCount: 1,
+        handCount: 0,
         graveyardCount: 0,
         exileCount: 0,
       },
@@ -133,50 +127,27 @@ describe('Discard + sacrifice as activation cost via Resolution Queue (integrati
     expect(typeof handlers['activateBattlefieldAbility']).toBe('function');
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
 
-    let queue = ResolutionQueueManager.getQueue(gameId);
+    const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.length).toBe(1);
 
-    const discardStep = queue.steps[0] as any;
-    expect(discardStep.type).toBe('discard_selection');
-    expect(discardStep.playerId).toBe(p1);
-    expect(discardStep.discardAbilityAsCost).toBe(true);
-    expect(discardStep.discardAndSacrificeAbilityAsCost).toBe(true);
-    expect(discardStep.discardCount).toBe(1);
-    expect(discardStep.lifeToPayForCost).toBe(2);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('target_selection');
+    expect(step.playerId).toBe(p1);
+    expect(step.sacrificeAbilityAsCost).toBe(true);
+    expect(step.lifeToPayForCost).toBe(2);
 
-    // Life is not paid until the final step is confirmed.
+    expect(step.minTargets).toBe(1);
+    expect(step.maxTargets).toBe(1);
+    expect(Array.isArray(step.validTargets)).toBe(true);
+    expect(step.validTargets.some((t: any) => t && String(t.id) === 'cre_1')).toBe(true);
+
+    // Life is not paid until the selection is confirmed.
     expect((game.state as any).life?.[p1]).toBe(40);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
     await handlers['submitResolutionResponse']({
       gameId,
-      stepId: discardStep.id,
-      selections: ['h_1'],
-    });
-
-    expect((game.state as any).life?.[p1]).toBe(40);
-
-    const zonesAfterDiscard = (game.state as any).zones?.[p1];
-    expect((zonesAfterDiscard.hand as any[]).some((c: any) => c && c.id === 'h_1')).toBe(false);
-    expect((zonesAfterDiscard.graveyard as any[]).some((c: any) => c && c.id === 'h_1')).toBe(true);
-
-    queue = ResolutionQueueManager.getQueue(gameId);
-    expect(queue.steps.length).toBe(1);
-
-    const sacStep = queue.steps[0] as any;
-    expect(sacStep.type).toBe('target_selection');
-    expect(sacStep.sacrificeAbilityAsCost).toBe(true);
-    expect(sacStep.discardAndSacrificeAbilityAsCost).toBe(true);
-    expect(sacStep.lifeToPayForCost).toBe(2);
-    expect(sacStep.minTargets).toBe(1);
-    expect(sacStep.maxTargets).toBe(1);
-
-    expect(Array.isArray(sacStep.validTargets)).toBe(true);
-    expect((sacStep.validTargets as any[]).some((t: any) => String(t?.id) === 'cre_1')).toBe(true);
-
-    await handlers['submitResolutionResponse']({
-      gameId,
-      stepId: sacStep.id,
+      stepId: step.id,
       selections: ['cre_1'],
     });
 

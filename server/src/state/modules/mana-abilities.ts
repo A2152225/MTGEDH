@@ -833,6 +833,12 @@ export function getManaAbilitiesForPermanent(
       /\{t\}:\s*add\s+\w+\s+mana/i,                // {t}: add X mana, add two mana, etc.
       /\{t\}:\s*add\s+an\s+amount\s+of\s+\{[wubrgc]\}/i, // {t}: add an amount of {G} (Bighorner Rancher)
       /\{t\},\s*sacrifice[^:]*:\s*add\s+/i,        // {t}, sacrifice: add (treasure-like)
+
+      // Tap abilities with additional costs before the ':'
+      // Examples: "{T}, Pay 2 life, Sacrifice this artifact: Add one mana of any color."
+      /\{t\},[^:]*:\s*add\s+\{[wubrgc]\}/i,              // {t}, ...: add {G}
+      /\{t\},[^:]*:\s*add\s+one\s+mana/i,                // {t}, ...: add one mana ...
+      /\{t\},[^:]*:\s*add\s+\w+\s+mana/i,                // {t}, ...: add X mana
     ];
     
     for (const pattern of manaPatterns) {
@@ -855,7 +861,9 @@ export function getManaAbilitiesForPermanent(
     return false;
   };
   
-  if (!isLand && oracleText.includes("{t}:") && hasManaProducingTapAbility(oracleText)) {
+  // Some mana abilities have additional costs before the ':' (e.g. "{T}, Sacrifice this: Add ...").
+  // Treat those as valid tap-for-mana abilities too.
+  if (!isLand && (oracleText.includes('{t}:') || oracleText.includes('{t},')) && hasManaProducingTapAbility(oracleText)) {
     // IMPORTANT: Skip cards with "add an amount of", "add X mana in any combination"
     // or other variable/scaling patterns - those are handled by getDevotionManaAmount 
     // or getCreatureCountManaAmount functions
@@ -929,8 +937,9 @@ export function getManaAbilitiesForPermanent(
           abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
         }
       }
-      // Check for "any color" mana (Birds of Paradise, Arcane Signet, etc.) - but not variable amounts
-      if (oracleText.match(/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
+      // Check for "any color" mana (Birds of Paradise, Arcane Signet, etc.) - but not variable amounts.
+      // Support additional costs in the activation cost, e.g. "{T}, Pay 2 life, Sacrifice this: Add one mana of any color."
+      if (oracleText.match(/\{t\}[^:]*:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
         // Check if this is restricted to commander's color identity
         // Pattern: "add one mana of any color in your commander's color identity"
         const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText);

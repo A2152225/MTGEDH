@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -101,7 +101,7 @@ describe('Sacrifice self as activation cost (integration)', () => {
         card: {
           name: 'Test Sacrifice Artifact',
           type_line: 'Artifact',
-          oracle_text: '{2}, {T}, Sacrifice this artifact: You gain 3 life.',
+          oracle_text: '{2}, {T}, Pay 2 life, Sacrifice this artifact: You gain 3 life.',
           image_uris: { small: 'https://example.com/art.jpg' },
         },
       },
@@ -116,7 +116,11 @@ describe('Sacrifice self as activation cost (integration)', () => {
     registerInteractionHandlers(io as any, socket as any);
 
     expect(typeof handlers['activateBattlefieldAbility']).toBe('function');
+  expect((game.state as any).life?.[p1]).toBe(40);
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
+
+  // Life is paid after activation succeeds
+  expect((game.state as any).life?.[p1]).toBe(38);
 
     const battlefield = (game.state as any).battlefield || [];
     expect((battlefield as any[]).some((p: any) => p && String(p.id) === 'src_1')).toBe(false);
@@ -133,5 +137,14 @@ describe('Sacrifice self as activation cost (integration)', () => {
     expect(String(stack[0].description || '').toLowerCase()).toContain('gain 3 life');
 
     expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
+
+    // Determinism: activation evidence should be persisted on activateBattlefieldAbility
+    const events = getEvents(gameId);
+    const activationEvents = events.filter((e) => String(e?.type) === 'activateBattlefieldAbility');
+    expect(activationEvents.length).toBeGreaterThan(0);
+    const last = activationEvents[activationEvents.length - 1] as any;
+    expect(last?.payload?.lifePaidForCost).toBe(2);
+    expect(Array.isArray(last?.payload?.sacrificedPermanents)).toBe(true);
+    expect((last?.payload?.sacrificedPermanents || []).map(String)).toContain('src_1');
   });
 });
