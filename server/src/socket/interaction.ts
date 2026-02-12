@@ -5738,7 +5738,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - "Return a creature you control to its owner's hand: Draw a card."
     // - "{1}, Return another land you control to its owner's hand: ..."
     // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus exactly one
-    // "Return (another)? a|an|one|1 <type> you control to its owner's hand" clause.
+    // "Return (another/other)? (a|an|one|1)? <type> you control to its owner's hand" clause.
     // No mixing with discard/sacrifice/remove-counters/tap-other/exile/pay-life/etc.
     // ========================================================================
     {
@@ -5747,7 +5747,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       if (costLower.includes('return') && costLower.includes("you control") && (costLower.includes("owner's hand") || costLower.includes("owner’s hand"))) {
         const returnMatch = costStr.match(
-          /\breturn\s+(another\s+|other\s+)?(a|an|one|1)\s+(creature|artifact|enchantment|land|permanent|nonland\s+permanent)\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/i
+          /\breturn\s+(?:(another|other)\s+(creature|artifact|enchantment|land|permanent|nonland\s+permanent)|(a|an|one|1)\s+(creature|artifact|enchantment|land|permanent|nonland\s+permanent))\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/i
         );
 
         if (returnMatch) {
@@ -5800,14 +5800,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           }
 
           const mustBeOther = Boolean(returnMatch[1]);
-          const rawType = String(returnMatch[3] || '').trim().toLowerCase();
+          const rawType = String(returnMatch[2] || returnMatch[4] || '').trim().toLowerCase();
 
           // Ensure there are no other non-mana cost components besides the return clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
             .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
             .replace(
-              /\breturn\s+(?:another\s+|other\s+)?(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi,
+              /\breturn\s+(?:(?:another|other)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)|(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent))\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi,
               ' '
             )
             .replace(/[\s,]+/g, ' ')

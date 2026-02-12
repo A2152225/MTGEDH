@@ -37,8 +37,122 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
     // Ensure no cross-test queue bleed
     ResolutionQueueManager.removeQueue('test_collective_voyage');
     ResolutionQueueManager.removeQueue('test_tempt_with_discovery');
+    ResolutionQueueManager.removeQueue('test_library_search_invalid_selection');
+    ResolutionQueueManager.removeQueue('test_library_search_split_destination');
     games.delete('test_collective_voyage' as any);
     games.delete('test_tempt_with_discovery' as any);
+    games.delete('test_library_search_invalid_selection' as any);
+    games.delete('test_library_search_split_destination' as any);
+  });
+
+  it('LIBRARY_SEARCH invalid selection does not consume the step', async () => {
+    const gameId = 'test_library_search_invalid_selection';
+    createGameIfNotExists(gameId, 'commander', 40);
+
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: 'p1', spectator: false },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const s1 = createMockSocket('p1', emitted);
+    registerResolutionHandlers(io as any, s1.socket);
+
+    const searchStep = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId: 'p1' as any,
+      description: 'Search your library for a basic land card',
+      mandatory: true,
+      sourceName: 'Test Tutor',
+      minSelections: 1,
+      maxSelections: 1,
+      destination: 'hand',
+      remainderDestination: 'none',
+      shuffleAfter: false,
+      availableCards: [
+        { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest' },
+      ],
+      nonSelectableCards: [],
+    } as any);
+
+    expect(typeof s1.handlers['submitResolutionResponse']).toBe('function');
+
+    // Invalid: selected card id not in availableCards.
+    await s1.handlers['submitResolutionResponse']({
+      gameId,
+      stepId: searchStep.id,
+      selections: ['not_a_real_card'],
+      cancelled: false,
+    });
+
+    // Step should remain pending.
+    const stepsAfter = ResolutionQueueManager.getStepsForPlayer(gameId, 'p1' as any);
+    expect(stepsAfter.some(s => s.id === searchStep.id)).toBe(true);
+  });
+
+  it('LIBRARY_SEARCH splitDestination preserves split assignments from client', async () => {
+    const gameId = 'test_library_search_split_destination';
+    createGameIfNotExists(gameId, 'commander', 40);
+
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: 'p1', spectator: false },
+    ];
+
+    const libraries: Map<string, any[]> = ((game as any).libraries = (game as any).libraries || new Map());
+    libraries.set('p1', [
+      { id: 'land_a', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '' },
+      { id: 'land_b', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '' },
+    ]);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const s1 = createMockSocket('p1', emitted);
+    registerResolutionHandlers(io as any, s1.socket);
+
+    const searchStep = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId: 'p1' as any,
+      description: "Search your library for up to two basic land cards. Put one onto the battlefield tapped and the other into your hand.",
+      mandatory: true,
+      sourceName: 'Test Split Tutor',
+      minSelections: 2,
+      maxSelections: 2,
+      destination: 'split',
+      splitDestination: true,
+      toBattlefield: 1,
+      toHand: 1,
+      entersTapped: true,
+      remainderDestination: 'none',
+      shuffleAfter: false,
+      availableCards: [
+        { id: 'land_a', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '' },
+        { id: 'land_b', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '' },
+      ],
+      nonSelectableCards: [],
+    } as any);
+
+    await s1.handlers['submitResolutionResponse']({
+      gameId,
+      stepId: searchStep.id,
+      selections: ['land_a', 'land_b'],
+      cancelled: false,
+      splitAssignments: { toBattlefield: ['land_a'], toHand: ['land_b'] },
+      moveTo: 'split',
+    });
+
+    const zones = (game.state as any).zones || {};
+    const z = zones['p1'] || {};
+    expect(Array.isArray(z.hand)).toBe(true);
+    expect((z.hand as any[]).some((c: any) => c?.id === 'land_b')).toBe(true);
+
+    const battlefield = Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [];
+    expect(battlefield.some((p: any) => p?.card?.id === 'land_a')).toBe(true);
   });
 
   it('Collective Voyage creates LIBRARY_SEARCH steps (no pendingLibrarySearch)', async () => {
