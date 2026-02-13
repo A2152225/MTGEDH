@@ -1631,6 +1631,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       socket.emit("error", { code: "NOT_YOUR_STEP", message: "This is not your resolution step" });
       return;
     }
+
+    // Disallow cancelling mandatory steps via submitResolutionResponse.
+    // (A malicious client could otherwise bypass mandatory resolution by sending cancelled=true.)
+    // Mirror the exception used by cancelResolutionStep for in-progress spell-cast target selection.
+    const isCancellableMandatoryStep =
+      step.type === ResolutionStepType.TARGET_SELECTION &&
+      Boolean((step as any)?.spellCastContext?.effectId);
+
+    if (cancelled && step.mandatory && !isCancellableMandatoryStep) {
+      socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
+      return;
+    }
     
     // Create the response
     const response: ResolutionStepResponse = {
@@ -1684,6 +1696,65 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      // Some TARGET_SELECTION steps are used as generic “pick an object” prompts for
+      // action-based workflows. These handlers can early-return if the selected object no longer
+      // exists (e.g. destroyed before the response arrives). Validate existence before consuming.
+      const targetAction = (step as any)?.action;
+      const requiresBattlefield = new Set<string>([
+        'pw_lukka_exile_upgrade',
+        'destroy_target_creature_or_planeswalker',
+      ]);
+      const requiresGraveyard = new Set<string>([
+        'move_graveyard_card_to_battlefield',
+        'exile_graveyard_card',
+      ]);
+
+      if (requiresBattlefield.has(String(targetAction || ''))) {
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const battlefieldIds = new Set(battlefield.map((p: any) => String(p?.id)).filter(Boolean));
+        const missing = selectedIds.find((id) => !battlefieldIds.has(String(id)));
+        if (missing) {
+          socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Selected target is no longer on the battlefield' });
+          return;
+        }
+      }
+
+      if (requiresGraveyard.has(String(targetAction || ''))) {
+        const zones = (game.state as any)?.zones || {};
+        const fromPlayerId = String((step as any)?.fromPlayerId || pid);
+
+        const isCardInGraveyard = (cardId: string) => {
+          if (String(targetAction) === 'exile_graveyard_card') {
+            for (const ownerId of Object.keys(zones)) {
+              const gy: any[] = Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+              if (gy.some((c: any) => c && String(c.id) === String(cardId))) return true;
+            }
+            return false;
+          }
+
+          const gy: any[] = Array.isArray(zones?.[fromPlayerId]?.graveyard) ? zones[fromPlayerId].graveyard : [];
+          return gy.some((c: any) => c && String(c.id) === String(cardId));
+        };
+
+        const missing = selectedIds.find((id) => !isCardInGraveyard(id));
+        if (missing) {
+          socket.emit('error', { code: 'CARD_NOT_IN_GRAVEYARD', message: 'Selected card is no longer in the graveyard' });
+          return;
+        }
+      }
+
+      if ((step as any)?.attachEquipmentToCreatedTokenSelectEquipment === true) {
+        const tokenPermanentId = String((step as any).attachEquipmentToCreatedTokenPermanentId || '');
+        const equipPermanentId = selectedIds[0];
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const equipment = battlefield.find((p: any) => p && String(p.id) === String(equipPermanentId));
+        const token = tokenPermanentId ? battlefield.find((p: any) => p && String(p.id) === String(tokenPermanentId)) : null;
+        if (!equipment || !token) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected equipment or token is no longer on the battlefield' });
+          return;
+        }
+      }
+
       // Enforce sequential distinct-target constraint for the same sourceId when indicated.
       if (targetStepData.sourceId && stepIndicatesDifferentTarget(targetStepData)) {
         const previouslyChosen = getPreviouslyChosenTargetsForSource(gameId, targetStepData.sourceId);
@@ -1701,6 +1772,36 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             debugWarn(1, `[Resolution] Different-target constraint not enforceable for step ${stepId} (insufficient remaining targets)`);
           }
         }
+      }
+    }
+
+    // Validate MUTATE_TARGET_SELECTION before completing the step.
+    // The handler emits INVALID_TARGET / NO_PENDING_CAST and returns early; do not consume the step on those failures.
+    if (step.type === ResolutionStepType.MUTATE_TARGET_SELECTION && !cancelled) {
+      const stepAny = step as any;
+      const effectId = String(stepAny.effectId || step.sourceId || '').trim();
+      if (!effectId) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'MUTATE_TARGET_SELECTION missing effectId' });
+        return;
+      }
+
+      const raw = response.selections as any;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid mutate selection format' });
+        return;
+      }
+
+      const targetPermanentId = String(raw.targetPermanentId || raw.targetId || '').trim();
+      const validTargets: any[] = Array.isArray(stepAny.validTargets) ? stepAny.validTargets : [];
+      if (!targetPermanentId || !validTargets.some((t: any) => String(t?.id) === targetPermanentId)) {
+        socket.emit('error', { code: 'INVALID_TARGET', message: 'Invalid mutate target selection' });
+        return;
+      }
+
+      const pendingCast = (game.state as any)?.pendingSpellCasts?.[effectId];
+      if (!pendingCast) {
+        socket.emit('error', { code: 'NO_PENDING_CAST', message: 'No pending spell cast found' });
+        return;
       }
     }
 
@@ -2951,6 +3052,109 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    // Validate EXPLORE_DECISION selections before completing the step.
+    // Otherwise a malformed or malicious payload could consume the step and/or apply explore to the wrong permanent.
+    if (step.type === ResolutionStepType.EXPLORE_DECISION) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const expectedPermanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+        if (!expectedPermanentId) {
+          socket.emit('error', { code: 'INVALID_STEP', message: 'Explore step missing permanent id' });
+          return;
+        }
+
+        const raw: any = response.selections as any;
+        if (raw != null) {
+          if (typeof raw !== 'object' || Array.isArray(raw)) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid explore selection format' });
+            return;
+          }
+
+          const providedPermanentId = String((raw as any).permanentId || '').trim();
+          if (providedPermanentId && providedPermanentId !== expectedPermanentId) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid explore permanent selection' });
+            return;
+          }
+
+          if ('toGraveyard' in raw && typeof (raw as any).toGraveyard !== 'boolean') {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid explore decision' });
+            return;
+          }
+        }
+      }
+    }
+
+    // Validate BATCH_EXPLORE_DECISION selections before completing the step.
+    // The handler assumes a decisions array; missing/invalid decisions would consume the step and skip explores.
+    if (step.type === ResolutionStepType.BATCH_EXPLORE_DECISION) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const explores: any[] = Array.isArray(stepAny?.explores) ? stepAny.explores : [];
+        const expectedIds = explores.map((e: any) => String(e?.permanentId || '')).filter((x: string) => x.trim().length > 0);
+        if (expectedIds.length === 0 || expectedIds.length !== explores.length) {
+          socket.emit('error', { code: 'INVALID_STEP', message: 'Batch explore step missing explores' });
+          return;
+        }
+
+        const raw: any = response.selections as any;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid batch explore selection format' });
+          return;
+        }
+
+        const rawDecisions: any[] | null = Array.isArray((raw as any).decisions) ? (raw as any).decisions : null;
+        if (!rawDecisions) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Missing batch explore decisions' });
+          return;
+        }
+
+        if (rawDecisions.length !== expectedIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of batch explore decisions' });
+          return;
+        }
+
+        const normalizeDecision = (d: any): { permanentId: string; toGraveyard?: boolean } | null => {
+          if (typeof d === 'string') return { permanentId: String(d).trim(), toGraveyard: false };
+          if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+          const pid = String((d as any).permanentId || (d as any).id || '').trim();
+          if (!pid) return null;
+          if ('toGraveyard' in d && typeof (d as any).toGraveyard !== 'boolean') return null;
+          return { permanentId: pid, toGraveyard: (d as any).toGraveyard };
+        };
+
+        const decisions = rawDecisions.map(normalizeDecision);
+        if (decisions.some((d) => !d)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid batch explore decisions' });
+          return;
+        }
+
+        const selectedIds = (decisions as any[]).map((d: any) => String(d.permanentId));
+        const unique = Array.from(new Set(selectedIds));
+        if (unique.length !== selectedIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate permanent in batch explore decisions' });
+          return;
+        }
+
+        const expectedSet = new Set(expectedIds);
+        if (selectedIds.some((id: string) => !expectedSet.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'One or more batch explore permanents are not valid' });
+          return;
+        }
+      }
+    }
+
     // Validate VOTE selections before completing the step.
     // If we complete first, invalid input would permanently consume the step and skip the vote.
     if (step.type === ResolutionStepType.VOTE) {
@@ -2974,6 +3178,755 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         }
         if (!Number.isFinite(voteCount) || voteCount < 1 || Math.floor(voteCount) !== voteCount) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid vote count' });
+          return;
+        }
+      }
+    }
+
+    // Validate JOIN_FORCES mana contribution before completing the step.
+    // The handler early-returns on invalid contributions; if we completed first we'd consume the step.
+    if (step.type === ResolutionStepType.JOIN_FORCES) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const selection = response.selections as any;
+
+        let contribution = 0;
+        if (typeof selection === 'number') {
+          contribution = Math.max(0, Math.floor(selection));
+        } else if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+          contribution = Math.max(0, Math.floor((selection as any).amount || 0));
+        } else if (typeof selection === 'string' && selection.trim()) {
+          const n = Number(selection);
+          if (Number.isFinite(n)) contribution = Math.max(0, Math.floor(n));
+        }
+
+        if (!Number.isFinite(contribution) || contribution < 0) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid mana contribution' });
+          return;
+        }
+
+        const availableMana = Number(stepAny.availableMana ?? 0);
+        if (Number.isFinite(availableMana) && contribution > availableMana) {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_MANA',
+            message: `Contribution ${contribution} exceeds available mana ${availableMana}`,
+          });
+          return;
+        }
+      }
+    }
+
+    // Validate TEMPTING_OFFER selections before completing the step.
+    // If we complete first, malformed input would permanently consume the step and force an unintended accept/decline.
+    if (step.type === ResolutionStepType.TEMPTING_OFFER) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const okString = (s: string) => ['accept', 'decline', 'true', 'false'].includes(s);
+
+        const isValid =
+          typeof raw === 'boolean' ||
+          (typeof raw === 'string' && okString(raw)) ||
+          (raw && typeof raw === 'object' && !Array.isArray(raw) && (typeof raw.accept === 'boolean' || typeof raw.accepted === 'boolean'));
+
+        if (!isValid) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid tempting offer selection' });
+          return;
+        }
+      }
+    }
+
+    // Validate CASCADE selections before completing the step.
+    // If we complete first, malformed input would permanently consume the step and force an unintended cast/decline.
+    if (step.type === ResolutionStepType.CASCADE) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const isValid =
+          typeof raw === 'boolean' ||
+          (typeof raw === 'string' && (raw === 'cast' || raw === 'decline')) ||
+          (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.cast === 'boolean');
+
+        if (!isValid) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid cascade selection' });
+          return;
+        }
+      }
+    }
+
+    // Validate PROLIFERATE selections before completing the step.
+    // If we complete first, malformed input (or invalid IDs) would permanently consume the step.
+    if (step.type === ResolutionStepType.PROLIFERATE) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const stepAny = step as any;
+        const raw: any = response.selections as any;
+        const rawIds = Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === 'object' && !Array.isArray(raw)
+            ? (raw as any).selectedTargetIds
+            : null;
+
+        if (rawIds != null && (!Array.isArray(rawIds) || !rawIds.every((x: any) => typeof x === 'string'))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid proliferate selection format' });
+          return;
+        }
+
+        const selectedIds: string[] = Array.isArray(rawIds) ? rawIds.map(String) : [];
+        const unique = Array.from(new Set(selectedIds));
+        if (unique.length !== selectedIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate proliferate target selected' });
+          return;
+        }
+
+        const availableTargets: any[] = Array.isArray(stepAny?.availableTargets) ? stepAny.availableTargets : [];
+        const allowed = new Set(availableTargets.map((t: any) => String(t?.id)).filter(Boolean));
+        if (selectedIds.some((id: string) => !allowed.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'One or more selected proliferate targets are not valid' });
+          return;
+        }
+      }
+    }
+
+    // Validate CLASH selections before completing the step.
+    // If we complete first, malformed input would permanently consume the step.
+    if (step.type === ResolutionStepType.CLASH) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        const isValid =
+          typeof raw === 'boolean' ||
+          (typeof raw === 'string' && (raw === 'top' || raw === 'bottom' || raw === 'true' || raw === 'false')) ||
+          (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.putOnBottom === 'boolean');
+
+        if (!isValid) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid clash selection' });
+          return;
+        }
+      }
+    }
+
+    // Validate TWO_PILE_SPLIT selections before completing the step.
+    // The handler can currently normalize/fallback; reject malformed/partial assignments so the step is not consumed.
+    if (step.type === ResolutionStepType.TWO_PILE_SPLIT) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const items: any[] = Array.isArray(stepAny?.items) ? stepAny.items : [];
+        const itemIds = items.map((it: any) => String(it?.id || '')).filter(Boolean);
+        const allowed = new Set(itemIds);
+
+        const raw: any = response.selections as any;
+        let pileAIn: any[] | null = null;
+        let pileBIn: any[] | null = null;
+
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          if (Array.isArray(raw.pileA) && Array.isArray(raw.pileB)) {
+            pileAIn = raw.pileA;
+            pileBIn = raw.pileB;
+          } else if (Array.isArray(raw.piles) && raw.piles.length === 2 && Array.isArray(raw.piles[0]) && Array.isArray(raw.piles[1])) {
+            pileAIn = raw.piles[0];
+            pileBIn = raw.piles[1];
+          }
+        }
+
+        if (!pileAIn || !pileBIn) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid two-pile split format' });
+          return;
+        }
+
+        const normalizeIds = (arr: any[]): string[] =>
+          arr
+            .map((x: any) => (typeof x === 'string' ? x : x?.id))
+            .filter(Boolean)
+            .map((x: any) => String(x))
+            .filter((x: string) => x.trim().length > 0);
+
+        const pileA = normalizeIds(pileAIn);
+        const pileB = normalizeIds(pileBIn);
+
+        const all = [...pileA, ...pileB];
+        const seen = new Set(all);
+        if (seen.size !== all.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate item assigned in two-pile split' });
+          return;
+        }
+        if (all.some((id) => !allowed.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Two-pile split contains invalid item id' });
+          return;
+        }
+        if (itemIds.length !== seen.size) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Two-pile split must assign all items' });
+          return;
+        }
+
+        const minPerPile = Number(stepAny.minPerPile ?? 0);
+        if (Number.isFinite(minPerPile) && minPerPile > 0 && (pileA.length < minPerPile || pileB.length < minPerPile)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: `Each pile must contain at least ${minPerPile} item(s)` });
+          return;
+        }
+      }
+    }
+
+    // Validate FIGHT_TARGET selections before completing the step.
+    // The handler emits errors and breaks; if we completed first, invalid targets would consume the step.
+    if (step.type === ResolutionStepType.FIGHT_TARGET) {
+      const stepAny = step as any;
+      const selection: any = response.selections as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const sourceId = String(step.sourceId || stepAny.sourceId || '').trim();
+        const targetCreatureId = Array.isArray(selection)
+          ? String(selection[0] || '')
+          : (typeof selection === 'string'
+              ? selection
+              : String(selection?.targetCreatureId || ''));
+
+        if (!sourceId) {
+          socket.emit('error', { code: 'SOURCE_NOT_FOUND', message: 'Fight source not found' });
+          return;
+        }
+
+        if (!targetCreatureId || !String(targetCreatureId).trim()) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Must choose a target creature to fight' });
+          return;
+        }
+
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const sourceCreature = battlefield.find((p: any) => p?.id === sourceId);
+        const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId);
+
+        if (!sourceCreature) {
+          socket.emit('error', { code: 'SOURCE_NOT_FOUND', message: 'Source creature not found on battlefield' });
+          return;
+        }
+        if (!targetCreature) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target creature not found on battlefield' });
+          return;
+        }
+
+        const sourceTypeLine = String(sourceCreature.card?.type_line || '').toLowerCase();
+        const targetTypeLine = String(targetCreature.card?.type_line || '').toLowerCase();
+        if (!sourceTypeLine.includes('creature')) {
+          socket.emit('error', { code: 'INVALID_SOURCE', message: 'Fight source must be a creature' });
+          return;
+        }
+        if (!targetTypeLine.includes('creature')) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be a creature' });
+          return;
+        }
+
+        const targetFilter = stepAny.targetFilter || {};
+        const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+        const excludeSource = targetFilter.excludeSource !== false;
+        if (excludeSource && String(targetCreatureId) === String(sourceId)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be a different creature' });
+          return;
+        }
+        if (controllerFilter === 'you' && String(targetCreature.controller) !== String(pid)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be a creature you control' });
+          return;
+        }
+        if (controllerFilter === 'opponent' && String(targetCreature.controller) === String(pid)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: "Target must be a creature you don't control" });
+          return;
+        }
+      }
+    }
+
+    // Validate TAP_UNTAP_TARGET selections before completing the step.
+    // The handler may return early on invalid selections; if we completed first we'd consume the step.
+    if (step.type === ResolutionStepType.TAP_UNTAP_TARGET) {
+      const stepAny = step as any;
+      const payload: any = response.selections as any;
+
+      const isTapOtherAsActivationCost = stepAny?.tapOtherAbilityAsCost === true;
+
+      if (cancelled) {
+        // Activation-cost tap flow uses cancel to abort; allow even if marked mandatory.
+        if (step.mandatory && !isTapOtherAsActivationCost) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const targetIds: string[] = Array.isArray(payload)
+          ? payload.map((x: any) => String(x))
+          : (Array.isArray(payload?.targetIds)
+              ? payload.targetIds.map((x: any) => String(x))
+              : []);
+
+        const stepAction = String(stepAny.action || 'tap');
+        const requestedAction = String(payload?.action || '');
+        const action: 'tap' | 'untap' =
+          stepAction === 'both'
+            ? (requestedAction === 'untap' ? 'untap' : requestedAction === 'tap' ? 'tap' : 'tap')
+            : (stepAction === 'untap' ? 'untap' : 'tap');
+
+        if (stepAction === 'both' && requestedAction && requestedAction !== 'tap' && requestedAction !== 'untap') {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid tap/untap action' });
+          return;
+        }
+
+        if (isTapOtherAsActivationCost && action !== 'tap') {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Activation cost requires tapping targets' });
+          return;
+        }
+
+        const targetCount = Math.max(1, Number(stepAny.targetCount || 1));
+        if (targetIds.length !== targetCount) {
+          socket.emit('error', { code: 'INVALID_TARGET_COUNT', message: `Expected ${targetCount} target(s), got ${targetIds.length}` });
+          return;
+        }
+
+        const unique = new Set(targetIds);
+        if (unique.size !== targetIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate target selected' });
+          return;
+        }
+
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const targetFilter = stepAny.targetFilter || {};
+        const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
+        const tapStatus: 'tapped' | 'untapped' | 'any' = targetFilter.tapStatus || 'any';
+        const excludeSource = targetFilter.excludeSource === true;
+        const sourceId = String(step.sourceId || stepAny.sourceId || '');
+        const requireAllTypes = targetFilter.requireAllTypes === true;
+        const minPower = targetFilter.minPower !== undefined ? Number(targetFilter.minPower) : undefined;
+        const maxPower = targetFilter.maxPower !== undefined ? Number(targetFilter.maxPower) : undefined;
+        const minToughness = targetFilter.minToughness !== undefined ? Number(targetFilter.minToughness) : undefined;
+        const maxToughness = targetFilter.maxToughness !== undefined ? Number(targetFilter.maxToughness) : undefined;
+
+        for (const tid of targetIds) {
+          const perm = battlefield.find((p: any) => p?.id === tid);
+          if (!perm) {
+            socket.emit('error', { code: 'INVALID_TARGET', message: 'Target not found on battlefield' });
+            return;
+          }
+
+          if (excludeSource && String(tid) === String(sourceId)) {
+            socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be different from source' });
+            return;
+          }
+
+          if (controllerFilter === 'you' && String(perm.controller) !== String(pid)) {
+            socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be a permanent you control' });
+            return;
+          }
+          if (controllerFilter === 'opponent' && String(perm.controller) === String(pid)) {
+            socket.emit('error', { code: 'INVALID_TARGET', message: "Target must be a permanent you don't control" });
+            return;
+          }
+
+          if (tapStatus === 'tapped' && !perm.tapped) {
+            socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be tapped' });
+            return;
+          }
+          if (tapStatus === 'untapped' && perm.tapped) {
+            socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be untapped' });
+            return;
+          }
+
+          const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
+          if (types.length > 0) {
+            const typeLine = String(perm.card?.type_line || '').toLowerCase();
+            if (requireAllTypes) {
+              const matchesAll = types.every((t: any) => typeLine.includes(String(t).toLowerCase()));
+              if (!matchesAll) {
+                socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required type' });
+                return;
+              }
+            } else {
+              const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
+              if (!matchesAny) {
+                socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required type' });
+                return;
+              }
+            }
+          }
+
+          if (minPower !== undefined || maxPower !== undefined) {
+            const pwr = getEffectivePower(perm);
+            if ((minPower !== undefined && pwr < minPower) || (maxPower !== undefined && pwr > maxPower)) {
+              socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required power' });
+              return;
+            }
+          }
+          if (minToughness !== undefined || maxToughness !== undefined) {
+            const tgh = getEffectiveToughness(perm);
+            if ((minToughness !== undefined && tgh < minToughness) || (maxToughness !== undefined && tgh > maxToughness)) {
+              socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required toughness' });
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // Validate X_VALUE_SELECTION selections before completing the step.
+    // The handler can early-return on invalid; if we completed first we'd consume the step.
+    if (step.type === ResolutionStepType.X_VALUE_SELECTION) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        let xValue: number | null = null;
+        const sel: any = response.selections as any;
+        if (typeof sel === 'number') xValue = sel;
+        else if (typeof sel === 'string') xValue = Number(sel);
+        else if (sel && typeof sel === 'object' && !Array.isArray(sel) && sel.xValue != null) xValue = Number(sel.xValue);
+
+        xValue = Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue as number)) : null;
+        if (xValue == null) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid X value selection' });
+          return;
+        }
+
+        const minValue = stepAny?.minValue != null ? Number(stepAny.minValue) : undefined;
+        const maxValue = stepAny?.maxValue != null ? Number(stepAny.maxValue) : undefined;
+        if (Number.isFinite(minValue) && xValue < (minValue as number)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: `X must be at least ${minValue}` });
+          return;
+        }
+        if (Number.isFinite(maxValue) && xValue > (maxValue as number)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: `X must be at most ${maxValue}` });
+          return;
+        }
+
+        // Blight X activation cost: prevent handler early-returns from consuming the step.
+        if (stepAny?.keywordBlight === true && String(stepAny?.keywordBlightStage || '') === 'ability_activation_cost_choose_x') {
+          const activationId = String(stepAny?.keywordBlightActivationId || '').trim();
+          if (!activationId) {
+            socket.emit('error', { code: 'INVALID_STEP', message: 'Missing Blight activation id' });
+            return;
+          }
+
+          const pending = (game.state as any)?.pendingBlightAbilityActivations?.[activationId];
+          if (!pending) {
+            socket.emit('error', { code: 'INVALID_STEP', message: 'Pending Blight activation not found' });
+            return;
+          }
+
+          const controllerId = String(stepAny?.keywordBlightController || pid);
+          const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+          const hasValidTarget = battlefield
+            .filter((p: any) => p && String(p.controller || '') === controllerId)
+            .some((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'));
+
+          if (!hasValidTarget) {
+            socket.emit('error', { code: 'NO_VALID_TARGETS', message: `Cannot pay Blight ${xValue} (you control no creatures).` });
+            return;
+          }
+        }
+      }
+    }
+
+    // Validate PONDER_EFFECT selections before completing the step.
+    // The handler assumes shape; if we completed first, malformed selections would consume the step.
+    if (step.type === ResolutionStepType.PONDER_EFFECT) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder selection format' });
+          return;
+        }
+
+        const shouldShuffle = Boolean((raw as any).shouldShuffle);
+        const newOrderRaw = (raw as any).newOrder;
+        const toHandRaw = (raw as any).toHand;
+
+        if ((raw as any).shouldShuffle != null && typeof (raw as any).shouldShuffle !== 'boolean') {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder shuffle selection' });
+          return;
+        }
+
+        if (!shouldShuffle) {
+          if (!Array.isArray(newOrderRaw) || !newOrderRaw.every((x: any) => typeof x === 'string')) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder order selection' });
+            return;
+          }
+        } else {
+          if (newOrderRaw != null && (!Array.isArray(newOrderRaw) || !newOrderRaw.every((x: any) => typeof x === 'string'))) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder order selection' });
+            return;
+          }
+        }
+
+        if (toHandRaw != null && (!Array.isArray(toHandRaw) || !toHandRaw.every((x: any) => typeof x === 'string'))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid ponder to-hand selection' });
+          return;
+        }
+
+        const cardCount = Number(stepAny.cardCount || (Array.isArray(stepAny.cards) ? stepAny.cards.length : 0) || 0);
+        const stepCards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+        const allowedIds = new Set(stepCards.map((c: any) => String(c?.id)).filter(Boolean));
+
+        // Best-effort: when step.cards is present, ensure selections reference only those cards.
+        if (allowedIds.size > 0) {
+          const toHand = Array.isArray(toHandRaw) ? toHandRaw.map(String) : [];
+          const newOrder = Array.isArray(newOrderRaw) ? newOrderRaw.map(String) : [];
+
+          const allIds = [...toHand, ...newOrder];
+          const seen = new Set(allIds);
+          if (seen.size !== allIds.length) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card id in ponder selection' });
+            return;
+          }
+
+          if (allIds.some((id) => !allowedIds.has(String(id)))) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Ponder selection contains invalid card id' });
+            return;
+          }
+
+          if (!shouldShuffle) {
+            const expectedRemaining = Math.max(0, allowedIds.size - toHand.length);
+            if (newOrder.length !== expectedRemaining) {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: 'Ponder selection must order all remaining cards' });
+              return;
+            }
+          }
+        } else {
+          // If step.cards is missing, still require a reasonable cardCount.
+          if (!Number.isFinite(cardCount) || cardCount <= 0) {
+            socket.emit('error', { code: 'INVALID_STEP', message: 'Invalid ponder step' });
+            return;
+          }
+        }
+      }
+    }
+
+    // Validate COUNTER_MOVEMENT selections before completing the step.
+    // The handler emits errors and breaks; invalid input must not consume the step.
+    if (step.type === ResolutionStepType.COUNTER_MOVEMENT) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const payload: any = response.selections as any;
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid counter movement selection' });
+          return;
+        }
+
+        const sourcePermanentId = String(payload?.sourcePermanentId || payload?.sourceId || '').trim();
+        const targetPermanentId = String(payload?.targetPermanentId || payload?.targetId || '').trim();
+        const counterType = String(payload?.counterType || '').trim();
+
+        if (!sourcePermanentId || !targetPermanentId || !counterType) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid counter movement selection' });
+          return;
+        }
+        if (sourcePermanentId === targetPermanentId) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be a different permanent' });
+          return;
+        }
+
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const sourcePerm = battlefield.find((p: any) => p?.id === sourcePermanentId);
+        const targetPerm = battlefield.find((p: any) => p?.id === targetPermanentId);
+        if (!sourcePerm) {
+          socket.emit('error', { code: 'SOURCE_NOT_FOUND', message: 'Source permanent not found on battlefield' });
+          return;
+        }
+        if (!targetPerm) {
+          socket.emit('error', { code: 'TARGET_NOT_FOUND', message: 'Target permanent not found on battlefield' });
+          return;
+        }
+
+        const sourceFilter = stepAny.sourceFilter || {};
+        const targetFilter = stepAny.targetFilter || {};
+        if (sourceFilter.controller === 'you' && String(sourcePerm.controller) !== String(pid)) {
+          socket.emit('error', { code: 'INVALID_SOURCE', message: 'Source must be a permanent you control' });
+          return;
+        }
+        if (targetFilter.controller === 'you' && String(targetPerm.controller) !== String(pid)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be a permanent you control' });
+          return;
+        }
+        if (targetFilter.excludeSource && sourcePermanentId === targetPermanentId) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be different from source' });
+          return;
+        }
+
+        const sourceCounters = (sourcePerm as any).counters || {};
+        const current = Number(sourceCounters[counterType] || 0);
+        if (current <= 0) {
+          socket.emit('error', { code: 'NO_COUNTER', message: `Source permanent has no ${counterType} counters` });
+          return;
+        }
+      }
+    }
+
+    // Validate COUNTER_TARGET selections before completing the step.
+    if (step.type === ResolutionStepType.COUNTER_TARGET) {
+      const stepAny = step as any;
+      const selection: any = response.selections as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const targetId = Array.isArray(selection)
+          ? String(selection[0] || '')
+          : (typeof selection === 'string' ? selection : String(selection?.targetId || ''));
+
+        if (!targetId || !String(targetId).trim()) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Must choose a target permanent' });
+          return;
+        }
+
+        const counterType = String(stepAny.counterType || '').toLowerCase();
+        if (!counterType) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Missing counter type' });
+          return;
+        }
+
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const targetPermanent = battlefield.find((p: any) => p?.id === targetId);
+        if (!targetPermanent) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target permanent not found on battlefield' });
+          return;
+        }
+
+        const targetControllerRule: 'opponent' | 'any' | 'you' = stepAny.targetController || 'any';
+        if (targetControllerRule === 'you' && String(targetPermanent.controller) !== String(pid)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be a permanent you control' });
+          return;
+        }
+        if (targetControllerRule === 'opponent' && String(targetPermanent.controller) === String(pid)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: "Target must be a permanent you don't control" });
+          return;
+        }
+      }
+    }
+
+    // Validate STATION_CREATURE_SELECTION selections before completing the step.
+    if (step.type === ResolutionStepType.STATION_CREATURE_SELECTION) {
+      const stepAny = step as any;
+      const selection: any = response.selections as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const creatureId = Array.isArray(selection)
+          ? String(selection[0] || '')
+          : (typeof selection === 'string' ? selection : String(selection?.creatureId || ''));
+
+        if (!creatureId || !String(creatureId).trim()) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Must choose a creature to tap' });
+          return;
+        }
+
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const stationId = String(stepAny?.station?.id || step.sourceId || '').trim();
+        const station = battlefield.find((p: any) => p?.id === stationId);
+        if (!station) {
+          socket.emit('error', { code: 'STATION_NOT_FOUND', message: 'Station permanent not found' });
+          return;
+        }
+
+        const creature = battlefield.find((p: any) => p?.id === creatureId);
+        if (!creature) {
+          socket.emit('error', { code: 'CREATURE_NOT_FOUND', message: 'Selected creature not found' });
+          return;
+        }
+
+        if (String(creature.id) === String(stationId)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Must tap another creature (not the station itself)' });
+          return;
+        }
+        if (String(creature.controller) !== String(pid)) {
+          socket.emit('error', { code: 'NOT_YOUR_CREATURE', message: "You don't control this creature" });
+          return;
+        }
+        if (Boolean((creature as any).tapped)) {
+          socket.emit('error', { code: 'CREATURE_TAPPED', message: 'This creature is already tapped' });
+          return;
+        }
+
+        const creatureTypeLine = String((creature as any).card?.type_line || '').toLowerCase();
+        if (!creatureTypeLine.includes('creature')) {
+          socket.emit('error', { code: 'NOT_A_CREATURE', message: 'Selected permanent is not a creature' });
+          return;
+        }
+      }
+    }
+
+    // Validate FORBIDDEN_ORCHARD_TARGET selections before completing the step.
+    if (step.type === ResolutionStepType.FORBIDDEN_ORCHARD_TARGET) {
+      const stepAny = step as any;
+      const selection: any = response.selections as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const targetOpponentId = Array.isArray(selection)
+          ? String(selection[0] || '')
+          : (typeof selection === 'string' ? selection : String(selection?.targetOpponentId || ''));
+
+        if (!targetOpponentId || !String(targetOpponentId).trim()) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Must choose a target opponent' });
+          return;
+        }
+
+        const opponents: any[] = Array.isArray(stepAny.opponents) ? stepAny.opponents : [];
+        const isValid = opponents.some((o: any) => String(o?.id) === String(targetOpponentId));
+        if (!isValid) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Invalid target opponent' });
           return;
         }
       }
@@ -3143,6 +4096,53 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid creature selection' });
             return;
           }
+        }
+      }
+    }
+
+    // Validate ENTRAPMENT_MANEUVER selections before completing the step.
+    // If we complete first, invalid/stale input would permanently consume the step and skip the sacrifice.
+    if (step.type === ResolutionStepType.ENTRAPMENT_MANEUVER) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const raw: any = response.selections as any;
+        let creatureId: string | undefined;
+        if (typeof raw === 'string') creatureId = raw;
+        else if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string') creatureId = raw[0];
+        else if (raw && typeof raw === 'object' && !Array.isArray(raw)) creatureId = String(raw.creatureId || raw.id || '');
+
+        creatureId = String(creatureId || '').trim();
+        if (!creatureId) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid creature selection' });
+          return;
+        }
+
+        const attackingCreatures: any[] = Array.isArray(stepAny?.attackingCreatures) ? stepAny.attackingCreatures : [];
+        const validIds = new Set(attackingCreatures.map((c: any) => String(c?.id)).filter(Boolean));
+        if (!validIds.has(creatureId)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature is not a valid choice' });
+          return;
+        }
+
+        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        const perm = battlefield.find((p: any) => p && String(p.id) === creatureId);
+        if (!perm) {
+          socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Selected creature is no longer on the battlefield' });
+          return;
+        }
+        if (String(perm.controller || '') !== String(pid)) {
+          socket.emit('error', { code: 'NOT_CONTROLLER', message: 'You no longer control that creature' });
+          return;
+        }
+        if (!perm.attacking) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature is no longer attacking' });
+          return;
         }
       }
     }
@@ -3669,6 +4669,70 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         if (!validateSourceTapRequirement(controllerId, permanentId, requiresTap)) return;
         const ok = await validateManaAndLifeForActivationCost(controllerId, manaCost, 0);
         if (!ok) return;
+      }
+    }
+
+    // SUSPEND_CAST: Validate that the card is still in the player's hand before consuming the step.
+    // Otherwise a malicious/stale client could duplicate/exile a card that is no longer there.
+    if (step.type === ResolutionStepType.SUSPEND_CAST && !cancelled) {
+      const suspendStep = step as any;
+      const cardId = String(suspendStep?.card?.id || '').trim();
+      if (!cardId) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'Suspend step missing card id' });
+        return;
+      }
+
+      const hand = (game.state as any)?.zones?.[pid]?.hand;
+      const inHand = Array.isArray(hand) && hand.some((c: any) => String(c?.id) === cardId);
+      if (!inHand) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Card is no longer in your hand' });
+        return;
+      }
+
+      const timeCounters = Number(suspendStep?.timeCounters);
+      if (!Number.isFinite(timeCounters) || timeCounters < 0) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'Invalid time counter count' });
+        return;
+      }
+
+      const suspendCost = String(suspendStep?.suspendCost || '').trim();
+      if (!suspendCost) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'Suspend step missing suspend cost' });
+        return;
+      }
+    }
+
+    // MORPH_TURN_FACE_UP: Validate the permanent is still face-down and controlled by the player.
+    // This prevents consuming the step on stale/illegal input.
+    if (step.type === ResolutionStepType.MORPH_TURN_FACE_UP && !cancelled) {
+      const morphStep = step as any;
+      const permanentId = String(morphStep?.permanentId || '').trim();
+      if (!permanentId) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'Morph step missing permanent id' });
+        return;
+      }
+
+      if (morphStep?.canAfford === false) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'You cannot afford to turn that permanent face-up' });
+        return;
+      }
+
+      const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+      const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
+      if (!perm) {
+        socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+        return;
+      }
+
+      const controller = String((perm as any).controllerId || (perm as any).controller || '');
+      if (controller && controller !== String(pid)) {
+        socket.emit('error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
+        return;
+      }
+
+      if (!(perm as any).isFaceDown) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Permanent is not face-down' });
+        return;
       }
     }
     
@@ -15847,6 +16911,16 @@ async function handleSuspendCastResponse(
   const suspendStep = step as any;
   const card = suspendStep.card;
   const timeCounters = suspendStep.timeCounters || 0;
+
+  if (response.cancelled) {
+    debug(2, `[Resolution] Suspend cast cancelled: player=${pid}, card=${String(card?.name || '')}`);
+    return;
+  }
+
+  if (!card || !card.id) {
+    debugWarn(1, `[Resolution] Suspend cast: missing card data`);
+    return;
+  }
   
   debug(2, `[Resolution] Suspend cast: player=${pid}, card=${card.name}, timeCounters=${timeCounters}`);
   
