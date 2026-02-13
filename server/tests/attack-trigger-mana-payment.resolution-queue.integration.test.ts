@@ -167,4 +167,107 @@ describe('Attack trigger mana payment via Resolution Queue (integration)', () =>
     // Mana should be consumed.
     expect((game.state as any).manaPool[p1].green + (game.state as any).manaPool[p1].colorless).toBe(0);
   });
+
+  it('does not consume the step on insufficient mana for pay selection', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+
+    // Not enough mana to pay {1}{G}.
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'casal_1',
+        controller: p1,
+        owner: p1,
+        basePower: 2,
+        baseToughness: 2,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          name: 'Casal, Lurkwood Pathfinder',
+          type_line: 'Legendary Creature — Human',
+          oracle_text: 'Whenever Casal, Lurkwood Pathfinder attacks, you may pay {1}{G}. If you do, transform her.',
+          image_uris: { small: 'https://example.com/casal-front.jpg' },
+          card_faces: [
+            {
+              name: 'Casal, Lurkwood Pathfinder',
+              type_line: 'Legendary Creature — Human',
+              oracle_text: 'Whenever Casal, Lurkwood Pathfinder attacks, you may pay {1}{G}. If you do, transform her.',
+              power: '2',
+              toughness: '2',
+              mana_cost: '{2}{G}',
+              colors: ['G'],
+            },
+            {
+              name: 'Casal, Pathbreaker Owlbear',
+              type_line: 'Legendary Creature — Bear',
+              oracle_text: 'Trample',
+              power: '4',
+              toughness: '4',
+              mana_cost: '',
+              colors: ['G'],
+            },
+          ],
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'casal_1', targetPlayerId: p2 }],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'option_choice');
+    expect(step).toBeDefined();
+    expect((step as any).attackTriggerManaPaymentChoice).toBe(true);
+
+    const stepId = String((step as any).id);
+
+    // Attempt to pay without mana.
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'pay_mana' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('INSUFFICIENT_MANA');
+
+    // Step should still be pending (not consumed).
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    const stillThere = queueAfter.steps.find((s: any) => String(s.id) === stepId);
+    expect(stillThere).toBeDefined();
+
+    // Permanent should not have transformed.
+    const perm = (game.state as any).battlefield.find((p: any) => p.id === 'casal_1');
+    expect(Boolean((perm as any).transformed)).toBe(false);
+  });
 });

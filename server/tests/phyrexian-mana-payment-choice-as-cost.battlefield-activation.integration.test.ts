@@ -236,4 +236,82 @@ describe('Phyrexian mana payment choice as activation cost (integration)', () =>
     const activationAfter = eventsAfter.filter((e) => String(e?.type) === 'activateBattlefieldAbility').length;
     expect(activationAfter).toBe(activationBefore);
   });
+
+  it('does not consume MANA_PAYMENT_CHOICE step when chosen payment is not currently payable', async () => {
+    const gameId = 'test_phyrexian_choice_step_not_consumed_when_insufficient_mana';
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    (game.state as any).stack = [];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    // No mana floating.
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Test Device',
+          type_line: 'Artifact',
+          oracle_text: '{T}, {U/P}: Draw a card.',
+          image_uris: { small: 'https://example.com/device.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).zones = { [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 } };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('mana_payment_choice');
+    expect(step.phyrexianManaChoice).toBe(true);
+
+    // Choose to pay with mana (blue) even though there is none floating.
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: [{ index: 0, payWithLife: false }],
+    });
+
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.length).toBe(1);
+    expect(String(queueAfter.steps[0].id)).toBe(String(step.id));
+
+    // No partial effects.
+    expect((game.state as any).life?.[p1]).toBe(40);
+    const src = (game.state as any).battlefield.find((p: any) => p && String(p.id) === 'src_1');
+    expect(Boolean(src?.tapped)).toBe(false);
+    expect(((game.state as any).stack || []).length).toBe(0);
+
+    const errs = emitted.filter((e) => e.event === 'error');
+    expect(errs.length).toBeGreaterThan(0);
+    expect(String(errs[errs.length - 1]?.payload?.code || '')).toBe('INSUFFICIENT_MANA');
+  });
 });

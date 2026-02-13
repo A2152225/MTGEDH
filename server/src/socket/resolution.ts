@@ -1879,6 +1879,31 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
       }
+
+      // If this step is carrying deferred activation-cost evidence (e.g., "Pay N life"),
+      // validate affordability BEFORE we complete the step.
+      // Otherwise, the handler can emit INSUFFICIENT_LIFE after the step was already consumed.
+      const lifeToPayForCost = Number(stepAny.lifeToPayForCost || 0);
+      if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+        try {
+          const stateAny = game.state as any;
+          stateAny.life = stateAny.life || {};
+          const cur = Number(stateAny.life?.[pid] ?? 40);
+          if (!Number.isFinite(cur) || cur < lifeToPayForCost) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_LIFE',
+              message: `Need to pay ${lifeToPayForCost} life to complete this activation.`,
+            });
+            return;
+          }
+        } catch {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_LIFE',
+            message: `Need to pay ${lifeToPayForCost} life to complete this activation.`,
+          });
+          return;
+        }
+      }
     }
 
     // Validate GRAVEYARD_SELECTION before completing the step.
@@ -2128,6 +2153,475 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid Phyrexian payment selection" });
             return;
           }
+        }
+
+        // Also validate that the chosen payment method is currently payable.
+        // Without this, we could consume the step and then fail inside the handler,
+        // leaving the activation stuck with the step gone.
+        try {
+          const parsedCost = stepAny.parsedCost;
+          if (!parsedCost) {
+            socket.emit('error', { code: 'MISSING_COST', message: 'Missing cost data for Phyrexian payment' });
+            return;
+          }
+
+          let totalLifeToPay = 0;
+          const manaToConsume = { colors: { ...(parsedCost.colors || {}) }, generic: Number(parsedCost.generic || 0) } as any;
+          for (const choice of rawSelections) {
+            const idx = Number(choice?.index);
+            const payWithLife = Boolean(choice?.payWithLife);
+            const options = phyrexianCosts[idx];
+            if (!Array.isArray(options)) continue;
+
+            if (payWithLife) {
+              const lifeOption = options.find((o: any) => typeof o === 'string' && String(o).startsWith('LIFE:'));
+              if (lifeOption) {
+                totalLifeToPay += Number(String(lifeOption).split(':')[1] || 2);
+              } else {
+                totalLifeToPay += 2;
+              }
+            } else {
+              const colorOption = options.find((o: any) => typeof o === 'string' && !String(o).startsWith('LIFE:') && !String(o).startsWith('GENERIC:'));
+              if (typeof colorOption === 'string' && colorOption.length > 0) {
+                manaToConsume.colors[colorOption] = Number(manaToConsume.colors[colorOption] || 0) + 1;
+              }
+            }
+          }
+
+          const playerLife = Number((game.state as any)?.life?.[pid] ?? 40);
+          if (totalLifeToPay > 0 && (!Number.isFinite(playerLife) || playerLife <= totalLifeToPay)) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_LIFE',
+              message: `Cannot pay ${totalLifeToPay} life (you have ${Number.isFinite(playerLife) ? playerLife : 0} life - payment would be lethal)`,
+            });
+            return;
+          }
+
+          const { getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment } = await import('./util.js');
+          const pool = getOrInitManaPool(game.state, pid) as any;
+          const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+          const validationError = validateManaPayment(totalAvailable, manaToConsume.colors, manaToConsume.generic);
+          if (validationError) {
+            socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+            return;
+          }
+        } catch {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Unable to validate Phyrexian payment' });
+          return;
+        }
+      }
+    }
+
+    // Validate OPTION_CHOICE selections before completing the step.
+    // If we complete first, invalid input would permanently consume the step and desync choice-driven flows.
+    if (step.type === ResolutionStepType.OPTION_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const minSelections = Number(stepAny?.minSelections ?? 0);
+        const maxSelections = Number(stepAny?.maxSelections ?? Infinity);
+
+        const extractOptionId = (opt: any): string | null => {
+          if (typeof opt === 'string') return opt;
+          if (opt && typeof opt === 'object') {
+            const id = (opt as any).id;
+            if (typeof id === 'string' && id.trim()) return id;
+            const value = (opt as any).value;
+            if (typeof value === 'string' && value.trim()) return value;
+          }
+          return null;
+        };
+
+        const rawOptions = Array.isArray(stepAny?.options) ? stepAny.options : [];
+        const optionIds = rawOptions.map(extractOptionId).filter(Boolean) as string[];
+        const optionIdSet = new Set(optionIds);
+
+        const extractSelectionId = (sel: any): string | null => {
+          if (typeof sel === 'string') return sel;
+          if (sel && typeof sel === 'object') {
+            const id = (sel as any).id;
+            if (typeof id === 'string' && id.trim()) return id;
+            const value = (sel as any).value;
+            if (typeof value === 'string' && value.trim()) return value;
+            const choiceId = (sel as any).choiceId;
+            if (typeof choiceId === 'string' && choiceId.trim()) return choiceId;
+          }
+          return null;
+        };
+
+        let selectionIds: string[] | null = null;
+        const rawSel: any = response.selections as any;
+
+        if (typeof rawSel === 'string') {
+          selectionIds = [rawSel];
+        } else if (Array.isArray(rawSel)) {
+          selectionIds = rawSel
+            .map((s: any) => extractSelectionId(s) ?? (typeof s === 'number' || typeof s === 'boolean' ? String(s) : null))
+            .filter((s: any) => typeof s === 'string' && s.trim().length > 0) as string[];
+        } else if (rawSel && typeof rawSel === 'object') {
+          const one = extractSelectionId(rawSel);
+          selectionIds = one ? [one] : null;
+        } else {
+          selectionIds = null;
+        }
+
+        if (!selectionIds) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid option selection format' });
+          return;
+        }
+
+        const unique = Array.from(new Set(selectionIds));
+        if (unique.length !== selectionIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate option selected' });
+          return;
+        }
+
+        if ((Number.isFinite(minSelections) ? selectionIds.length : 0) < (Number.isFinite(minSelections) ? minSelections : 0) ||
+            (Number.isFinite(maxSelections) ? selectionIds.length : 0) > (Number.isFinite(maxSelections) ? maxSelections : Infinity)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of selections' });
+          return;
+        }
+
+        // If the step defines explicit options, enforce membership.
+        if (optionIds.length > 0 && selectionIds.some((id) => !optionIdSet.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected option is not valid' });
+          return;
+        }
+      }
+    }
+
+    // Validate OPTION_CHOICE pay-cost prompts before completing the step.
+    // If we complete first, handlers may treat insufficient resources as decline/counter/sacrifice,
+    // permanently consuming the step and forcing unintended outcomes.
+    if (step.type === ResolutionStepType.OPTION_CHOICE && !cancelled) {
+      const stepAny = step as any;
+
+      const extractChoiceId = (raw: any): string | null => {
+        if (typeof raw === 'string') return raw;
+        if (Array.isArray(raw) && raw.length > 0) {
+          const first = raw[0];
+          if (typeof first === 'string') return first;
+          if (first && typeof first === 'object') {
+            const id = (first as any).id;
+            if (typeof id === 'string' && id.trim()) return id;
+          }
+          return String(first);
+        }
+        if (raw && typeof raw === 'object') {
+          const id = (raw as any).id;
+          if (typeof id === 'string' && id.trim()) return id;
+          const choiceId = (raw as any).choiceId;
+          if (typeof choiceId === 'string' && choiceId.trim()) return choiceId;
+        }
+        return null;
+      };
+
+      const validateManaCostPayable = async (payerId: string, manaCost: string): Promise<string | null> => {
+        const cost = String(manaCost || '').trim();
+        if (!cost) return null;
+        if (!/\{[^}]+\}/.test(cost)) return `Unsupported mana cost (${cost || 'unknown'}).`;
+
+        try {
+          const { getOrInitManaPool, resolveManaCostForPoolPayment } = await import('./util.js');
+          const pool = getOrInitManaPool(game.state, payerId) as any;
+          const resolved = resolveManaCostForPoolPayment(pool, cost);
+          if (!resolved.ok) return (resolved as any).error || 'Insufficient mana.';
+          return null;
+        } catch {
+          return 'Unable to validate mana payment.';
+        }
+      };
+
+      const validateGenericAmountPayable = async (payerId: string, amount: number): Promise<string | null> => {
+        const needed = Number(amount || 0);
+        if (!Number.isFinite(needed) || needed <= 0) return null;
+        try {
+          const { getOrInitManaPool } = await import('./util.js');
+          const pool = getOrInitManaPool(game.state, payerId) as any;
+          const total =
+            Number(pool?.white || 0) +
+            Number(pool?.blue || 0) +
+            Number(pool?.black || 0) +
+            Number(pool?.red || 0) +
+            Number(pool?.green || 0) +
+            Number(pool?.colorless || 0);
+          if (!Number.isFinite(total) || total < needed) {
+            return `Insufficient mana. Missing ${Math.max(0, needed - (Number.isFinite(total) ? total : 0))} generic mana.`;
+          }
+          return null;
+        } catch {
+          return 'Unable to validate mana payment.';
+        }
+      };
+
+      const choiceId = extractChoiceId(response.selections);
+
+      // Optional attack-trigger "you may pay {..}" prompts
+      if (stepAny?.attackTriggerManaPaymentChoice === true && choiceId === 'pay_mana') {
+        const controllerId = String(pid);
+        const manaCost = String(stepAny?.manaCost || '').trim();
+        const validationError = await validateManaCostPayable(controllerId, manaCost);
+        if (validationError) {
+          socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+          return;
+        }
+      }
+
+      // Opponent may pay prompts (Rhystic Study / Smothering Tithe / etc.)
+      if (stepAny?.opponentMayPayChoice === true && choiceId === 'pay') {
+        const controllerId = String(pid);
+        const manaCost = String(stepAny?.manaCost || '').trim();
+        const validationError = await validateManaCostPayable(controllerId, manaCost);
+        if (validationError) {
+          socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+          return;
+        }
+      }
+
+      // Sacrifice unless you pay (e.g., Transguild Promenade)
+      if (stepAny?.sacrificeUnlessPayChoice === true && choiceId === 'pay_cost') {
+        const controllerId = String(pid);
+        const manaCost = String(stepAny?.manaCost || '{1}').trim();
+        const validationError = await validateManaCostPayable(controllerId, manaCost);
+        if (validationError) {
+          socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+          return;
+        }
+      }
+
+      // Ward payment prompts: selecting "pay" must be affordable at submit time.
+      if (stepAny?.wardPayment === true && choiceId === 'pay_ward_cost') {
+        const paymentType = String(stepAny?.wardPaymentType || '').trim().toLowerCase();
+        const wardCost = String(stepAny?.wardCost || '').trim();
+
+        if (paymentType === 'mana' || (paymentType === '' && /\{[^}]+\}/.test(wardCost))) {
+          const validationError = await validateManaCostPayable(String(pid), wardCost);
+          if (validationError) {
+            socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+            return;
+          }
+        }
+
+        if (paymentType === 'life') {
+          const lifeAmount = Number(stepAny?.wardLifeAmount || 0);
+          if (Number.isFinite(lifeAmount) && lifeAmount > 0) {
+            const startingLife = Number((game.state as any)?.startingLife ?? 40);
+            const currentLife = Number((game.state as any)?.life?.[pid] ?? startingLife);
+            if (!Number.isFinite(currentLife) || currentLife < lifeAmount) {
+              socket.emit('error', { code: 'INSUFFICIENT_LIFE', message: `Not enough life to pay ${lifeAmount}.` });
+              return;
+            }
+          }
+        }
+
+        if (paymentType === 'discard') {
+          const discardCount = Number(stepAny?.wardDiscardCount || 0);
+          const zones = (game.state as any)?.zones?.[pid];
+          const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+          if (!Number.isFinite(discardCount) || discardCount <= 0 || hand.length < discardCount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_CARDS',
+              message: `Not enough cards in hand to discard ${Number.isFinite(discardCount) && discardCount > 0 ? discardCount : 1}.`,
+            });
+            return;
+          }
+        }
+
+        if (paymentType === 'sacrifice') {
+          const sacCount = Number(stepAny?.wardSacrificeCount || 0) || 0;
+          const sacKind = String(stepAny?.wardSacrificeKind || '').trim().toLowerCase();
+          const battlefield = (game.state?.battlefield || []) as any[];
+          const eligible = battlefield
+            .filter((p: any) => p && String(p.controller || '') === String(pid))
+            .filter((p: any) => {
+              const tl = String(p.card?.type_line || '').toLowerCase();
+              if (sacKind === 'permanent') return true;
+              if (sacKind === 'nonland permanent') return !tl.includes('land');
+              return sacKind ? tl.includes(sacKind) : false;
+            });
+          if (!sacCount || sacCount <= 0 || eligible.length < sacCount) {
+            socket.emit('error', { code: 'INSUFFICIENT_PERMANENTS', message: 'Not enough permanents to sacrifice to pay ward.' });
+            return;
+          }
+        }
+      }
+
+      // Combat attack tax prompts: confirm pay must be affordable.
+      if (stepAny?.attackCostPayment === true && choiceId === 'pay_attack_cost') {
+        const amount = Number(stepAny?.attackCostAmount || 0) || 0;
+        const validationError = await validateGenericAmountPayable(String(pid), amount);
+        if (validationError) {
+          socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+          return;
+        }
+      }
+    }
+
+    // Validate MODAL_CHOICE selections before completing the step.
+    // If we complete first, invalid input would permanently consume the step and strand the player.
+    if (step.type === ResolutionStepType.MODAL_CHOICE) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const minSelections = Number(stepAny?.minSelections ?? 0);
+        const maxSelections = Number(stepAny?.maxSelections ?? Infinity);
+
+        const normalizeSelections = (raw: any): string[] | null => {
+          if (raw == null) return [];
+          if (typeof raw === 'string') return raw === 'decline' ? [] : [raw];
+          if (Array.isArray(raw)) {
+            const strings = raw.filter((s: any) => typeof s === 'string') as string[];
+            if (strings.includes('decline')) return [];
+            return strings;
+          }
+          return null;
+        };
+
+        const selectionIds = normalizeSelections(response.selections);
+        if (!selectionIds) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid modal selection format' });
+          return;
+        }
+
+        const unique = Array.from(new Set(selectionIds));
+        if (unique.length !== selectionIds.length) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate option selected' });
+          return;
+        }
+
+        if ((Number.isFinite(minSelections) ? selectionIds.length : 0) < (Number.isFinite(minSelections) ? minSelections : 0) ||
+            (Number.isFinite(maxSelections) ? selectionIds.length : 0) > (Number.isFinite(maxSelections) ? maxSelections : Infinity)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of selections' });
+          return;
+        }
+
+        const extractOptionId = (opt: any): string | null => {
+          if (typeof opt === 'string') return opt;
+          if (opt && typeof opt === 'object') {
+            const id = (opt as any).id;
+            if (typeof id === 'string' && id.trim()) return id;
+            const value = (opt as any).value;
+            if (typeof value === 'string' && value.trim()) return value;
+          }
+          return null;
+        };
+
+        const rawOptions = Array.isArray(stepAny?.options) ? stepAny.options : [];
+        const optionIds = rawOptions.map(extractOptionId).filter(Boolean) as string[];
+        const optionIdSet = new Set(optionIds);
+
+        // Put-from-hand modal: additionally enforce chosen id is one of the precomputed validCardIds.
+        const putFromHandData = stepAny?.putFromHandData;
+        if (putFromHandData && selectionIds.length > 0) {
+          const validCardIds = new Set((putFromHandData.validCardIds || []).map((x: any) => String(x)));
+          if (!validCardIds.has(String(selectionIds[0]))) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card is not a valid choice' });
+            return;
+          }
+        }
+
+        // Keyword counter modals: enforce allowed set (defense-in-depth).
+        if (stepAny?.pwBeastKeywordCounterData && selectionIds.length > 0) {
+          const allowed = new Set(['vigilance', 'reach', 'trample']);
+          if (!allowed.has(String(selectionIds[0]).toLowerCase())) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid counter choice' });
+            return;
+          }
+        }
+
+        if (optionIds.length > 0 && selectionIds.some((id) => !optionIdSet.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected option is not valid' });
+          return;
+        }
+      }
+    }
+
+    // Validate MODE_SELECTION selections before completing the step.
+    // If we complete first, invalid input would permanently consume the step and strand the player.
+    if (step.type === ResolutionStepType.MODE_SELECTION) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const minModes = Number(stepAny?.minModes ?? 0);
+        const maxModesRaw = Number(stepAny?.maxModes ?? Infinity);
+        const maxModes =
+          Number.isFinite(maxModesRaw)
+            ? (maxModesRaw < 0 ? Infinity : maxModesRaw)
+            : Infinity;
+        const allowDuplicates = Boolean(stepAny?.allowDuplicates);
+
+        const extractModeId = (opt: any): string | null => {
+          if (typeof opt === 'string') return opt;
+          if (typeof opt === 'number' || typeof opt === 'boolean') return String(opt);
+          if (opt && typeof opt === 'object') {
+            const id = (opt as any).id;
+            if (typeof id === 'string' && id.trim()) return id;
+            const value = (opt as any).value;
+            if (typeof value === 'string' && value.trim()) return value;
+          }
+          return null;
+        };
+
+        const rawModes = Array.isArray(stepAny?.modes) ? stepAny.modes : [];
+        const modeIds = rawModes.map(extractModeId).filter(Boolean) as string[];
+        const modeIdSet = new Set(modeIds.map(String));
+
+        const rawSel: any = response.selections as any;
+        let selectionIds: string[] | null = null;
+
+        if (typeof rawSel === 'string' || typeof rawSel === 'number' || typeof rawSel === 'boolean') {
+          selectionIds = [String(rawSel)];
+        } else if (Array.isArray(rawSel)) {
+          selectionIds = rawSel
+            .map((s: any) => extractModeId(s))
+            .filter((s: any) => typeof s === 'string' && s.trim().length > 0) as string[];
+        } else if (rawSel && typeof rawSel === 'object') {
+          const one = extractModeId(rawSel);
+          selectionIds = one ? [one] : null;
+        } else {
+          selectionIds = null;
+        }
+
+        if (!selectionIds) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid mode selection format' });
+          return;
+        }
+
+        const normalized = selectionIds.map((x) => String(x)).filter((x) => x.trim().length > 0);
+
+        if ((Number.isFinite(minModes) ? normalized.length : 0) < (Number.isFinite(minModes) ? minModes : 0) ||
+            (Number.isFinite(maxModes) ? normalized.length : 0) > (Number.isFinite(maxModes) ? maxModes : Infinity)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of modes selected' });
+          return;
+        }
+
+        if (!allowDuplicates) {
+          const unique = Array.from(new Set(normalized));
+          if (unique.length !== normalized.length) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate mode selected' });
+            return;
+          }
+        }
+
+        // If the step defines explicit modes, enforce membership.
+        if (modeIds.length > 0 && normalized.some((id) => !modeIdSet.has(String(id)))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected mode is not valid' });
+          return;
         }
       }
     }
@@ -8791,7 +9285,10 @@ async function handleTargetSelectionResponse(
     const remainingNonManaCostText = manaCost
       .replace(/\{[^}]+\}/g, ' ')
       .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
-      .replace(/\breturn\s+(?:another\s+|other\s+)?(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi, ' ')
+      .replace(
+        /\breturn\s+(?:(?:another|other)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent)|(?:a|an|one|1)\s+(?:creature|artifact|enchantment|land|permanent|nonland\s+permanent))\s+you\s+control\s+to\s+its\s+owner(?:'|’)s\s+hand\b/gi,
+        ' '
+      )
       .replace(/[\s,]+/g, ' ')
       .trim();
     if (remainingNonManaCostText.length > 0) {

@@ -8,7 +8,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, getOrInitManaPool, resolveManaCostForPoolPayment } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
@@ -40,7 +40,20 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         : null;
       const pref = shortcut?.preference;
       if (pref === 'always_pay' || pref === 'never_pay') {
-        const willPay = pref === 'always_pay';
+        let willPay = pref === 'always_pay';
+
+        // Fail closed: if auto-pay is chosen but not affordable, auto-decline.
+        if (willPay) {
+          try {
+            const pool = getOrInitManaPool(game.state as any, decidingPlayer) as any;
+            const resolved = resolveManaCostForPoolPayment(pool, String(manaCost || ''));
+            if (!resolved.ok) {
+              willPay = false;
+            }
+          } catch {
+            willPay = false;
+          }
+        }
 
         game.applyEvent({
           type: "opponentMayPayResolve",

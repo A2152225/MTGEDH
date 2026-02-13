@@ -257,4 +257,106 @@ describe('Pay-life + sacrifice-self mana ability with color choice (integration)
     queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.length).toBe(0);
   });
+
+  it('does not consume the step on insufficient life for deferred activation-cost evidence', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        graveyard: [],
+        exile: [],
+        handCount: 0,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: false,
+        card: {
+          name: 'Test Mana Engine',
+          type_line: 'Artifact',
+          oracle_text: '{T}, Pay 2 life, Sacrifice this artifact: Add one mana of any color.',
+          image_uris: { small: 'https://example.com/engine.jpg' },
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('mana_color_selection');
+    expect(step.lifeToPayForCost).toBe(2);
+
+    // Simulate life changing before the player responds.
+    (game.state as any).life[p1] = 1;
+
+    const eventsBefore = getEvents(gameId);
+    const activationCountBefore = eventsBefore.filter((e) => String(e?.type) === 'activateBattlefieldAbility').length;
+    const manaActivationCountBefore = eventsBefore.filter((e) => String(e?.type) === 'activateManaAbility').length;
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: 'green',
+    });
+
+    // Should emit an error and NOT consume the step.
+    expect(emitted.some((e) => e.event === 'error' && String(e.payload?.code) === 'INSUFFICIENT_LIFE')).toBe(true);
+    expect((game.state as any).life?.[p1]).toBe(1);
+    expect((game.state as any).manaPool?.[p1]?.green).toBe(0);
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+    expect(queue.steps[0].id).toBe(step.id);
+
+    const eventsAfterFail = getEvents(gameId);
+    expect(eventsAfterFail.filter((e) => String(e?.type) === 'activateBattlefieldAbility').length).toBe(activationCountBefore);
+    expect(eventsAfterFail.filter((e) => String(e?.type) === 'activateManaAbility').length).toBe(manaActivationCountBefore);
+
+    // Restore life and retry.
+    (game.state as any).life[p1] = 40;
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: 'green',
+    });
+
+    expect((game.state as any).life?.[p1]).toBe(38);
+    expect((game.state as any).manaPool?.[p1]?.green).toBe(1);
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(0);
+  });
 });

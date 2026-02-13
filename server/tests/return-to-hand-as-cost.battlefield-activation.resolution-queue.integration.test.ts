@@ -169,4 +169,97 @@ describe("Return-to-hand-as-activation-cost via Resolution Queue (integration)",
 
     expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
+
+  it("supports 'Return another creature you control...' wording", async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    (game.state as any).stack = [];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Test Engine',
+          type_line: 'Artifact',
+          oracle_text: "Return another creature you control to its owner's hand: Draw a card.",
+          image_uris: { small: 'https://example.com/engine.jpg' },
+        },
+      },
+      {
+        id: 'c_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Test Creature',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          image_uris: { small: 'https://example.com/bear.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        graveyard: [],
+        exile: [],
+        handCount: 0,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_1', abilityId: 'src_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('target_selection');
+    expect(step.playerId).toBe(p1);
+    expect(step.returnToHandAbilityAsCost).toBe(true);
+    expect(step.mustBeOther).toBe(true);
+    expect(step.minTargets).toBe(1);
+    expect(step.maxTargets).toBe(1);
+    expect(step.validTargets.some((t: any) => t && String(t.id) === 'c_1')).toBe(true);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: ['c_1'],
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.some((p: any) => p && p.id === 'c_1')).toBe(false);
+
+    const zones = (game.state as any).zones?.[p1];
+    expect((zones.hand as any[]).some((c: any) => c && String(c.name || '').includes('Test Creature'))).toBe(true);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack.length).toBe(1);
+    expect(String(stack[0].type)).toBe('ability');
+    expect(String(stack[0].source)).toBe('src_1');
+  });
 });
