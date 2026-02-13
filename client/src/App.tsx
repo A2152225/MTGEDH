@@ -3589,7 +3589,7 @@ export function App() {
   };
   
   // Fateseal handler - player orders opponent's library
-  const handleFatesealConfirm = (payload: { keepTopOrder: any[]; bottomOrder: any[] }) => {
+  const handleFatesealConfirm = (payload: { keepTopOrder: string[]; bottomOrder: string[] }) => {
     if (!safeView || !fatesealData) return;
     
     socket.emit("submitResolutionResponse", {
@@ -4906,28 +4906,10 @@ export function App() {
 
             const selections =
               peek.mode === "bottom_order"
-                ? {
-                    bottomOrder: (res.bottomOrder || [])
-                      .map((id) => peek.cards.find((c) => c.id === id))
-                      .filter(Boolean),
-                  }
+                ? { bottomOrder: res.bottomOrder || [] }
                 : peek.mode === "scry"
-                  ? {
-                      keepTopOrder: (res.keepTopOrder || [])
-                        .map((id) => peek.cards.find((c) => c.id === id))
-                        .filter(Boolean),
-                      bottomOrder: (res.bottomOrder || [])
-                        .map((id) => peek.cards.find((c) => c.id === id))
-                        .filter(Boolean),
-                    }
-                  : {
-                      keepTopOrder: (res.keepTopOrder || [])
-                        .map((id) => peek.cards.find((c) => c.id === id))
-                        .filter(Boolean),
-                      toGraveyard: (res.toGraveyard || [])
-                        .map((id) => peek.cards.find((c) => c.id === id))
-                        .filter(Boolean),
-                    };
+                  ? { keepTopOrder: res.keepTopOrder || [], bottomOrder: res.bottomOrder || [] }
+                  : { keepTopOrder: res.keepTopOrder || [], toGraveyard: res.toGraveyard || [] };
             
             socket.emit("submitResolutionResponse", {
               gameId: view.id,

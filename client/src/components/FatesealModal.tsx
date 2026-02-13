@@ -11,7 +11,7 @@ export function FatesealModal(props: {
   imagePref: ImagePref;
   sourceName: string;
   onCancel: () => void;
-  onConfirm: (payload: { keepTopOrder: any[]; bottomOrder: any[] }) => void;
+  onConfirm: (payload: { keepTopOrder: string[]; bottomOrder: string[] }) => void;
 }) {
   const { opponentName, cards, imagePref, sourceName, onCancel, onConfirm } = props;
   const [keep, setKeep] = useState<string[]>(() => cards.map(c => c.id));
@@ -62,10 +62,7 @@ export function FatesealModal(props: {
   };
 
   const confirm = () => {
-    onConfirm({ 
-      keepTopOrder: keep.map(id => cardById.get(id)).filter(Boolean), 
-      bottomOrder: bottom.map(id => cardById.get(id)).filter(Boolean) 
-    });
+    onConfirm({ keepTopOrder: keep, bottomOrder: bottom });
   };
 
   return (
