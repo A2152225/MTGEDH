@@ -4,6 +4,13 @@ import { ensureGame, clearPriorityTimer, schedulePriorityTimeout } from "./util"
 export function registerPriorityHandlers(io: Server, socket: Socket) {
   socket.on("clearPriorityTimer", ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       clearPriorityTimer(gameId);
       socket.emit("priorityTimerCleared", { gameId });
     } catch {
@@ -13,6 +20,13 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
 
   socket.on("schedulePriorityTimeout", ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       const game = ensureGame(gameId);
       schedulePriorityTimeout(io, game, gameId);
       socket.emit("priorityTimerScheduled", { gameId });

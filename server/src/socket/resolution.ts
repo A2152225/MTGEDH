@@ -1542,6 +1542,12 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
    */
   socket.on("getResolutionQueue", ({ gameId }: { gameId: string }) => {
     const pid = socket.data.playerId as string | undefined;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!pid || (socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
     
     const summary = ResolutionQueueManager.getPendingSummary(gameId);
     const queue = ResolutionQueueManager.getQueue(gameId);
@@ -1567,6 +1573,16 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   socket.on("getMyNextResolutionStep", ({ gameId }: { gameId: string }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) {
+      socket.emit("noResolutionStep", { gameId });
+      return;
+    }
+
+    if (!gameId || typeof gameId !== 'string') {
+      socket.emit("noResolutionStep", { gameId });
+      return;
+    }
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       socket.emit("noResolutionStep", { gameId });
       return;
     }

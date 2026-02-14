@@ -72,6 +72,7 @@ describe("registerDeckHandlers importDeck path", () => {
     const handlers: Record<string, Function> = {};
     const socket = {
       data: { playerId: "p_socket", spectator: false },
+      rooms: new Set<string>(),
       on: (ev: string, fn: Function) => {
         handlers[ev] = fn;
       },
@@ -87,6 +88,9 @@ describe("registerDeckHandlers importDeck path", () => {
     const gameId = "game_sock_test_midgame";
     const deckText = `1 Commander One
 1 Card Two`;
+
+    // The handler now requires the socket to be in the game room.
+    socket.rooms.add(gameId);
 
     // ensureGame() will not recreate games that don't exist in the DB
     createGameIfNotExists(gameId, 'commander', 40);
@@ -134,5 +138,56 @@ describe("registerDeckHandlers importDeck path", () => {
     // After mid-game import, phase should be reset to PRE_GAME
     const view = game.viewFor("p_socket");
     expect(view.phase).toBe(GamePhase.PRE_GAME);
+  });
+
+  test("rejects importDeck when socket is not in the game room", async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+
+    const io = {
+      to: (room: string) => ({
+        emit: (event: string, payload: any) => {
+          emitted.push({ room, event, payload });
+        },
+      }),
+      emit: (event: string, payload: any) => {
+        emitted.push({ event, payload });
+      },
+    } as any;
+
+    const handlers: Record<string, Function> = {};
+    const socket = {
+      data: { playerId: "p_socket", spectator: false },
+      rooms: new Set<string>(),
+      on: (ev: string, fn: Function) => {
+        handlers[ev] = fn;
+      },
+      emit: (event: string, payload: any) => {
+        emitted.push({ event, payload });
+      },
+    } as any;
+
+    registerDeckHandlers(io as any, socket as any);
+
+    const gameId = "game_sock_test_not_in_room";
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    (game.state as any).players = [
+      { id: "p_socket", name: "p_socket", spectator: false },
+      { id: "p2", name: "p2", spectator: false },
+    ];
+    (game.state as any).phase = GamePhase.COMBAT;
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    else (game as any).seq = 1;
+
+    const deckText = `1 Commander One\n1 Card Two`;
+    await handlers["importDeck"]({ gameId, list: deckText, deckName: "MyTestDeck", save: false });
+
+    const err = emitted.find(e => e.event === 'deckError');
+    expect(err).toBeDefined();
+    expect(String(err!.payload?.message || '')).toMatch(/Not in game/i);
+
+    // No resolution queue steps should be created for p2.
+    const stepsForP2 = ResolutionQueueManager.getStepsForPlayer(gameId, "p2" as any);
+    expect(stepsForP2.length).toBe(0);
   });
 });

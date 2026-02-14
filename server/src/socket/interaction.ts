@@ -1140,7 +1140,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
     const game = ensureGame(gameId);
+    try {
+      const seated = Array.isArray((game.state as any)?.players)
+        ? (game.state as any).players.some((p: any) => p?.id === pid)
+        : false;
+      if (!seated) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+    } catch {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
     
     // Check for search restrictions (Aven Mindcensor, Stranglehold, etc.)
     const searchCheck = checkLibrarySearchRestrictions(game, pid);
@@ -1828,6 +1846,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   socket.on("requestGraveyardView", ({ gameId, targetPlayerId }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid) return;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
 
     const game = ensureGame(gameId);
     const targetPid = targetPlayerId || pid;
@@ -8554,6 +8578,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
 
     const game = ensureGame(gameId);
     if (!game) {

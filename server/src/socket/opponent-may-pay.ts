@@ -30,6 +30,23 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     declineEffect,
     triggerText,
   }) => {
+    if (!gameId || typeof gameId !== 'string') return;
+
+    // This is a high-risk enqueue endpoint; it should never be callable cross-game.
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
+    // Defense-in-depth: do not allow arbitrary clients to create opponent-pay prompts.
+    // This flow should be driven by server-side rules resolution.
+    const role = (socket.data as any)?.role;
+    const isJudge = role === 'judge';
+    if (!isJudge) {
+      socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
+      return;
+    }
+
     const game = ensureGame(gameId);
 
     // If the deciding player has a shortcut preference, auto-resolve without prompting.
@@ -143,7 +160,21 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     const pid = socket.data.playerId as PlayerID | undefined;
     if (!pid || socket.data.spectator) return;
 
+    if (!gameId || typeof gameId !== 'string') return;
+
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
     const game = ensureGame(gameId);
+
+    const players = (game.state as any)?.players;
+    const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+    if (!seated || seated.isSpectator) {
+      socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
+      return;
+    }
 
     // Store the shortcut preference
     if (!game.state.triggerShortcuts) {

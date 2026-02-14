@@ -25,23 +25,44 @@ export function registerAutomationHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>,
   socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
 ) {
+    const ensureInGameRoomAndSeated = (gameId: unknown) => {
+      if (!gameId || typeof gameId !== 'string') return null;
+
+      const playerId = socket.data.playerId;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_IN_GAME", message: "Not in game." } as any);
+        return null;
+      }
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit("error", { code: "NOT_IN_GAME", message: "Not in game." } as any);
+        return null;
+      }
+
+      const game = games.get(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" } as any);
+        return null;
+      }
+
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
+      if (!seated || seated.isSpectator || socket.data.spectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized." } as any);
+        return null;
+      }
+
+      return { game, playerId };
+    };
+
   /**
    * Handle decision submission (targets, modes, X values, etc.)
    */
   socket.on("submitDecision", async (payload) => {
-    const { gameId, decisionId, selection } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-    
-    const game = games.get(gameId);
-    if (!game) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+      const { gameId, decisionId, selection } = payload;
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(2, `[Automation] Decision submitted: ${decisionId} by ${playerId}`);
     
@@ -99,18 +120,9 @@ export function registerAutomationHandlers(
    */
   socket.on("castSpell", async (payload) => {
     const { gameId, cardId, targets, modes, xValue, manaPayment } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-    
-    const game = games.get(gameId);
-    if (!game) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(2, `[Automation] Spell cast by ${playerId}: ${cardId}`);
     
@@ -159,18 +171,9 @@ export function registerAutomationHandlers(
    */
   socket.on("activateAbility", async (payload) => {
     const { gameId, permanentId, abilityIndex, targets, manaPayment, xValue } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-    
-    const game = games.get(gameId);
-    if (!game) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(2, `[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}${xValue !== undefined ? ` with X=${xValue}` : ''}`);
     
@@ -221,12 +224,9 @@ export function registerAutomationHandlers(
    */
   socket.on("mulliganDecision", async (payload) => {
     const { gameId, keep } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(1, `[Automation] Mulligan decision by ${playerId}: ${keep ? "keep" : "mulligan"}`);
     
@@ -262,12 +262,9 @@ export function registerAutomationHandlers(
    */
   socket.on("mulliganBottomCards", async (payload) => {
     const { gameId, cardIds } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(1, `[Automation] Mulligan bottom cards by ${playerId}: ${cardIds.length} cards`);
     
@@ -295,12 +292,9 @@ export function registerAutomationHandlers(
    */
   socket.on("setAutoPass", (payload) => {
     const { gameId, enabled } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(2, `[Automation] Auto-pass ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
     
@@ -371,12 +365,9 @@ export function registerAutomationHandlers(
    */
   socket.on("setAutoPassForTurn", (payload) => {
     const { gameId, enabled } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(2, `[Automation] Auto-pass for turn ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
     
@@ -435,14 +426,11 @@ export function registerAutomationHandlers(
    */
   socket.on("claimPriority", (payload) => {
     const { gameId } = payload;
-    const playerId = socket.data.playerId;
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-    
-    const game = games.get(gameId);
+    const { game } = ctx;
     if (!game || !game.state) {
       socket.emit("error", { message: "Game not found" });
       return;
@@ -466,14 +454,13 @@ export function registerAutomationHandlers(
    * Returns whether the player has any available responses or actions
    */
   socket.on("checkCanRespond", ({ gameId }: { gameId: string }) => {
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
+    const ctx = ensureInGameRoomAndSeated(gameId);
+    if (!ctx) {
       socket.emit("canRespondResponse", { canRespond: false, canAct: false, reason: "Not in game" });
       return;
     }
-    
-    const game = games.get(gameId);
+
+    const { game, playerId } = ctx;
     if (!game || !game.state) {
       socket.emit("canRespondResponse", { canRespond: false, canAct: false, reason: "Game not found" });
       return;
@@ -512,17 +499,14 @@ export function registerAutomationHandlers(
    */
   socket.on("setStop", (payload) => {
     const { gameId, phase, enabled } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
+      const ctx = ensureInGameRoomAndSeated(gameId);
+      if (!ctx) return;
+      const { playerId } = ctx;
     
     debug(2, `[Automation] Stop at ${phase} ${enabled ? "enabled" : "disabled"} for ${playerId}`);
     
     // Store stop preference
-    const game = games.get(gameId);
+    const { game } = ctx;
     if (game && game.state) {
       const playerStops = (game.state as any).playerStops || {};
       if (!playerStops[playerId]) {
@@ -546,18 +530,9 @@ export function registerAutomationHandlers(
   // This is separate from the "ignored cards" list (which affects canAct/canRespond).
   socket.on("yieldToTriggerSource", (payload) => {
     const { gameId, sourceId, sourceName } = payload as any;
-    const playerId = socket.data.playerId;
-
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-
-    const game = games.get(gameId);
-    if (!game || !game.state) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+    const ctx = ensureInGameRoomAndSeated(gameId);
+    if (!ctx) return;
+    const { game, playerId } = ctx;
 
     if (!sourceId) {
       socket.emit("error", { message: "Missing sourceId" });
@@ -596,18 +571,9 @@ export function registerAutomationHandlers(
 
   socket.on("unyieldToTriggerSource", (payload) => {
     const { gameId, sourceId } = payload as any;
-    const playerId = socket.data.playerId;
-
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-
-    const game = games.get(gameId);
-    if (!game || !game.state) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+    const ctx = ensureInGameRoomAndSeated(gameId);
+    if (!ctx) return;
+    const { game, playerId } = ctx;
 
     if (!sourceId) return;
 
@@ -637,18 +603,9 @@ export function registerAutomationHandlers(
    */
   socket.on("ignoreCardForAutoPass", (payload) => {
     const { gameId, permanentId, cardId, cardName, zone, imageUrl: providedImageUrl } = payload as any;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-    
-    const game = games.get(gameId);
-    if (!game || !game.state) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+    const ctx = ensureInGameRoomAndSeated(gameId);
+    if (!ctx) return;
+    const { game, playerId } = ctx;
     
     // Use cardId for zone cards, permanentId for battlefield
     const effectiveId = cardId || permanentId;
@@ -722,18 +679,9 @@ export function registerAutomationHandlers(
    */
   socket.on("unignoreCardForAutoPass", (payload) => {
     const { gameId, permanentId, cardId } = payload as any;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-    
-    const game = games.get(gameId);
-    if (!game || !game.state) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+    const ctx = ensureInGameRoomAndSeated(gameId);
+    if (!ctx) return;
+    const { game, playerId } = ctx;
     
     // Support both cardId and permanentId
     const effectiveId = cardId || permanentId;
@@ -775,18 +723,9 @@ export function registerAutomationHandlers(
    */
   socket.on("clearIgnoredCards", (payload) => {
     const { gameId } = payload;
-    const playerId = socket.data.playerId;
-    
-    if (!playerId) {
-      socket.emit("error", { message: "Not in a game" });
-      return;
-    }
-    
-    const game = games.get(gameId);
-    if (!game || !game.state) {
-      socket.emit("error", { message: "Game not found" });
-      return;
-    }
+    const ctx = ensureInGameRoomAndSeated(gameId);
+    if (!ctx) return;
+    const { game, playerId } = ctx;
     
     const stateAny = game.state as any;
     if (stateAny.ignoredCardsForAutoPass?.[playerId]) {

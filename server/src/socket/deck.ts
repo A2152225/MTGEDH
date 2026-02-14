@@ -97,6 +97,15 @@ type PendingConfirm = {
 
 const pendingImportConfirmations: Map<string, PendingConfirm> = new Map();
 
+function isSocketInGameRoom(socket: Socket, gameId: string): boolean {
+  try {
+    const rooms = (socket as any)?.rooms;
+    return !!(rooms && typeof rooms.has === 'function' && rooms.has(gameId));
+  } catch {
+    return false;
+  }
+}
+
 function cancelImportWipeConfirmResolutionSteps(gameId: string, confirmId: string) {
   try {
     const queue = ResolutionQueueManager.getQueue(gameId);
@@ -1073,6 +1082,12 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           if (typeof cb === "function") cb({ error: "missing_gameId" });
           return;
         }
+
+        if (!isSocketInGameRoom(socket, gameId)) {
+          if (typeof cb === "function") cb({ error: "not_in_game" });
+          return;
+        }
+
         const game = ensureGame(gameId);
         if (!game) {
           if (typeof cb === "function") cb({ error: "game_not_found" });
@@ -1127,6 +1142,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       // Validate incoming payload before calling ensureGame
       if (!gameId || typeof gameId !== "string") {
         socket.emit("deckError", { gameId, message: "GameId required." });
+        return;
+      }
+
+      if (!isSocketInGameRoom(socket, gameId)) {
+        socket.emit("deckError", { gameId, message: "Not in game." });
         return;
       }
 
@@ -1203,6 +1223,26 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit("deckError", { gameId, message: "Game not found." });
+        return;
+      }
+
+      // Require the importer to actually be seated in the game.
+      try {
+        const seated = Array.isArray((game.state as any)?.players)
+          ? (game.state as any).players.some((p: any) => p?.id === pid)
+          : false;
+        if (!seated) {
+          socket.emit("deckError", {
+            gameId,
+            message: "You are not a player in this game.",
+          });
+          return;
+        }
+      } catch {
+        socket.emit("deckError", {
+          gameId,
+          message: "You are not a player in this game.",
+        });
         return;
       }
 
@@ -1617,6 +1657,12 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       socket.emit("importedDeckCandidates", { gameId, candidates: [] });
       return;
     }
+
+    if (!isSocketInGameRoom(socket, gameId)) {
+      socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+      return;
+    }
+
     try {
       const game = ensureGame(gameId);
       if (!game) {
@@ -1659,6 +1705,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         if (!gameId || typeof gameId !== "string") {
           socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!isSocketInGameRoom(socket, gameId)) {
+          socket.emit("deckError", { gameId, message: "Not in game." });
           return;
         }
         if (!deckId || typeof deckId !== "string") {

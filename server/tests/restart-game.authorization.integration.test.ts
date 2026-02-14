@@ -120,4 +120,77 @@ describe('restartGame authorization (integration)', () => {
     expect(err).toBeUndefined();
     expect((game.state as any).phase).toBe('pre_game');
   });
+
+  it('does not allow the creator to restart when not in the game room', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).phase = 'main1';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1 as any,
+      description: 'Creator choice pending',
+      mandatory: false,
+      options: [
+        { id: 'a', name: 'A' },
+        { id: 'b', name: 'B' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+    } as any);
+
+    const beforeQueue = ResolutionQueueManager.getQueue(gameId);
+    expect(beforeQueue.steps.length).toBe(1);
+    const beforeStepId = String(beforeQueue.steps[0].id);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    // Intentionally do NOT join the room.
+
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['restartGame']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('RESTART_NOT_IN_GAME');
+
+    const afterQueue = ResolutionQueueManager.getQueue(gameId);
+    expect(afterQueue.steps.length).toBe(1);
+    expect(String(afterQueue.steps[0].id)).toBe(beforeStepId);
+    expect((game.state as any).phase).toBe('main1');
+  });
+
+  it('does not allow the creator to restartGameClear when not in the game room', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).phase = 'main1';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    // Intentionally do NOT join the room.
+
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['restartGameClear']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('RESTART_NOT_IN_GAME');
+    expect((game.state as any).phase).toBe('main1');
+  });
 });

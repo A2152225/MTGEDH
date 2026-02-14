@@ -351,162 +351,219 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
 }
 
 export function registerUndoHandlers(io: Server, socket: Socket) {
+  const getUndoRequesterContext = (gameId: string) => {
+    const playerId = socket.data.playerId;
+
+    if (!socket.rooms.has(gameId)) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return null;
+    }
+
+    const game = ensureGame(gameId);
+    if (!game || !playerId) return null;
+
+    if (socket.data.spectator) {
+      socket.emit("error", {
+        code: "SPECTATOR_CANNOT_UNDO",
+        message: "Spectators cannot request undos",
+      });
+      return null;
+    }
+
+    const playerIds = getPlayerIds(game);
+    if (!playerIds.includes(playerId)) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return null;
+    }
+
+    return { game, playerId, playerIds };
+  };
+
+  const ensureInGameRoomForRead = (gameId: string): boolean => {
+    if (!socket.rooms.has(gameId)) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const normalizeActionsToUndo = (gameId: string, raw: unknown): number | null => {
+    const num = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(num)) return null;
+    const actionsToUndo = Math.floor(num);
+    if (actionsToUndo < 1) return null;
+
+    try {
+      const eventCount = getEventCount(gameId);
+      if (eventCount > 0) {
+        return Math.min(actionsToUndo, eventCount);
+      }
+    } catch {
+      // ignore; undo may fail later if DB is unavailable
+    }
+
+    return actionsToUndo;
+  };
+
+  const handleRequestUndo = (gameId: string, rawActionsToUndo: unknown) => {
+    // Clean up expired requests periodically
+    cleanupExpiredRequests();
+
+    const ctx = getUndoRequesterContext(gameId);
+    if (!ctx) return;
+
+    const actionsToUndo = normalizeActionsToUndo(gameId, rawActionsToUndo);
+    if (!actionsToUndo) {
+      socket.emit("error", {
+        code: "INVALID_UNDO_COUNT",
+        message: "Invalid undo count",
+      });
+      return;
+    }
+
+    const { game, playerId, playerIds } = ctx;
+
+    // Check if there's already a pending undo request
+    const existingRequest = undoRequests.get(gameId);
+    if (existingRequest && existingRequest.status === 'pending') {
+      socket.emit("error", {
+        code: "UNDO_PENDING",
+        message: "There is already a pending undo request",
+      });
+      return;
+    }
+
+    const aiPlayerIds = getAIPlayerIds(game);
+
+    // If single player, auto-approve and perform undo immediately
+    if (playerIds.length === 1) {
+      const undoResult = performUndo(gameId, actionsToUndo);
+
+      if (undoResult.success) {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}).`,
+          ts: Date.now(),
+        });
+
+        socket.emit("undoComplete", { gameId, success: true });
+        broadcastGame(io, game, gameId);
+      } else {
+        socket.emit("error", {
+          code: "UNDO_FAILED",
+          message: undoResult.error || "Failed to perform undo",
+        });
+      }
+      return;
+    }
+
+    // Build initial approvals: requester auto-approves, AI players auto-approve
+    const initialApprovals: Record<string, boolean> = { [playerId]: true };
+    for (const aiId of aiPlayerIds) {
+      if (aiId !== playerId) initialApprovals[aiId] = true;
+    }
+
+    const request: UndoRequest = {
+      id: generateUndoId(),
+      requesterId: playerId,
+      requesterName: getPlayerName(game, playerId),
+      description: `Undo ${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}`,
+      actionsToUndo,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + UNDO_TIMEOUT_MS,
+      approvals: initialApprovals,
+      status: 'pending',
+    };
+
+    // If all approvals are already satisfied, perform immediately.
+    if (checkAllApproved(request, playerIds)) {
+      request.status = 'approved';
+      const undoResult = performUndo(gameId, actionsToUndo);
+
+      if (undoResult.success) {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}). AI opponents auto-approved.`,
+          ts: Date.now(),
+        });
+
+        socket.emit("undoComplete", { gameId, success: true });
+        broadcastGame(io, game, gameId);
+      } else {
+        socket.emit("error", {
+          code: "UNDO_FAILED",
+          message: undoResult.error || "Failed to perform undo",
+        });
+      }
+      return;
+    }
+
+    undoRequests.set(gameId, request);
+
+    io.to(gameId).emit("undoRequest", {
+      gameId,
+      undoId: request.id,
+      requesterId: playerId,
+      requesterName: request.requesterName,
+      description: request.description,
+      actionsToUndo,
+      expiresAt: request.expiresAt,
+      approvals: request.approvals,
+      playerIds,
+    });
+
+    const aiApprovalMessage = aiPlayerIds.length > 0
+      ? ` AI opponents auto-approved. Waiting for human players.`
+      : ` All players must approve.`;
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${request.requesterName} requested an undo.${aiApprovalMessage}`,
+      ts: Date.now(),
+    });
+
+    setTimeout(() => {
+      const currentRequest = undoRequests.get(gameId);
+      if (currentRequest && currentRequest.id === request.id && currentRequest.status === 'pending') {
+        currentRequest.status = 'expired';
+
+        io.to(gameId).emit("undoCancelled", {
+          gameId,
+          undoId: request.id,
+          reason: "Request timed out",
+        });
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `Undo request expired (not all players responded in time).`,
+          ts: Date.now(),
+        });
+      }
+    }, UNDO_TIMEOUT_MS);
+  };
+
   // Request an undo
   socket.on("requestUndo", ({ gameId, actionsToUndo = 1 }: { gameId: string; actionsToUndo?: number }) => {
     try {
-      // Clean up expired requests periodically
-      cleanupExpiredRequests();
-
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      // Check if player is not a spectator
-      if (socket.data.spectator) {
-        socket.emit("error", {
-          code: "SPECTATOR_CANNOT_UNDO",
-          message: "Spectators cannot request undos",
-        });
-        return;
-      }
-
-      // Check if there's already a pending undo request
-      const existingRequest = undoRequests.get(gameId);
-      if (existingRequest && existingRequest.status === 'pending') {
-        socket.emit("error", {
-          code: "UNDO_PENDING",
-          message: "There is already a pending undo request",
-        });
-        return;
-      }
-
-      const playerIds = getPlayerIds(game);
-      const humanPlayerIds = getHumanPlayerIds(game);
-      const aiPlayerIds = getAIPlayerIds(game);
-      
-      // If single player, auto-approve and perform undo immediately
-      if (playerIds.length === 1) {
-        // Actually perform the undo
-        const undoResult = performUndo(gameId, actionsToUndo);
-        
-        if (undoResult.success) {
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}).`,
-            ts: Date.now(),
-          });
-          
-          socket.emit("undoComplete", { gameId, success: true });
-          broadcastGame(io, game, gameId);
-        } else {
-          socket.emit("error", {
-            code: "UNDO_FAILED",
-            message: undoResult.error || "Failed to perform undo",
-          });
-        }
-        return;
-      }
-
-      // Build initial approvals: requester auto-approves, AI players auto-approve
-      const initialApprovals: Record<string, boolean> = { [playerId]: true };
-      for (const aiId of aiPlayerIds) {
-        // Don't add the requester twice (they're already auto-approved)
-        if (aiId !== playerId) {
-          initialApprovals[aiId] = true;
-        }
-      }
-
-      // Create new undo request
-      const request: UndoRequest = {
-        id: generateUndoId(),
-        requesterId: playerId,
-        requesterName: getPlayerName(game, playerId),
-        description: `Undo ${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}`,
-        actionsToUndo,
-        createdAt: Date.now(),
-        expiresAt: Date.now() + UNDO_TIMEOUT_MS,
-        approvals: initialApprovals, // Requester auto-approves, AI players auto-approve
-        status: 'pending',
-      };
-
-      // Check if all players have already approved (all non-requester humans are AI)
-      if (checkAllApproved(request, playerIds)) {
-        request.status = 'approved';
-        
-        // Actually perform the undo
-        const undoResult = performUndo(gameId, actionsToUndo);
-        
-        if (undoResult.success) {
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}). AI opponents auto-approved.`,
-            ts: Date.now(),
-          });
-          
-          socket.emit("undoComplete", { gameId, success: true });
-          broadcastGame(io, game, gameId);
-        } else {
-          socket.emit("error", {
-            code: "UNDO_FAILED",
-            message: undoResult.error || "Failed to perform undo",
-          });
-        }
-        return;
-      }
-
-      undoRequests.set(gameId, request);
-
-      // Notify all players (only human players need to respond)
-      io.to(gameId).emit("undoRequest", {
-        gameId,
-        undoId: request.id,
-        requesterId: playerId,
-        requesterName: request.requesterName,
-        description: request.description,
-        actionsToUndo,
-        expiresAt: request.expiresAt,
-        approvals: request.approvals,
-        playerIds,
-      });
-
-      // Notify about AI auto-approval if applicable
-      const aiApprovalMessage = aiPlayerIds.length > 0 
-        ? ` AI opponents auto-approved. Waiting for human players.`
-        : ` All players must approve.`;
-
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${request.requesterName} requested an undo.${aiApprovalMessage}`,
-        ts: Date.now(),
-      });
-
-      // Set expiration timer
-      setTimeout(() => {
-        const currentRequest = undoRequests.get(gameId);
-        if (currentRequest && currentRequest.id === request.id && currentRequest.status === 'pending') {
-          currentRequest.status = 'expired';
-          
-          io.to(gameId).emit("undoCancelled", {
-            gameId,
-            undoId: request.id,
-            reason: "Request timed out",
-          });
-
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `Undo request expired (not all players responded in time).`,
-            ts: Date.now(),
-          });
-        }
-      }, UNDO_TIMEOUT_MS);
+      handleRequestUndo(gameId, actionsToUndo);
 
     } catch (err: any) {
       debugError(1, `requestUndo error for game ${gameId}:`, err);
@@ -533,6 +590,15 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      const playerIds = getPlayerIds(game);
+      if (!playerIds.includes(playerId)) {
+        socket.emit("error", {
+          code: "NOT_IN_GAME",
+          message: "You are not in this game",
+        });
+        return;
+      }
+
       const request = undoRequests.get(gameId);
       if (!request || request.id !== undoId) {
         socket.emit("error", {
@@ -552,8 +618,6 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       // Record the response
       request.approvals[playerId] = approved;
-
-      const playerIds = getPlayerIds(game);
       const playerName = getPlayerName(game, playerId);
 
       // Check if rejected
@@ -648,6 +712,23 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      if (socket.data.spectator) {
+        socket.emit("error", {
+          code: "SPECTATOR_CANNOT_CANCEL",
+          message: "Spectators cannot cancel undo requests",
+        });
+        return;
+      }
+
+      const playerIds = getPlayerIds(game);
+      if (!playerIds.includes(playerId)) {
+        socket.emit("error", {
+          code: "NOT_IN_GAME",
+          message: "You are not in this game",
+        });
+        return;
+      }
+
       const request = undoRequests.get(gameId);
       if (!request || request.id !== undoId) {
         return;
@@ -690,6 +771,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Get available undo count (number of events that can be undone)
   socket.on("getUndoCount", ({ gameId }: { gameId: string }) => {
     try {
+      if (!ensureInGameRoomForRead(gameId)) return;
       const game = ensureGame(gameId);
       if (!game) return;
 
@@ -712,6 +794,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Get smart undo counts (step, phase, turn)
   socket.on("getSmartUndoCounts", ({ gameId }: { gameId: string }) => {
     try {
+      if (!ensureInGameRoomForRead(gameId)) return;
       const game = ensureGame(gameId);
       if (!game) return;
 
@@ -741,6 +824,9 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Request undo to step (convenience wrapper)
   socket.on("requestUndoToStep", ({ gameId }: { gameId: string }) => {
     try {
+      const ctx = getUndoRequesterContext(gameId);
+      if (!ctx) return;
+
       let events: Array<{ type: string; payload?: any }> = [];
       try {
         events = getEvents(gameId);
@@ -751,8 +837,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       const actionsToUndo = calculateUndoToStep(events);
       if (actionsToUndo > 0) {
-        // Emit the regular requestUndo with calculated count
-        socket.emit("requestUndo", { gameId, actionsToUndo });
+        handleRequestUndo(gameId, actionsToUndo);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToStep error for game ${gameId}:`, err);
@@ -762,6 +847,9 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Request undo to phase (convenience wrapper)
   socket.on("requestUndoToPhase", ({ gameId }: { gameId: string }) => {
     try {
+      const ctx = getUndoRequesterContext(gameId);
+      if (!ctx) return;
+
       let events: Array<{ type: string; payload?: any }> = [];
       try {
         events = getEvents(gameId);
@@ -772,8 +860,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       const actionsToUndo = calculateUndoToPhase(events);
       if (actionsToUndo > 0) {
-        // Emit the regular requestUndo with calculated count
-        socket.emit("requestUndo", { gameId, actionsToUndo });
+        handleRequestUndo(gameId, actionsToUndo);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToPhase error for game ${gameId}:`, err);
@@ -783,6 +870,9 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Request undo to turn (convenience wrapper)
   socket.on("requestUndoToTurn", ({ gameId }: { gameId: string }) => {
     try {
+      const ctx = getUndoRequesterContext(gameId);
+      if (!ctx) return;
+
       let events: Array<{ type: string; payload?: any }> = [];
       try {
         events = getEvents(gameId);
@@ -793,8 +883,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
       const actionsToUndo = calculateUndoToTurn(events);
       if (actionsToUndo > 0) {
-        // Emit the regular requestUndo with calculated count
-        socket.emit("requestUndo", { gameId, actionsToUndo });
+        handleRequestUndo(gameId, actionsToUndo);
       }
     } catch (err: any) {
       debugError(1, `requestUndoToTurn error for game ${gameId}:`, err);

@@ -32,11 +32,25 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
    */
   socket.on("rollDie", ({ gameId, sides }: { gameId: string; sides: number }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId as string | undefined;
       
       if (!game || !playerId) {
         socket.emit("error", { code: "ROLL_DIE_ERROR", message: "Game not found or player not identified" });
+        return;
+      }
+
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
+      if (!seated || seated.isSpectator || (socket.data as any)?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
         return;
       }
       
@@ -99,11 +113,25 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
    */
   socket.on("flipCoin", ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId as string | undefined;
       
       if (!game || !playerId) {
         socket.emit("error", { code: "FLIP_COIN_ERROR", message: "Game not found or player not identified" });
+        return;
+      }
+
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
+      if (!seated || seated.isSpectator || (socket.data as any)?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
         return;
       }
       

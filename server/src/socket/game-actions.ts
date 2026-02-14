@@ -9094,6 +9094,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit("error", {
+          code: "RESTART_NOT_IN_GAME",
+          message: "You must be in the game to restart it.",
+        });
+        return;
+      }
+
       if (!isGameCreator(gameId, playerId)) {
         socket.emit("error", {
           code: "RESTART_NOT_AUTHORIZED",
@@ -9136,6 +9144,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         socket.emit("error", {
           code: "RESTART_NOT_AUTHORIZED",
           message: "Only the game creator can restart the game.",
+        });
+        return;
+      }
+
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit("error", {
+          code: "RESTART_NOT_IN_GAME",
+          message: "You must be in the game to restart it.",
         });
         return;
       }
@@ -9925,6 +9941,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId as string | undefined;
       if (!playerId) return;
 
+      if (!gameId || typeof gameId !== 'string') return;
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) return;
+
       const game = ensureGame(gameId);
       if (!game) return;
 
@@ -10463,6 +10482,16 @@ export function registerGameActions(io: Server, socket: Socket) {
     permanentIds: string[];
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -10532,6 +10561,16 @@ export function registerGameActions(io: Server, socket: Socket) {
     description?: string;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -10614,6 +10653,16 @@ export function registerGameActions(io: Server, socket: Socket) {
     maxOpponents: number;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -10681,8 +10730,31 @@ export function registerGameActions(io: Server, socket: Socket) {
     count: number;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       if (!game) return;
+
+      // Hardening: do not allow a client to enqueue sacrifice prompts for other players.
+      // Multi-player edicts should be driven by server-side rules resolution, not client requests.
+      const playerId = socket.data?.playerId as any;
+      const role = (socket.data as any)?.role;
+      const isJudge = role === 'judge';
+      if (!isJudge && playerId && targetPlayerId && String(targetPlayerId) !== String(playerId)) {
+        socket.emit?.('error', {
+          code: 'SACRIFICE_SELECTION_NOT_AUTHORIZED',
+          message: 'Not authorized.',
+        });
+        return;
+      }
 
       // Common edict case (Grave Pact / Dictate of Erebos): sacrifice 1 creature.
       // Use Resolution Queue so the unified interaction UI handles it.
@@ -10874,6 +10946,16 @@ export function registerGameActions(io: Server, socket: Socket) {
    */
   socket.on("concede", ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -11000,6 +11082,16 @@ export function registerGameActions(io: Server, socket: Socket) {
     triggerDescription?: string;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId as string | undefined;
 
@@ -11095,6 +11187,13 @@ export function registerGameActions(io: Server, socket: Socket) {
     triggerDescription?: string;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit("triggerShortcutResponse", { shortcut: null });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId as string | undefined;
 

@@ -5,6 +5,7 @@
 import type { Server, Socket } from "socket.io";
 import { getEvents } from "../db";
 import { createInitialGameState } from "../state/index.js";
+import { ensureGame } from "./util";
 import { transformDbEventsForReplay } from "./util";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -183,11 +184,65 @@ function pausePlayback(session: ReplaySession): void {
 }
 
 export function registerReplayHandlers(io: Server, socket: Socket) {
+  const getPlayerIds = (game: any): string[] => {
+    const players = game.state?.players || [];
+    return players
+      .filter((p: any) => p && !p.spectator)
+      .map((p: any) => p.id);
+  };
+
+  const getReplayRequesterContext = (gameId: string) => {
+    const playerId = socket.data.playerId;
+
+    if (!socket.rooms.has(gameId)) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return null;
+    }
+
+    if (!playerId) return null;
+
+    if (socket.data.spectator) {
+      socket.emit("error", {
+        code: "SPECTATOR_CANNOT_REPLAY",
+        message: "Spectators cannot start replays",
+      });
+      return null;
+    }
+
+    const game = ensureGame(gameId);
+    if (!game) return null;
+
+    const playerIds = getPlayerIds(game);
+    if (!playerIds.includes(playerId)) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return null;
+    }
+
+    if (!(game.state as any)?.gameOver) {
+      socket.emit("error", {
+        code: "REPLAY_NOT_AVAILABLE",
+        message: "Replay is only available after the game is over",
+      });
+      return null;
+    }
+
+    return { game, playerId };
+  };
+
   /**
    * Start a replay session for a game
    */
   socket.on("startReplay", ({ gameId }: { gameId: string }) => {
     try {
+      const ctx = getReplayRequesterContext(gameId);
+      if (!ctx) return;
+
       const viewerId = socket.id;
       
       // Clean up any existing session for this viewer

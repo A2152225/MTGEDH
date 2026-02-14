@@ -1075,6 +1075,26 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
   // Request state refresh
   socket.on("requestState", ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      // Prevent cross-game state leakage: only allow state refresh for the game
+      // the socket is currently joined to.
+      if ((socket.data as any)?.gameId !== gameId) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', {
+          code: 'NOT_IN_GAME',
+          message: 'Not in game.',
+        });
+        return;
+      }
+
       const game = games.get(gameId);
       const playerId = socket.data?.playerId;
       if (!game || !playerId) return;
