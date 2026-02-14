@@ -1632,6 +1632,15 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       return;
     }
 
+    // Prevent out-of-order/stale completion within a player's own pending steps.
+    // Only allow responding to the next pending step for this player.
+    const myPendingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, pid as any);
+    const myNextStep = myPendingSteps.length > 0 ? myPendingSteps[0] : undefined;
+    if (!myNextStep || myNextStep.id !== stepId) {
+      socket.emit("error", { code: "STEP_OUT_OF_ORDER", message: "This is not your next pending resolution step" });
+      return;
+    }
+
     // Disallow cancelling mandatory steps via submitResolutionResponse.
     // (A malicious client could otherwise bypass mandatory resolution by sending cancelled=true.)
     // Mirror the exception used by cancelResolutionStep for in-progress spell-cast target selection.
@@ -4735,6 +4744,83 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         return;
       }
     }
+
+    // Validate keyword choice steps before completing the step.
+    // These handlers can safely reject invalid option ids; do not consume the step on malformed/illegal input.
+    if (
+      (step.type === ResolutionStepType.RIOT_CHOICE ||
+        step.type === ResolutionStepType.UNLEASH_CHOICE ||
+        step.type === ResolutionStepType.KEYWORD_CHOICE) &&
+      !cancelled
+    ) {
+      const stepAny = step as any;
+      const raw: any = response.selections as any;
+
+      const extractSingleSelection = (v: any): string | null => {
+        if (typeof v === 'string') return v;
+        if (Array.isArray(v)) {
+          if (v.length !== 1) return null;
+          return typeof v[0] === 'string' ? v[0] : null;
+        }
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          const candidate = v.optionId ?? v.choice ?? v.id ?? v.value;
+          if (typeof candidate === 'string') return candidate;
+        }
+        return null;
+      };
+
+      const selected = String(extractSingleSelection(raw) || '').trim();
+      if (!selected) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid selection format' });
+        return;
+      }
+
+      const optionsRaw: any[] = Array.isArray(stepAny?.options) ? stepAny.options : [];
+      const allowedFromStep = new Set(
+        optionsRaw
+          .map((o: any) => {
+            if (typeof o === 'string') return o;
+            return String(o?.id ?? o?.value ?? '');
+          })
+          .map((s: any) => String(s || '').trim())
+          .filter(Boolean)
+      );
+
+      const allowedFallback =
+        step.type === ResolutionStepType.RIOT_CHOICE
+          ? new Set(['counter', 'haste'])
+          : step.type === ResolutionStepType.UNLEASH_CHOICE
+            ? new Set(['counter', 'none'])
+            : new Set<string>();
+
+      const allowed = allowedFromStep.size > 0 ? allowedFromStep : allowedFallback;
+      if (allowed.size === 0) {
+        socket.emit('error', { code: 'INVALID_STEP', message: 'Keyword choice step missing options' });
+        return;
+      }
+
+      if (!allowed.has(selected)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected option is not valid' });
+        return;
+      }
+    }
+
+    // ACTIVATED_ABILITY: This step resolves a server-defined ability from the stack.
+    // The response payload should not provide arbitrary selections; reject malformed input
+    // so a client cannot consume the step with unexpected data.
+    if (step.type === ResolutionStepType.ACTIVATED_ABILITY && !cancelled) {
+      const raw: any = response.selections as any;
+
+      const isEmptyArray = Array.isArray(raw) && raw.length === 0;
+      const isEmptyObject =
+        raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0;
+      const isNullish = raw === null || raw === undefined;
+
+      if (!(isEmptyArray || isEmptyObject || isNullish)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid activated ability response' });
+        return;
+      }
+    }
     
     // Complete the step
     const completedStep = ResolutionQueueManager.completeStep(gameId, stepId, response);
@@ -4789,6 +4875,14 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     
     if (step.playerId !== pid) {
       socket.emit("error", { code: "NOT_YOUR_STEP", message: "This is not your resolution step" });
+      return;
+    }
+
+    // Prevent out-of-order/stale cancellation within a player's own pending steps.
+    const myPendingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, pid as any);
+    const myNextStep = myPendingSteps.length > 0 ? myPendingSteps[0] : undefined;
+    if (!myNextStep || myNextStep.id !== stepId) {
+      socket.emit("error", { code: "STEP_OUT_OF_ORDER", message: "This is not your next pending resolution step" });
       return;
     }
 

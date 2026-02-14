@@ -2,7 +2,7 @@
 import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
 import { processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder } from "./resolution.js";
-import { appendEvent } from "../db";
+import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
@@ -9085,7 +9085,31 @@ export function registerGameActions(io: Server, socket: Socket) {
   // Restart (keep roster/players)
   socket.on("restartGame", ({ gameId }) => {
     try {
+      const playerId = socket.data?.playerId;
+      if (!playerId || typeof playerId !== "string") {
+        socket.emit("error", {
+          code: "RESTART_NOT_AUTHORIZED",
+          message: "Only the game creator can restart the game.",
+        });
+        return;
+      }
+
+      if (!isGameCreator(gameId, playerId)) {
+        socket.emit("error", {
+          code: "RESTART_NOT_AUTHORIZED",
+          message: "Only the game creator can restart the game.",
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", {
+          code: "RESTART_GAME_NOT_FOUND",
+          message: "Game not found.",
+        });
+        return;
+      }
       game.reset(true);
       // Make restarted games start in PRE_GAME to be consistent
       try {
@@ -9107,7 +9131,31 @@ export function registerGameActions(io: Server, socket: Socket) {
   // Restart (clear roster/players)
   socket.on("restartGameClear", ({ gameId }) => {
     try {
+      const playerId = socket.data?.playerId;
+      if (!playerId || typeof playerId !== "string") {
+        socket.emit("error", {
+          code: "RESTART_NOT_AUTHORIZED",
+          message: "Only the game creator can restart the game.",
+        });
+        return;
+      }
+
+      if (!isGameCreator(gameId, playerId)) {
+        socket.emit("error", {
+          code: "RESTART_NOT_AUTHORIZED",
+          message: "Only the game creator can restart the game.",
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", {
+          code: "RESTART_GAME_NOT_FOUND",
+          message: "Game not found.",
+        });
+        return;
+      }
       game.reset(false);
       // Ensure cleared restart is PRE_GAME as well
       try {

@@ -14,7 +14,7 @@ import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
-import { appendEvent } from "../db/index.js";
+import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
 import type { PlayerID } from "../../../shared/src/types.js";
@@ -4984,6 +4984,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   }) => {
     try {
       debug(1, '[Game] Creating game without AI:', { gameId, format, startingLife });
+
+      // Safety: creation handlers must never mutate an existing game.
+      // If the game already exists in DB or memory, require the normal join/ensure flow.
+      if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
+        socket.emit('error', {
+          code: 'GAME_ALREADY_EXISTS',
+          message: 'Game already exists.',
+        });
+        return;
+      }
       
       // Create a NEW game using GameManager.createGame() which handles DB persistence
       let game = GameManager.getGame(gameId);
@@ -5044,6 +5054,15 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   }) => {
     try {
       debug(1, '[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, aiDifficulty, hasText: !!aiDeckText });
+
+      // Safety: must not mutate an existing game.
+      if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
+        socket.emit('error', {
+          code: 'GAME_ALREADY_EXISTS',
+          message: 'Game already exists.',
+        });
+        return;
+      }
       
       // Create a NEW game using GameManager.createGame() which handles DB persistence
       // This is critical - ensureGame() checks if the game exists in DB first,
@@ -5326,6 +5345,15 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         aiNames: aiOpponents.map(ai => ai.name),
         aiDifficulties: aiOpponents.map(ai => ai.difficulty ?? 0.5),
       });
+
+      // Safety: must not mutate an existing game.
+      if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
+        socket.emit('error', {
+          code: 'GAME_ALREADY_EXISTS',
+          message: 'Game already exists.',
+        });
+        return;
+      }
       
       // Create a NEW game using GameManager.createGame() which handles DB persistence
       // This is critical - ensureGame() checks if the game exists in DB first,
@@ -5576,6 +5604,23 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     aiDeckId?: string;
   }) => {
     try {
+      const requesterId = socket.data?.playerId as PlayerID | undefined;
+      if (!requesterId || socket.data?.spectator) {
+        socket.emit('error', {
+          code: 'AI_NOT_AUTHORIZED',
+          message: 'Only the game creator can add AI players.',
+        });
+        return;
+      }
+
+      if (!isGameCreator(gameId, requesterId)) {
+        socket.emit('error', {
+          code: 'AI_NOT_AUTHORIZED',
+          message: 'Only the game creator can add AI players.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' });
@@ -5630,6 +5675,23 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     aiPlayerId: string;
   }) => {
     try {
+      const requesterId = socket.data?.playerId as PlayerID | undefined;
+      if (!requesterId || socket.data?.spectator) {
+        socket.emit('error', {
+          code: 'AI_NOT_AUTHORIZED',
+          message: 'Only the game creator can remove AI players.',
+        });
+        return;
+      }
+
+      if (!isGameCreator(gameId, requesterId)) {
+        socket.emit('error', {
+          code: 'AI_NOT_AUTHORIZED',
+          message: 'Only the game creator can remove AI players.',
+        });
+        return;
+      }
+
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' });
