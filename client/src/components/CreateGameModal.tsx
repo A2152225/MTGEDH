@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { socket } from '../socket';
 
 /**
@@ -176,6 +176,10 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const [customRuleSuggestion, setCustomRuleSuggestion] = useState('');
   const [submittingCustomRule, setSubmittingCustomRule] = useState(false);
   const [customRuleMessage, setCustomRuleMessage] = useState<string | null>(null);
+
+  // Only close on backdrop click if the pointerdown started on the backdrop.
+  // This prevents accidental close when dragging/selecting inside the modal and releasing outside.
+  const backdropClickArmedRef = useRef(false);
 
   /**
    * Add a new AI opponent to the list (up to MAX_AI_OPPONENTS)
@@ -415,8 +419,24 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
         justifyContent: 'center',
         zIndex: 1000,
       }}
+      onPointerDown={(e) => {
+        backdropClickArmedRef.current = e.target === e.currentTarget;
+      }}
+      onPointerUp={() => {
+        // Disarm in case click doesn't fire (e.g., pointer cancellation)
+        // We'll also disarm in onClick after handling.
+        setTimeout(() => {
+          backdropClickArmedRef.current = false;
+        }, 0);
+      }}
+      onPointerCancel={() => {
+        backdropClickArmedRef.current = false;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        const isBackdrop = e.target === e.currentTarget;
+        const shouldClose = isBackdrop && backdropClickArmedRef.current;
+        backdropClickArmedRef.current = false;
+        if (shouldClose) onClose();
       }}
     >
       <div

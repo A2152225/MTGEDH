@@ -87,10 +87,12 @@ const PLAYER_NAME_KEY = 'mtgedh:playerName';
 
 function getCachedPlayerName(): string {
   try {
-    const stored = sessionStorage.getItem(PLAYER_NAME_KEY);
-    if (stored && stored.trim()) {
-      return stored.trim();
-    }
+    const storedLocal = localStorage.getItem(PLAYER_NAME_KEY);
+    if (storedLocal && storedLocal.trim()) return storedLocal.trim();
+
+    // Back-compat: older versions cached in sessionStorage only.
+    const storedSession = sessionStorage.getItem(PLAYER_NAME_KEY);
+    if (storedSession && storedSession.trim()) return storedSession.trim();
   } catch {
     // Ignore storage errors
   }
@@ -100,7 +102,9 @@ function getCachedPlayerName(): string {
 function cachePlayerName(name: string): void {
   try {
     if (name && name.trim()) {
-      sessionStorage.setItem(PLAYER_NAME_KEY, name.trim());
+      const trimmed = name.trim();
+      localStorage.setItem(PLAYER_NAME_KEY, trimmed);
+      sessionStorage.setItem(PLAYER_NAME_KEY, trimmed);
     }
   } catch {
     // Ignore storage errors
