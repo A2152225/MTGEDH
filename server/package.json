@@ -10,6 +10,7 @@
     "intervening-if:backlog": "node --enable-source-maps --import tsx/esm scripts/intervening-if-backlog.ts",
     "intervening-if:categorize": "node --enable-source-maps --import tsx/esm scripts/intervening-if-categorize.ts",
     "dev": "tsx watch --watch-path=src src/index.ts",
+    "dev:server:noreload": "npm run dev:noreload",
     "dev:noreload": "npm run start",
     "start": "node --enable-source-maps --import tsx/esm src/index.ts",
     "targeting:coverage": "node --enable-source-maps --import tsx/esm scripts/targeting-coverage.ts",

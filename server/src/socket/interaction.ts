@@ -8496,9 +8496,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
     const game = ensureGame(gameId);
     if (!game) {
       socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    const players = (game.state as any)?.players;
+    const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+    if (!seated || seated.isSpectator) {
+      socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }
 
@@ -8591,6 +8604,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
+    const players = (game.state as any)?.players;
+    const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+    if (!seated || seated.isSpectator) {
+      socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
+      return;
+    }
+
     const preferences = (game.state as any).replacementEffectPreferences?.[pid] || {};
     
     if (effectType) {
@@ -8636,7 +8656,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
     const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' });
+      return;
+    }
+
+    const players = (game.state as any)?.players;
+    const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+    if (!seated || seated.isSpectator) {
+      socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
+      return;
+    }
 
     // Split Second: cycling is an activated ability (non-mana).
     if (isSplitSecondLockActive(game.state)) {

@@ -2268,6 +2268,31 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      const pid = socket.data.playerId as PlayerID | undefined;
+      const spectator = socket.data.spectator;
+      if (!pid || spectator) {
+        socket.emit("deckError", { gameId, message: "Not authorized." });
+        return;
+      }
+
+      if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+        socket.emit("deckError", { gameId, message: "Not in game." });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("deckError", { gameId, message: "Game not found." });
+        return;
+      }
+
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+      if (!seated || seated.isSpectator) {
+        socket.emit("deckError", { gameId, message: "Not authorized." });
+        return;
+      }
+
       const allDecks = listDecks();
       const decksToShow = folder !== undefined 
         ? allDecks.filter(d => d.folder === folder)
@@ -2300,6 +2325,31 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         if (!gameId || typeof gameId !== "string") {
           socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
+          return;
+        }
+
+        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+          socket.emit("deckError", { gameId, message: "Not in game." });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        const players = (game.state as any)?.players;
+        const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+        if (!seated || seated.isSpectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
           return;
         }
 
@@ -2347,6 +2397,31 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         if (!gameId || typeof gameId !== "string") {
           socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
+          return;
+        }
+
+        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+          socket.emit("deckError", { gameId, message: "Not in game." });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        const players = (game.state as any)?.players;
+        const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+        if (!seated || seated.isSpectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
           return;
         }
 
@@ -2399,6 +2474,31 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
+          return;
+        }
+
+        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+          socket.emit("deckError", { gameId, message: "Not in game." });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        const players = (game.state as any)?.players;
+        const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+        if (!seated || seated.isSpectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
+          return;
+        }
+
         if (!deckId || typeof deckId !== "string") {
           socket.emit("deckError", { gameId, message: "DeckId required." });
           return;
@@ -2443,6 +2543,17 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
+        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+          socket.emit("deckError", { gameId, message: "Not in game." });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
         if (!deckId || typeof deckId !== "string") {
           socket.emit("deckError", { gameId, message: "DeckId required." });
           return;
@@ -2455,6 +2566,13 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             gameId,
             message: "Spectators cannot cache decks.",
           });
+          return;
+        }
+
+        const players = (game.state as any)?.players;
+        const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+        if (!seated || seated.isSpectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
           return;
         }
 
@@ -2581,6 +2699,31 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         if (!gameId || typeof gameId !== "string") {
           socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
+          return;
+        }
+
+        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+          socket.emit("deckError", { gameId, message: "Not in game." });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        const players = (game.state as any)?.players;
+        const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+        if (!seated || seated.isSpectator) {
+          socket.emit("deckError", { gameId, message: "Not authorized." });
           return;
         }
 
