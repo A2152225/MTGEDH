@@ -256,6 +256,45 @@ app.delete("/admin/games/:id", (req, res) => {
   }
 });
 
+// Admin: delete ALL games (only from localhost)
+app.delete("/admin/games", (req, res) => {
+  try {
+    const remote = (req.ip || req.socket.remoteAddress || "").toString();
+    const allowed =
+      remote === "127.0.0.1" ||
+      remote === "::1" ||
+      remote === "localhost" ||
+      remote === "127.0.0.1:3001";
+    if (!allowed) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const persisted = dbListGames();
+    const ids = persisted.map((r) => String(r.game_id)).filter(Boolean);
+
+    let deleted = 0;
+    for (const id of ids) {
+      try {
+        GameManager.deleteGame(id);
+      } catch {
+        // best-effort
+      }
+      try {
+        const ok = dbDeleteGame(id);
+        if (ok) deleted++;
+      } catch (e) {
+        debugWarn(1, `DELETE /admin/games: dbDeleteGame threw for ${id}`, e);
+      }
+    }
+
+    res.json({ ok: true, requested: ids.length, deleted, ids });
+  } catch (err) {
+    debugError(1, "DELETE /admin/games failed:", err);
+    res.status(500).json({ error: "Delete failed" });
+  }
+});
+
 // Handle undefined routes by serving `index.html` (useful for React Router handling)
 app.get("*", (req, res) => {
   res.sendFile(path.join(BUILD_PATH, "index.html"), (err) => {

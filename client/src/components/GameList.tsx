@@ -99,14 +99,11 @@ export default function GameList(props: GameListProps) {
     if (isLocalhost) return true;
     // Game creators can delete their games
     if (currentPlayerId && game.createdByPlayerId === currentPlayerId) return true;
-    // Anyone can delete a game with no active player connections
-    if (game.activeConnectionsCount === 0) return true;
     return false;
   };
   
   const handleDelete = async (game: GameRow) => {
     const isCreator = currentPlayerId && game.createdByPlayerId === currentPlayerId;
-    const noActiveConnections = game.activeConnectionsCount === 0;
     
     if (!confirm(`Delete game ${game.id}? This removes persisted events.`)) return;
     
@@ -122,7 +119,7 @@ export default function GameList(props: GameListProps) {
         } else {
           await fetchGames();
         }
-      } else if (isCreator || noActiveConnections) {
+      } else if (isCreator) {
         // Use socket to delete as the creator or when no players are connected
         // Pass claimedPlayerId for cases where the socket hasn't joined a game yet
         // (e.g., user is on game list but hasn't joined any game)

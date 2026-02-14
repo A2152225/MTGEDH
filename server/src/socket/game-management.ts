@@ -22,7 +22,7 @@ type TypedServer = Server<
  */
 export function registerGameManagementHandlers(io: TypedServer, socket: Socket) {
   // --- deleteGame: hard wipe game state + events so gameId can be reused cleanly ---
-  // Now allows game creators to delete their own games, OR anyone if no players are connected
+  // Allows game creators to delete their own games.
   // Also accepts optional claimedPlayerId for cases where socket hasn't joined a game yet
   // but the client knows their player ID from localStorage/session
   //
@@ -30,7 +30,6 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
   // It is validated against the server's database record (isGameCreator check) before any action.
   // An attacker cannot delete games they don't own because isGameCreator verifies that the
   // claimedPlayerId matches the game's stored created_by_player_id field in the database.
-  // The only fallback is noActivePlayers, which allows anyone to clean up abandoned games.
   socket.on("deleteGame", ({ gameId, claimedPlayerId }: { gameId: string; claimedPlayerId?: string }) => {
     try {
       if (!gameId || typeof gameId !== "string") {
@@ -38,6 +37,17 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
           code: "DELETE_GAME_MISSING_ID",
           message: "gameId required.",
         });
+        return;
+      }
+
+      // If this socket is currently associated with a different game,
+      // block cross-game deletes from that context.
+      const socketGameId = (socket.data as any)?.gameId as string | undefined;
+      if (socketGameId && socketGameId !== gameId) {
+        socket.emit("error", {
+          code: "NOT_IN_GAME",
+          message: "Not in game.",
+        } as any);
         return;
       }
 
@@ -49,21 +59,6 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       // Check if the player is the creator of the game (validated against DB record)
       const isCreator = playerId ? isGameCreator(gameId, playerId) : false;
       
-      // Check if there are any active (non-spectator) players connected to the game
-      // Use Socket.IO's room adapter to get all sockets in the game room
-      const room = io.sockets.adapter.rooms.get(gameId);
-      let activePlayerCount = 0;
-      if (room) {
-        for (const socketId of room) {
-          const s = io.sockets.sockets.get(socketId);
-          // Only count non-spectator players
-          if (s && s.data.playerId && !s.data.spectator) {
-            activePlayerCount++;
-          }
-        }
-      }
-      const noActivePlayers = activePlayerCount === 0;
-      
       debug(1, "[socket] deleteGame requested", {
         gameId,
         bySocket: socket.id,
@@ -71,15 +66,13 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
         claimedPlayerId,
         resolvedPlayerId: playerId,
         isCreator,
-        activePlayerCount,
-        noActivePlayers,
       });
 
-      // Allow delete if: player is creator, OR no active players are connected
-      if (!isCreator && !noActivePlayers) {
+      // Allow delete only for the creator (validated via DB).
+      if (!isCreator) {
         socket.emit("error", {
           code: "DELETE_GAME_NOT_AUTHORIZED",
-          message: "Only the game creator can delete this game, or you can delete it if no players are connected.",
+          message: "Only the game creator can delete this game.",
         });
         return;
       }

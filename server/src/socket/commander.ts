@@ -29,7 +29,77 @@ interface SocketWithData extends Socket {
     playerId?: string;
     spectator?: boolean;
     gameId?: string;
+    role?: string;
   };
+}
+
+function emitNotInGame(socket: Socket) {
+  socket.emit?.("error", { code: "NOT_IN_GAME", message: "Not in game." } as any);
+}
+
+function emitNotAuthorized(socket: Socket) {
+  socket.emit?.("error", { code: "NOT_AUTHORIZED", message: "Not authorized." } as any);
+}
+
+function ensureInRoomAndSeated(socket: Socket, gameId: string) {
+  const pid = (socket.data as any)?.playerId as PlayerID | undefined;
+  if (!pid) {
+    emitNotAuthorized(socket);
+    return null;
+  }
+
+  const sockAny = socket as any;
+  const socketGameId = (socket.data as any)?.gameId;
+  const inRoom = !!sockAny?.rooms?.has?.(gameId);
+  if (socketGameId !== gameId || !inRoom) {
+    emitNotInGame(socket);
+    return null;
+  }
+
+  const game = ensureGame(gameId);
+  if (!game) {
+    socket.emit?.("error", { code: "GAME_NOT_FOUND", message: "Game not found" } as any);
+    return null;
+  }
+
+  const players = ((game.state as any)?.players || []) as any[];
+  const me = players.find((p: any) => p?.id === pid);
+  if (!me || me?.spectator) {
+    emitNotAuthorized(socket);
+    return null;
+  }
+
+  return { game, pid };
+}
+
+function ensureInRoomAndJudge(socket: Socket, gameId: string) {
+  const pid = (socket.data as any)?.playerId as PlayerID | undefined;
+  if (!pid) {
+    emitNotAuthorized(socket);
+    return null;
+  }
+
+  const sockAny = socket as any;
+  const socketGameId = (socket.data as any)?.gameId;
+  const inRoom = !!sockAny?.rooms?.has?.(gameId);
+  if (socketGameId !== gameId || !inRoom) {
+    emitNotInGame(socket);
+    return null;
+  }
+
+  const role = (socket.data as any)?.role;
+  if (role !== "judge") {
+    emitNotAuthorized(socket);
+    return null;
+  }
+
+  const game = ensureGame(gameId);
+  if (!game) {
+    socket.emit?.("error", { code: "GAME_NOT_FOUND", message: "Game not found" } as any);
+    return null;
+  }
+
+  return { game, pid };
 }
 
 function normalizeNamesArray(payload: any): string[] {
@@ -151,7 +221,13 @@ export function emitImportedDeckCandidatesToPlayer(
       for (const s of Array.from(io.sockets.sockets.values())) {
         try {
           const sock = s as SocketWithData;
-          if (sock?.data?.playerId === pid && !sock?.data?.spectator) {
+          const sockAny = sock as any;
+          if (
+            sock?.data?.playerId === pid &&
+            !sock?.data?.spectator &&
+            sock?.data?.gameId === gameId &&
+            !!sockAny?.rooms?.has?.(gameId)
+          ) {
             sock.emit("importedDeckCandidates", { gameId, candidates });
           }
         } catch {
@@ -191,7 +267,13 @@ export function emitSuggestCommandersToPlayer(
     for (const s of Array.from(io.sockets.sockets.values())) {
       try {
         const sock = s as SocketWithData;
-        if (sock?.data?.playerId === pid && !sock?.data?.spectator) {
+        const sockAny = sock as any;
+        if (
+          sock?.data?.playerId === pid &&
+          !sock?.data?.spectator &&
+          sock?.data?.gameId === gameId &&
+          !!sockAny?.rooms?.has?.(gameId)
+        ) {
           sock.emit("suggestCommanders", payload);
         }
       } catch {
@@ -226,6 +308,18 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
 
       const gameId = payload.gameId;
+
+      // In-room + matching socket.data.gameId guard to prevent cross-game mutations.
+      {
+        const sockAny = socket as any;
+        const socketGameId = (socket.data as any)?.gameId;
+        const inRoom = !!sockAny?.rooms?.has?.(gameId);
+        if (socketGameId !== gameId || !inRoom) {
+          emitNotInGame(socket);
+          return;
+        }
+      }
+
       debug(1, "[commander] setCommander incoming", {
         gameId,
         from: pid,
@@ -236,6 +330,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit("error", { message: "Game not found" });
+        return;
+      }
+
+      // Must be seated in this game.
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === pid);
+      if (!me || me?.spectator) {
+        emitNotAuthorized(socket);
         return;
       }
 
@@ -445,6 +547,17 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         });
         return;
       }
+
+      // In-room + matching socket.data.gameId guard to prevent cross-game mutations.
+      {
+        const sockAny = socket as any;
+        const socketGameId = (socket.data as any)?.gameId;
+        const inRoom = !!sockAny?.rooms?.has?.(gameId);
+        if (socketGameId !== gameId || !inRoom) {
+          emitNotInGame(socket);
+          return;
+        }
+      }
       
       const game = ensureGame(gameId);
       if (!game) {
@@ -452,6 +565,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           code: "GAME_NOT_FOUND",
           message: "Game not found",
         });
+        return;
+      }
+
+      // Must be seated in this game.
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === pid);
+      if (!me || me?.spectator) {
+        emitNotAuthorized(socket);
         return;
       }
       
@@ -808,6 +929,17 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         });
         return;
       }
+
+      // In-room + matching socket.data.gameId guard to prevent cross-game mutations.
+      {
+        const sockAny = socket as any;
+        const socketGameId = (socket.data as any)?.gameId;
+        const inRoom = !!sockAny?.rooms?.has?.(gameId);
+        if (socketGameId !== gameId || !inRoom) {
+          emitNotInGame(socket);
+          return;
+        }
+      }
       
       const game = ensureGame(gameId);
       if (!game) {
@@ -815,6 +947,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           code: "GAME_NOT_FOUND",
           message: "Game not found",
         });
+        return;
+      }
+
+      // Must be seated in this game.
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === pid);
+      if (!me || me?.spectator) {
+        emitNotAuthorized(socket);
         return;
       }
       
@@ -920,17 +1060,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   // Debug handler: dumpLibrary - emits player's library with Scryfall data
   socket.on("dumpLibrary", ({ gameId }: { gameId: string }) => {
     try {
-      const pid = socket.data.playerId as PlayerID | undefined;
       if (!gameId || typeof gameId !== "string") {
-        socket.emit("debugLibraryDump", { error: "Missing gameId" });
+        socket.emit("error", { code: "DUMP_LIBRARY_MISSING_ID", message: "Missing gameId" } as any);
         return;
       }
-      
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("debugLibraryDump", { error: "Game not found" });
-        return;
-      }
+
+      const ok = ensureInRoomAndJudge(socket, gameId);
+      if (!ok) return;
+      const { game, pid } = ok;
       
       // Get library from various possible locations
       let library: unknown[] = [];
@@ -967,24 +1104,21 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       });
     } catch (err) {
       debugError(1, "dumpLibrary handler failed:", err);
-      socket.emit("debugLibraryDump", { error: String(err) });
+      socket.emit("error", { code: "DUMP_LIBRARY_FAILED", message: String(err) } as any);
     }
   });
   
   // Debug handler: dumpImportedDeckBuffer - emits full imported deck with Scryfall data
   socket.on("dumpImportedDeckBuffer", ({ gameId }: { gameId: string }) => {
     try {
-      const pid = socket.data.playerId as PlayerID | undefined;
       if (!gameId || typeof gameId !== "string") {
-        socket.emit("debugImportedDeckBuffer", { error: "Missing gameId" });
+        socket.emit("error", { code: "DUMP_IMPORTED_BUFFER_MISSING_ID", message: "Missing gameId" } as any);
         return;
       }
-      
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("debugImportedDeckBuffer", { error: "Game not found" });
-        return;
-      }
+
+      const ok = ensureInRoomAndJudge(socket, gameId);
+      if (!ok) return;
+      const { game, pid } = ok;
       
       // Get the imported deck buffer
       const gameWithBuffer = game as { _lastImportedDecks?: Map<PlayerID, unknown[]> };
@@ -1020,24 +1154,21 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       });
     } catch (err) {
       debugError(1, "dumpImportedDeckBuffer handler failed:", err);
-      socket.emit("debugImportedDeckBuffer", { error: String(err) });
+      socket.emit("error", { code: "DUMP_IMPORTED_BUFFER_FAILED", message: String(err) } as any);
     }
   });
   
   // Debug handler: dumpCommanderState - emits commander zone state with Scryfall data
   socket.on("dumpCommanderState", ({ gameId }: { gameId: string }) => {
     try {
-      const pid = socket.data.playerId as PlayerID | undefined;
       if (!gameId || typeof gameId !== "string") {
-        socket.emit("debugCommanderState", { error: "Missing gameId" });
+        socket.emit("error", { code: "DUMP_COMMANDER_STATE_MISSING_ID", message: "Missing gameId" } as any);
         return;
       }
-      
-      const game = ensureGame(gameId);
-      if (!game) {
-        socket.emit("debugCommanderState", { error: "Game not found" });
-        return;
-      }
+
+      const ok = ensureInRoomAndJudge(socket, gameId);
+      if (!ok) return;
+      const { game, pid } = ok;
       
       // Define interface for commander state output
       interface CommanderStateOutput {
@@ -1115,7 +1246,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       });
     } catch (err) {
       debugError(1, "dumpCommanderState handler failed:", err);
-      socket.emit("debugCommanderState", { error: String(err) });
+      socket.emit("error", { code: "DUMP_COMMANDER_STATE_FAILED", message: String(err) } as any);
     }
   });
 }

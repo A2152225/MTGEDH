@@ -139,6 +139,75 @@ function deleteGameByNumber(gameNumber: number): void {
 }
 
 /**
+ * Delete a game by its id
+ */
+function deleteGameById(gameId: string): void {
+  try {
+    const id = String(gameId || '').trim();
+    if (!id) {
+      debug(2, '\n❌ Missing game id. Usage: delete id <gameId>\n');
+      return;
+    }
+
+    debug(2, `\n🗑️  Deleting game (${id})...`);
+
+    try {
+      const removed = GameManager.deleteGame(id);
+      debug(2, `   - GameManager: ${removed ? 'removed' : 'not found'}`);
+    } catch (e) {
+      debugWarn(1, `   - GameManager removal failed: ${(e as Error).message}`);
+    }
+
+    try {
+      const hadLegacy = socketGames.delete(id as any);
+      if (hadLegacy) debug(2, '   - Legacy socketGames: removed');
+    } catch (e) {
+      debugWarn(1, `   - Legacy socketGames removal failed: ${(e as Error).message}`);
+    }
+
+    try {
+      const timer = priorityTimers.get(id as any);
+      if (timer) {
+        clearTimeout(timer);
+        priorityTimers.delete(id as any);
+        debug(2, '   - Priority timer: cleared');
+      }
+    } catch (e) {
+      debugWarn(1, `   - Priority timer cleanup failed: ${(e as Error).message}`);
+    }
+
+    const dbResult = dbDeleteGame(id);
+    debug(2, `   - Database: ${dbResult ? 'deleted' : 'not found'}`);
+
+    debug(2, `\n✅ Game (${id}) has been deleted.\n`);
+  } catch (err) {
+    debugError(1, '❌ Error deleting game by id:', (err as Error).message);
+  }
+}
+
+/**
+ * Delete ALL games
+ */
+function deleteAllGames(): void {
+  try {
+    const persisted = listGames();
+    if (persisted.length === 0) {
+      debug(2, '\n📋 No games to delete.\n');
+      return;
+    }
+
+    debug(2, `\n🧨 Deleting ALL games (${persisted.length})...`);
+    for (const row of persisted) {
+      const id = row.game_id;
+      deleteGameById(id);
+    }
+    debug(2, '✅ Finished deleting all games.\n');
+  } catch (err) {
+    debugError(1, '❌ Error deleting all games:', (err as Error).message);
+  }
+}
+
+/**
  * Stop the server gracefully
  */
 function stopServer(): void {
@@ -195,6 +264,8 @@ function showHelp(): void {
 ─────────────────────────────────────────────────────────────────
   list              Show all current games with their details
   delete game #     Delete a specific game by its number (from list)
+  delete id <id>    Delete a specific game by its gameId
+  delete all        Delete ALL games (in-memory + persisted)
   stop              Stop the server gracefully
   restart           Restart the server (requires process manager)
   help              Show this help message
@@ -205,6 +276,8 @@ Examples:
   list                 - Shows all games numbered 1, 2, 3, etc.
   delete game 1        - Deletes the first game in the list
   delete game 3        - Deletes the third game in the list
+  delete id my_game     - Deletes by id
+  delete all            - Deletes everything
 `);
 }
 
@@ -230,8 +303,12 @@ function processCommand(input: string): void {
         } else {
           deleteGameByNumber(gameNum);
         }
+      } else if (parts[1] === 'id' && parts[2]) {
+        deleteGameById(parts.slice(2).join(' '));
+      } else if (parts[1] === 'all') {
+        deleteAllGames();
       } else {
-        debug(2, '\n❌ Usage: delete game <number>\n   Example: delete game 1\n');
+        debug(2, '\n❌ Usage: delete game <number> | delete id <gameId> | delete all\n');
       }
       break;
       

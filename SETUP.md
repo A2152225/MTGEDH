@@ -50,6 +50,31 @@ This will start:
 - Backend server on http://localhost:3001
 - Frontend client on http://localhost:3000
 
+### PowerShell note: typing causes restarts / can’t enter CLI commands
+
+The server includes an interactive CLI (`mtgedh>` prompt) for listing/deleting games.
+
+If you run the server with file-watch enabled (default `npm run dev`), some terminals—especially Windows PowerShell—may treat keystrokes as input to the watcher/CLI, which can look like the server is restarting as you type.
+
+Recommended options:
+
+1) Use the interactive server CLI (stdin) **without watch**:
+```bash
+npm run dev:server:noreload
+```
+Then use the `mtgedh>` prompt:
+- `list`
+- `delete game 1`
+- `delete id <gameId>`
+- `delete all`
+
+2) Keep auto-reload, but run admin commands in a second terminal:
+```bash
+npm run admin:games:list
+npm run admin:games:delete -- <gameId>
+npm run admin:games:delete-all
+```
+
 ## Development Workflow
 
 ### Type Checking

@@ -1252,14 +1252,33 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
     }>;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'DECLARE_ATTACKERS_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) {
+        socket.emit?.('error', { code: 'DECLARE_ATTACKERS_ERROR', message: 'Player not identified' } as any);
+        return;
+      }
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "DECLARE_ATTACKERS_ERROR",
-          message: "Game not found or player not identified",
-        });
+      if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
@@ -2079,14 +2098,33 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
     }>;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'DECLARE_BLOCKERS_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) {
+        socket.emit?.('error', { code: 'DECLARE_BLOCKERS_ERROR', message: 'Player not identified' } as any);
+        return;
+      }
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "DECLARE_BLOCKERS_ERROR",
-          message: "Game not found or player not identified",
-        });
+      if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
@@ -2520,10 +2558,27 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    */
   socket.on("skipDeclareAttackers", async ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) return;
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
+      if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
@@ -2581,10 +2636,27 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    */
   socket.on("skipDeclareBlockers", async ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) return;
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
+      if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
@@ -2647,14 +2719,33 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
     controlsBlockers: boolean;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'COMBAT_CONTROL_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) {
+        socket.emit?.('error', { code: 'COMBAT_CONTROL_ERROR', message: 'Player not identified' } as any);
+        return;
+      }
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "COMBAT_CONTROL_ERROR",
-          message: "Game not found or player not identified",
-        });
+      if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
@@ -2723,14 +2814,33 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
     }>;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'CONTROLLED_ATTACKERS_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) {
+        socket.emit?.('error', { code: 'CONTROLLED_ATTACKERS_ERROR', message: 'Player not identified' } as any);
+        return;
+      }
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "CONTROLLED_ATTACKERS_ERROR",
-          message: "Game not found or player not identified",
-        });
+      if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
@@ -2912,14 +3022,33 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
     }>;
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'CONTROLLED_BLOCKERS_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) {
+        socket.emit?.('error', { code: 'CONTROLLED_BLOCKERS_ERROR', message: 'Player not identified' } as any);
+        return;
+      }
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as PlayerID | undefined;
-      
-      if (!game || !playerId) {
-        socket.emit("error", {
-          code: "CONTROLLED_BLOCKERS_ERROR",
-          message: "Game not found or player not identified",
-        });
+      if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
@@ -3114,9 +3243,30 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    */
   socket.on("clearCombatControl", async ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
+        return;
+      }
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
+        return;
+      }
+
       const game = ensureGame(gameId);
-      
       if (!game) {
+        socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
 
