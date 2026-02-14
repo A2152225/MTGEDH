@@ -157,4 +157,32 @@ describe('AI management authorization (integration)', () => {
     const aiPlayer = (game.state as any).players.find((p: any) => p && p.isAI);
     expect(aiPlayer).toBeTruthy();
   });
+
+  it('rejects creator addAIToGame when not in the game room', async () => {
+    const creator = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: creator, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [creator]: 40 };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(creator, emitted);
+    // Intentionally do NOT join the socket to the game room.
+
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    const before = (game.state as any).players.length;
+    await handlers['addAIToGame']({ gameId, aiName: 'AI Opponent' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_IN_GAME');
+
+    const after = (game.state as any).players.length;
+    expect(after).toBe(before);
+  });
 });

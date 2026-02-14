@@ -1627,6 +1627,16 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized to respond" });
       return;
     }
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+    if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
     
     const game = ensureGame(gameId);
     if (!game) {
@@ -4878,6 +4888,16 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) {
       socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized" });
+      return;
+    }
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+    if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
     

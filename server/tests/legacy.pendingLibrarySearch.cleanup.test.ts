@@ -14,10 +14,15 @@ function createMockIo(emitted: Array<{ room?: string; event: string; payload: an
   } as any;
 }
 
-function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>) {
+function createMockSocket(
+  playerId: string,
+  emitted: Array<{ room?: string; event: string; payload: any }>,
+  gameId?: string
+) {
   const handlers: Record<string, Function> = {};
   const socket = {
-    data: { playerId, spectator: false },
+    data: { playerId, spectator: false, gameId },
+    rooms: new Set<string>(),
     on: (ev: string, fn: Function) => {
       handlers[ev] = fn;
     },
@@ -25,6 +30,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
       emitted.push({ event, payload });
     },
   } as any;
+
+  if (gameId) socket.rooms.add(gameId);
   return { socket, handlers };
 }
 
@@ -58,7 +65,7 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const s1 = createMockSocket('p1', emitted);
+    const s1 = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, s1.socket);
 
     const searchStep = ResolutionQueueManager.addStep(gameId, {
@@ -112,7 +119,7 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const s1 = createMockSocket('p1', emitted);
+    const s1 = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, s1.socket);
 
     const searchStep = ResolutionQueueManager.addStep(gameId, {
@@ -182,8 +189,8 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
 
-    const s1 = createMockSocket('p1', emitted);
-    const s2 = createMockSocket('p2', emitted);
+    const s1 = createMockSocket('p1', emitted, gameId);
+    const s2 = createMockSocket('p2', emitted, gameId);
     registerResolutionHandlers(io as any, s1.socket);
     registerResolutionHandlers(io as any, s2.socket);
 
@@ -257,8 +264,8 @@ describe('Legacy cleanup: pendingLibrarySearch is not created', () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
 
-    const s1 = createMockSocket('p1', emitted);
-    const s2 = createMockSocket('p2', emitted);
+    const s1 = createMockSocket('p1', emitted, gameId);
+    const s2 = createMockSocket('p2', emitted, gameId);
     registerResolutionHandlers(io as any, s1.socket);
     registerResolutionHandlers(io as any, s2.socket);
 

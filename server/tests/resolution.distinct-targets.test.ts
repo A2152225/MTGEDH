@@ -14,10 +14,15 @@ function createMockIo(emitted: Array<{ room?: string; event: string; payload: an
   } as any;
 }
 
-function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>) {
+function createMockSocket(
+  playerId: string,
+  emitted: Array<{ room?: string; event: string; payload: any }>,
+  gameId?: string
+) {
   const handlers: Record<string, Function> = {};
   const socket = {
-    data: { playerId, spectator: false },
+    data: { playerId, spectator: false, gameId },
+    rooms: new Set<string>(),
     on: (ev: string, fn: Function) => {
       handlers[ev] = fn;
     },
@@ -25,6 +30,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
       emitted.push({ event, payload });
     },
   } as any;
+
+  if (gameId) socket.rooms.add(gameId);
   return { socket, handlers };
 }
 
@@ -68,7 +75,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -107,9 +114,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
@@ -138,7 +146,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -176,9 +184,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['A', 'B']);
@@ -195,7 +204,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -233,9 +242,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
@@ -260,7 +270,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -298,9 +308,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
@@ -325,7 +336,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -363,9 +374,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
@@ -390,7 +402,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -430,9 +442,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
+    const beforeFirst = emitted.length;
     await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+    const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B', 'C']);
@@ -457,7 +470,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -495,9 +508,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
@@ -522,7 +536,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -560,9 +574,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
@@ -587,7 +602,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -625,9 +640,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
-    await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
+  const beforeFirst = emitted.length;
+  await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['A'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+  const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['B']);
@@ -652,7 +668,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step1 = ResolutionQueueManager.addStep(gameId, {
@@ -690,9 +706,10 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
     } as any);
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
+    const beforeFirst = emitted.length;
     await handlers['submitResolutionResponse']({ gameId, stepId: step1.id, selections: ['B'] });
 
-    const prompt = emitted.find(e => e.event === 'resolutionStepPrompt');
+    const prompt = emitted.slice(beforeFirst).find(e => e.event === 'resolutionStepPrompt');
     expect(prompt).toBeDefined();
     expect(prompt!.payload.step.id).toBe(step2.id);
     expect((prompt!.payload.step.validTargets || []).map((t: any) => t.id)).toEqual(['A']);
@@ -716,7 +733,7 @@ describe('Resolution TARGET_SELECTION distinct-target enforcement', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
-    const { socket, handlers } = createMockSocket('p1', emitted);
+    const { socket, handlers } = createMockSocket('p1', emitted, gameId);
     registerResolutionHandlers(io as any, socket as any);
 
     const step = ResolutionQueueManager.addStep(gameId, {

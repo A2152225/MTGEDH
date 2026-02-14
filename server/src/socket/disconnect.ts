@@ -13,12 +13,36 @@ export function registerDisconnectHandlers(io: Server, socket: Socket) {
   // Player manually leaves the game
   socket.on("leaveGame", ({ gameId }: { gameId: string }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      // Only allow leaving the game the socket is actually joined to.
+      if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       const game = games.get(gameId);
       const playerId = socket.data?.playerId;
       if (!game || !playerId) return;
 
       const left = typeof (game as any).leave === "function" ? (game as any).leave(playerId) : false;
       try { socket.leave(gameId); } catch {}
+
+      try {
+        if ((socket.data as any)?.gameId === gameId) {
+          (socket.data as any).gameId = null;
+        }
+      } catch {}
+      try {
+        if ((socket.data as any)?.role) {
+          delete (socket.data as any).role;
+        }
+      } catch {}
 
       if (left) {
         try {

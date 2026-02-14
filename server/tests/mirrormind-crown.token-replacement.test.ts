@@ -20,10 +20,15 @@ function createMockIo(
   } as any;
 }
 
-function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>) {
+function createMockSocket(
+  playerId: string,
+  emitted: Array<{ room?: string; event: string; payload: any }>,
+  gameId?: string
+) {
   const handlers: Record<string, Function> = {};
   const socket = {
-    data: { playerId, spectator: false },
+    data: { playerId, spectator: false, gameId },
+    rooms: new Set<string>(),
     on: (ev: string, fn: Function) => {
       handlers[ev] = fn;
     },
@@ -31,6 +36,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
       emitted.push({ event, payload });
     },
   } as any;
+
+  if (gameId) socket.rooms.add(gameId);
   return { socket, handlers };
 }
 
@@ -111,7 +118,7 @@ describe('Mirrormind Crown (token replacement)', () => {
     expect((steps[0] as any).mirrormindCrownTokenReplacementChoice).toBe(true);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const { socket, handlers } = createMockSocket(p1, emitted);
+    const { socket, handlers } = createMockSocket(p1, emitted, gameId);
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
@@ -191,7 +198,7 @@ describe('Mirrormind Crown (token replacement)', () => {
     expect(steps.length).toBe(1);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const { socket, handlers } = createMockSocket(p1, emitted);
+    const { socket, handlers } = createMockSocket(p1, emitted, gameId);
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 

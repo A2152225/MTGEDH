@@ -39,7 +39,7 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   const handlers: Record<string, Function> = {};
   const socket = {
     data: { playerId, spectator: false },
-    rooms: new Set<string>(),
+    rooms: { has: (_room: string) => true, add: (_room: string) => {}, delete: (_room: string) => {} } as any,
     on: (ev: string, fn: Function) => {
       handlers[ev] = fn;
     },

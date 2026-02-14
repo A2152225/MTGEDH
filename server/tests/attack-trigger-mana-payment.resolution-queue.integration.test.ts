@@ -134,6 +134,7 @@ describe('Attack trigger mana payment via Resolution Queue (integration)', () =>
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
     socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
 
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
@@ -238,6 +239,7 @@ describe('Attack trigger mana payment via Resolution Queue (integration)', () =>
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
     socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
 
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);

@@ -5613,6 +5613,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         return;
       }
 
+      if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+        socket.emit('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       if (!isGameCreator(gameId, requesterId)) {
         socket.emit('error', {
           code: 'AI_NOT_AUTHORIZED',
@@ -5684,6 +5694,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         return;
       }
 
+      if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+        socket.emit('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       if (!isGameCreator(gameId, requesterId)) {
         socket.emit('error', {
           code: 'AI_NOT_AUTHORIZED',
@@ -5734,6 +5754,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const playerId = socket.data.playerId as PlayerID | undefined;
       if (!playerId || socket.data.spectator) {
         socket.emit('error', { code: 'NOT_PLAYER', message: 'Only players can toggle AI control' });
+        return;
+      }
+
+      if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+        socket.emit('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
         return;
       }
 
