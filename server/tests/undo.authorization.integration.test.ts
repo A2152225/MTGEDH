@@ -190,4 +190,31 @@ describe('undo authorization (integration)', () => {
     const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
     expect(smartUpdate).toBeUndefined();
   });
+
+  it('does not allow reading undo counts when socket.data.gameId mismatches (even if in room)', async () => {
+    const creator = 'creator';
+    const attacker = 'attacker';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: creator, name: 'Creator', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: socketAttacker, handlers: handlersAttacker } = createMockSocket(attacker, emitted);
+    socketAttacker.data.gameId = 'other_game';
+    socketAttacker.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socketAttacker]);
+    registerUndoHandlers(io as any, socketAttacker as any);
+
+    await handlersAttacker['getUndoCount']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error' && e.payload?.code === 'NOT_IN_GAME');
+    expect(err).toBeTruthy();
+
+    const countUpdate = emitted.find(e => e.event === 'undoCountUpdate');
+    expect(countUpdate).toBeUndefined();
+  });
 });

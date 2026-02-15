@@ -2614,6 +2614,27 @@ export async function requestCastSpellForSocket(
 }
 
 export function registerGameActions(io: Server, socket: Socket) {
+  const ensureInGameRoom = (
+    gameId: string,
+    {
+      code = "NOT_IN_GAME",
+      message = "You are not in this game.",
+    }: { code?: string; message?: string } = {}
+  ): boolean => {
+    const socketGameId = (socket.data as any)?.gameId as string | undefined;
+    if (socketGameId && socketGameId !== gameId) {
+      socket.emit("error", { code, message });
+      return false;
+    }
+
+    if (!(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit("error", { code, message });
+      return false;
+    }
+
+    return true;
+  };
+
   // Play land from hand
   socket.on("playLand", ({ gameId, cardId, selectedFace, fromZone }: { 
     gameId: string; 
@@ -2625,6 +2646,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Check land-per-turn limit (before rules engine validation)
       // Default max is 1, but effects like Exploration, Azusa, Rites of Flourishing can increase it
@@ -3190,6 +3213,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         debug(1, `[requestCastSpell] ERROR: game or playerId not found`);
         return;
       }
+
+      if (!ensureInGameRoom(gameId)) return;
       
       debug(2, `[requestCastSpell] playerId: ${playerId}, priority: ${game.state.priority}`);
 
@@ -3831,6 +3856,9 @@ export function registerGameActions(io: Server, socket: Socket) {
     fromZone?: 'hand' | 'exile' | 'graveyard';
   }) => {
     try {
+      if (!gameId || typeof gameId !== 'string') return;
+      if (!ensureInGameRoom(gameId)) return;
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -7077,6 +7105,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      if (!ensureInGameRoom(gameId)) return;
+
       let pendingFromZone: 'hand' | 'exile' | 'graveyard' | undefined;
 
       // DEBUG: Log incoming parameters
@@ -7191,6 +7221,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       const { changed, resolvedNow, advanceStep } = (game as any).passPriority(playerId, isAutoPass);
       if (!changed) return;
@@ -7462,6 +7494,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      if (!ensureInGameRoom(gameId)) return;
+
       const state = game.state;
       if (!state || state.priority !== playerId) {
         socket.emit("error", { code: "NOT_PRIORITY", message: "You don't have priority" });
@@ -7566,6 +7600,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      if (!ensureInGameRoom(gameId)) return;
+
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
         phaseStr === "" ||
@@ -7625,6 +7661,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const isPreGame =
@@ -7688,6 +7726,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Debug logging
       try {
@@ -7932,6 +7972,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Debug logging
       try {
@@ -8191,6 +8233,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       const currentPhase = String(game.state?.phase || "").toLowerCase();
       const currentStep = String(game.state?.step || "").toUpperCase();
@@ -8857,6 +8901,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const spectator = socket.data.spectator;
       if (!game || !playerId || spectator) return;
 
+      if (!ensureInGameRoom(gameId)) return;
+
       try {
         // Use the engine's shuffleHand method
         if (typeof (game as any).shuffleHand === "function") {
@@ -8923,6 +8969,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         const playerId = socket.data.playerId;
         const spectator = socket.data.spectator;
         if (!game || !playerId || spectator) return;
+
+        if (!ensureInGameRoom(gameId)) return;
 
         debug(1, 
           "[reorderHand] Received request for game",
@@ -9069,7 +9117,57 @@ export function registerGameActions(io: Server, socket: Socket) {
     "setTurnDirection",
     ({ gameId, direction }: { gameId: string; direction: 1 | -1 }) => {
       try {
+        const playerId = socket.data?.playerId;
+        if (!playerId || typeof playerId !== "string" || socket.data?.spectator) {
+          socket.emit("error", {
+            code: "NOT_AUTHORIZED",
+            message: "Not authorized.",
+          });
+          return;
+        }
+
+        if (!gameId || typeof gameId !== "string") return;
+        if (direction !== 1 && direction !== -1) {
+          socket.emit("error", {
+            code: "TURN_DIRECTION_ERROR",
+            message: "Invalid turn direction.",
+          });
+          return;
+        }
+
+        if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+          socket.emit("error", {
+            code: "NOT_IN_GAME",
+            message: "Not in game.",
+          });
+          return;
+        }
+
+        if (!(socket as any)?.rooms?.has?.(gameId)) {
+          socket.emit("error", {
+            code: "NOT_IN_GAME",
+            message: "Not in game.",
+          });
+          return;
+        }
+
+        if (!isGameCreator(gameId, playerId)) {
+          socket.emit("error", {
+            code: "NOT_AUTHORIZED",
+            message: "Not authorized.",
+          });
+          return;
+        }
+
         const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("error", {
+            code: "GAME_NOT_FOUND",
+            message: "Game not found.",
+          });
+          return;
+        }
+
         game.setTurnDirection(direction);
         appendGameEvent(game, gameId, "setTurnDirection", { direction });
         broadcastGame(io, game, gameId);
@@ -9090,6 +9188,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         socket.emit("error", {
           code: "RESTART_NOT_AUTHORIZED",
           message: "Only the game creator can restart the game.",
+        });
+        return;
+      }
+
+      if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+        socket.emit("error", {
+          code: "RESTART_NOT_IN_GAME",
+          message: "You must be in the game to restart it.",
         });
         return;
       }
@@ -9148,6 +9254,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+        socket.emit("error", {
+          code: "RESTART_NOT_IN_GAME",
+          message: "You must be in the game to restart it.",
+        });
+        return;
+      }
+
       if (!(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit("error", {
           code: "RESTART_NOT_IN_GAME",
@@ -9201,6 +9315,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Allow keeping hand even if we've moved past PRE_GAME
       // This is needed because players might need to keep their hand after the game advances
@@ -9333,6 +9449,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
@@ -9469,6 +9587,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId || socket.data.spectator) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Target player defaults to the acting player
       const targetPid = targetPlayerId || playerId;
@@ -9942,7 +10062,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!playerId) return;
 
       if (!gameId || typeof gameId !== 'string') return;
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) return;
+      if (!ensureInGameRoom(gameId)) return;
 
       const game = ensureGame(gameId);
       if (!game) return;
@@ -10484,13 +10604,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
-        socket.emit?.('error', {
-          code: 'NOT_IN_GAME',
-          message: 'Not in game.',
-        });
-        return;
-      }
+      if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -10563,13 +10677,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
-        socket.emit?.('error', {
-          code: 'NOT_IN_GAME',
-          message: 'Not in game.',
-        });
-        return;
-      }
+      if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -10655,13 +10763,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
-        socket.emit?.('error', {
-          code: 'NOT_IN_GAME',
-          message: 'Not in game.',
-        });
-        return;
-      }
+      if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -10732,13 +10834,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
-        socket.emit?.('error', {
-          code: 'NOT_IN_GAME',
-          message: 'Not in game.',
-        });
-        return;
-      }
+      if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
       if (!game) return;
@@ -10948,13 +11044,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
-        socket.emit?.('error', {
-          code: 'NOT_IN_GAME',
-          message: 'Not in game.',
-        });
-        return;
-      }
+      if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -11084,13 +11174,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
-        socket.emit?.('error', {
-          code: 'NOT_IN_GAME',
-          message: 'Not in game.',
-        });
-        return;
-      }
+      if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId as string | undefined;
@@ -11189,7 +11273,8 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      const socketGameId = (socket.data as any)?.gameId as string | undefined;
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit("triggerShortcutResponse", { shortcut: null });
         return;
       }

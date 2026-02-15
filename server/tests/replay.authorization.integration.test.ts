@@ -80,6 +80,35 @@ describe('replay authorization (integration)', () => {
     expect(started).toBeUndefined();
   });
 
+  it('does not allow startReplay when socket.data.gameId mismatches (even if in room)', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).gameOver = true;
+
+    appendEvent(gameId, 0, 'drawCards', { playerId: p1, n: 1 });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    (socket.data as any).gameId = 'other_game';
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerReplayHandlers(io as any, socket as any);
+
+    await handlers['startReplay']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error' && e.payload?.code === 'NOT_IN_GAME');
+    expect(err).toBeTruthy();
+
+    const started = emitted.find(e => e.event === 'replayStarted');
+    expect(started).toBeUndefined();
+  });
+
   it('does not allow startReplay before gameOver', async () => {
     const p1 = 'p1';
 

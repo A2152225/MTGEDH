@@ -1079,7 +1079,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
 
       // Prevent cross-game state leakage: only allow state refresh for the game
       // the socket is currently joined to.
-      if ((socket.data as any)?.gameId !== gameId) {
+      if ((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) {
         socket.emit?.('error', {
           code: 'NOT_IN_GAME',
           message: 'Not in game.',

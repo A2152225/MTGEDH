@@ -99,6 +99,8 @@ const pendingImportConfirmations: Map<string, PendingConfirm> = new Map();
 
 function isSocketInGameRoom(socket: Socket, gameId: string): boolean {
   try {
+    const socketGameId = (socket.data as any)?.gameId;
+    if (socketGameId && socketGameId !== gameId) return false;
     const rooms = (socket as any)?.rooms;
     return !!(rooms && typeof rooms.has === 'function' && rooms.has(gameId));
   } catch {
@@ -2275,7 +2277,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+      if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
         socket.emit("deckError", { gameId, message: "Not in game." });
         return;
       }
@@ -2335,7 +2337,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+        if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
           socket.emit("deckError", { gameId, message: "Not in game." });
           return;
         }
@@ -2407,7 +2409,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+        if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
           socket.emit("deckError", { gameId, message: "Not in game." });
           return;
         }
@@ -2481,7 +2483,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+        if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
           socket.emit("deckError", { gameId, message: "Not in game." });
           return;
         }
@@ -2543,7 +2545,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+        if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
           socket.emit("deckError", { gameId, message: "Not in game." });
           return;
         }
@@ -2709,7 +2711,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        if ((socket.data as any)?.gameId !== gameId || !isSocketInGameRoom(socket, gameId)) {
+        if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
           socket.emit("deckError", { gameId, message: "Not in game." });
           return;
         }

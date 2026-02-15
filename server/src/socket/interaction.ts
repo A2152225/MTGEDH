@@ -1005,20 +1005,53 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Legacy confirmPonder handler removed - now handled via Resolution Queue.
   // See processPendingPonder() and handlePonderEffectResponse() in resolution.ts.
 
-
-  // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
-  socket.on("beginExplore", ({ gameId, permanentId }) => {
+  const ensureInRoomAndSeated = (gameId: unknown): { gameId: string; game: any; pid: string } | undefined => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
 
+    if (!gameId || typeof gameId !== 'string') return;
+
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
     const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit?.('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' });
+      return;
+    }
+
+    try {
+      const seated = Array.isArray((game.state as any)?.players)
+        ? (game.state as any).players.some((p: any) => p?.id === pid && !p?.spectator && !p?.isSpectator)
+        : false;
+      if (!seated) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+    } catch {
+      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
+    return { gameId, game, pid };
+  };
+
+
+  // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
+  socket.on("beginExplore", ({ gameId, permanentId }) => {
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
+
+    const { gameId: gid, game, pid } = ctx;
     const cards = game.peekTopN(pid, 1);
     
     if (!cards || cards.length === 0) {
       // Empty library - creature still explores but nothing happens
-      io.to(gameId).emit("chat", {
+      io.to(gid).emit("chat", {
         id: `m_${Date.now()}`,
-        gameId,
+        gameId: gid,
         from: "system",
         message: `${getPlayerName(game, pid)}'s creature explores (empty library).`,
         ts: Date.now(),
@@ -1036,7 +1069,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const exploringName = exploringPerm?.card?.name || "Creature";
 
     // Migrate legacy explorePrompt flow to Resolution Queue.
-    ResolutionQueueManager.addStep(gameId, {
+    ResolutionQueueManager.addStep(gid, {
       type: ResolutionStepType.EXPLORE_DECISION,
       playerId: pid as any,
       mandatory: true,
@@ -1050,9 +1083,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     } as any);
 
     // Announce the reveal to all players
-    io.to(gameId).emit("chat", {
+    io.to(gid).emit("chat", {
       id: `m_${Date.now()}`,
-      gameId,
+      gameId: gid,
       from: "system",
       message: `${getPlayerName(game, pid)}'s ${exploringName} explores, revealing ${revealedCard.name}${isLand ? " (land)" : ""}.`,
       ts: Date.now(),
@@ -1065,10 +1098,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // peekTopN doesn't modify the library - it only reveals what's there. The actual card
   // movement happens when the Resolution Queue step is completed via applyEvent("exploreResolve").
   socket.on("beginBatchExplore", ({ gameId, permanentIds }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
 
-    const game = ensureGame(gameId);
+    const { gameId: gid, game, pid } = ctx;
     
     if (!permanentIds || !Array.isArray(permanentIds) || permanentIds.length === 0) {
       return;
@@ -1105,9 +1138,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     if (explores.length === 0) {
-      io.to(gameId).emit("chat", {
+      io.to(gid).emit("chat", {
         id: `m_${Date.now()}`,
-        gameId,
+        gameId: gid,
         from: "system",
         message: `${getPlayerName(game, pid)}'s creatures explore (empty library).`,
         ts: Date.now(),
@@ -1116,7 +1149,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     // Migrate legacy batchExplorePrompt flow to Resolution Queue.
-    ResolutionQueueManager.addStep(gameId, {
+    ResolutionQueueManager.addStep(gid, {
       type: ResolutionStepType.BATCH_EXPLORE_DECISION,
       playerId: pid as any,
       mandatory: true,
@@ -1126,9 +1159,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     } as any);
 
     const revealedNames = explores.map(e => e.revealedCard.name).join(", ");
-    io.to(gameId).emit("chat", {
+    io.to(gid).emit("chat", {
       id: `m_${Date.now()}`,
-      gameId,
+      gameId: gid,
       from: "system",
       message: `${getPlayerName(game, pid)}'s creatures explore, revealing ${revealedNames}.`,
       ts: Date.now(),
@@ -1141,7 +1174,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -1246,10 +1279,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   // Handle graveyard ability activation
   socket.on("activateGraveyardAbility", ({ gameId, cardId, abilityId }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
 
-    const game = ensureGame(gameId);
+    const { gameId: gid, game, pid } = ctx;
 
     // Split Second: players can't cast spells or activate non-mana abilities.
     if (isSplitSecondLockActive(game.state)) {
@@ -1305,15 +1338,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         game.bumpSeq();
       }
       
-      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
+      appendEvent(gid, (game as any).seq ?? 0, "activateGraveyardAbility", {
         playerId: pid,
         cardId,
         abilityId,
       });
       
-      io.to(gameId).emit("chat", {
+      io.to(gid).emit("chat", {
         id: `m_${Date.now()}`,
-        gameId,
+        gameId: gid,
         from: "system",
         message: `${getPlayerName(game, pid)} cast ${cardName} using ${abilityId}.`,
         ts: Date.now(),
@@ -1830,16 +1863,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         game.bumpSeq();
       }
       
-      io.to(gameId).emit("chat", {
+      io.to(gid).emit("chat", {
         id: `m_${Date.now()}`,
-        gameId,
+        gameId: gid,
         from: "system",
         message: `${getPlayerName(game, pid)} activated an ability on ${cardName} from graveyard.`,
         ts: Date.now(),
       });
     }
     
-    broadcastGame(io, game, gameId);
+    broadcastGame(io, game, gid);
   });
   
   // Get graveyard contents for viewing
@@ -1848,7 +1881,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid) return;
 
     if (!gameId || typeof gameId !== 'string') return;
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -1873,10 +1906,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   // Tap a permanent on the battlefield
   socket.on("tapPermanent", ({ gameId, permanentId }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
 
-    const game = ensureGame(gameId);
+    const { gameId: gid, game, pid } = ctx;
     const battlefield = getBattlefield(game);
     
     const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
@@ -2363,17 +2396,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
     
-    appendEvent(gameId, (game as any).seq ?? 0, "tapPermanent", { playerId: pid, permanentId });
+    appendEvent(gid, (game as any).seq ?? 0, "tapPermanent", { playerId: pid, permanentId });
     
-    broadcastGame(io, game, gameId);
+    broadcastGame(io, game, gid);
   });
 
   // Untap a permanent on the battlefield
   socket.on("untapPermanent", ({ gameId, permanentId }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
 
-    const game = ensureGame(gameId);
+    const { gameId: gid, game, pid } = ctx;
     const battlefield = getBattlefield(game);
     
     const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
@@ -2399,9 +2432,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
     
-    appendEvent(gameId, (game as any).seq ?? 0, "untapPermanent", { playerId: pid, permanentId });
+    appendEvent(gid, (game as any).seq ?? 0, "untapPermanent", { playerId: pid, permanentId });
     
-    broadcastGame(io, game, gameId);
+    broadcastGame(io, game, gid);
   });
 
   // Exchange oracle text boxes between two permanents (text-changing effects)
@@ -2410,10 +2443,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     sourcePermanentId: string;
     targetPermanentId: string;
   }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
 
-    const game = ensureGame(gameId);
+    const { gameId: gid, game, pid } = ctx;
     const battlefield = game.state?.battlefield || [];
 
     const source = battlefield.find((p: any) => p?.id === sourcePermanentId);
@@ -2439,7 +2472,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
 
-    appendEvent(gameId, (game as any).seq ?? 0, "exchangeTextBoxes", {
+    appendEvent(gid, (game as any).seq ?? 0, "exchangeTextBoxes", {
       playerId: pid,
       sourcePermanentId,
       targetPermanentId,
@@ -2447,23 +2480,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const sourceName = source?.card?.name || "Unknown";
     const targetName = target?.card?.name || "Unknown";
-    io.to(gameId).emit("chat", {
+    io.to(gid).emit("chat", {
       id: `m_${Date.now()}`,
-      gameId,
+      gameId: gid,
       from: "system",
       message: `${getPlayerName(game, pid)} exchanged text boxes of ${sourceName} and ${targetName}.`,
       ts: Date.now(),
     });
 
-    broadcastGame(io, game, gameId);
+    broadcastGame(io, game, gid);
   });
 
   // Sacrifice a permanent on the battlefield
   socket.on("sacrificePermanent", ({ gameId, permanentId }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
 
-    const game = ensureGame(gameId);
+    const { gameId: gid, game, pid } = ctx;
     const battlefield = game.state?.battlefield || [];
     
     const permIndex = battlefield.findIndex((p: any) => p?.id === permanentId && p?.controller === pid);
@@ -2533,11 +2566,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
     
-    appendEvent(gameId, (game as any).seq ?? 0, "sacrificePermanent", { playerId: pid, permanentId });
+    appendEvent(gid, (game as any).seq ?? 0, "sacrificePermanent", { playerId: pid, permanentId });
     
-    io.to(gameId).emit("chat", {
+      io.to(gid).emit("chat", {
       id: `m_${Date.now()}`,
-      gameId,
+        gameId: gid,
       from: "system",
       message: `${getPlayerName(game, pid)} sacrificed ${cardName}.`,
       ts: Date.now(),
@@ -2630,13 +2663,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       } as any);
     }
     
-    broadcastGame(io, game, gameId);
+    broadcastGame(io, game, gid);
   });
 
   // Activate a battlefield ability (fetch lands, mana abilities, etc.)
   socket.on("activateBattlefieldAbility", async ({ gameId, permanentId, abilityId }) => {
-    const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const ctx = ensureInRoomAndSeated(gameId);
+    if (!ctx) return;
+
+    const { gameId: gid, game, pid } = ctx;
 
     // Validate abilityId is provided
     if (!abilityId || typeof abilityId !== 'string') {
@@ -2647,7 +2682,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    const game = ensureGame(gameId);
     const splitSecondLockActive = isSplitSecondLockActive(game.state);
     const battlefield = game.state?.battlefield || [];
     
@@ -8497,7 +8531,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -8593,7 +8627,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -8657,7 +8691,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }

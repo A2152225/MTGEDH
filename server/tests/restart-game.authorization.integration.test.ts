@@ -39,6 +39,33 @@ describe('restartGame authorization (integration)', () => {
     await initDb();
   });
 
+  it('does not allow the creator to restart when socket.data.gameId mismatches (even if in room)', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).phase = 'main1';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    (socket.data as any).gameId = 'other_game';
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['restartGame']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('RESTART_NOT_IN_GAME');
+    expect((game.state as any).phase).toBe('main1');
+  });
+
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);

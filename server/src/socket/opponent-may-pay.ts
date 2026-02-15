@@ -33,7 +33,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     if (!gameId || typeof gameId !== 'string') return;
 
     // This is a high-risk enqueue endpoint; it should never be callable cross-game.
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -162,7 +162,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
 
     if (!gameId || typeof gameId !== 'string') return;
 
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }

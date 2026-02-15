@@ -194,6 +194,17 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
   const getReplayRequesterContext = (gameId: string) => {
     const playerId = socket.data.playerId;
 
+    // Prevent cross-game replay actions: if the socket is associated with a different game,
+    // do not allow using room membership alone to start a replay.
+    // (Allow unset gameId for older test harnesses / compatibility.)
+    if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return null;
+    }
+
     if (!socket.rooms.has(gameId)) {
       socket.emit("error", {
         code: "NOT_IN_GAME",

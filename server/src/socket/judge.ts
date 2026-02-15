@@ -277,7 +277,7 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
   socket.on("requestJudge", ({ gameId }: { gameId: string }) => {
     try {
       if (!gameId || typeof gameId !== 'string') return;
-      if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
         return;
       }

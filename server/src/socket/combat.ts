@@ -1264,7 +1264,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }
@@ -2110,7 +2110,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }
@@ -2564,7 +2564,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       if (!playerId) return;
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }
@@ -2642,7 +2642,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       if (!playerId) return;
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }
@@ -2731,7 +2731,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }
@@ -2826,7 +2826,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }
@@ -3034,7 +3034,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }
@@ -3252,7 +3252,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       const socketGameId = (socket.data as any)?.gameId;
-      if (socketGameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' } as any);
         return;
       }

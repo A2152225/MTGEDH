@@ -70,6 +70,57 @@ describe('commander authorization (integration)', () => {
     expect((game.state as any).commandZone?.[p1]).toBeUndefined();
   });
 
+  it('blocks setCommander when socket.data.gameId mismatches (even if in room)', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId: 'other_game' }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerCommanderHandlers(io as any, socket as any);
+
+    await handlers['setCommander']({ gameId, commanderNames: ['Atraxa, Praetors\' Voice'] });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_IN_GAME');
+    expect((game.state as any).commandZone?.[p1]).toBeUndefined();
+  });
+
+  it('allows in-room castCommander when socket.data.gameId is unset (fails later, but not NOT_IN_GAME)', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    // Note: castCommander has its own phase gating, but we don't rely on it here.
+    // We just want to prove the in-room guard allows sockets with unset socket.data.gameId.
+    delete (game.state as any).phase;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerCommanderHandlers(io as any, socket as any);
+
+    await handlers['castCommander']({ gameId, commanderId: 'dummy_commander_id' });
+
+    const notInGame = emitted.find(e => e.event === 'error' && e.payload?.code === 'NOT_IN_GAME');
+    expect(notInGame).toBeUndefined();
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('PREGAME_NO_CAST');
+  });
+
   it('blocks dumpLibrary unless caller is judge in-room', async () => {
     const p1 = 'p1';
 

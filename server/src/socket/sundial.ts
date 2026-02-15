@@ -21,15 +21,37 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      if ((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
+      if (!(socket as any)?.rooms?.has?.(gameId)) {
+        socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+        return;
+      }
+
       const playerId = (socket.data && (socket.data as any).playerId) as string | undefined;
       if (!playerId) {
         socket.emit("error", { code: "SUNDIAL", message: "Not authenticated" });
         return;
       }
 
+      if ((socket.data as any)?.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
+        return;
+      }
+
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit("error", { code: "SUNDIAL", message: "Game not found" });
+        return;
+      }
+
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
+      if (!seated || seated.isSpectator || seated.spectator) {
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
         return;
       }
 
@@ -61,11 +83,8 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
       }
 
       if (!allowed) {
-        // Looser fallback: allow if the caller is an active player (optionally), else deny.
-        // Here we choose to allow activations from any joined player (loose mode) but still log this.
-        // If you prefer stricter: set allowed = false and reject.
-        debugWarn(2, `sundialActivate: ${playerId} did not match strict sundial ownership, allowing in loose mode.`);
-        allowed = true;
+        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
+        return;
       }
 
       // Perform exiling of the stack

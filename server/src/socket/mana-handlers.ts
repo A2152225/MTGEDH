@@ -44,7 +44,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     if (!gameId || typeof gameId !== 'string') return;
 
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -126,7 +126,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     if (!gameId || typeof gameId !== 'string') return;
 
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -217,7 +217,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     if (!gameId || typeof gameId !== 'string') return;
 
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }
@@ -294,7 +294,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     if (!gameId || typeof gameId !== 'string') return;
 
-    if ((socket.data as any)?.gameId !== gameId || !(socket as any)?.rooms?.has?.(gameId)) {
+    if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
     }

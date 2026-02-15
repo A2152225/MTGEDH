@@ -354,6 +354,15 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   const getUndoRequesterContext = (gameId: string) => {
     const playerId = socket.data.playerId;
 
+    const socketGameId = (socket.data as any)?.gameId;
+    if (socketGameId && socketGameId !== gameId) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return null;
+    }
+
     if (!socket.rooms.has(gameId)) {
       socket.emit("error", {
         code: "NOT_IN_GAME",
@@ -386,6 +395,15 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   };
 
   const ensureInGameRoomForRead = (gameId: string): boolean => {
+    const socketGameId = (socket.data as any)?.gameId;
+    if (socketGameId && socketGameId !== gameId) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return false;
+    }
+
     if (!socket.rooms.has(gameId)) {
       socket.emit("error", {
         code: "NOT_IN_GAME",

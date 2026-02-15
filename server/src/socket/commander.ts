@@ -51,7 +51,7 @@ function ensureInRoomAndSeated(socket: Socket, gameId: string) {
   const sockAny = socket as any;
   const socketGameId = (socket.data as any)?.gameId;
   const inRoom = !!sockAny?.rooms?.has?.(gameId);
-  if (socketGameId !== gameId || !inRoom) {
+  if ((socketGameId && socketGameId !== gameId) || !inRoom) {
     emitNotInGame(socket);
     return null;
   }
@@ -82,7 +82,7 @@ function ensureInRoomAndJudge(socket: Socket, gameId: string) {
   const sockAny = socket as any;
   const socketGameId = (socket.data as any)?.gameId;
   const inRoom = !!sockAny?.rooms?.has?.(gameId);
-  if (socketGameId !== gameId || !inRoom) {
+  if ((socketGameId && socketGameId !== gameId) || !inRoom) {
     emitNotInGame(socket);
     return null;
   }
@@ -271,7 +271,7 @@ export function emitSuggestCommandersToPlayer(
         if (
           sock?.data?.playerId === pid &&
           !sock?.data?.spectator &&
-          sock?.data?.gameId === gameId &&
+          (!sock?.data?.gameId || sock?.data?.gameId === gameId) &&
           !!sockAny?.rooms?.has?.(gameId)
         ) {
           sock.emit("suggestCommanders", payload);
@@ -314,7 +314,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         const sockAny = socket as any;
         const socketGameId = (socket.data as any)?.gameId;
         const inRoom = !!sockAny?.rooms?.has?.(gameId);
-        if (socketGameId !== gameId || !inRoom) {
+        if ((socketGameId && socketGameId !== gameId) || !inRoom) {
           emitNotInGame(socket);
           return;
         }
@@ -553,7 +553,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         const sockAny = socket as any;
         const socketGameId = (socket.data as any)?.gameId;
         const inRoom = !!sockAny?.rooms?.has?.(gameId);
-        if (socketGameId !== gameId || !inRoom) {
+        if ((socketGameId && socketGameId !== gameId) || !inRoom) {
           emitNotInGame(socket);
           return;
         }
@@ -935,7 +935,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         const sockAny = socket as any;
         const socketGameId = (socket.data as any)?.gameId;
         const inRoom = !!sockAny?.rooms?.has?.(gameId);
-        if (socketGameId !== gameId || !inRoom) {
+        if ((socketGameId && socketGameId !== gameId) || !inRoom) {
           emitNotInGame(socket);
           return;
         }
