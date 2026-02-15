@@ -4366,7 +4366,11 @@ export function emitToPlayer(
   try {
     for (const socket of io.sockets.sockets.values()) {
       try {
-        if ((socket.data as any)?.playerId === playerId && !(socket.data as any)?.spectator) {
+        if (
+          (socket.data as any)?.playerId === playerId &&
+          !(socket.data as any)?.spectator &&
+          !(socket.data as any)?.isSpectator
+        ) {
           socket.emit(event, payload);
         }
       } catch {

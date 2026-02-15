@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { initDb, createGameIfNotExists, truncateEventsForUndo, appendEvent } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
-import { registerUndoHandlers } from '../src/socket/undo.js';
+import { registerUndoHandlers, clearUndoRequestsForGame } from '../src/socket/undo.js';
 import { games } from '../src/socket/socket.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>, sockets: any[] = []) {
@@ -46,6 +46,10 @@ describe('undo authorization (integration)', () => {
   beforeEach(() => {
     games.delete(gameId as any);
     games.delete(wrapperGameId as any);
+
+    clearUndoRequestsForGame(gameId);
+    clearUndoRequestsForGame(wrapperGameId);
+
     try {
       truncateEventsForUndo(gameId, 0);
     } catch {
@@ -216,5 +220,80 @@ describe('undo authorization (integration)', () => {
 
     const countUpdate = emitted.find(e => e.event === 'undoCountUpdate');
     expect(countUpdate).toBeUndefined();
+  });
+
+  it('does not allow respondUndo when not in room (even if seated)', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+
+    const { socket: socketP1, handlers: handlersP1 } = createMockSocket(p1, emitted);
+    socketP1.rooms.add(gameId);
+
+    const { socket: socketP2, handlers: handlersP2 } = createMockSocket(p2, emitted);
+    // Note: p2 is NOT joined to the game room.
+
+    const io = createMockIo(emitted, [socketP1, socketP2]);
+    registerUndoHandlers(io as any, socketP1 as any);
+    registerUndoHandlers(io as any, socketP2 as any);
+
+    await handlersP1['requestUndo']({ gameId, actionsToUndo: 1 });
+
+    const undoRequest = emitted.find(e => e.room === gameId && e.event === 'undoRequest');
+    expect(undoRequest).toBeTruthy();
+    const undoId = undoRequest!.payload.undoId as string;
+
+    await handlersP2['respondUndo']({ gameId, undoId, approved: true });
+
+    const err = emitted.find(e => e.event === 'error' && e.payload?.code === 'NOT_IN_GAME');
+    expect(err).toBeTruthy();
+  });
+
+  it('does not allow cancelUndo when socket.data.gameId mismatches (even if in room)', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+
+    const { socket: socketP1, handlers: handlersP1 } = createMockSocket(p1, emitted);
+    socketP1.rooms.add(gameId);
+    socketP1.data.gameId = gameId;
+
+    const { socket: socketP2, handlers: handlersP2 } = createMockSocket(p2, emitted);
+    socketP2.rooms.add(gameId);
+    socketP2.data.gameId = 'other_game';
+
+    const io = createMockIo(emitted, [socketP1, socketP2]);
+    registerUndoHandlers(io as any, socketP1 as any);
+    registerUndoHandlers(io as any, socketP2 as any);
+
+    await handlersP1['requestUndo']({ gameId, actionsToUndo: 1 });
+
+    const undoRequest = emitted.find(e => e.room === gameId && e.event === 'undoRequest');
+    expect(undoRequest).toBeTruthy();
+    const undoId = undoRequest!.payload.undoId as string;
+
+    await handlersP2['respondUndo']({ gameId, undoId, approved: true });
+    const err = emitted.find(e => e.event === 'error' && e.payload?.code === 'NOT_IN_GAME');
+    expect(err).toBeTruthy();
   });
 });

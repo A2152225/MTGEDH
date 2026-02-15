@@ -49,7 +49,9 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
 
       const players = (game.state as any)?.players;
       const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
-      if (!seated || seated.isSpectator || (socket.data as any)?.spectator) {
+      const seatIsSpectator = !!(seated && ((seated as any).spectator || (seated as any).isSpectator));
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (!seated || seatIsSpectator || socketIsSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
         return;
       }
@@ -130,7 +132,9 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
 
       const players = (game.state as any)?.players;
       const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
-      if (!seated || seated.isSpectator || (socket.data as any)?.spectator) {
+      const seatIsSpectator = !!(seated && ((seated as any).spectator || (seated as any).isSpectator));
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (!seated || seatIsSpectator || socketIsSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
         return;
       }

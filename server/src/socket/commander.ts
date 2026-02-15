@@ -28,6 +28,7 @@ interface SocketWithData extends Socket {
   data: {
     playerId?: string;
     spectator?: boolean;
+    isSpectator?: boolean;
     gameId?: string;
     role?: string;
   };
@@ -64,7 +65,7 @@ function ensureInRoomAndSeated(socket: Socket, gameId: string) {
 
   const players = ((game.state as any)?.players || []) as any[];
   const me = players.find((p: any) => p?.id === pid);
-  if (!me || me?.spectator) {
+  if (!me || me?.spectator || me?.isSpectator) {
     emitNotAuthorized(socket);
     return null;
   }
@@ -225,6 +226,7 @@ export function emitImportedDeckCandidatesToPlayer(
           if (
             sock?.data?.playerId === pid &&
             !sock?.data?.spectator &&
+            !sock?.data?.isSpectator &&
             sock?.data?.gameId === gameId &&
             !!sockAny?.rooms?.has?.(gameId)
           ) {
@@ -271,6 +273,7 @@ export function emitSuggestCommandersToPlayer(
         if (
           sock?.data?.playerId === pid &&
           !sock?.data?.spectator &&
+          !sock?.data?.isSpectator &&
           (!sock?.data?.gameId || sock?.data?.gameId === gameId) &&
           !!sockAny?.rooms?.has?.(gameId)
         ) {
@@ -294,7 +297,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   socket.on("setCommander", async (payload: any) => {
     try {
       const pid: PlayerID | undefined = socket.data.playerId;
-      const spectator = socket.data.spectator;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
       if (!pid || spectator) {
         socket.emit("deckError", {
           gameId: payload?.gameId,
@@ -336,7 +341,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Must be seated in this game.
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === pid);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         emitNotAuthorized(socket);
         return;
       }
@@ -530,7 +535,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       });
       
       const pid: PlayerID | undefined = socket.data.playerId;
-      const spectator = socket.data.spectator;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
       
       if (!pid || spectator) {
         socket.emit("error", {
@@ -571,7 +578,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Must be seated in this game.
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === pid);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         emitNotAuthorized(socket);
         return;
       }

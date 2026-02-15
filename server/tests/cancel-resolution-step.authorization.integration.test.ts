@@ -113,4 +113,48 @@ describe('cancelResolutionStep authorization (integration)', () => {
     const queueAfterOkCancel = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOkCancel.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });
+
+  it('does not allow a spectator seat to cancel their own pending step', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const spectatorId = 'spectator';
+    (game.state as any).players = [
+      { id: spectatorId, name: 'Spectator', isSpectator: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [spectatorId]: 40 };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: spectatorId as any,
+      description: 'Choose one option',
+      mandatory: false,
+      options: [
+        { id: 'a', name: 'A' },
+        { id: 'b', name: 'B' },
+      ],
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'option_choice');
+    expect(step).toBeDefined();
+    const stepId = String((step as any).id);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(spectatorId, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['cancelResolutionStep']({ gameId, stepId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_AUTHORIZED');
+
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
+  });
 });

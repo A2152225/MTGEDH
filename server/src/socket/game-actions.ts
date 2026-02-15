@@ -8898,10 +8898,24 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      const spectator = socket.data.spectator;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
       if (!game || !playerId || spectator) return;
 
       if (!ensureInGameRoom(gameId)) return;
+
+      // Must be seated and non-spectator in this game.
+      try {
+        const seated = Array.isArray((game.state as any)?.players)
+          ? (game.state as any).players.some(
+              (p: any) => p?.id === playerId && !p?.spectator && !p?.isSpectator
+            )
+          : false;
+        if (!seated) return;
+      } catch {
+        return;
+      }
 
       try {
         // Use the engine's shuffleHand method
@@ -8967,10 +8981,24 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         const game = ensureGame(gameId);
         const playerId = socket.data.playerId;
-        const spectator = socket.data.spectator;
+        const spectator = !!(
+          (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+        );
         if (!game || !playerId || spectator) return;
 
         if (!ensureInGameRoom(gameId)) return;
+
+        // Must be seated and non-spectator in this game.
+        try {
+          const seated = Array.isArray((game.state as any)?.players)
+            ? (game.state as any).players.some(
+                (p: any) => p?.id === playerId && !p?.spectator && !p?.isSpectator
+              )
+            : false;
+          if (!seated) return;
+        } catch {
+          return;
+        }
 
         debug(1, 
           "[reorderHand] Received request for game",
@@ -9586,7 +9614,10 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId || socket.data.spectator) return;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
+      if (!game || !playerId || spectator) return;
 
       if (!ensureInGameRoom(gameId)) return;
 
@@ -9708,7 +9739,10 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId || socket.data.spectator) return;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
+      if (!game || !playerId || spectator) return;
 
       // Target player defaults to the acting player
       const targetPid = targetPlayerId || playerId;
@@ -9841,7 +9875,10 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId || socket.data.spectator) return;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
+      if (!game || !playerId || spectator) return;
 
       // Target player defaults to the acting player
       const targetPid = targetPlayerId || playerId;
@@ -9970,7 +10007,10 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId || socket.data.spectator) return;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
+      if (!game || !playerId || spectator) return;
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();

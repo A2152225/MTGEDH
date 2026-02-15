@@ -187,12 +187,15 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
   const getPlayerIds = (game: any): string[] => {
     const players = game.state?.players || [];
     return players
-      .filter((p: any) => p && !p.spectator)
+      .filter((p: any) => p && !p.spectator && !p.isSpectator)
       .map((p: any) => p.id);
   };
 
   const getReplayRequesterContext = (gameId: string) => {
     const playerId = socket.data.playerId;
+    const socketIsSpectator = !!(
+      (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+    );
 
     // Prevent cross-game replay actions: if the socket is associated with a different game,
     // do not allow using room membership alone to start a replay.
@@ -215,7 +218,7 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
 
     if (!playerId) return null;
 
-    if (socket.data.spectator) {
+    if (socketIsSpectator) {
       socket.emit("error", {
         code: "SPECTATOR_CANNOT_REPLAY",
         message: "Spectators cannot start replays",

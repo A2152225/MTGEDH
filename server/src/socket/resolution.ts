@@ -1572,10 +1572,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
    */
   socket.on("getMyNextResolutionStep", ({ gameId }: { gameId: string }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) {
-      socket.emit("noResolutionStep", { gameId });
-      return;
-    }
+    const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
 
     if (!gameId || typeof gameId !== 'string') {
       socket.emit("noResolutionStep", { gameId });
@@ -1583,6 +1580,24 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     }
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      socket.emit("noResolutionStep", { gameId });
+      return;
+    }
+
+    if (!pid || socketIsSpectator) {
+      socket.emit("noResolutionStep", { gameId });
+      return;
+    }
+
+    try {
+      const game = ensureGame(gameId);
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+      if (!seated || seated.isSpectator || seated.spectator) {
+        socket.emit("noResolutionStep", { gameId });
+        return;
+      }
+    } catch {
       socket.emit("noResolutionStep", { gameId });
       return;
     }
@@ -1623,7 +1638,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     moveTo?: string;
   }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) {
+    const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+    if (!pid || socketIsSpectator) {
       socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized to respond" });
       return;
     }
@@ -1641,6 +1657,13 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game) {
       socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    const players = (game.state as any)?.players;
+    const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+    if (!seated || seated.isSpectator || seated.spectator) {
+      socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized to respond" });
       return;
     }
     
@@ -4886,7 +4909,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
    */
   socket.on("cancelResolutionStep", ({ gameId, stepId }: { gameId: string; stepId: string }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) {
+    const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+    if (!pid || socketIsSpectator) {
       socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized" });
       return;
     }
@@ -4898,6 +4922,19 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     }
     if ((socket.data as any)?.gameId && (socket.data as any).gameId !== gameId) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
+      return;
+    }
+
+    try {
+      const game = ensureGame(gameId);
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+      if (!seated || seated.isSpectator || seated.spectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized" });
+        return;
+      }
+    } catch {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
       return;
     }
     

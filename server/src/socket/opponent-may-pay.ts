@@ -158,7 +158,8 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     preference, // 'always_pay' or 'never_pay'
   }) => {
     const pid = socket.data.playerId as PlayerID | undefined;
-    if (!pid || socket.data.spectator) return;
+    const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+    if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
 
@@ -171,7 +172,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    if (!seated || seated.isSpectator || seated.spectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }

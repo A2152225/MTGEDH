@@ -25,6 +25,10 @@ interface UndoRequest {
 // Store undo requests by gameId - with cleanup on request completion/expiration
 const undoRequests = new Map<string, UndoRequest>();
 
+export function clearUndoRequestsForGame(gameId: string): void {
+  undoRequests.delete(gameId);
+}
+
 // Undo timeout in milliseconds (60 seconds)
 const UNDO_TIMEOUT_MS = 60000;
 
@@ -353,6 +357,7 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
 export function registerUndoHandlers(io: Server, socket: Socket) {
   const getUndoRequesterContext = (gameId: string) => {
     const playerId = socket.data.playerId;
+    const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
 
     const socketGameId = (socket.data as any)?.gameId;
     if (socketGameId && socketGameId !== gameId) {
@@ -374,7 +379,25 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     if (!game || !playerId) return null;
 
-    if (socket.data.spectator) {
+    if (socketIsSpectator) {
+      socket.emit("error", {
+        code: "SPECTATOR_CANNOT_UNDO",
+        message: "Spectators cannot request undos",
+      });
+      return null;
+    }
+
+    const players = (game.state as any)?.players;
+    const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
+    if (!seated) {
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "You are not in this game",
+      });
+      return null;
+    }
+
+    if (seated.isSpectator || seated.spectator) {
       socket.emit("error", {
         code: "SPECTATOR_CANNOT_UNDO",
         message: "Spectators cannot request undos",
@@ -595,12 +618,42 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Respond to an undo request
   socket.on("respondUndo", ({ gameId, undoId, approved }: { gameId: string; undoId: string; approved: boolean }) => {
     try {
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId && socketGameId !== gameId) {
+        socket.emit("error", { code: "NOT_IN_GAME", message: "You are not in this game" });
+        return;
+      }
+
+      if (!socket.rooms.has(gameId)) {
+        socket.emit("error", { code: "NOT_IN_GAME", message: "You are not in this game" });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
       // Check if player is not a spectator
-      if (socket.data.spectator) {
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (socketIsSpectator) {
+        socket.emit("error", {
+          code: "SPECTATOR_CANNOT_RESPOND",
+          message: "Spectators cannot respond to undo requests",
+        });
+        return;
+      }
+
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
+      if (!seated) {
+        socket.emit("error", {
+          code: "NOT_IN_GAME",
+          message: "You are not in this game",
+        });
+        return;
+      }
+
+      if (seated.isSpectator || seated.spectator) {
         socket.emit("error", {
           code: "SPECTATOR_CANNOT_RESPOND",
           message: "Spectators cannot respond to undo requests",
@@ -726,11 +779,41 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Cancel an undo request (by the requester)
   socket.on("cancelUndo", ({ gameId, undoId }: { gameId: string; undoId: string }) => {
     try {
+      const socketGameId = (socket.data as any)?.gameId;
+      if (socketGameId && socketGameId !== gameId) {
+        socket.emit("error", { code: "NOT_IN_GAME", message: "You are not in this game" });
+        return;
+      }
+
+      if (!socket.rooms.has(gameId)) {
+        socket.emit("error", { code: "NOT_IN_GAME", message: "You are not in this game" });
+        return;
+      }
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      if (socket.data.spectator) {
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (socketIsSpectator) {
+        socket.emit("error", {
+          code: "SPECTATOR_CANNOT_CANCEL",
+          message: "Spectators cannot cancel undo requests",
+        });
+        return;
+      }
+
+      const players = (game.state as any)?.players;
+      const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
+      if (!seated) {
+        socket.emit("error", {
+          code: "NOT_IN_GAME",
+          message: "You are not in this game",
+        });
+        return;
+      }
+
+      if (seated.isSpectator || seated.spectator) {
         socket.emit("error", {
           code: "SPECTATOR_CANNOT_CANCEL",
           message: "Spectators cannot cancel undo requests",

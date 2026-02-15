@@ -21,7 +21,7 @@
     "test": "npm run test --workspaces",
     "typecheck": "npm run typecheck --workspace=server --workspace=client --workspace=shared --workspace=rules-engine",
     "typecheck:rules-engine": "npm run typecheck --workspace=rules-engine",
-    "test:server": "npx vitest run server/tests",
+    "test:server": "npm run test:vitest --workspace=server",
     "test:server:watch": "npx vitest server/tests",
     "lint": "node -e \"console.error('No lint configured. Use npm run typecheck or npm test.'); process.exit(1)\""
   },

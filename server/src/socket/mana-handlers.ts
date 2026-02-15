@@ -40,7 +40,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     sourceName?: string;
   }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
 
@@ -57,7 +57,8 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    const seatIsSpectator = !!(seated && ((seated as any).spectator || (seated as any).isSpectator));
+    if (!seated || seatIsSpectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }
@@ -122,7 +123,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     restrictedIndex?: number;
   }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
 
@@ -139,7 +140,8 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    const seatIsSpectator = !!(seated && ((seated as any).spectator || (seated as any).isSpectator));
+    if (!seated || seatIsSpectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }
@@ -213,7 +215,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     convertsToColorless?: boolean;
   }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
 
@@ -230,7 +232,8 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    const seatIsSpectator = !!(seated && ((seated as any).spectator || (seated as any).isSpectator));
+    if (!seated || seatIsSpectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }
@@ -290,7 +293,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     sourceId: string;
   }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
 
@@ -307,7 +310,8 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    const seatIsSpectator = !!(seated && ((seated as any).spectator || (seated as any).isSpectator));
+    if (!seated || seatIsSpectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }

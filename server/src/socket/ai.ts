@@ -5752,7 +5752,10 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   }) => {
     try {
       const playerId = socket.data.playerId as PlayerID | undefined;
-      if (!playerId || socket.data.spectator) {
+      const socketIsSpectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
+      if (!playerId || socketIsSpectator) {
         socket.emit('error', { code: 'NOT_PLAYER', message: 'Only players can toggle AI control' });
         return;
       }
@@ -5778,6 +5781,11 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const playerInGame = players.find((p: any) => p.id === playerId);
       if (!playerInGame) {
         socket.emit('error', { code: 'NOT_IN_GAME', message: 'You are not in this game' });
+        return;
+      }
+
+      if ((playerInGame as any)?.spectator || (playerInGame as any)?.isSpectator) {
+        socket.emit('error', { code: 'NOT_PLAYER', message: 'Only players can toggle AI control' });
         return;
       }
 

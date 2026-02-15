@@ -37,7 +37,8 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      if ((socket.data as any)?.spectator) {
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (socketIsSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
         return;
       }

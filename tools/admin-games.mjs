@@ -23,6 +23,7 @@ function usage(exitCode = 1) {
   console.log('Usage:');
   console.log('  node tools/admin-games.mjs list');
   console.log('  node tools/admin-games.mjs delete <gameId>');
+    console.log('  node tools/admin-games.mjs delete-prefix <prefix>');
   console.log('  node tools/admin-games.mjs delete-all');
   console.log('');
   console.log(`Default target: ${baseUrl}`);
@@ -71,6 +72,30 @@ async function main() {
     if (!gameId) usage(1);
     const json = await request('DELETE', `/admin/games/${encodeURIComponent(gameId)}`);
     console.log(`Deleted ${gameId}: ok=${json?.ok === true}`);
+    return;
+  }
+
+  if (cmd === 'delete-prefix') {
+    const prefix = rest.join(' ').trim();
+    if (!prefix) usage(1);
+    const json = await request('GET', '/api/games');
+    const games = Array.isArray(json?.games) ? json.games : [];
+    const ids = games.map((g) => String(g?.id || '')).filter((id) => id && id.startsWith(prefix));
+    if (ids.length === 0) {
+      console.log(`No games match prefix ${prefix}`);
+      return;
+    }
+
+    let deleted = 0;
+    for (const id of ids) {
+      try {
+        const resp = await request('DELETE', `/admin/games/${encodeURIComponent(id)}`);
+        if (resp?.ok === true) deleted++;
+      } catch (e) {
+        console.error(`Failed to delete ${id}: ${e?.message || String(e)}`);
+      }
+    }
+    console.log(`Delete-prefix ${prefix}: requested=${ids.length} deleted=${deleted}`);
     return;
   }
 

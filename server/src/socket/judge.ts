@@ -49,7 +49,7 @@ function activePlayerIds(game: any): string[] {
     (game.ctx && game.ctx.inactive) || new Set<string>();
 
   return playersArr
-    .filter((p) => !p.spectator)
+    .filter((p) => !p.spectator && !p.isSpectator)
     .map((p) => p.id)
     .filter((id: string) => !inactiveSet.has(id));
 }
@@ -284,7 +284,9 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
 
       const game = ensureGame(gameId);
       const requesterId = socket.data.playerId;
-      const spectator = socket.data.spectator;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
 
       if (!game || !requesterId) return;
 

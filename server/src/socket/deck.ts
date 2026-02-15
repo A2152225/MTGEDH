@@ -97,6 +97,15 @@ type PendingConfirm = {
 
 const pendingImportConfirmations: Map<string, PendingConfirm> = new Map();
 
+function makeImportConfirmId(gameId: string): string {
+  const safeGameId = String(gameId || "")
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .slice(0, 32);
+  return `imp_${safeGameId || "game"}_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
 function isSocketInGameRoom(socket: Socket, gameId: string): boolean {
   try {
     const socketGameId = (socket.data as any)?.gameId;
@@ -808,10 +817,11 @@ async function applyConfirmedImport(
           try {
             for (const s of Array.from(io.sockets.sockets.values())) {
               try {
-                const sock = s as { data?: { playerId?: string; spectator?: boolean }; emit?: any };
+                const sock = s as { data?: { playerId?: string; spectator?: boolean; isSpectator?: boolean }; emit?: any };
                 if (
                   sock?.data?.playerId === p.initiator &&
-                  !sock?.data?.spectator
+                  !sock?.data?.spectator &&
+                  !sock?.data?.isSpectator
                 ) {
                   sock.emit?.("importApplied", {
                     confirmId,
@@ -1163,7 +1173,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         });
         
         const pid = socket.data.playerId as PlayerID | undefined;
-        const spectator = socket.data.spectator;
+        const spectator = !!(
+          (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+        );
         if (!pid || spectator) {
           socket.emit("deckError", {
             gameId,
@@ -1213,7 +1225,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       const pid = socket.data.playerId as PlayerID | undefined;
-      const spectator = socket.data.spectator;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
       if (!pid || spectator) {
         socket.emit("deckError", {
           gameId,
@@ -1231,7 +1245,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       // Require the importer to actually be seated in the game.
       try {
         const seated = Array.isArray((game.state as any)?.players)
-          ? (game.state as any).players.some((p: any) => p?.id === pid)
+          ? (game.state as any).players.some(
+              (p: any) =>
+                p?.id === pid && !p?.spectator && !p?.isSpectator
+            )
           : false;
         if (!seated) {
           socket.emit("deckError", {
@@ -1451,9 +1468,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       });
 
       if (isPreGame) {
-        const confirmId = `imp_${Date.now()}_${Math.random()
-          .toString(36)
-          .slice(2, 8)}`;
+        const confirmId = makeImportConfirmId(gameId);
         const pending: PendingConfirm = {
           gameId,
           initiator: pid,
@@ -1537,9 +1552,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               .map((p: any) => p.id)
               .filter(Boolean) as string[];
 
-      const confirmId = `imp_${Date.now()}_${Math.random()
-        .toString(36)
-        .slice(2, 8)}`;
+      const confirmId = makeImportConfirmId(gameId);
       const responses: Record<string, "pending" | "yes" | "no"> = {};
       for (const pl of players) responses[pl] = "pending";
       responses[pid] = "yes";
@@ -1922,9 +1935,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         const parsedCount = parsed.reduce((s, p) => s + (p.count || 0), 0);
 
         if (isPreGame) {
-          const confirmId = `imp_${Date.now()}_${Math.random()
-            .toString(36)
-            .slice(2, 8)}`;
+          const confirmId = makeImportConfirmId(gameId);
           const pending: PendingConfirm = {
             gameId,
             initiator: pid,
@@ -2001,9 +2012,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 .map((p: any) => p.id)
                 .filter(Boolean) as string[];
 
-        const confirmId = `imp_${Date.now()}_${Math.random()
-          .toString(36)
-          .slice(2, 8)}`;
+        const confirmId = makeImportConfirmId(gameId);
         const responses: Record<string, "pending" | "yes" | "no"> = {};
         for (const pl of players) responses[pl] = "pending";
         responses[pid] = "yes";
@@ -2983,9 +2992,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             seqVal === null;
 
           if (isPreGame) {
-            const confirmId = `imp_${Date.now()}_${Math.random()
-              .toString(36)
-              .slice(2, 8)}`;
+            const confirmId = makeImportConfirmId(gameId);
             const pending: PendingConfirm = {
               gameId,
               initiator: pid,
@@ -3341,9 +3348,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         });
 
         if (isPreGame) {
-          const confirmId = `imp_${Date.now()}_${Math.random()
-            .toString(36)
-            .slice(2, 8)}`;
+          const confirmId = makeImportConfirmId(gameId);
           const pending: PendingConfirm = {
             gameId,
             initiator: pid,
@@ -3435,9 +3440,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 .map((p: any) => p.id)
                 .filter(Boolean) as string[];
 
-        const confirmId = `imp_${Date.now()}_${Math.random()
-          .toString(36)
-          .slice(2, 8)}`;
+        const confirmId = makeImportConfirmId(gameId);
         const responses: Record<string, "pending" | "yes" | "no"> = {};
         for (const pl of players) responses[pl] = "pending";
         responses[pid] = "yes";

@@ -7,14 +7,33 @@ type DB = Database.Database;
 
 let db: DB | null = null;
 
-const DATA_DIR = path.join(process.cwd(), 'server', 'data');
-const DB_FILE = path.join(DATA_DIR, 'mtgedh.sqlite');
+// Historical default was process.cwd()-relative, which means the DB location varies
+// depending on where the server process was launched from.
+// We keep that behavior for backwards compatibility, but allow overrides via env.
+const LEGACY_DATA_DIR = path.join(process.cwd(), 'server', 'data');
+const LEGACY_DB_FILE = path.join(LEGACY_DATA_DIR, 'mtgedh.sqlite');
+
+function resolveDbFile(): string {
+  const configured = (process.env.SQLITE_FILE || process.env.SQLITE_PATH || '').trim();
+  if (!configured) return LEGACY_DB_FILE;
+  if (configured === ':memory:') return configured;
+  // If relative, resolve from current working directory.
+  return path.isAbsolute(configured)
+    ? configured
+    : path.resolve(process.cwd(), configured);
+}
 
 export async function initDb(): Promise<void> {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (db) return;
+
+  const dbFile = resolveDbFile();
+  if (dbFile !== ':memory:') {
+    const dir = path.dirname(dbFile);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  }
 
   // Open database
-  db = new Database(DB_FILE);
+  db = new Database(dbFile);
   // Pragmas for WAL and durability
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');

@@ -47,7 +47,8 @@ export function registerAutomationHandlers(
 
       const players = (game.state as any)?.players;
       const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === playerId) : undefined;
-      if (!seated || seated.isSpectator || socket.data.spectator) {
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (!seated || seated.isSpectator || seated.spectator || socketIsSpectator) {
         socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized." } as any);
         return null;
       }

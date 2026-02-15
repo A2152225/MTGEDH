@@ -1007,7 +1007,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   const ensureInRoomAndSeated = (gameId: unknown): { gameId: string; game: any; pid: string } | undefined => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const socketIsSpectator = !!(
+      (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+    );
+    if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
 
@@ -1171,7 +1174,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Request full library for searching (tutor effect)
   socket.on("requestLibrarySearch", ({ gameId, title, description, filter, maxSelections, moveTo, shuffleAfter }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const socketIsSpectator = !!(
+      (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+    );
+    if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
@@ -1182,7 +1188,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     try {
       const seated = Array.isArray((game.state as any)?.players)
-        ? (game.state as any).players.some((p: any) => p?.id === pid)
+        ? (game.state as any).players.some((p: any) => p?.id === pid && !p?.spectator && !p?.isSpectator)
         : false;
       if (!seated) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -8528,7 +8534,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     mode?: 'minimize' | 'maximize' | 'custom' | 'auto';
   }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const socketIsSpectator = !!(
+      (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+    );
+    if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
@@ -8544,7 +8553,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    if (!seated || seated.isSpectator || seated.spectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }
@@ -8624,7 +8633,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     effectType?: 'damage' | 'life_gain' | 'counters' | 'tokens';
   }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const socketIsSpectator = !!(
+      (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+    );
+    if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
@@ -8640,7 +8652,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    if (!seated || seated.isSpectator || seated.spectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }
@@ -8688,7 +8700,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Properly uses the stack per MTG rules (Rule 702.29)
   socket.on("activateCycling", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    const socketIsSpectator = !!(
+      (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+    );
+    if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
@@ -8704,7 +8719,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const players = (game.state as any)?.players;
     const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
-    if (!seated || seated.isSpectator) {
+    if (!seated || seated.isSpectator || seated.spectator) {
       socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
       return;
     }
