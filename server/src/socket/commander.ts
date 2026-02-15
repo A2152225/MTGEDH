@@ -919,9 +919,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     try {
       const { gameId, commanderNameOrId } = payload;
       const pid: PlayerID | undefined = socket.data.playerId;
-      const spectator = socket.data.spectator;
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
       
-      if (!pid || spectator) {
+      if (!pid || socketIsSpectator) {
         socket.emit("error", {
           code: "MOVE_COMMANDER_NOT_PLAYER",
           message: "Spectators cannot move commanders.",
@@ -960,7 +960,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Must be seated in this game.
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === pid);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         emitNotAuthorized(socket);
         return;
       }
