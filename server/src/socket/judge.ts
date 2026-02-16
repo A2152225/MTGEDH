@@ -274,7 +274,8 @@ export function handleJudgeConfirmVote(
  */
 export function registerJudgeHandlers(io: Server, socket: Socket) {
   // Request to become judge, typically from /judge chat command
-  socket.on("requestJudge", ({ gameId }: { gameId: string }) => {
+  socket.on("requestJudge", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
       if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {

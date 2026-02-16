@@ -119,14 +119,14 @@ describe('tapPermanent in-room authorization (integration)', () => {
     const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false, gameId: 'g' }, emitted);
     registerInteractionHandlers(io as any, socket as any);
 
-    await expect(handlers['beginExplore'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['beginBatchExplore'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['requestLibrarySearch'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['activateGraveyardAbility'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['requestGraveyardView'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['tapPermanent'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['untapPermanent'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['sacrificePermanent'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['activateCycling'](undefined as any)).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['beginExplore'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['beginBatchExplore'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['requestLibrarySearch'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['activateGraveyardAbility'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['requestGraveyardView'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['tapPermanent'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['untapPermanent'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['sacrificePermanent'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['activateCycling'](undefined as any))).resolves.toBeUndefined();
   });
 });

@@ -91,4 +91,15 @@ describe('castSpellFromHand in-room authorization (integration)', () => {
     const err = emitted.find(e => e.event === 'error');
     expect(err?.payload?.code).toBe('NOT_IN_GAME');
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const p1 = 'p1';
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await expect(Promise.resolve().then(() => handlers['castSpellFromHand'](undefined as any))).resolves.toBeUndefined();
+  });
 });

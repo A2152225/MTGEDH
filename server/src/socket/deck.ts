@@ -1088,8 +1088,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // New: Preflight check for importer-only import (no room wipe)
   socket.on(
     "canImportWithoutWipe",
-    ({ gameId }: { gameId?: string }, cb?: (resp: any) => void) => {
+    (payload?: { gameId?: unknown }, cb?: (resp: any) => void) => {
       try {
+        const gameId = payload?.gameId;
         if (!gameId || typeof gameId !== "string") {
           if (typeof cb === "function") cb({ error: "missing_gameId" });
           return;
@@ -1135,17 +1136,16 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // importDeck
   socket.on(
     "importDeck",
-    async ({
-      gameId,
-      list,
-      deckName,
-      save,
-    }: {
-      gameId: string;
-      list: string;
-      deckName?: string;
-      save?: boolean;
+    async (payload?: {
+      gameId?: unknown;
+      list?: unknown;
+      deckName?: unknown;
+      save?: unknown;
     }) => {
+      const gameId = payload?.gameId;
+      const list = payload?.list;
+      const deckName = payload?.deckName;
+      const save = payload?.save;
       debug(1, "[deck] importDeck called", {
         gameId,
         playerId: socket.data.playerId,
@@ -1162,11 +1162,18 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      let effectiveList = list;
-      let effectiveDeckName = deckName;
+      if (typeof list !== "string" || list.trim().length === 0) {
+        socket.emit("deckError", { gameId, message: "Deck list required." });
+        return;
+      }
+
+      const requestedDeckName = typeof deckName === "string" ? deckName : undefined;
+      const saveFlag = save === true;
+      let effectiveList: string = list;
+      let effectiveDeckName: string | undefined = requestedDeckName;
 
       // Check if the list is actually a Moxfield URL - fetch the deck first
-      if (list && isMoxfieldUrl(list.trim())) {
+      if (isMoxfieldUrl(list.trim())) {
         debug(1, "[deck] importDeck detected Moxfield URL, will fetch deck from Moxfield", {
           gameId,
           url: list.trim(),
@@ -1202,7 +1209,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           const moxfieldDeck = await fetchDeckFromMoxfield(list.trim());
           // Convert Moxfield deck to decklist text format, expanding cards with count > 1 into separate lines
           effectiveList = parsedDecklistToExpandedString(moxfieldDeck.cards);
-          effectiveDeckName = deckName || moxfieldDeck.name;
+          effectiveDeckName = requestedDeckName || moxfieldDeck.name;
           
           // Calculate total card count (not just unique cards)
           const totalCardCount = moxfieldDeck.cards.reduce((sum, c) => sum + c.count, 0);
@@ -1475,7 +1482,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           resolvedCards,
           parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
           deckName: effectiveDeckName,
-          save,
+          save: saveFlag,
           responses: { [pid]: "yes" },
           timeout: null,
           snapshotZones:
@@ -1582,7 +1589,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         resolvedCards,
         parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
         deckName: effectiveDeckName,
-        save,
+        save: saveFlag,
         responses,
         timeout: null,
         snapshotZones,
@@ -1720,8 +1727,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // NEW: useSavedDeck - apply a previously saved deck using the same flow as importDeck
   socket.on(
     "useSavedDeck",
-    async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+    async (payload?: { gameId?: unknown; deckId?: unknown }) => {
+      const safeGameId = typeof payload?.gameId === "string" ? payload.gameId : undefined;
       try {
+        const gameId = payload?.gameId;
+        const deckId = payload?.deckId;
         debug(1, "[deck] useSavedDeck called", {
           gameId,
           deckId,
@@ -2123,7 +2133,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         debugError(1, "useSavedDeck handler failed:", err);
         try {
           socket.emit("deckError", {
-            gameId,
+            gameId: safeGameId,
             message: "Failed to apply saved deck.",
           });
         } catch {
@@ -2136,19 +2146,18 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // saveDeck - save a new deck to the database
   socket.on(
     "saveDeck",
-    ({
-      gameId,
-      name,
-      list,
-      cacheCards,
-      folder,
-    }: {
-      gameId: string;
-      name: string;
-      list: string;
+    (payload?: {
+      gameId?: string;
+      name?: string;
+      list?: string;
       cacheCards?: boolean;
       folder?: string;
     }) => {
+      const gameId = payload?.gameId;
+      const name = payload?.name;
+      const list = payload?.list;
+      const cacheCards = payload?.cacheCards;
+      const folder = payload?.folder;
       (async () => {
         try {
           debug(1, "[deck] saveDeck called", {
@@ -2362,8 +2371,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // getSavedDeck - get details of a specific saved deck
   socket.on(
     "getSavedDeck",
-    ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+    (payload?: { gameId?: unknown; deckId?: unknown }) => {
+      const safeGameId = typeof payload?.gameId === "string" ? payload.gameId : undefined;
       try {
+        const gameId = payload?.gameId;
+        const deckId = payload?.deckId;
         debug(1, "[deck] getSavedDeck called", {
           gameId,
           deckId,
@@ -2417,7 +2429,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       } catch (err) {
         debugError(1, "getSavedDeck handler failed:", err);
         socket.emit("deckError", {
-          gameId,
+          gameId: safeGameId,
           message: "Failed to get deck details.",
         });
       }
@@ -2427,15 +2439,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // renameSavedDeck - rename an existing deck
   socket.on(
     "renameSavedDeck",
-    ({
-      gameId,
-      deckId,
-      name,
-    }: {
-      gameId: string;
-      deckId: string;
-      name: string;
+    (payload?: {
+      gameId?: string;
+      deckId?: string;
+      name?: string;
     }) => {
+      const gameId = payload?.gameId;
+      const deckId = payload?.deckId;
+      const name = payload?.name;
       try {
         debug(1, "[deck] renameSavedDeck called", {
           gameId,
@@ -2512,7 +2523,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // deleteSavedDeck - delete a saved deck
   socket.on(
     "deleteSavedDeck",
-    ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+    (payload?: { gameId?: string; deckId?: string }) => {
+      const gameId = payload?.gameId;
+      const deckId = payload?.deckId;
       try {
         debug(1, "[deck] deleteSavedDeck called", {
           gameId,
@@ -2583,7 +2596,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // cacheSavedDeck - add cached card data to an existing saved deck
   socket.on(
     "cacheSavedDeck",
-    async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+    async (payload?: { gameId?: string; deckId?: string }) => {
+      const gameId = payload?.gameId;
+      const deckId = payload?.deckId;
       try {
         debug(1, "[deck] cacheSavedDeck called", {
           gameId,
@@ -2741,7 +2756,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // moveDeckToFolder - move a deck to a different folder
   socket.on(
     "moveDeckToFolder",
-    ({ gameId, deckId, folder }: { gameId: string; deckId: string; folder: string }) => {
+    (payload?: { gameId?: string; deckId?: string; folder?: string }) => {
+      const gameId = payload?.gameId;
+      const deckId = payload?.deckId;
+      const folder = payload?.folder;
       try {
         debug(1, "[deck] moveDeckToFolder called", {
           gameId,
@@ -2819,25 +2837,24 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // importPreconDeck - import a preconstructed Commander deck
   socket.on(
     "importPreconDeck",
-    async ({
-      gameId,
-      commanders,
-      deckName,
-      setName,
-      year,
-      cacheCards,
-      setCode,
-      colorIdentity,
-    }: {
-      gameId: string;
-      commanders: string[];
-      deckName: string;
-      setName: string;
-      year: number;
+    async (payload?: {
+      gameId?: string;
+      commanders?: string[];
+      deckName?: string;
+      setName?: string;
+      year?: number;
       cacheCards?: boolean;
       setCode?: string;
       colorIdentity?: string;
     }) => {
+      const gameId = payload?.gameId;
+      const commanders = payload?.commanders;
+      const deckName = payload?.deckName;
+      const setName = payload?.setName;
+      const year = payload?.year;
+      const cacheCards = payload?.cacheCards;
+      const setCode = payload?.setCode;
+      const colorIdentity = payload?.colorIdentity;
       try {
         debug(1, "[deck] importPreconDeck called", {
           gameId,
@@ -2852,6 +2869,26 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         if (!gameId || typeof gameId !== "string") {
           socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!Array.isArray(commanders) || commanders.length === 0 || commanders.some((c) => typeof c !== "string" || !c.trim())) {
+          socket.emit("deckError", { gameId, message: "Commander names required." });
+          return;
+        }
+
+        if (!deckName || typeof deckName !== "string" || !deckName.trim()) {
+          socket.emit("deckError", { gameId, message: "Deck name required." });
+          return;
+        }
+
+        if (!setName || typeof setName !== "string" || !setName.trim()) {
+          socket.emit("deckError", { gameId, message: "Set name required." });
+          return;
+        }
+
+        if (typeof year !== "number" || !Number.isFinite(year)) {
+          socket.emit("deckError", { gameId, message: "Year required." });
           return;
         }
 
@@ -3157,15 +3194,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // importDeckFromUrl - import a deck from a Moxfield URL
   socket.on(
     "importDeckFromUrl",
-    async ({
-      gameId,
-      url,
-      save,
-    }: {
-      gameId: string;
-      url: string;
+    async (payload?: {
+      gameId?: string;
+      url?: string;
       save?: boolean;
     }) => {
+      const gameId = payload?.gameId;
+      const url = payload?.url;
+      const save = payload?.save;
       try {
         debug(1, "[deck] importDeckFromUrl called", {
           gameId,

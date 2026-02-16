@@ -59,19 +59,29 @@ export function registerAutomationHandlers(
   /**
    * Handle decision submission (targets, modes, X values, etc.)
    */
-    socket.on("submitDecision", async (payload: any) => {
+    socket.on("submitDecision", async (payload?: {
+      gameId?: unknown;
+      decisionId?: unknown;
+      selection?: unknown;
+    }) => {
       const gameId = payload?.gameId;
+      const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
       const decisionId = payload?.decisionId;
       const selection = payload?.selection;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+      const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
+
+      if (!decisionId || typeof decisionId !== 'string') {
+        socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing decisionId" });
+        return;
+      }
     
     debug(2, `[Automation] Decision submitted: ${decisionId} by ${playerId}`);
     
     try {
       // Process the decision
-      const result = await processDecision(gameId, playerId, decisionId, selection);
+      const result = await processDecision(gameIdValue as string, playerId, decisionId, selection);
       
       if (!result.success) {
         socket.emit("error", { message: result.error || "Failed to process decision" });
@@ -79,24 +89,24 @@ export function registerAutomationHandlers(
       }
       
       // Notify all players of the decision result
-      io.to(gameId).emit("decisionResolved", {
-        gameId,
+      io.to(gameIdValue as string).emit("decisionResolved", {
+        gameId: gameIdValue,
         decisionId,
         playerId,
         selection,
       });
       
       // Continue automation and check for new decisions
-      const automationResult = await runAutomationStep(gameId, io);
+      const automationResult = await runAutomationStep(gameIdValue as string, io);
       
       // Broadcast updated state
       if (automationResult.stateChanged) {
-        io.to(gameId).emit("state", { view: automationResult.state });
+        io.to(gameIdValue as string).emit("state", { view: automationResult.state });
       }
       
       // Broadcast automation status
-      io.to(gameId).emit("automationStatus", {
-        gameId,
+      io.to(gameIdValue as string).emit("automationStatus", {
+        gameId: gameIdValue,
         status: automationResult.status as 'running' | 'waiting_for_decision' | 'waiting_for_priority' | 'paused' | 'completed',
         priorityPlayer: automationResult.priorityPlayer,
         pendingDecisionCount: automationResult.pendingDecisions.length,
@@ -104,9 +114,9 @@ export function registerAutomationHandlers(
       
       // Send pending decisions to respective players
       for (const decision of automationResult.pendingDecisions) {
-        const targetSocket = findPlayerSocket(io, gameId, decision.playerId);
+        const targetSocket = findPlayerSocket(io, gameIdValue as string, decision.playerId);
         if (targetSocket) {
-          targetSocket.emit("pendingDecision", { gameId, decision });
+          targetSocket.emit("pendingDecision", { gameId: gameIdValue, decision });
         }
       }
     } catch (err) {
@@ -121,26 +131,44 @@ export function registerAutomationHandlers(
   /**
    * Handle spell casting with targets/modes
    */
-  socket.on("castSpell", async (payload: any) => {
+  socket.on("castSpell", async (payload?: {
+    gameId?: unknown;
+    cardId?: unknown;
+    targets?: unknown;
+    modes?: unknown;
+    xValue?: unknown;
+    manaPayment?: unknown;
+  }) => {
     const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
     const cardId = payload?.cardId;
     const targets = payload?.targets;
     const modes = payload?.modes;
     const xValue = payload?.xValue;
     const manaPayment = payload?.manaPayment;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
+
+    if (!cardId || typeof cardId !== 'string') {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing cardId" });
+      return;
+    }
+
+    const normalizedTargets = Array.isArray(targets) ? targets : undefined;
+    const normalizedModes = Array.isArray(modes) ? modes : undefined;
+    const normalizedXValue = typeof xValue === 'number' ? xValue : undefined;
+    const normalizedManaPayment = Array.isArray(manaPayment) ? manaPayment : undefined;
     
     debug(2, `[Automation] Spell cast by ${playerId}: ${cardId}`);
     
     try {
-      const result = await processCastSpell(gameId, playerId, {
+      const result = await processCastSpell(gameIdValue as string, playerId, {
         cardId,
-        targets,
-        modes,
-        xValue,
-        manaPayment,
+        targets: normalizedTargets as any,
+        modes: normalizedModes as any,
+        xValue: normalizedXValue,
+        manaPayment: normalizedManaPayment as any,
       });
       
       if (!result.success) {
@@ -149,24 +177,24 @@ export function registerAutomationHandlers(
       }
       
       // Broadcast stack update
-      io.to(gameId).emit("stackUpdate", {
-        gameId,
+      io.to(gameIdValue as string).emit("stackUpdate", {
+        gameId: gameIdValue,
         stack: result.stack || [],
       });
       
       // Broadcast game action
-      io.to(gameId).emit("gameAction", {
-        gameId,
+      io.to(gameIdValue as string).emit("gameAction", {
+        gameId: gameIdValue,
         action: "castSpell",
         playerId,
-        details: { cardId, targets, modes, xValue },
+        details: { cardId, targets: normalizedTargets, modes: normalizedModes, xValue: normalizedXValue },
         timestamp: Date.now(),
       });
       
       // Continue automation
-      const automationResult = await runAutomationStep(gameId, io);
+      const automationResult = await runAutomationStep(gameIdValue as string, io);
       if (automationResult.stateChanged) {
-        io.to(gameId).emit("state", { view: automationResult.state });
+        io.to(gameIdValue as string).emit("state", { view: automationResult.state });
       }
     } catch (err) {
       debugError(1, "[Automation] Error casting spell:", err);
@@ -177,26 +205,43 @@ export function registerAutomationHandlers(
   /**
    * Handle ability activation
    */
-  socket.on("activateAbility", async (payload: any) => {
+  socket.on("activateAbility", async (payload?: {
+    gameId?: unknown;
+    permanentId?: unknown;
+    abilityIndex?: unknown;
+    targets?: unknown;
+    manaPayment?: unknown;
+    xValue?: unknown;
+  }) => {
     const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
     const permanentId = payload?.permanentId;
     const abilityIndex = payload?.abilityIndex;
     const targets = payload?.targets;
     const manaPayment = payload?.manaPayment;
     const xValue = payload?.xValue;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
+
+    if (!permanentId || typeof permanentId !== 'string' || typeof abilityIndex !== 'number') {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing permanentId or abilityIndex" });
+      return;
+    }
+
+    const normalizedTargets = Array.isArray(targets) ? targets : undefined;
+    const normalizedManaPayment = Array.isArray(manaPayment) ? manaPayment : undefined;
+    const normalizedXValue = typeof xValue === 'number' ? xValue : undefined;
     
     debug(2, `[Automation] Ability activated by ${playerId}: ${permanentId} ability ${abilityIndex}${xValue !== undefined ? ` with X=${xValue}` : ''}`);
     
     try {
-      const result = await processActivateAbility(gameId, playerId, {
+      const result = await processActivateAbility(gameIdValue as string, playerId, {
         permanentId,
         abilityIndex,
-        targets,
-        manaPayment,
-        xValue,
+        targets: normalizedTargets as any,
+        manaPayment: normalizedManaPayment as any,
+        xValue: normalizedXValue,
       });
       
       if (!result.success) {
@@ -206,25 +251,25 @@ export function registerAutomationHandlers(
       
       // Broadcast stack update if ability uses stack
       if (result.usesStack) {
-        io.to(gameId).emit("stackUpdate", {
-          gameId,
+        io.to(gameIdValue as string).emit("stackUpdate", {
+          gameId: gameIdValue,
           stack: result.stack || [],
         });
       }
       
       // Broadcast game action
-      io.to(gameId).emit("gameAction", {
-        gameId,
+      io.to(gameIdValue as string).emit("gameAction", {
+        gameId: gameIdValue,
         action: "activateAbility",
         playerId,
-        details: { permanentId, abilityIndex, targets },
+        details: { permanentId, abilityIndex, targets: normalizedTargets },
         timestamp: Date.now(),
       });
       
       // Continue automation
-      const automationResult = await runAutomationStep(gameId, io);
+      const automationResult = await runAutomationStep(gameIdValue as string, io);
       if (automationResult.stateChanged) {
-        io.to(gameId).emit("state", { view: automationResult.state });
+        io.to(gameIdValue as string).emit("state", { view: automationResult.state });
       }
     } catch (err) {
       debugError(1, "[Automation] Error activating ability:", err);
@@ -235,17 +280,26 @@ export function registerAutomationHandlers(
   /**
    * Handle mulligan decision
    */
-  socket.on("mulliganDecision", async (payload: any) => {
+  socket.on("mulliganDecision", async (payload?: {
+    gameId?: unknown;
+    keep?: unknown;
+  }) => {
     const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
     const keep = payload?.keep;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
+
+    if (typeof keep !== 'boolean') {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing mulligan keep flag" });
+      return;
+    }
     
     debug(1, `[Automation] Mulligan decision by ${playerId}: ${keep ? "keep" : "mulligan"}`);
     
     try {
-      const result = await processMulliganDecision(gameId, playerId, keep);
+      const result = await processMulliganDecision(gameIdValue as string, playerId, keep);
       
       if (!result.success) {
         socket.emit("error", { message: result.error || "Failed to process mulligan" });
@@ -253,17 +307,17 @@ export function registerAutomationHandlers(
       }
       
       // Broadcast game action
-      io.to(gameId).emit("gameAction", {
-        gameId,
+      io.to(gameIdValue as string).emit("gameAction", {
+        gameId: gameIdValue,
         action: keep ? "keepHand" : "mulligan",
         playerId,
         timestamp: Date.now(),
       });
       
       // Continue automation
-      const automationResult = await runAutomationStep(gameId, io);
+      const automationResult = await runAutomationStep(gameIdValue as string, io);
       if (automationResult.stateChanged) {
-        io.to(gameId).emit("state", { view: automationResult.state });
+        io.to(gameIdValue as string).emit("state", { view: automationResult.state });
       }
     } catch (err) {
       debugError(1, "[Automation] Error processing mulligan:", err);
@@ -274,17 +328,26 @@ export function registerAutomationHandlers(
   /**
    * Handle mulligan bottom cards selection
    */
-  socket.on("mulliganBottomCards", async (payload: any) => {
+  socket.on("mulliganBottomCards", async (payload?: {
+    gameId?: unknown;
+    cardIds?: unknown;
+  }) => {
     const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
     const cardIds = payload?.cardIds;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
+
+    if (!Array.isArray(cardIds)) {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing cardIds" });
+      return;
+    }
     
     debug(1, `[Automation] Mulligan bottom cards by ${playerId}: ${cardIds.length} cards`);
     
     try {
-      const result = await processMulliganBottom(gameId, playerId, cardIds);
+      const result = await processMulliganBottom(gameIdValue as string, playerId, cardIds);
       
       if (!result.success) {
         socket.emit("error", { message: result.error || "Failed to put cards on bottom" });
@@ -292,9 +355,9 @@ export function registerAutomationHandlers(
       }
       
       // Continue automation
-      const automationResult = await runAutomationStep(gameId, io);
+      const automationResult = await runAutomationStep(gameIdValue as string, io);
       if (automationResult.stateChanged) {
-        io.to(gameId).emit("state", { view: automationResult.state });
+        io.to(gameIdValue as string).emit("state", { view: automationResult.state });
       }
     } catch (err) {
       debugError(1, "[Automation] Error processing mulligan bottom:", err);
@@ -305,17 +368,18 @@ export function registerAutomationHandlers(
   /**
    * Handle auto-pass toggle
    */
-  socket.on("setAutoPass", (payload: any) => {
+  socket.on("setAutoPass", (payload?: { gameId?: unknown; enabled?: unknown }) => {
     const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
     const enabled = !!payload?.enabled;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
     
     debug(2, `[Automation] Auto-pass ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
     
     // Store auto-pass preference (would be in game state or automation config)
-    const game = games.get(gameId);
+    const game = games.get(gameIdValue as string);
     if (game && game.state) {
       const autoPassPlayers = (game.state as any).autoPassPlayers || new Set();
       const wasEnabled = autoPassPlayers.has(playerId);
@@ -364,7 +428,7 @@ export function registerAutomationHandlers(
         import('./util.js').then((utilModule) => {
           if (utilModule && utilModule.broadcastGame) {
             // Broadcast game state which will trigger checkAndTriggerAutoPass
-            utilModule.broadcastGame(io, game, gameId);
+            utilModule.broadcastGame(io, game, gameIdValue as string);
           }
         }).catch((err) => {
           debugError(1, `[Automation] Failed to import util module:`, err);
@@ -379,16 +443,17 @@ export function registerAutomationHandlers(
   /**
    * Handle auto-pass for rest of turn toggle
    */
-  socket.on("setAutoPassForTurn", (payload: any) => {
+  socket.on("setAutoPassForTurn", (payload?: { gameId?: unknown; enabled?: unknown }) => {
     const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
     const enabled = !!payload?.enabled;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
     
     debug(2, `[Automation] Auto-pass for turn ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
     
-    const game = games.get(gameId);
+    const game = games.get(gameIdValue as string);
     if (game && game.state) {
       const stateAny = game.state as any;
       if (!stateAny.autoPassForTurn) {
@@ -425,7 +490,7 @@ export function registerAutomationHandlers(
         import('./util.js').then((utilModule) => {
           if (utilModule && utilModule.broadcastGame) {
             // Broadcast game state which will trigger checkAndTriggerAutoPass
-            utilModule.broadcastGame(io, game, gameId);
+            utilModule.broadcastGame(io, game, gameIdValue as string);
           }
         }).catch((err) => {
           debugError(1, `[Automation] Failed to import util module:`, err);
@@ -441,9 +506,10 @@ export function registerAutomationHandlers(
    * Handle claim priority (player wants to retain priority and take action)
    * This prevents auto-pass from immediately passing their priority
    */
-  socket.on("claimPriority", (payload: any) => {
+  socket.on("claimPriority", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -475,7 +541,8 @@ export function registerAutomationHandlers(
    * Check if a player can respond or act (query from client)
    * Returns whether the player has any available responses or actions
    */
-  socket.on("checkCanRespond", ({ gameId }: { gameId: string }) => {
+  socket.on("checkCanRespond", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) {
       socket.emit("canRespondResponse", { canRespond: false, canAct: false, reason: "Not in game" });
@@ -519,13 +586,18 @@ export function registerAutomationHandlers(
   /**
    * Handle phase stop toggle
    */
-  socket.on("setStop", (payload: any) => {
+  socket.on("setStop", (payload?: { gameId?: unknown; phase?: unknown; enabled?: unknown }) => {
     const gameId = payload?.gameId;
     const phase = payload?.phase;
     const enabled = !!payload?.enabled;
     const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
+
+    if (!phase || typeof phase !== 'string') {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Invalid phase" });
+      return;
+    }
     
     debug(2, `[Automation] Stop at ${phase} ${enabled ? "enabled" : "disabled"} for ${playerId}`);
     
@@ -552,18 +624,21 @@ export function registerAutomationHandlers(
   // we treat that as a request to automatically pass priority whenever the top
   // of the stack is a triggered ability from that source.
   // This is separate from the "ignored cards" list (which affects canAct/canRespond).
-  socket.on("yieldToTriggerSource", (payload) => {
-    const gameId = (payload as any)?.gameId;
-    const sourceId = (payload as any)?.sourceId;
-    const sourceName = (payload as any)?.sourceName;
-    const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("yieldToTriggerSource", (payload?: { gameId?: unknown; sourceId?: unknown; sourceName?: unknown }) => {
+    const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
+    const sourceId = payload?.sourceId;
+    const sourceName = payload?.sourceName;
+    const ctx = ensureInGameRoomAndSeated(gameIdValue);
     if (!ctx) return;
     const { game, playerId } = ctx;
 
-    if (!sourceId) {
-      socket.emit("error", { message: "Missing sourceId" });
+    if (!sourceId || typeof sourceId !== 'string') {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing sourceId" });
       return;
     }
+
+    const normalizedSourceName = typeof sourceName === 'string' ? sourceName : sourceId;
 
     const stateAny = game.state as any;
     if (!stateAny.yieldToTriggerSourcesForAutoPass) {
@@ -575,19 +650,19 @@ export function registerAutomationHandlers(
 
     stateAny.yieldToTriggerSourcesForAutoPass[playerId][sourceId] = {
       sourceId,
-      sourceName: sourceName || sourceId,
+      sourceName: normalizedSourceName,
       enabled: true,
       setAt: Date.now(),
     };
 
-    debug(2, `[Automation] ${playerId} will yield priority to triggers from ${sourceName || sourceId} (${sourceId})`);
+    debug(2, `[Automation] ${playerId} will yield priority to triggers from ${normalizedSourceName} (${sourceId})`);
 
     // If the player currently has priority, immediately re-run auto-pass evaluation so the
     // newly-added yield rule can take effect without waiting for another state change.
     if ((game.state as any).priority === playerId) {
       import('./util.js').then((utilModule) => {
         if (utilModule && utilModule.broadcastGame) {
-          utilModule.broadcastGame(io, game, gameId);
+          utilModule.broadcastGame(io, game, gameIdValue as string);
         }
       }).catch((err) => {
         debugError(1, `[Automation] Failed to import util module for yieldToTriggerSource:`, err);
@@ -595,14 +670,14 @@ export function registerAutomationHandlers(
     }
   });
 
-  socket.on("unyieldToTriggerSource", (payload) => {
-    const gameId = (payload as any)?.gameId;
-    const sourceId = (payload as any)?.sourceId;
+  socket.on("unyieldToTriggerSource", (payload?: { gameId?: unknown; sourceId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const sourceId = payload?.sourceId;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;
 
-    if (!sourceId) return;
+    if (!sourceId || typeof sourceId !== 'string') return;
 
     const stateAny = game.state as any;
     const map = stateAny.yieldToTriggerSourcesForAutoPass?.[playerId];
@@ -628,22 +703,37 @@ export function registerAutomationHandlers(
    * Example: Elixir of Immortality with no cards in graveyard - player
    * can ignore it so they don't have to pass priority every phase.
    */
-  socket.on("ignoreCardForAutoPass", (payload) => {
-    const gameId = (payload as any)?.gameId;
-    const permanentId = (payload as any)?.permanentId;
-    const cardId = (payload as any)?.cardId;
-    const cardName = (payload as any)?.cardName;
-    const zone = (payload as any)?.zone;
-    const providedImageUrl = (payload as any)?.imageUrl;
+  socket.on("ignoreCardForAutoPass", (payload?: {
+    gameId?: unknown;
+    permanentId?: unknown;
+    cardId?: unknown;
+    cardName?: unknown;
+    zone?: unknown;
+    imageUrl?: unknown;
+  }) => {
+    const gameId = payload?.gameId;
+    const permanentId = payload?.permanentId;
+    const cardId = payload?.cardId;
+    const cardName = payload?.cardName;
+    const zone = payload?.zone;
+    const providedImageUrl = payload?.imageUrl;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;
     
     // Use cardId for zone cards, permanentId for battlefield
     const effectiveId = cardId || permanentId;
-    const effectiveZone = zone || 'battlefield';
+    const effectiveZone = typeof zone === 'string' && zone ? zone : 'battlefield';
+
+    if (!effectiveId || typeof effectiveId !== 'string') {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing card identifier" });
+      return;
+    }
+
+    const normalizedCardName = typeof cardName === 'string' ? cardName : String(effectiveId);
+    const normalizedImageUrl = typeof providedImageUrl === 'string' ? providedImageUrl : undefined;
     
-    debug(2, `[Automation] Ignoring card ${cardName} (${effectiveId}) in ${effectiveZone} for auto-pass by ${playerId}`);
+    debug(2, `[Automation] Ignoring card ${normalizedCardName} (${effectiveId}) in ${effectiveZone} for auto-pass by ${playerId}`);
     
     // Initialize ignored cards structure if needed
     const stateAny = game.state as any;
@@ -655,11 +745,11 @@ export function registerAutomationHandlers(
     }
     
     // Get image URL - use provided one or look up from the appropriate zone
-    let imageUrl = providedImageUrl;
+    let imageUrl = normalizedImageUrl;
     if (!imageUrl) {
       if (effectiveZone === 'battlefield') {
         const battlefield = game.state.battlefield || [];
-        const permanent = battlefield.find((p: any) => p.id === permanentId);
+        const permanent = battlefield.find((p: any) => p.id === effectiveId);
         imageUrl = permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
       } else {
         // Look up in zone
@@ -674,9 +764,9 @@ export function registerAutomationHandlers(
     
     // Add to ignored list with zone info
     stateAny.ignoredCardsForAutoPass[playerId][effectiveId] = {
-      cardName,
+      cardName: normalizedCardName,
       cardId: effectiveId,
-      permanentId: permanentId || effectiveId,
+      permanentId: effectiveId,
       imageUrl,
       zone: effectiveZone,
       ignoredAt: Date.now(),
@@ -709,16 +799,20 @@ export function registerAutomationHandlers(
    * Handle removing a card from the ignore list.
    * Supports both permanentId (battlefield) and cardId (other zones)
    */
-  socket.on("unignoreCardForAutoPass", (payload) => {
-    const gameId = (payload as any)?.gameId;
-    const permanentId = (payload as any)?.permanentId;
-    const cardId = (payload as any)?.cardId;
+  socket.on("unignoreCardForAutoPass", (payload?: { gameId?: unknown; permanentId?: unknown; cardId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const permanentId = payload?.permanentId;
+    const cardId = payload?.cardId;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;
     
     // Support both cardId and permanentId
     const effectiveId = cardId || permanentId;
+    if (!effectiveId || typeof effectiveId !== 'string') {
+      socket.emit("error", { code: "INVALID_PAYLOAD", message: "Missing card identifier" });
+      return;
+    }
     
     const stateAny = game.state as any;
     const ignoredCards = stateAny.ignoredCardsForAutoPass?.[playerId];
@@ -755,7 +849,7 @@ export function registerAutomationHandlers(
   /**
    * Handle clearing all ignored cards.
    */
-  socket.on("clearIgnoredCards", (payload) => {
+  socket.on("clearIgnoredCards", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;

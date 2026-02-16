@@ -166,4 +166,58 @@ describe('replay authorization (integration)', () => {
     expect(started!.payload?.gameId).toBe(gameId);
     expect(typeof started!.payload?.totalEvents).toBe('number');
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const p1 = 'p1';
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerReplayHandlers(io as any, socket as any);
+
+    expect(() => handlers['startReplay'](undefined as any)).not.toThrow();
+    expect(() => handlers['replayJumpTo'](undefined as any)).not.toThrow();
+    expect(() => handlers['replaySetSpeed'](undefined as any)).not.toThrow();
+    expect(() => handlers['replaySetFocusPlayer'](undefined as any)).not.toThrow();
+  });
+
+  it('ignores malformed replay control payloads safely', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).gameOver = true;
+
+    appendEvent(gameId, 0, 'drawCards', { playerId: p1, n: 1 });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerReplayHandlers(io as any, socket as any);
+
+    await handlers['startReplay']({ gameId });
+    const started = emitted.find(e => e.event === 'replayStarted');
+    expect(started).toBeTruthy();
+
+    const baselineStateUpdates = emitted.filter(e => e.event === 'replayStateUpdate').length;
+    const baselineSpeedChanges = emitted.filter(e => e.event === 'replaySpeedChanged').length;
+
+    expect(() => handlers['replayJumpTo']({ eventIndex: '1' as any })).not.toThrow();
+    expect(() => handlers['replaySetSpeed']({ speed: 'fast' as any })).not.toThrow();
+    expect(() => handlers['replaySetFocusPlayer']({ playerId: { bad: true } as any })).not.toThrow();
+
+    const nextStateUpdates = emitted.filter(e => e.event === 'replayStateUpdate').length;
+    const nextSpeedChanges = emitted.filter(e => e.event === 'replaySpeedChanged').length;
+    const payloadErrors = emitted.filter(
+      e => e.event === 'error' && (e.payload?.code === 'REPLAY_CONTROL_ERROR' || e.payload?.code === 'REPLAY_START_ERROR')
+    );
+
+    expect(nextStateUpdates).toBe(baselineStateUpdates);
+    expect(nextSpeedChanges).toBe(baselineSpeedChanges);
+    expect(payloadErrors.length).toBe(0);
+  });
 });

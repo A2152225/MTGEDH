@@ -19,15 +19,17 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  *  - 'skipSteps': exile stack then remove any scheduled steps named in skipSteps (string names)
  */
 export default function registerSundialHandlers(io: Server, socket: Socket) {
-  socket.on("sundialActivate", async (payload: { gameId?: string; action?: string; skipSteps?: string[] }) => {
+  socket.on("sundialActivate", async (payload?: { gameId?: unknown; action?: unknown; skipSteps?: unknown }) => {
     try {
-      const { gameId, action = "endTurn", skipSteps } = payload || ({} as any);
-      if (!gameId) {
+      const gameId = payload?.gameId;
+      const action = payload?.action;
+      const skipSteps = payload?.skipSteps;
+      if (!gameId || typeof gameId !== 'string') {
         socket.emit("error", { code: "SUNDIAL", message: "Missing gameId" });
         return;
       }
 
-        if (action !== "endTurn") {
+        if ((action ?? "endTurn") !== "endTurn") {
           socket.emit?.("error", { code: "INVALID_ACTION", message: "Unsupported action." });
           return;
         }
@@ -146,8 +148,8 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         appendGameEvent(game, gameId, "sundialActivated", {
           by: playerId,
           exiled: exiledCount,
-          action,
-          skipSteps,
+          action: (action ?? "endTurn"),
+          skipSteps: Array.isArray(skipSteps) ? skipSteps : undefined,
           paid: "{1}",
           tapped: true,
         });

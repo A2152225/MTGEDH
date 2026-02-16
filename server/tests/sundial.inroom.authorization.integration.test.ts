@@ -243,4 +243,13 @@ describe('sundialActivate in-room authorization (integration)', () => {
     expect(pool?.colorless).toBe(0);
     expect(((game.state as any).battlefield?.[0] as any)?.tapped).toBe(true);
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', gameId }, emitted);
+    const io = createMockIo(emitted);
+    registerSundialHandlers(io as any, socket as any);
+
+    await expect(Promise.resolve().then(() => handlers['sundialActivate'](undefined as any))).resolves.toBeUndefined();
+  });
 });

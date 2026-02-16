@@ -164,8 +164,47 @@ describe('cancelResolutionStep authorization (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
-    await expect(handlers['getResolutionQueue'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['getMyNextResolutionStep'](undefined as any)).resolves.toBeUndefined();
-    await expect(handlers['cancelResolutionStep'](undefined as any)).resolves.toBeUndefined();
+    expect(() => handlers['getResolutionQueue'](undefined as any)).not.toThrow();
+    expect(() => handlers['getMyNextResolutionStep'](undefined as any)).not.toThrow();
+    expect(() => handlers['cancelResolutionStep'](undefined as any)).not.toThrow();
+    await expect(Promise.resolve().then(() => handlers['submitResolutionResponse'](undefined as any))).resolves.toBeUndefined();
+  });
+
+  it('rejects malformed stepId types for resolution actions', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: { bad: true } as any,
+      selections: [],
+      cancelled: false,
+    });
+
+    await handlers['cancelResolutionStep']({
+      gameId,
+      stepId: 123 as any,
+    });
+
+    const submitErr = emitted.find(
+      e => e.event === 'error' && e.payload?.code === 'STEP_NOT_FOUND'
+    );
+    expect(submitErr).toBeDefined();
+
+    const allStepNotFound = emitted.filter(
+      e => e.event === 'error' && e.payload?.code === 'STEP_NOT_FOUND'
+    );
+    expect(allStepNotFound.length).toBeGreaterThanOrEqual(2);
   });
 });

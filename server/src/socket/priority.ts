@@ -38,7 +38,7 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     return { game, pid };
   }
 
-  socket.on("clearPriorityTimer", (payload?: { gameId?: string }) => {
+  socket.on("clearPriorityTimer", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
@@ -52,7 +52,7 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     }
   });
 
-  socket.on("schedulePriorityTimeout", (payload?: { gameId?: string }) => {
+  socket.on("schedulePriorityTimeout", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;

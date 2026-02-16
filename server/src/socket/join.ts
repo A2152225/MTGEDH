@@ -488,19 +488,27 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
   // Join a game
   socket.on(
     "joinGame",
-    async ({
-      gameId,
-      playerName,
-      spectator,
-      seatToken,
-      fixedPlayerId,
-    }: {
-      gameId: string;
-      playerName: string;
-      spectator?: boolean;
-      seatToken?: string;
-      fixedPlayerId?: string;
+    async (payload?: {
+      gameId?: unknown;
+      playerName?: unknown;
+      spectator?: unknown;
+      seatToken?: unknown;
+      fixedPlayerId?: unknown;
     }) => {
+      const gameId = payload?.gameId;
+      const playerName = typeof payload?.playerName === "string" ? payload.playerName : "";
+      const spectator = payload?.spectator === true;
+      const seatToken = typeof payload?.seatToken === "string" ? payload.seatToken : undefined;
+      const fixedPlayerId = typeof payload?.fixedPlayerId === "string" ? payload.fixedPlayerId : undefined;
+
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("error", {
+          code: "MISSING_GAME_ID",
+          message: "Missing gameId",
+        });
+        return;
+      }
+
       // Serialize handling for this gameId by chaining onto the per-game promise tail.
       const tail = joinQueues.get(gameId) || Promise.resolve();
       const myTask = tail
@@ -1076,7 +1084,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
   );
 
   // Request state refresh
-  socket.on("requestState", ({ gameId }: { gameId: string }) => {
+  socket.on("requestState", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
 

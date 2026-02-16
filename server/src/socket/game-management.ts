@@ -30,7 +30,9 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
   // It is validated against the server's database record (isGameCreator check) before any action.
   // An attacker cannot delete games they don't own because isGameCreator verifies that the
   // claimedPlayerId matches the game's stored created_by_player_id field in the database.
-  socket.on("deleteGame", ({ gameId, claimedPlayerId }: { gameId: string; claimedPlayerId?: string }) => {
+  socket.on("deleteGame", (payload?: { gameId?: unknown; claimedPlayerId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const claimedPlayerId = payload?.claimedPlayerId;
     try {
       if (!gameId || typeof gameId !== "string") {
         socket.emit("error", {
@@ -54,7 +56,8 @@ export function registerGameManagementHandlers(io: TypedServer, socket: Socket) 
       // Get the player ID of the requesting socket, or use the claimed player ID
       // Priority: socket.data.playerId (if user is currently in a game) > claimedPlayerId (from localStorage)
       // Note: Both values are ultimately validated against the database in isGameCreator()
-      const playerId = socket.data?.playerId || claimedPlayerId;
+      const normalizedClaimedPlayerId = typeof claimedPlayerId === 'string' ? claimedPlayerId : undefined;
+      const playerId = socket.data?.playerId || normalizedClaimedPlayerId;
       
       // Check if the player is the creator of the game (validated against DB record)
       const isCreator = playerId ? isGameCreator(gameId, playerId) : false;

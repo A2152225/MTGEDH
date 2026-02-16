@@ -114,4 +114,14 @@ describe('leaveGame in-room scoping (integration)', () => {
     expect(socket.rooms.has(gameId)).toBe(false);
     expect(socket.data.gameId).toBe(null);
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', gameId }, emitted);
+
+    const io = createMockIo(emitted);
+    registerDisconnectHandlers(io as any, socket as any);
+
+    expect(() => handlers['leaveGame'](undefined as any)).not.toThrow();
+  });
 });

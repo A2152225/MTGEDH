@@ -4975,16 +4975,20 @@ export async function handleAIMulligan(
  */
 export function registerAIHandlers(io: Server, socket: Socket): void {
   // Create game without AI (human players only)
-  socket.on('createGame', async ({
-    gameId,
-    format,
-    startingLife,
-  }: {
-    gameId: string;
-    format?: string;
-    startingLife?: number;
+  socket.on('createGame', async (payload?: {
+    gameId?: unknown;
+    format?: unknown;
+    startingLife?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const format = payload?.format;
+    const startingLife = payload?.startingLife;
+
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Invalid game creation payload' });
+        return;
+      }
       debug(1, '[Game] Creating game without AI:', { gameId, format, startingLife });
 
       // Safety: creation handlers must never mutate an existing game.
@@ -5017,8 +5021,12 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       // Set format and starting life
       game.state = (game.state || {}) as any;
-      (game.state as any).format = format || 'commander';
-      (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
+      const selectedFormat = typeof format === 'string' ? format : 'commander';
+      const selectedStartingLife = typeof startingLife === 'number'
+        ? startingLife
+        : (selectedFormat === 'commander' ? 40 : 20);
+      (game.state as any).format = selectedFormat;
+      (game.state as any).startingLife = selectedStartingLife;
       
       debug(1, '[Game] Game created successfully:', { gameId, format: (game.state as any).format, startingLife: (game.state as any).startingLife });
     } catch (err) {
@@ -5031,30 +5039,34 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   });
 
   // Create game with AI opponent
-  socket.on('createGameWithAI', async ({
-    gameId,
-    playerName,
-    format,
-    startingLife,
-    aiName,
-    aiStrategy,
-    aiDifficulty,
-    aiDeckId,
-    aiDeckText,
-    aiDeckName,
-  }: {
-    gameId: string;
-    playerName: string;
-    format?: string;
-    startingLife?: number;
-    aiName?: string;
-    aiStrategy?: string;
-    aiDifficulty?: number;
-    aiDeckId?: string;
-    aiDeckText?: string;
-    aiDeckName?: string;
+  socket.on('createGameWithAI', async (payload?: {
+    gameId?: unknown;
+    playerName?: unknown;
+    format?: unknown;
+    startingLife?: unknown;
+    aiName?: unknown;
+    aiStrategy?: unknown;
+    aiDifficulty?: unknown;
+    aiDeckId?: unknown;
+    aiDeckText?: unknown;
+    aiDeckName?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const playerName = payload?.playerName;
+    const format = payload?.format;
+    const startingLife = payload?.startingLife;
+    const aiName = payload?.aiName;
+    const aiStrategy = payload?.aiStrategy;
+    const aiDifficulty = payload?.aiDifficulty;
+    const aiDeckId = payload?.aiDeckId;
+    const aiDeckText = payload?.aiDeckText;
+    const aiDeckName = payload?.aiDeckName;
+
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Invalid game creation payload' });
+        return;
+      }
       debug(1, '[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, aiDifficulty, hasText: !!aiDeckText });
 
       // Safety: must not mutate an existing game.
@@ -5088,14 +5100,18 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       // Set format and starting life
       game.state = (game.state || {}) as any;
-      (game.state as any).format = format || 'commander';
-      (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
+      const selectedFormat = typeof format === 'string' ? format : 'commander';
+      const selectedStartingLife = typeof startingLife === 'number'
+        ? startingLife
+        : (selectedFormat === 'commander' ? 40 : 20);
+      (game.state as any).format = selectedFormat;
+      (game.state as any).startingLife = selectedStartingLife;
       
       // Join the AI player to the game first
       // This will generate a playerId and properly initialize the player
-      const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
-      const difficulty = aiDifficulty ?? 0.5; // Default to medium difficulty
-      const aiPlayerName = aiName || 'AI Opponent';
+      const strategy = (typeof aiStrategy === 'string' ? aiStrategy : AIStrategy.BASIC) as AIStrategy;
+      const difficulty = typeof aiDifficulty === 'number' ? aiDifficulty : 0.5; // Default to medium difficulty
+      const aiPlayerName = typeof aiName === 'string' && aiName.trim() ? aiName : 'AI Opponent';
       let joinResult: any;
       let aiPlayerId: string;
       
@@ -5131,10 +5147,10 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       let finalDeckName: string | undefined;
       
       // Priority 1: Use aiDeckText if provided (import mode)
-      if (aiDeckText && aiDeckText.trim()) {
+      if (typeof aiDeckText === 'string' && aiDeckText.trim()) {
         try {
           deckEntries = parseDecklist(aiDeckText);
-          finalDeckName = aiDeckName || 'Imported Deck';
+          finalDeckName = (typeof aiDeckName === 'string' && aiDeckName.trim()) ? aiDeckName : 'Imported Deck';
           debug(1, '[AI] Using imported deck text:', { deckName: finalDeckName, entryCount: deckEntries.length });
         } catch (e) {
           debugWarn(1, '[AI] Failed to parse deck text:', e);
@@ -5142,7 +5158,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         }
       }
       // Priority 2: Use aiDeckId if provided (select mode)
-      else if (aiDeckId) {
+      else if (typeof aiDeckId === 'string' && aiDeckId.trim()) {
         try {
           const deck = getDeck(aiDeckId);
           if (deck && deck.entries && deck.entries.length > 0) {
@@ -5289,7 +5305,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       socket.emit('aiPlayerCreated', {
         gameId,
         aiPlayerId,
-        aiName: aiName || 'AI Opponent',
+        aiName: aiPlayerName,
         strategy,
         deckLoaded,
         deckName: deckLoaded ? (game.state.players.find((p: any) => p.id === aiPlayerId) as any)?.deckName : undefined,
@@ -5319,27 +5335,34 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   });
 
   // Create game with multiple AI opponents
-  socket.on('createGameWithMultipleAI', async ({
-    gameId,
-    playerName,
-    format,
-    startingLife,
-    aiOpponents,
-  }: {
-    gameId: string;
-    playerName: string;
-    format?: string;
-    startingLife?: number;
-    aiOpponents: Array<{
-      name: string;
-      strategy: string;
-      difficulty?: number;
-      deckId?: string;
-      deckText?: string;
-      deckName?: string;
-    }>;
+  socket.on('createGameWithMultipleAI', async (payload?: {
+    gameId?: unknown;
+    playerName?: unknown;
+    format?: unknown;
+    startingLife?: unknown;
+    aiOpponents?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const playerName = payload?.playerName;
+    const format = payload?.format;
+    const startingLife = payload?.startingLife;
+    const aiOpponentsRaw = payload?.aiOpponents;
+
     try {
+      if (!gameId || typeof gameId !== 'string' || !Array.isArray(aiOpponentsRaw)) {
+        socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Invalid game creation payload' });
+        return;
+      }
+
+      const aiOpponents = aiOpponentsRaw as Array<{
+        name: string;
+        strategy: string;
+        difficulty?: number;
+        deckId?: string;
+        deckText?: string;
+        deckName?: string;
+      }>;
+
       debug(1, '[AI] Creating game with multiple AI opponents:', { 
         gameId, 
         playerName, 
@@ -5379,8 +5402,12 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       // Set format and starting life
       game.state = (game.state || {}) as any;
-      (game.state as any).format = format || 'commander';
-      (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
+      const selectedFormat = typeof format === 'string' ? format : 'commander';
+      const selectedStartingLife = typeof startingLife === 'number'
+        ? startingLife
+        : (selectedFormat === 'commander' ? 40 : 20);
+      (game.state as any).format = selectedFormat;
+      (game.state as any).startingLife = selectedStartingLife;
       game.state.players = game.state.players || [];
       
       const createdAIPlayers: Array<{ playerId: string; name: string; strategy: string; deckLoaded: boolean }> = [];
@@ -5592,20 +5619,23 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   });
   
   // Add AI to existing game
-  socket.on('addAIToGame', async ({
-    gameId,
-    aiName,
-    aiStrategy,
-    aiDifficulty,
-    aiDeckId,
-  }: {
-    gameId: string;
-    aiName?: string;
-    aiStrategy?: string;
-    aiDifficulty?: number;
-    aiDeckId?: string;
+  socket.on('addAIToGame', async (payload?: {
+    gameId?: unknown;
+    aiName?: unknown;
+    aiStrategy?: unknown;
+    aiDifficulty?: unknown;
+    aiDeckId?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const aiName = payload?.aiName;
+    const aiStrategy = payload?.aiStrategy;
+    const aiDifficulty = payload?.aiDifficulty;
+
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit('error', { code: 'AI_ADD_FAILED', message: 'Invalid AI add payload' });
+        return;
+      }
       const requesterId = socket.data?.playerId as PlayerID | undefined;
       const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
       if (!requesterId || socketIsSpectator) {
@@ -5651,15 +5681,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       }
       
       const aiPlayerId = `ai_${Date.now().toString(36)}`;
-      const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
-      const difficulty = aiDifficulty ?? 0.5;
+      const strategy = (typeof aiStrategy === 'string' ? aiStrategy : AIStrategy.BASIC) as AIStrategy;
+      const difficulty = typeof aiDifficulty === 'number' ? aiDifficulty : 0.5;
+      const aiDisplayName = typeof aiName === 'string' && aiName.trim() ? aiName : 'AI Opponent';
       
       // Add AI to game state
       game.state = (game.state || {}) as any;
       game.state.players = game.state.players || [];
       game.state.players.push({
         id: aiPlayerId,
-        name: aiName || 'AI Opponent',
+        name: aiDisplayName,
         life: (game.state as any).startingLife || 40,
         isAI: true,
         strategy: strategy,
@@ -5667,9 +5698,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       } as any);
       
       // Register with AI engine
-      registerAIPlayer(gameId, aiPlayerId, aiName || 'AI Opponent', strategy, difficulty);
+      registerAIPlayer(gameId, aiPlayerId, aiDisplayName, strategy, difficulty);
       
-      socket.emit('aiPlayerCreated', { gameId, aiPlayerId, aiName: aiName || 'AI Opponent', strategy, difficulty });
+      socket.emit('aiPlayerCreated', { gameId, aiPlayerId, aiName: aiDisplayName, strategy, difficulty });
       broadcastGame(io, game, gameId);
       
     } catch (error) {
@@ -5690,14 +5721,18 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   });
   
   // Remove AI from game
-  socket.on('removeAIFromGame', async ({
-    gameId,
-    aiPlayerId,
-  }: {
-    gameId: string;
-    aiPlayerId: string;
+  socket.on('removeAIFromGame', async (payload?: {
+    gameId?: unknown;
+    aiPlayerId?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const aiPlayerId = payload?.aiPlayerId;
+
     try {
+      if (!gameId || typeof gameId !== 'string' || !aiPlayerId || typeof aiPlayerId !== 'string') {
+        socket.emit('error', { code: 'AI_REMOVE_FAILED', message: 'Invalid AI remove payload' });
+        return;
+      }
       const requesterId = socket.data?.playerId as PlayerID | undefined;
       const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
       if (!requesterId || socketIsSpectator) {
@@ -5763,18 +5798,22 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
    * Toggle AI control for a human player
    * Allows a player to enable/disable AI autopilot for their seat
    */
-  socket.on('toggleAIControl', async ({
-    gameId,
-    enable,
-    strategy,
-    difficulty,
-  }: {
-    gameId: string;
-    enable: boolean;
-    strategy?: string;
-    difficulty?: number;
+  socket.on('toggleAIControl', async (payload?: {
+    gameId?: unknown;
+    enable?: unknown;
+    strategy?: unknown;
+    difficulty?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const enable = payload?.enable;
+    const strategy = payload?.strategy;
+    const difficulty = payload?.difficulty;
+
     try {
+      if (!gameId || typeof gameId !== 'string' || typeof enable !== 'boolean') {
+        socket.emit('error', { code: 'AI_TOGGLE_FAILED', message: 'Invalid AI toggle payload' });
+        return;
+      }
       const playerId = socket.data.playerId as PlayerID | undefined;
       const socketIsSpectator = !!(
         (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
@@ -5815,8 +5854,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
 
       if (enable) {
         // Enable AI control for this player
-        const aiStrategy = (strategy as AIStrategy) || AIStrategy.BASIC;
-        const aiDifficulty = difficulty ?? 0.5;
+        const aiStrategy = (typeof strategy === 'string' ? strategy : AIStrategy.BASIC) as AIStrategy;
+        const aiDifficulty = typeof difficulty === 'number' ? difficulty : 0.5;
         
         registerAIPlayer(gameId, playerId, playerInGame.name || 'Player', aiStrategy, aiDifficulty);
         
@@ -5867,8 +5906,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         gameId, 
         playerId, 
         enabled: enable,
-        strategy: enable ? (strategy || 'basic') : undefined,
-        difficulty: enable ? (difficulty ?? 0.5) : undefined,
+        strategy: enable ? (typeof strategy === 'string' ? strategy : 'basic') : undefined,
+        difficulty: enable ? (typeof difficulty === 'number' ? difficulty : 0.5) : undefined,
       });
       
       // Bump game sequence and broadcast

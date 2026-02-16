@@ -1863,7 +1863,7 @@ function checkAndPromptMiracle(
 export async function requestCastSpellForSocket(
   io: Server,
   socket: Socket,
-  { gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number },
+  payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown },
   options?: {
     skipPriorityCheck?: boolean;
     forcedAlternateCostId?: string;
@@ -1871,6 +1871,14 @@ export async function requestCastSpellForSocket(
   }
 ): Promise<void> {
   try {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+    const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
+      ? payload.faceIndex
+      : undefined;
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
+
     debug(2, `[requestCastSpell] ======== REQUEST START ========`);
     debug(2, `[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
 
@@ -2636,12 +2644,24 @@ export function registerGameActions(io: Server, socket: Socket) {
   };
 
   // Play land from hand
-  socket.on("playLand", ({ gameId, cardId, selectedFace, fromZone }: { 
-    gameId: string; 
-    cardId: string; 
-    selectedFace?: number;
-    fromZone?: 'hand' | 'graveyard' | 'exile';
+  socket.on("playLand", (payload?: {
+    gameId?: unknown;
+    cardId?: unknown;
+    selectedFace?: unknown;
+    fromZone?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+    const selectedFace = payload?.selectedFace;
+    const fromZone = payload?.fromZone;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
+    if (!(selectedFace === undefined || typeof selectedFace === 'number')) return;
+    if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile')) return;
+
+    const selectedFaceIndex = selectedFace as number | undefined;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -2667,7 +2687,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Determine which zone to check based on fromZone parameter
-      const sourceZone = fromZone || 'hand';
+      const sourceZone = (fromZone as 'hand' | 'graveyard' | 'exile' | undefined) || 'hand';
       
       // Check if player has permission to play from graveyard
       if (sourceZone === 'graveyard') {
@@ -2722,7 +2742,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
       
       // If MDFC and no face selected yet, prompt the player to choose
-      if (isMDFC && selectedFace === undefined) {
+      if (isMDFC && selectedFaceIndex === undefined) {
         // Check if both faces are lands (some MDFCs have spell on one side)
         const face0 = cardFaces[0];
         const face1 = cardFaces[1];
@@ -2789,8 +2809,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // If a face was selected for MDFC, apply that face's properties
-      if (isMDFC && selectedFace !== undefined) {
-        const selectedCardFace = cardFaces[selectedFace];
+      if (isMDFC && selectedFaceIndex !== undefined) {
+        const selectedCardFace = cardFaces[selectedFaceIndex];
         if (selectedCardFace) {
           // Update the card to use the selected face's properties
           (cardInZone as any).name = selectedCardFace.name;
@@ -2800,8 +2820,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (selectedCardFace.image_uris) {
             (cardInZone as any).image_uris = selectedCardFace.image_uris;
           }
-          (cardInZone as any).selectedMDFCFace = selectedFace;
-          debug(2, `[playLand] Playing MDFC ${cardName} as ${selectedCardFace.name} (face ${selectedFace})`);
+          (cardInZone as any).selectedMDFCFace = selectedFaceIndex;
+          debug(2, `[playLand] Playing MDFC ${cardName} as ${selectedCardFace.name} (face ${selectedFaceIndex})`);
         }
       }
       
@@ -3202,10 +3222,20 @@ export function registerGameActions(io: Server, socket: Socket) {
   // This handler checks if targets are needed and requests them first,
   // then triggers payment after targets are selected.
   // =====================================================================
-  socket.on("requestCastSpell", async ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
+  socket.on("requestCastSpell", async (payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown }) => {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+    const faceIndex = payload?.faceIndex;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
+    if (!(faceIndex === undefined || typeof faceIndex === 'number')) return;
+
+    const castFaceIndex = faceIndex as number | undefined;
+
     try {
       debug(2, `[requestCastSpell] ======== REQUEST START ========`);
-      debug(2, `[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
+      debug(2, `[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${castFaceIndex}`);
       
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -3312,7 +3342,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // ========================================================================
       if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {
         // For transform cards, check if attempting to cast the back face
-        if (faceIndex === 1) {
+        if (castFaceIndex === 1) {
           // Explicitly requesting back face - not allowed
           socket.emit("error", { 
             code: "TRANSFORM_BACK_FACE", 
@@ -3348,16 +3378,16 @@ export function registerGameActions(io: Server, socket: Socket) {
       let faceTypeLine = typeLine;
       
       // Handle split/modal/transform cards
-      if (faceIndex !== undefined && Array.isArray(cardFaces)) {
+      if (castFaceIndex !== undefined && Array.isArray(cardFaces)) {
         // Validate faceIndex bounds
-        if (faceIndex < 0 || faceIndex >= cardFaces.length) {
+        if (castFaceIndex < 0 || castFaceIndex >= cardFaces.length) {
           socket.emit("error", {
             code: "INVALID_FACE_INDEX",
-            message: `Invalid face index: ${faceIndex}`,
+            message: `Invalid face index: ${castFaceIndex}`,
           });
           return;
         }
-        const face = cardFaces[faceIndex];
+        const face = cardFaces[castFaceIndex];
         if (face) {
           oracleText = (face.oracle_text || "").toLowerCase();
           manaCost = face.mana_cost || manaCost;
@@ -3844,19 +3874,35 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = async ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId, convokeTappedCreatures, fromZone }: { 
-    gameId: string; 
-    cardId: string; 
-    targets?: any[]; 
-    payment?: PaymentItem[];
-    skipInteractivePrompts?: boolean; // NEW: Flag to skip target/payment requests when completing a previous cast
-    xValue?: number;
-    alternateCostId?: string;
-    convokeTappedCreatures?: string[];
-    fromZone?: 'hand' | 'exile' | 'graveyard';
+  const handleCastSpellFromHand = async (payload?: {
+    gameId?: unknown;
+    cardId?: unknown;
+    targets?: unknown;
+    payment?: unknown;
+    skipInteractivePrompts?: unknown;
+    xValue?: unknown;
+    alternateCostId?: unknown;
+    convokeTappedCreatures?: unknown;
+    fromZone?: unknown;
   }) => {
+    const safeGameId = typeof payload?.gameId === 'string' ? payload.gameId : undefined;
     try {
+      const gameId = payload?.gameId;
+      const cardId = payload?.cardId;
+      let targets: any = payload?.targets as any;
+      const payment = Array.isArray(payload?.payment) ? (payload?.payment as PaymentItem[]) : undefined;
+      const skipInteractivePrompts = payload?.skipInteractivePrompts === true;
+      const xValue = typeof payload?.xValue === 'number' && Number.isFinite(payload.xValue) ? payload.xValue : undefined;
+      const alternateCostId = typeof payload?.alternateCostId === 'string' ? payload.alternateCostId : undefined;
+      const convokeTappedCreatures = Array.isArray(payload?.convokeTappedCreatures)
+        ? (payload.convokeTappedCreatures.filter((id): id is string => typeof id === 'string'))
+        : undefined;
+      const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard'
+        ? payload.fromZone
+        : undefined;
+
       if (!gameId || typeof gameId !== 'string') return;
+      if (!cardId || typeof cardId !== 'string') return;
       if (!ensureInGameRoom(gameId)) return;
 
       const game = ensureGame(gameId);
@@ -7078,7 +7124,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      debugError(1, `castSpell error for game ${gameId}:`, err);
+      debugError(1, `castSpell error for game ${safeGameId}:`, err);
       socket.emit("error", {
         code: "CAST_SPELL_ERROR",
         message: err?.message ?? String(err),
@@ -7090,16 +7136,37 @@ export function registerGameActions(io: Server, socket: Socket) {
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
   // Called after both target selection and payment are complete
   // =====================================================================
-  socket.on("completeCastSpell", async ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId, convokeTappedCreatures }: { 
-    gameId: string; 
-    cardId: string; 
-    targets?: any[]; 
-    payment?: PaymentItem[];
-    effectId?: string;
-    xValue?: number;
-    alternateCostId?: string;
-    convokeTappedCreatures?: string[];
+  socket.on("completeCastSpell", async (payload?: {
+    gameId?: unknown;
+    cardId?: unknown;
+    targets?: unknown;
+    payment?: unknown;
+    effectId?: unknown;
+    xValue?: unknown;
+    alternateCostId?: unknown;
+    convokeTappedCreatures?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+    const targets = payload?.targets;
+    const payment = payload?.payment;
+    const effectId = payload?.effectId;
+    const xValue = payload?.xValue;
+    const alternateCostId = payload?.alternateCostId;
+    const convokeTappedCreatures = payload?.convokeTappedCreatures;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
+    if (!(targets === undefined || Array.isArray(targets))) return;
+    if (!(payment === undefined || Array.isArray(payment))) return;
+    if (!(effectId === undefined || typeof effectId === 'string')) return;
+    if (!(xValue === undefined || typeof xValue === 'number')) return;
+    if (!(alternateCostId === undefined || typeof alternateCostId === 'string')) return;
+    if (!(convokeTappedCreatures === undefined || (Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.every((id) => typeof id === 'string')))) return;
+
+    const effectIdStr = effectId as string | undefined;
+    const convokeTapped = convokeTappedCreatures as string[] | undefined;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -7111,18 +7178,18 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // DEBUG: Log incoming parameters
       debug(2, `[completeCastSpell] DEBUG START ========================================`);
-      debug(2, `[completeCastSpell] cardId: ${cardId}, effectId: ${effectId}`);
+      debug(2, `[completeCastSpell] cardId: ${cardId}, effectId: ${effectIdStr}`);
       debug(2, `[completeCastSpell] targets from client: ${targets ? JSON.stringify(targets) : 'undefined'}`);
       debug(2, `[completeCastSpell] payment from client: ${payment ? JSON.stringify(payment) : 'undefined'}`);
-      if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
-        debug(2, `[completeCastSpell] convokeTappedCreatures:`, convokeTappedCreatures);
+      if (convokeTapped && convokeTapped.length > 0) {
+        debug(2, `[completeCastSpell] convokeTappedCreatures:`, convokeTapped);
       }
       
       // Retrieve targets from pending cast data before cleaning up
       // This ensures Aura targets (stored in targetSelectionConfirm) are preserved
-      let finalTargets = targets;
-      if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
-        const pendingCast = (game.state as any).pendingSpellCasts[effectId];
+      let finalTargets = targets as any[] | undefined;
+      if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
+        const pendingCast = (game.state as any).pendingSpellCasts[effectIdStr];
         debug(2, `[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
 
         pendingFromZone = (pendingCast?.fromZone as any) || undefined;
@@ -7154,7 +7221,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           debug(1, `[completeCastSpell] Using pending targets from server: ${finalTargets.join(',')}`);
         } else if (!finalTargets || finalTargets.length === 0) {
           // Fallback: use client-sent targets if no pending targets
-          finalTargets = targets || [];
+          finalTargets = (targets as any[] | undefined) || [];
           debug(1, `[completeCastSpell] Using client-sent targets: ${finalTargets?.join(',') || 'none'}`);
         }
 
@@ -7174,7 +7241,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           debugError(1, `[completeCastSpell] client targets: ${JSON.stringify(targets)}`);
           
           // Clean up the pending cast
-          delete (game.state as any).pendingSpellCasts[effectId];
+          delete (game.state as any).pendingSpellCasts[effectIdStr];
           
           socket.emit("error", {
             code: "MISSING_TARGETS",
@@ -7183,16 +7250,16 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
         
-        delete (game.state as any).pendingSpellCasts[effectId];
+        delete (game.state as any).pendingSpellCasts[effectIdStr];
       } else {
-        debug(2, `[completeCastSpell] No pendingCast found for effectId: ${effectId}`);
+        debug(2, `[completeCastSpell] No pendingCast found for effectId: ${effectIdStr}`);
       }
       
       // CRITICAL FIX: Clean up pendingTargets to prevent game from being blocked
       // pendingTargets is set by targetSelectionConfirm but never cleaned up
-      if (effectId && game.state.pendingTargets?.[effectId]) {
-        debug(2, `[completeCastSpell] Cleaning up pendingTargets for effectId: ${effectId}`);
-        delete game.state.pendingTargets[effectId];
+      if (effectIdStr && game.state.pendingTargets?.[effectIdStr]) {
+        debug(2, `[completeCastSpell] Cleaning up pendingTargets for effectId: ${effectIdStr}`);
+        delete game.state.pendingTargets[effectIdStr];
       }
 
       debug(1, `[completeCastSpell] Final targets to use: ${finalTargets?.join(',') || 'none'}`);
@@ -7201,7 +7268,17 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
-      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId, convokeTappedCreatures, fromZone: pendingFromZone });
+      handleCastSpellFromHand({
+        gameId,
+        cardId,
+        targets: finalTargets,
+        payment: payment as PaymentItem[] | undefined,
+        skipInteractivePrompts: true,
+        xValue: xValue as number | undefined,
+        alternateCostId: alternateCostId as string | undefined,
+        convokeTappedCreatures: convokeTapped,
+        fromZone: pendingFromZone,
+      });
       
     } catch (err: any) {
       debugError(1, `[completeCastSpell] Error:`, err);
@@ -7216,7 +7293,12 @@ export function registerGameActions(io: Server, socket: Socket) {
   socket.on("castSpellFromHand", handleCastSpellFromHand);
 
   // Pass priority
-  socket.on("passPriority", async ({ gameId, isAutoPass }: { gameId: string; isAutoPass?: boolean }) => {
+  socket.on("passPriority", async (payload?: { gameId?: unknown; isAutoPass?: unknown }) => {
+    const gameId = payload?.gameId;
+    const isAutoPass = payload?.isAutoPass;
+
+    if (!gameId || typeof gameId !== 'string') return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -7237,7 +7319,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      const { changed, resolvedNow, advanceStep } = (game as any).passPriority(playerId, isAutoPass);
+      const { changed, resolvedNow, advanceStep } = (game as any).passPriority(playerId, isAutoPass === true);
       if (!changed) return;
 
       appendGameEvent(game, gameId, "passPriority", { by: playerId });
@@ -7766,7 +7848,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Next turn
-  socket.on("nextTurn", async ({ gameId }: { gameId: string }) => {
+  socket.on("nextTurn", async (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+    if (!gameId || typeof gameId !== 'string') return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -8012,7 +8097,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   // Next step handler
   // Per MTG rules, "next step" should pass priority. The step only advances
   // when ALL players pass priority in succession with an empty stack.
-  socket.on("nextStep", async ({ gameId }: { gameId: string }) => {
+  socket.on("nextStep", async (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+    if (!gameId || typeof gameId !== 'string') return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -8269,11 +8357,18 @@ export function registerGameActions(io: Server, socket: Socket) {
   // IMPORTANT: This also handles turn-based actions when skipping phases:
   // - Untapping when skipping from UNTAP
   // - Drawing a card when skipping from before DRAW to MAIN1 or later
-  socket.on("skipToPhase", async ({ gameId, targetPhase, targetStep }: { 
-    gameId: string; 
-    targetPhase: string;
-    targetStep: string;
+  socket.on("skipToPhase", async (payload?: {
+    gameId?: unknown;
+    targetPhase?: unknown;
+    targetStep?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const targetPhase = payload?.targetPhase;
+    const targetStep = payload?.targetStep;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (typeof targetPhase !== 'string' || typeof targetStep !== 'string') return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -9024,8 +9119,11 @@ export function registerGameActions(io: Server, socket: Socket) {
   // Reorder player's hand based on drag-and-drop
   socket.on(
     "reorderHand",
-    ({ gameId, order }: { gameId: string; order: string[] }) => {
+    (payload?: { gameId?: unknown; order?: unknown }) => {
       try {
+        const gameId = payload?.gameId;
+        const order = payload?.order;
+        if (!gameId || typeof gameId !== "string") return;
         const game = ensureGame(gameId);
         const playerId = socket.data.playerId;
         const spectator = !!(
@@ -9051,7 +9149,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           "[reorderHand] Received request for game",
           gameId,
           ", order length:",
-          order.length
+          Array.isArray(order) ? order.length : 0
         );
         debug(1, 
           "[reorderHand] playerId:",
@@ -9190,8 +9288,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   // Set turn direction (+1 or -1)
   socket.on(
     "setTurnDirection",
-    ({ gameId, direction }: { gameId: string; direction: 1 | -1 }) => {
+    (payload?: { gameId?: unknown; direction?: unknown }) => {
       try {
+        const gameId = payload?.gameId;
+        const direction = payload?.direction;
         const playerId = socket.data?.playerId;
         const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
         if (!playerId || typeof playerId !== "string" || socketIsSpectator) {
@@ -9672,11 +9772,19 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Adjust a player's life total by a delta (positive for gain, negative for loss)
    */
-  socket.on("adjustLife", async ({ gameId, delta, targetPlayerId }: { 
-    gameId: string; 
-    delta: number; 
-    targetPlayerId?: string;
+  socket.on("adjustLife", async (payload?: {
+    gameId?: unknown;
+    delta?: unknown;
+    targetPlayerId?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const delta = payload?.delta;
+    const targetPlayerId = payload?.targetPlayerId;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (typeof delta !== 'number') return;
+    if (!(targetPlayerId === undefined || typeof targetPlayerId === 'string')) return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -9797,11 +9905,19 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Set a player's life total to a specific value
    */
-  socket.on("setLife", ({ gameId, life, targetPlayerId }: { 
-    gameId: string; 
-    life: number; 
-    targetPlayerId?: string;
+  socket.on("setLife", (payload?: {
+    gameId?: unknown;
+    life?: unknown;
+    targetPlayerId?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const life = payload?.life;
+    const targetPlayerId = payload?.targetPlayerId;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (typeof life !== 'number') return;
+    if (!(targetPlayerId === undefined || typeof targetPlayerId === 'string')) return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -9809,6 +9925,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
       );
       if (!game || !playerId || spectator) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Target player defaults to the acting player
       const targetPid = targetPlayerId || playerId;
@@ -9933,11 +10051,19 @@ export function registerGameActions(io: Server, socket: Socket) {
    * Rule 701.17: For a player to mill a number of cards, that player puts that
    * many cards from the top of their library into their graveyard.
    */
-  socket.on("mill", ({ gameId, count, targetPlayerId }: { 
-    gameId: string; 
-    count: number; 
-    targetPlayerId?: string;
+  socket.on("mill", (payload?: {
+    gameId?: unknown;
+    count?: unknown;
+    targetPlayerId?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const count = payload?.count;
+    const targetPlayerId = payload?.targetPlayerId;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (typeof count !== 'number') return;
+    if (!(targetPlayerId === undefined || typeof targetPlayerId === 'string')) return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -9945,6 +10071,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
       );
       if (!game || !playerId || spectator) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Target player defaults to the acting player
       const targetPid = targetPlayerId || playerId;
@@ -10059,17 +10187,16 @@ export function registerGameActions(io: Server, socket: Socket) {
    * Set house rules for a game during pre-game phase.
    * House rules can only be set before the game starts.
    */
-  socket.on("setHouseRules", ({ gameId, houseRules }: { 
-    gameId: string; 
-    houseRules: {
-      freeFirstMulligan?: boolean;
-      freeMulliganNoLandsOrAllLands?: boolean;
-      anyCommanderDamageCountsAsCommanderDamage?: boolean;
-      groupMulliganDiscount?: boolean;
-      enableArchenemy?: boolean;
-      enablePlanechase?: boolean;
-    };
+  socket.on("setHouseRules", (payload?: {
+    gameId?: unknown;
+    houseRules?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const houseRules = payload?.houseRules;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!houseRules || typeof houseRules !== 'object' || Array.isArray(houseRules)) return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -10077,6 +10204,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
       );
       if (!game || !playerId || spectator) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
@@ -10092,7 +10221,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       game.state = (game.state || {}) as any;
       (game.state as any).houseRules = {
         ...(game.state as any).houseRules,
-        ...houseRules,
+        ...(houseRules as Record<string, unknown>),
       };
 
       // Bump sequence
@@ -10104,8 +10233,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         appendEvent(gameId, (game as any).seq ?? 0, "setHouseRules", { 
           playerId, 
-          houseRules,
-          rules: houseRules,
+          houseRules: houseRules as Record<string, unknown>,
+          rules: houseRules as Record<string, unknown>,
         });
       } catch (e) {
         debugWarn(1, "appendEvent(setHouseRules) failed:", e);
@@ -10113,12 +10242,20 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Build a description of enabled rules
       const enabledRules: string[] = [];
-      if (houseRules.freeFirstMulligan) enabledRules.push("Free First Mulligan");
-      if (houseRules.freeMulliganNoLandsOrAllLands) enabledRules.push("Free Mulligan (No Lands/All Lands)");
-      if (houseRules.anyCommanderDamageCountsAsCommanderDamage) enabledRules.push("Any Commander Damage Counts");
-      if (houseRules.groupMulliganDiscount) enabledRules.push("Group Mulligan Discount");
-      if (houseRules.enableArchenemy) enabledRules.push("Archenemy (NYI)");
-      if (houseRules.enablePlanechase) enabledRules.push("Planechase (NYI)");
+      const rules = houseRules as {
+        freeFirstMulligan?: boolean;
+        freeMulliganNoLandsOrAllLands?: boolean;
+        anyCommanderDamageCountsAsCommanderDamage?: boolean;
+        groupMulliganDiscount?: boolean;
+        enableArchenemy?: boolean;
+        enablePlanechase?: boolean;
+      };
+      if (rules.freeFirstMulligan) enabledRules.push("Free First Mulligan");
+      if (rules.freeMulliganNoLandsOrAllLands) enabledRules.push("Free Mulligan (No Lands/All Lands)");
+      if (rules.anyCommanderDamageCountsAsCommanderDamage) enabledRules.push("Any Commander Damage Counts");
+      if (rules.groupMulliganDiscount) enabledRules.push("Group Mulligan Discount");
+      if (rules.enableArchenemy) enabledRules.push("Archenemy (NYI)");
+      if (rules.enablePlanechase) enabledRules.push("Planechase (NYI)");
 
       const rulesMessage = enabledRules.length > 0
         ? `House rules enabled: ${enabledRules.join(", ")}`
@@ -10162,7 +10299,9 @@ export function registerGameActions(io: Server, socket: Socket) {
    * 
    * Emits: costReductionInfo with { cardId: { reducedManaCost: string, reduction: number, sources: string[] } }
    */
-  socket.on("getCostReductions", async ({ gameId }: { gameId: string }) => {
+  socket.on("getCostReductions", async (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+
     try {
       const playerId = socket.data.playerId as string | undefined;
       if (!playerId) return;
@@ -10274,16 +10413,31 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Handle equip ability - prompts player to select creature to attach equipment to
   // Flow: selectTarget -> promptManaPayment -> confirmPayment -> attach
-  socket.on("equipAbility", ({ gameId, equipmentId, targetCreatureId, paymentConfirmed }: { 
-    gameId: string; 
-    equipmentId: string; 
-    targetCreatureId?: string;
-    paymentConfirmed?: boolean;
+  socket.on("equipAbility", (payload?: {
+    gameId?: unknown;
+    equipmentId?: unknown;
+    targetCreatureId?: unknown;
+    paymentConfirmed?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const equipmentId = payload?.equipmentId;
+    const targetCreatureId = payload?.targetCreatureId;
+    const paymentConfirmed = payload?.paymentConfirmed;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!equipmentId || typeof equipmentId !== 'string') return;
+    if (!(targetCreatureId === undefined || typeof targetCreatureId === 'string')) return;
+    if (!(paymentConfirmed === undefined || typeof paymentConfirmed === 'boolean')) return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
+      if (!game || !playerId || spectator) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       const battlefield = game.state?.battlefield || [];
       const equipment = battlefield.find((p: any) => p.id === equipmentId);
@@ -10383,8 +10537,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      const targetCreatureIdStr = targetCreatureId as string;
+
       // Target specified - check if we need to prompt for payment
-      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureIdStr);
       if (!targetCreature) {
         socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target creature not found" });
         return;
@@ -10443,7 +10599,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Attach to new creature
-      equipment.attachedTo = targetCreatureId;
+      equipment.attachedTo = targetCreatureIdStr;
       (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
       if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
         (targetCreature as any).attachedEquipment.push(equipmentId);
@@ -10456,7 +10612,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         appendEvent(gameId, (game as any).seq ?? 0, "equipPermanent", {
           playerId,
           equipmentId,
-          targetCreatureId,
+          targetCreatureId: targetCreatureIdStr,
           equipmentName: equipment.card?.name,
           targetCreatureName: targetCreature.card?.name,
           previouslyAttachedTo: equipment.attachedTo, // for proper undo tracking
@@ -10494,14 +10650,19 @@ export function registerGameActions(io: Server, socket: Socket) {
    * Foretell: Exile this card from your hand face-down for {2}. 
    * You may cast it later for its foretell cost.
    */
-  socket.on("foretellCard", ({ gameId, cardId }: {
-    gameId: string;
-    cardId: string;
-  }) => {
+  socket.on("foretellCard", (payload?: { gameId?: unknown; cardId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       const zones = game.state.zones?.[playerId];
       if (!zones || !Array.isArray(zones.hand)) {
@@ -10580,14 +10741,19 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Handle casting a foretold card from exile
    */
-  socket.on("castForetold", ({ gameId, cardId }: {
-    gameId: string;
-    cardId: string;
-  }) => {
+  socket.on("castForetold", (payload?: { gameId?: unknown; cardId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
 
       const zones = game.state.zones?.[playerId];
       if (!zones || !Array.isArray(zones.exile)) {
@@ -10655,18 +10821,30 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Payment/targeting cancel from client casting UI.
   // Used as a best-effort cleanup hook, especially for foretell casts (which temporarily move a card into hand).
-  socket.on('targetSelectionCancel', ({ gameId, cardId, effectId }: { gameId: string; cardId: string; effectId?: string }) => {
+  socket.on('targetSelectionCancel', (payload?: { gameId?: unknown; cardId?: unknown; effectId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+    const effectId = payload?.effectId;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
+    if (!(effectId === undefined || typeof effectId === 'string')) return;
+
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      if (!ensureInGameRoom(gameId)) return;
+
+      const effectIdStr = effectId as string | undefined;
+
       // Clean pending spell-cast state when present.
-      if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
-        delete (game.state as any).pendingSpellCasts[effectId];
+      if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
+        delete (game.state as any).pendingSpellCasts[effectIdStr];
       }
-      if (effectId && (game.state as any).pendingTargets?.[effectId]) {
-        delete (game.state as any).pendingTargets[effectId];
+      if (effectIdStr && (game.state as any).pendingTargets?.[effectIdStr]) {
+        delete (game.state as any).pendingTargets[effectIdStr];
       }
 
       const pendingForetell = (game.state as any).pendingForetellCasts?.[cardId];
@@ -10703,13 +10881,14 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Handle phase out effect (Clever Concealment, Teferi's Protection, etc.)
    */
-  socket.on("phaseOutPermanents", ({ gameId, permanentIds }: {
-    gameId: string;
-    permanentIds: string[];
-  }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+  socket.on("phaseOutPermanents", (payload?: { gameId?: unknown; permanentIds?: unknown }) => {
+    const gameId = payload?.gameId;
+    const permanentIds = payload?.permanentIds;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!Array.isArray(permanentIds) || !permanentIds.every((id) => typeof id === 'string')) return;
+
+    try {
       if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
@@ -10768,32 +10947,51 @@ export function registerGameActions(io: Server, socket: Socket) {
    * bespoke `confirmGraveyardTargets` follow-up. It now enqueues a Resolution Queue
    * step so the unified interaction UI can handle it.
    */
-  socket.on("requestGraveyardTargets", ({ gameId, effectId, cardName, filter, minTargets, maxTargets, targetPlayerId, destination, title, description }: {
-    gameId: string;
-    effectId: string;
-    cardName: string;
-    filter: { types?: string[]; subtypes?: string[]; excludeTypes?: string[] };
-    minTargets: number;
-    maxTargets: number;
-    targetPlayerId?: string; // Whose graveyard to search (defaults to self)
-    destination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
-    title?: string;
-    description?: string;
+  socket.on("requestGraveyardTargets", (payload?: {
+    gameId?: unknown;
+    effectId?: unknown;
+    cardName?: unknown;
+    filter?: unknown;
+    minTargets?: unknown;
+    maxTargets?: unknown;
+    targetPlayerId?: unknown;
+    destination?: unknown;
+    title?: unknown;
+    description?: unknown;
   }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+    const gameId = payload?.gameId;
+    const effectId = payload?.effectId;
+    const cardName = payload?.cardName;
+    const filter = payload?.filter;
+    const minTargets = payload?.minTargets;
+    const maxTargets = payload?.maxTargets;
+    const targetPlayerId = payload?.targetPlayerId;
+    const destination = payload?.destination;
+    const title = payload?.title;
+    const description = payload?.description;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!effectId || typeof effectId !== 'string') return;
+    if (!cardName || typeof cardName !== 'string') return;
+    if (!(filter === undefined || (typeof filter === 'object' && !Array.isArray(filter)))) return;
+    if (typeof minTargets !== 'number' || typeof maxTargets !== 'number') return;
+    if (!(targetPlayerId === undefined || typeof targetPlayerId === 'string')) return;
+    if (!(destination === undefined || destination === 'hand' || destination === 'battlefield' || destination === 'library_top' || destination === 'library_bottom' || destination === 'exile')) return;
+    if (!(title === undefined || typeof title === 'string')) return;
+    if (!(description === undefined || typeof description === 'string')) return;
+
+    try {
       if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      const searchPlayerId = targetPlayerId || playerId;
+      const searchPlayerId = (targetPlayerId as string | undefined) || playerId;
       const zones = game.state.zones?.[searchPlayerId];
       const gy = zones && Array.isArray((zones as any).graveyard) ? ((zones as any).graveyard as any[]) : [];
 
-      const filterObj = filter || {};
+      const filterObj = (filter as { types?: string[]; subtypes?: string[]; excludeTypes?: string[] } | undefined) || {};
       const validTargets = gy.filter((card: any) => {
         if (!card) return false;
         const typeLine = String(card.type_line || '').toLowerCase();
@@ -10829,16 +11027,16 @@ export function registerGameActions(io: Server, socket: Socket) {
           playerId: playerId as any,
           sourceName: cardName,
           sourceId: effectId,
-          description: String(description || `Select card(s) from ${getPlayerName(game, searchPlayerId)}'s graveyard.`),
+          description: String((description as string | undefined) || `Select card(s) from ${getPlayerName(game, searchPlayerId)}'s graveyard.`),
           mandatory: Number(minTargets || 0) > 0,
           effectId,
           cardName,
-          title: String(title || cardName || 'Select from Graveyard'),
+          title: String((title as string | undefined) || cardName || 'Select from Graveyard'),
           targetPlayerId: searchPlayerId,
           filter: filterObj,
           minTargets: Number(minTargets || 0),
           maxTargets: Number(maxTargets || 1),
-          destination: destination || 'hand',
+          destination: (destination as 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile' | undefined) || 'hand',
           validTargets,
           imageUrl: undefined,
         } as any);
@@ -10858,17 +11056,28 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Request opponent selection for effects like Secret Rendezvous
    */
-  socket.on("requestOpponentSelection", ({ gameId, effectId, cardName, description, minOpponents, maxOpponents }: {
-    gameId: string;
-    effectId: string;
-    cardName: string;
-    description: string;
-    minOpponents: number;
-    maxOpponents: number;
+  socket.on("requestOpponentSelection", (payload?: {
+    gameId?: unknown;
+    effectId?: unknown;
+    cardName?: unknown;
+    description?: unknown;
+    minOpponents?: unknown;
+    maxOpponents?: unknown;
   }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+    const gameId = payload?.gameId;
+    const effectId = payload?.effectId;
+    const cardName = payload?.cardName;
+    const description = payload?.description;
+    const minOpponents = payload?.minOpponents;
+    const maxOpponents = payload?.maxOpponents;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!effectId || typeof effectId !== 'string') return;
+    if (!cardName || typeof cardName !== 'string') return;
+    if (typeof description !== 'string') return;
+    if (typeof minOpponents !== 'number' || typeof maxOpponents !== 'number') return;
+
+    try {
       if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
@@ -10929,17 +11138,29 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Request sacrifice selection from a player due to an edict effect
    */
-  socket.on("requestSacrificeSelection", async ({ gameId, effectId, sourceName, targetPlayerId, permanentType, count }: {
-    gameId: string;
-    effectId: string;
-    sourceName: string;
-    targetPlayerId: string;
-    permanentType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent';
-    count: number;
+  socket.on("requestSacrificeSelection", async (payload?: {
+    gameId?: unknown;
+    effectId?: unknown;
+    sourceName?: unknown;
+    targetPlayerId?: unknown;
+    permanentType?: unknown;
+    count?: unknown;
   }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+    const gameId = payload?.gameId;
+    const effectId = payload?.effectId;
+    const sourceName = payload?.sourceName;
+    const targetPlayerId = payload?.targetPlayerId;
+    const permanentType = payload?.permanentType;
+    const count = payload?.count;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!effectId || typeof effectId !== 'string') return;
+    if (!sourceName || typeof sourceName !== 'string') return;
+    if (!targetPlayerId || typeof targetPlayerId !== 'string') return;
+    if (!(permanentType === 'creature' || permanentType === 'artifact' || permanentType === 'enchantment' || permanentType === 'land' || permanentType === 'permanent')) return;
+    if (typeof count !== 'number') return;
+
+    try {
       if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
@@ -11080,22 +11301,51 @@ export function registerGameActions(io: Server, socket: Socket) {
    * Change control of a permanent from one player to another.
    * Used by effects like Humble Defector, Act of Treason, Dominate, etc.
    */
-  socket.on("changePermanentControl", ({ gameId, permanentId, newController, duration }: {
-    gameId: string;
-    permanentId: string;
-    newController: string;
-    duration?: 'permanent' | 'eot' | 'turn';
+  socket.on("changePermanentControl", (payload?: {
+    gameId?: unknown;
+    permanentId?: unknown;
+    newController?: unknown;
+    duration?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const permanentId = payload?.permanentId;
+    const newController = payload?.newController;
+    const duration = payload?.duration;
+
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!permanentId || typeof permanentId !== 'string') return;
+    if (!newController || typeof newController !== 'string') return;
+    if (!(duration === undefined || duration === 'permanent' || duration === 'eot' || duration === 'turn')) return;
+
     try {
+      if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
+      const spectator = !!(
+        (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+      );
+      if (!game || !playerId || spectator) return;
 
       const battlefield = game.state?.battlefield || [];
       const permanent = battlefield.find((p: any) => p && p.id === permanentId);
       
       if (!permanent) {
         socket.emit("error", { code: "PERMANENT_NOT_FOUND", message: "Permanent not found" });
+        return;
+      }
+
+      const role = (socket.data as any)?.role;
+      const isJudge = role === 'judge';
+      if (!isJudge && String(permanent.controller) !== String(playerId)) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized." });
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const targetPlayer = players.find((p: any) => p && String(p.id) === String(newController));
+      if (!targetPlayer || targetPlayer.spectator || targetPlayer.isSpectator) {
+        socket.emit("error", { code: "INVALID_CONTROLLER", message: "Target controller is not a seated player" });
         return;
       }
 
@@ -11267,20 +11517,23 @@ export function registerGameActions(io: Server, socket: Socket) {
    * This allows players to set automatic responses for "may" triggers
    * and "opponent may pay" triggers like Smothering Tithe.
    */
-  socket.on("setTriggerShortcut", async ({
-    gameId,
-    cardName,
-    preference,
-    triggerDescription,
-  }: {
-    gameId: string;
-    cardName: string;
-    preference: 'always_pay' | 'never_pay' | 'always_yes' | 'always_no' | 'ask_each_time';
-    triggerDescription?: string;
+  socket.on("setTriggerShortcut", async (payload?: {
+    gameId?: unknown;
+    cardName?: unknown;
+    preference?: unknown;
+    triggerDescription?: unknown;
   }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+    const gameId = payload?.gameId;
+    const cardName = payload?.cardName;
+    const preference = payload?.preference;
+    const triggerDescription = payload?.triggerDescription;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardName || typeof cardName !== 'string') return;
+    if (!(preference === 'always_pay' || preference === 'never_pay' || preference === 'always_yes' || preference === 'always_no' || preference === 'ask_each_time')) return;
+    if (!(triggerDescription === undefined || typeof triggerDescription === 'string')) return;
+
+    try {
       if (!ensureInGameRoom(gameId, { code: 'NOT_IN_GAME', message: 'Not in game.' })) return;
 
       const game = ensureGame(gameId);
@@ -11314,11 +11567,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       } else {
         // Add or update the shortcut
+        const normalizedPreference = preference as 'always_pay' | 'never_pay' | 'always_yes' | 'always_no' | 'ask_each_time';
+        const normalizedTriggerDescription = triggerDescription as string | undefined;
         const shortcut = {
           cardName: normalizedCardName,
           playerId,
-          preference,
-          triggerDescription,
+          preference: normalizedPreference,
+          triggerDescription: normalizedTriggerDescription,
         };
 
         if (existingIndex >= 0) {
@@ -11368,18 +11623,20 @@ export function registerGameActions(io: Server, socket: Socket) {
    * Get a player's trigger shortcut for a specific card.
    * Returns null if no shortcut is set (use default behavior).
    */
-  socket.on("getTriggerShortcut", ({
-    gameId,
-    cardName,
-    triggerDescription,
-  }: {
-    gameId: string;
-    cardName: string;
-    triggerDescription?: string;
+  socket.on("getTriggerShortcut", (payload?: {
+    gameId?: unknown;
+    cardName?: unknown;
+    triggerDescription?: unknown;
   }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+    const gameId = payload?.gameId;
+    const cardName = payload?.cardName;
+    const triggerDescription = payload?.triggerDescription;
 
+    if (!gameId || typeof gameId !== 'string') return;
+    if (!cardName || typeof cardName !== 'string') return;
+    if (!(triggerDescription === undefined || typeof triggerDescription === 'string')) return;
+
+    try {
       const socketGameId = (socket.data as any)?.gameId as string | undefined;
       if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
         socket.emit("triggerShortcutResponse", { shortcut: null });

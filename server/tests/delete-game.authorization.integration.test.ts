@@ -66,4 +66,14 @@ describe('deleteGame authorization (integration)', () => {
     const ack = emitted.find(e => e.event === 'gameDeletedAck');
     expect(ack).toBeUndefined();
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false }, emitted);
+
+    const io = createMockIo(emitted);
+    registerGameManagementHandlers(io as any, socket as any);
+
+    expect(() => handlers['deleteGame'](undefined as any)).not.toThrow();
+  });
 });

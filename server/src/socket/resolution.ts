@@ -1624,21 +1624,21 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   /**
    * Submit a response to a resolution step
    */
-  socket.on("submitResolutionResponse", async ({ 
-    gameId, 
-    stepId, 
-    selections,
-    cancelled = false,
-    splitAssignments,
-    moveTo,
-  }: { 
-    gameId: string; 
-    stepId: string; 
-    selections: string[] | number | boolean | Record<string, any>;
-    cancelled?: boolean;
-    splitAssignments?: { toBattlefield: string[]; toHand: string[] };
-    moveTo?: string;
+  socket.on("submitResolutionResponse", async (payload?: {
+    gameId?: unknown;
+    stepId?: unknown;
+    selections?: unknown;
+    cancelled?: unknown;
+    splitAssignments?: unknown;
+    moveTo?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const stepId = payload?.stepId;
+    const selections = payload?.selections;
+    const cancelled = payload?.cancelled === true;
+    const splitAssignments = payload?.splitAssignments;
+    const moveTo = payload?.moveTo;
+
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
     if (!pid || socketIsSpectator) {
@@ -1647,6 +1647,10 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     }
 
     if (!gameId || typeof gameId !== 'string') return;
+    if (!stepId || typeof stepId !== 'string') {
+      socket.emit("error", { code: "STEP_NOT_FOUND", message: "Resolution step not found" });
+      return;
+    }
     if (!(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
@@ -3530,7 +3534,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     // The handler may return early on invalid selections; if we completed first we'd consume the step.
     if (step.type === ResolutionStepType.TAP_UNTAP_TARGET) {
       const stepAny = step as any;
-      const payload: any = response.selections as any;
+      const selectionPayload: unknown = response.selections;
+      const selectionObj =
+        selectionPayload && typeof selectionPayload === 'object' && !Array.isArray(selectionPayload)
+          ? (selectionPayload as { targetIds?: unknown; action?: unknown })
+          : undefined;
 
       const isTapOtherAsActivationCost = stepAny?.tapOtherAbilityAsCost === true;
 
@@ -3541,14 +3549,14 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
       } else {
-        const targetIds: string[] = Array.isArray(payload)
-          ? payload.map((x: any) => String(x))
-          : (Array.isArray(payload?.targetIds)
-              ? payload.targetIds.map((x: any) => String(x))
+        const targetIds: string[] = Array.isArray(selectionPayload)
+          ? selectionPayload.map((x: any) => String(x))
+          : (Array.isArray(selectionObj?.targetIds)
+              ? selectionObj.targetIds.map((x: any) => String(x))
               : []);
 
         const stepAction = String(stepAny.action || 'tap');
-        const requestedAction = String(payload?.action || '');
+        const requestedAction = String(selectionObj?.action || '');
         const action: 'tap' | 'untap' =
           stepAction === 'both'
             ? (requestedAction === 'untap' ? 'untap' : requestedAction === 'tap' ? 'tap' : 'tap')
@@ -3808,11 +3816,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
       } else {
-        const payload: any = response.selections as any;
-        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        const selectionPayload: unknown = response.selections;
+        if (!selectionPayload || typeof selectionPayload !== 'object' || Array.isArray(selectionPayload)) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid counter movement selection' });
           return;
         }
+        const payload = selectionPayload as {
+          sourcePermanentId?: unknown;
+          sourceId?: unknown;
+          targetPermanentId?: unknown;
+          targetId?: unknown;
+          counterType?: unknown;
+        };
 
         const sourcePermanentId = String(payload?.sourcePermanentId || payload?.sourceId || '').trim();
         const targetPermanentId = String(payload?.targetPermanentId || payload?.targetId || '').trim();
@@ -18278,7 +18293,7 @@ async function handleOptionChoiceResponse(
     // Accept: start normal cast flow, but force miracle cost.
     const fakeSocket: any = {
       data: { playerId, spectator: false },
-      emit: (event: string, payload: any) => {
+      emit: (event: string, payload: unknown) => {
         emitToPlayer(io, playerId as any, event as any, payload);
       },
     };
@@ -18322,7 +18337,7 @@ async function handleOptionChoiceResponse(
 
     const fakeSocket: any = {
       data: { playerId, spectator: false },
-      emit: (event: string, payload: any) => {
+      emit: (event: string, payload: unknown) => {
         emitToPlayer(io, playerId as any, event as any, payload);
       },
     };

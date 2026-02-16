@@ -4370,7 +4370,7 @@ export function emitToPlayer(
   io: Server,
   playerId: string,
   event: string,
-  payload: any
+  payload: unknown
 ): void {
   try {
     for (const socket of io.sockets.sockets.values()) {

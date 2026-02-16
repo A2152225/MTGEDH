@@ -81,6 +81,7 @@ describe('saved decks in-room authorization (integration)', () => {
 
     registerDeckHandlers(io as any, socket as any);
 
-    await expect(handlers['listSavedDecks'](undefined as any)).resolves.toBeUndefined();
+    expect(() => handlers['listSavedDecks'](undefined as any)).not.toThrow();
+    expect(() => handlers['getSavedDeck'](undefined as any)).not.toThrow();
   });
 });

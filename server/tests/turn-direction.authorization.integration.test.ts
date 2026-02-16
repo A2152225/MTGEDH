@@ -122,4 +122,23 @@ describe('setTurnDirection authorization (integration)', () => {
     expect(err?.payload?.code).toBe('NOT_IN_GAME');
     expect((game.state as any).turnDirection).toBe(before);
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const creator = 'creator';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, creator);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: creator, name: 'Creator', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: creator, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    expect(() => handlers['setTurnDirection'](undefined as any)).not.toThrow();
+  });
 });

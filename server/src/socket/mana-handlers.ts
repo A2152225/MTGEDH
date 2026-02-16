@@ -25,15 +25,21 @@ export function registerManaHandlers(io: Server, socket: Socket) {
   socket.on(
     "addManaToPool",
     (payload?: {
-      gameId?: string;
-      color?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-      amount?: number;
-      restriction?: string;
-      restrictedTo?: string;
-      sourceId?: string;
-      sourceName?: string;
+      gameId?: unknown;
+      color?: unknown;
+      amount?: unknown;
+      restriction?: unknown;
+      restrictedTo?: unknown;
+      sourceId?: unknown;
+      sourceName?: unknown;
     }) => {
-      const { gameId, color, amount, restriction, restrictedTo, sourceId, sourceName } = payload || ({} as any);
+    const gameId = payload?.gameId;
+    const color = payload?.color;
+    const amount = payload?.amount;
+    const restriction = payload?.restriction;
+    const restrictedTo = payload?.restrictedTo;
+    const sourceId = payload?.sourceId;
+    const sourceName = payload?.sourceName;
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
@@ -49,6 +55,8 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid mana payload.' });
       return;
     }
+    const manaColor = color as 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    const manaAmount = amount as number;
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -81,7 +89,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       pool.restricted = pool.restricted || [];
       pool.restricted.push({
         type: color,
-        amount,
+        amount: manaAmount,
         restriction,
         restrictedTo,
         sourceId,
@@ -89,8 +97,8 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       });
     } else {
       // Add regular mana
-      (game.state.manaPool[pid] as any)[color] = 
-        ((game.state.manaPool[pid] as any)[color] || 0) + amount;
+      (game.state.manaPool[pid] as any)[manaColor] = 
+        ((game.state.manaPool[pid] as any)[manaColor] || 0) + manaAmount;
     }
 
     // Bump game sequence
@@ -104,7 +112,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${getPlayerName(game, pid)} added ${amount} ${color} mana to their pool${restrictionText}.`,
+      message: `${getPlayerName(game, pid)} added ${manaAmount} ${manaColor} mana to their pool${restrictionText}.`,
       ts: Date.now(),
     });
 
@@ -121,12 +129,15 @@ export function registerManaHandlers(io: Server, socket: Socket) {
   socket.on(
     "removeManaFromPool",
     (payload?: {
-      gameId?: string;
-      color?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-      amount?: number;
-      restrictedIndex?: number;
+      gameId?: unknown;
+      color?: unknown;
+      amount?: unknown;
+      restrictedIndex?: unknown;
     }) => {
-      const { gameId, color, amount, restrictedIndex } = payload || ({} as any);
+    const gameId = payload?.gameId;
+    const color = payload?.color;
+    const amount = payload?.amount;
+    const restrictedIndex = payload?.restrictedIndex;
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
@@ -147,6 +158,9 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid restricted mana index.' });
       return;
     }
+    const manaColor = color as 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    const manaAmount = amount as number;
+    const restrictedIndexValue = restrictedIndex as number | undefined;
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -173,32 +187,32 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    if (restrictedIndex !== undefined) {
+    if (restrictedIndexValue !== undefined) {
       // Remove from restricted mana
-      if (!pool.restricted || restrictedIndex >= pool.restricted.length) {
+      if (!pool.restricted || restrictedIndexValue >= pool.restricted.length) {
         socket.emit("error", { code: "INVALID_ACTION", message: "Invalid restricted mana index" });
         return;
       }
-      const entry = pool.restricted[restrictedIndex];
-      if (entry.amount < amount) {
+      const entry = pool.restricted[restrictedIndexValue];
+      if (entry.amount < manaAmount) {
         socket.emit("error", { code: "INVALID_ACTION", message: "Not enough restricted mana" });
         return;
       }
-      if (entry.amount === amount) {
-        pool.restricted.splice(restrictedIndex, 1);
+      if (entry.amount === manaAmount) {
+        pool.restricted.splice(restrictedIndexValue, 1);
         if (pool.restricted.length === 0) {
           delete pool.restricted;
         }
       } else {
-        entry.amount -= amount;
+        entry.amount -= manaAmount;
       }
     } else {
       // Remove from regular mana
-      if ((pool[color] || 0) < amount) {
-        socket.emit("error", { code: "INVALID_ACTION", message: `Not enough ${color} mana` });
+      if ((pool[manaColor] || 0) < manaAmount) {
+        socket.emit("error", { code: "INVALID_ACTION", message: `Not enough ${manaColor} mana` });
         return;
       }
-      pool[color] = (pool[color] || 0) - amount;
+      pool[manaColor] = (pool[manaColor] || 0) - manaAmount;
     }
 
     // Bump game sequence
@@ -209,7 +223,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${getPlayerName(game, pid)} removed ${amount} ${color} mana from their pool.`,
+      message: `${getPlayerName(game, pid)} removed ${manaAmount} ${manaColor} mana from their pool.`,
       ts: Date.now(),
     });
 
@@ -226,13 +240,17 @@ export function registerManaHandlers(io: Server, socket: Socket) {
   socket.on(
     "setManaPoolDoesNotEmpty",
     (payload?: {
-      gameId?: string;
-      sourceId?: string;
-      sourceName?: string;
-      convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-      convertsToColorless?: boolean;
+      gameId?: unknown;
+      sourceId?: unknown;
+      sourceName?: unknown;
+      convertsTo?: unknown;
+      convertsToColorless?: unknown;
     }) => {
-      const { gameId, sourceId, sourceName, convertsTo, convertsToColorless } = payload || ({} as any);
+    const gameId = payload?.gameId;
+    const sourceId = payload?.sourceId;
+    const sourceName = payload?.sourceName;
+    const convertsTo = payload?.convertsTo;
+    const convertsToColorless = payload?.convertsToColorless;
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
@@ -255,6 +273,14 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid convertsTo value.' });
       return;
     }
+    if (convertsToColorless !== undefined && typeof convertsToColorless !== 'boolean') {
+      socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid convertsToColorless value.' });
+      return;
+    }
+    const sourceIdValue = sourceId as string;
+    const sourceNameValue = sourceName as string;
+    const convertsToValue = convertsTo as ('white' | 'blue' | 'black' | 'red' | 'green' | 'colorless' | undefined);
+    const convertsToColorlessValue = convertsToColorless as (boolean | undefined);
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -285,26 +311,26 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     pool.doesNotEmpty = true;
     
     // Support both new convertsTo and deprecated convertsToColorless
-    if (convertsTo) {
-      pool.convertsTo = convertsTo;
-    } else if (convertsToColorless) {
+    if (convertsToValue) {
+      pool.convertsTo = convertsToValue;
+    } else if (convertsToColorlessValue) {
       pool.convertsTo = 'colorless';
       pool.convertsToColorless = true; // Keep for backwards compatibility
     }
     
     pool.noEmptySourceIds = pool.noEmptySourceIds || [];
-    if (!pool.noEmptySourceIds.includes(sourceId)) {
-      pool.noEmptySourceIds.push(sourceId);
+    if (!pool.noEmptySourceIds.includes(sourceIdValue)) {
+      pool.noEmptySourceIds.push(sourceIdValue);
     }
 
     // Bump game sequence
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
 
     // Log the effect
-    const targetColor = convertsTo || (convertsToColorless ? 'colorless' : null);
+    const targetColor = convertsToValue || (convertsToColorlessValue ? 'colorless' : null);
     const effectText = targetColor 
-      ? `Mana converts to ${targetColor} instead of emptying (${sourceName})`
-      : `Mana doesn't empty from pool (${sourceName})`;
+      ? `Mana converts to ${targetColor} instead of emptying (${sourceNameValue})`
+      : `Mana doesn't empty from pool (${sourceNameValue})`;
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
@@ -314,7 +340,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     });
 
     // Emit mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, pool, `Doesn't empty (${sourceName})`, game);
+    broadcastManaPoolUpdate(io, gameId, pid, pool, `Doesn't empty (${sourceNameValue})`, game);
     broadcastGame(io, game, gameId);
     },
   );
@@ -325,14 +351,16 @@ export function registerManaHandlers(io: Server, socket: Socket) {
    */
   socket.on(
     "removeManaPoolDoesNotEmpty",
-    (payload?: { gameId?: string; sourceId?: string }) => {
-      const { gameId, sourceId } = payload || ({} as any);
+    (payload?: { gameId?: unknown; sourceId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const sourceId = payload?.sourceId;
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
 
     if (typeof sourceId !== 'string' || sourceId.length === 0) return;
+    const sourceIdValue = sourceId;
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -356,7 +384,7 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     const pool = game.state.manaPool?.[pid] as any;
     if (!pool || !pool.noEmptySourceIds) return;
 
-    pool.noEmptySourceIds = pool.noEmptySourceIds.filter((id: string) => id !== sourceId);
+    pool.noEmptySourceIds = pool.noEmptySourceIds.filter((id: string) => id !== sourceIdValue);
 
     if (pool.noEmptySourceIds.length === 0) {
       delete pool.doesNotEmpty;

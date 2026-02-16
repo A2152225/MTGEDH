@@ -103,13 +103,18 @@ function ensureInRoomAndJudge(socket: Socket, gameId: string) {
   return { game, pid };
 }
 
-function normalizeNamesArray(payload: any): string[] {
-  if (!payload) return [];
-  if (Array.isArray(payload.commanderNames)) return payload.commanderNames.slice();
-  if (Array.isArray(payload.names)) return payload.names.slice();
-  if (typeof payload.commanderNames === "string") return [payload.commanderNames];
-  if (typeof payload.names === "string") return [payload.names];
-  if (typeof payload.name === "string") return [payload.name];
+function normalizeNamesArray(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const data = payload as {
+    commanderNames?: unknown;
+    names?: unknown;
+    name?: unknown;
+  };
+  if (Array.isArray(data.commanderNames)) return data.commanderNames.slice();
+  if (Array.isArray(data.names)) return data.names.slice();
+  if (typeof data.commanderNames === "string") return [data.commanderNames];
+  if (typeof data.names === "string") return [data.names];
+  if (typeof data.name === "string") return [data.name];
   return [];
 }
 
@@ -294,25 +299,31 @@ export function emitSuggestCommandersToPlayer(
 }
 
 export function registerCommanderHandlers(io: Server, socket: Socket) {
-  socket.on("setCommander", async (payload: any) => {
+  socket.on("setCommander", async (payload?: {
+    gameId?: unknown;
+    commanderNames?: unknown;
+    names?: unknown;
+    commanderIds?: unknown;
+    ids?: unknown;
+    name?: unknown;
+  }) => {
     try {
+      const gameId = payload?.gameId;
       const pid: PlayerID | undefined = socket.data.playerId;
       const spectator = !!(
         (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
       );
       if (!pid || spectator) {
         socket.emit("deckError", {
-          gameId: payload?.gameId,
+          gameId,
           message: "Spectators cannot set commander.",
         });
         return;
       }
-      if (!payload || !payload.gameId) {
+      if (!gameId || typeof gameId !== 'string') {
         socket.emit("error", { message: "Missing gameId for setCommander" });
         return;
       }
-
-      const gameId = payload.gameId;
 
       // In-room + matching socket.data.gameId guard to prevent cross-game mutations.
       {
@@ -348,10 +359,10 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
 
       const names: string[] = normalizeNamesArray(payload);
 
-      let providedIds: string[] = Array.isArray(payload.commanderIds)
-        ? payload.commanderIds.slice()
-        : Array.isArray(payload.ids)
-        ? payload.ids.slice()
+      let providedIds: string[] = Array.isArray(payload?.commanderIds)
+        ? payload?.commanderIds.slice()
+        : Array.isArray(payload?.ids)
+        ? payload?.ids.slice()
         : [];
 
       const resolvedIds: string[] = [];
@@ -520,17 +531,18 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Cast commander from command zone
-  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string; payment?: Array<{ permanentId: string; mana: string; count?: number }> }) => {
+  socket.on("castCommander", (payload?: { gameId?: unknown; commanderId?: unknown; commanderNameOrId?: unknown; payment?: unknown }) => {
     try {
-      const { gameId, payment } = payload;
+      const gameId = payload?.gameId;
+      const payment = payload?.payment;
       // Accept both commanderId and commanderNameOrId for backwards compatibility
-      let commanderId = payload.commanderId ?? payload.commanderNameOrId;
+      const requestedCommanderId = payload?.commanderId ?? payload?.commanderNameOrId;
       
       debug(1, `[castCommander] Received payload:`, { 
         gameId, 
-        commanderId: payload.commanderId, 
-        commanderNameOrId: payload.commanderNameOrId,
-        resolvedCommanderId: commanderId,
+        commanderId: payload?.commanderId, 
+        commanderNameOrId: payload?.commanderNameOrId,
+        resolvedCommanderId: requestedCommanderId,
         hasPayment: !!payment 
       });
       
@@ -547,13 +559,17 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      if (!gameId || !commanderId) {
+      if (!gameId || typeof gameId !== 'string' || !requestedCommanderId || typeof requestedCommanderId !== 'string') {
         socket.emit("error", {
           code: "CAST_COMMANDER_INVALID",
           message: "Missing gameId or commanderId/commanderNameOrId",
         });
         return;
       }
+      let commanderId: string = requestedCommanderId;
+      const paymentItems = Array.isArray(payment)
+        ? payment as Array<{ permanentId: string; mana: string; count?: number }>
+        : undefined;
 
       // In-room + matching socket.data.gameId guard to prevent cross-game mutations.
       {
@@ -721,7 +737,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       const existingPool = getOrInitManaPool(game.state, pid);
       
       // Calculate total available mana (existing pool + new payment)
-      const totalAvailable = calculateTotalAvailableMana(existingPool, payment);
+      const totalAvailable = calculateTotalAvailableMana(existingPool, paymentItems);
       
       // Log floating mana if any
       const floatingMana = Object.entries(existingPool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
@@ -765,15 +781,15 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       debug(2, `[castCommander] About to process payment and cast commander`);
       
       // Handle mana payment: tap permanents to generate mana (adds to pool)
-      if (payment && payment.length > 0) {
-        debug(2, `[castCommander] Processing payment for ${commanderCard.name}:`, payment);
+      if (paymentItems && paymentItems.length > 0) {
+        debug(2, `[castCommander] Processing payment for ${commanderCard.name}:`, paymentItems);
         
         // Get player's battlefield
         const zones = game.state?.zones?.[pid];
         const battlefield = (zones as any)?.battlefield || game.state?.battlefield?.filter((p: any) => p.controller === pid) || [];
         
         // Process each payment item: tap the permanent and add mana to pool
-        for (const { permanentId, mana, count } of payment) {
+        for (const { permanentId, mana, count } of paymentItems) {
           const manaCount = count || 1; // Default to 1 if count not specified
           
           // Search in global battlefield (the structure may be flat)
@@ -883,7 +899,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           throw new Error("Cannot persist castCommander event with undefined commanderId");
         }
         debug(2, `[castCommander] About to append event and broadcast`);
-        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment });
+        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment: paymentItems });
         debug(2, `[castCommander] Event appended successfully`);
         
         io.to(gameId).emit("chat", {
@@ -915,9 +931,10 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Move commander back to command zone (e.g., when it would go to graveyard/exile)
-  socket.on("moveCommanderToCommandZone", (payload: { gameId: string; commanderNameOrId: string }) => {
+  socket.on("moveCommanderToCommandZone", (payload?: { gameId?: unknown; commanderNameOrId?: unknown }) => {
     try {
-      const { gameId, commanderNameOrId } = payload;
+      const gameId = payload?.gameId;
+      const commanderNameOrId = payload?.commanderNameOrId;
       const pid: PlayerID | undefined = socket.data.playerId;
       const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
       
@@ -929,7 +946,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      if (!gameId || !commanderNameOrId) {
+      if (!gameId || typeof gameId !== 'string' || !commanderNameOrId || typeof commanderNameOrId !== 'string') {
         socket.emit("error", {
           code: "MOVE_COMMANDER_INVALID",
           message: "Missing gameId or commanderNameOrId",
@@ -1065,7 +1082,8 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Debug handler: dumpLibrary - emits player's library with Scryfall data
-  socket.on("dumpLibrary", ({ gameId }: { gameId: string }) => {
+  socket.on("dumpLibrary", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== "string") {
         socket.emit("error", { code: "DUMP_LIBRARY_MISSING_ID", message: "Missing gameId" } as any);
@@ -1116,7 +1134,8 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
   
   // Debug handler: dumpImportedDeckBuffer - emits full imported deck with Scryfall data
-  socket.on("dumpImportedDeckBuffer", ({ gameId }: { gameId: string }) => {
+  socket.on("dumpImportedDeckBuffer", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== "string") {
         socket.emit("error", { code: "DUMP_IMPORTED_BUFFER_MISSING_ID", message: "Missing gameId" } as any);
@@ -1166,7 +1185,8 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
   
   // Debug handler: dumpCommanderState - emits commander zone state with Scryfall data
-  socket.on("dumpCommanderState", ({ gameId }: { gameId: string }) => {
+  socket.on("dumpCommanderState", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== "string") {
         socket.emit("error", { code: "DUMP_COMMANDER_STATE_MISSING_ID", message: "Missing gameId" } as any);

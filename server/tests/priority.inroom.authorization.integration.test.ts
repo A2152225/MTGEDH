@@ -67,6 +67,129 @@ describe('priority handlers in-room authorization (integration)', () => {
     expect(ok).toBeUndefined();
   });
 
+  it('blocks schedulePriorityTimeout when socket is a spectator seat', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: true, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerPriorityHandlers(io as any, socket as any);
+
+    await handlers['schedulePriorityTimeout']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_AUTHORIZED');
+
+    const ok = emitted.find(e => e.event === 'priorityTimerScheduled');
+    expect(ok).toBeUndefined();
+  });
+
+  it('blocks schedulePriorityTimeout when socket is not in game room', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    const io = createMockIo(emitted);
+    registerPriorityHandlers(io as any, socket as any);
+
+    await handlers['schedulePriorityTimeout']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_IN_GAME');
+
+    const ok = emitted.find(e => e.event === 'priorityTimerScheduled');
+    expect(ok).toBeUndefined();
+  });
+
+  it('blocks clearPriorityTimer when socket is not in game room', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    const io = createMockIo(emitted);
+    registerPriorityHandlers(io as any, socket as any);
+
+    await handlers['clearPriorityTimer']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_IN_GAME');
+
+    const ok = emitted.find(e => e.event === 'priorityTimerCleared');
+    expect(ok).toBeUndefined();
+  });
+
+  it('blocks schedulePriorityTimeout when player is not seated', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p2, name: 'P2', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerPriorityHandlers(io as any, socket as any);
+
+    await handlers['schedulePriorityTimeout']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_AUTHORIZED');
+
+    const ok = emitted.find(e => e.event === 'priorityTimerScheduled');
+    expect(ok).toBeUndefined();
+  });
+
+  it('blocks clearPriorityTimer when player is not seated', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p2, name: 'P2', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerPriorityHandlers(io as any, socket as any);
+
+    await handlers['clearPriorityTimer']({ gameId });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_AUTHORIZED');
+
+    const ok = emitted.find(e => e.event === 'priorityTimerCleared');
+    expect(ok).toBeUndefined();
+  });
+
   it('does not crash on missing payload', async () => {
     const p1 = 'p1';
 

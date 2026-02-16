@@ -185,4 +185,43 @@ describe('AI management authorization (integration)', () => {
     const after = (game.state as any).players.length;
     expect(after).toBe(before);
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await expect(Promise.resolve().then(() => handlers['createGame'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['createGameWithAI'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['createGameWithMultipleAI'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['addAIToGame'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['removeAIFromGame'](undefined as any))).resolves.toBeUndefined();
+    await expect(Promise.resolve().then(() => handlers['toggleAIControl'](undefined as any))).resolves.toBeUndefined();
+  });
+
+  it('rejects malformed payloads for AI management handlers', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await handlers['createGame']({ gameId: 123 as any });
+    await handlers['createGameWithMultipleAI']({ gameId, aiOpponents: {} as any });
+    await handlers['addAIToGame']({ gameId: 123 as any });
+    await handlers['removeAIFromGame']({ gameId, aiPlayerId: 123 as any });
+    await handlers['toggleAIControl']({ gameId, enable: 'yes' as any });
+
+    const createErr = emitted.find(e => e.event === 'error' && e.payload?.code === 'GAME_CREATE_FAILED');
+    expect(createErr).toBeDefined();
+
+    const addErr = emitted.find(e => e.event === 'error' && e.payload?.code === 'AI_ADD_FAILED');
+    expect(addErr).toBeDefined();
+
+    const removeErr = emitted.find(e => e.event === 'error' && e.payload?.code === 'AI_REMOVE_FAILED');
+    expect(removeErr).toBeDefined();
+
+    const toggleErr = emitted.find(e => e.event === 'error' && e.payload?.code === 'AI_TOGGLE_FAILED');
+    expect(toggleErr).toBeDefined();
+  });
 });

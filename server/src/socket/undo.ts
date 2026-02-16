@@ -602,7 +602,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   };
 
   // Request an undo
-  socket.on("requestUndo", (payload?: { gameId?: string; actionsToUndo?: unknown }) => {
+  socket.on("requestUndo", (payload?: { gameId?: unknown; actionsToUndo?: unknown }) => {
     const gameId = payload?.gameId;
     const actionsToUndo = payload?.actionsToUndo ?? 1;
     try {
@@ -622,7 +622,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Respond to an undo request
-  socket.on("respondUndo", (payload?: { gameId?: string; undoId?: string; approved?: boolean }) => {
+  socket.on("respondUndo", (payload?: { gameId?: unknown; undoId?: unknown; approved?: unknown }) => {
     const gameId = payload?.gameId;
     const undoId = payload?.undoId;
     const approved = payload?.approved;
@@ -791,7 +791,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Cancel an undo request (by the requester)
-  socket.on("cancelUndo", (payload?: { gameId?: string; undoId?: string }) => {
+  socket.on("cancelUndo", (payload?: { gameId?: unknown; undoId?: unknown }) => {
     const gameId = payload?.gameId;
     const undoId = payload?.undoId;
     try {
@@ -890,7 +890,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Get available undo count (number of events that can be undone)
-  socket.on("getUndoCount", (payload?: { gameId?: string }) => {
+  socket.on("getUndoCount", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
@@ -915,7 +915,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Get smart undo counts (step, phase, turn)
-  socket.on("getSmartUndoCounts", (payload?: { gameId?: string }) => {
+  socket.on("getSmartUndoCounts", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
@@ -947,7 +947,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to step (convenience wrapper)
-  socket.on("requestUndoToStep", (payload?: { gameId?: string }) => {
+  socket.on("requestUndoToStep", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') {
@@ -975,7 +975,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to phase (convenience wrapper)
-  socket.on("requestUndoToPhase", (payload?: { gameId?: string }) => {
+  socket.on("requestUndoToPhase", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') {
@@ -1003,7 +1003,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to turn (convenience wrapper)
-  socket.on("requestUndoToTurn", (payload?: { gameId?: string }) => {
+  socket.on("requestUndoToTurn", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') {

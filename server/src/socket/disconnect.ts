@@ -11,7 +11,8 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 export function registerDisconnectHandlers(io: Server, socket: Socket) {
   // Player manually leaves the game
-  socket.on("leaveGame", ({ gameId }: { gameId: string }) => {
+  socket.on("leaveGame", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
 

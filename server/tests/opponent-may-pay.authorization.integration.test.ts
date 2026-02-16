@@ -82,4 +82,29 @@ describe('opponent-may-pay authorization (integration)', () => {
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.length).toBe(0);
   });
+
+  it('does not throw on missing payload and ignores malformed shortcut payloads', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerOpponentMayPayHandlers(io as any, socket as any);
+
+    expect(() => handlers['emitOpponentMayPayPrompt'](undefined as any)).not.toThrow();
+    expect(() => handlers['setOpponentMayPayShortcut'](undefined as any)).not.toThrow();
+
+    await handlers['setOpponentMayPayShortcut']({ gameId, sourceName: 'Rhystic Study', preference: 'bad_value' as any });
+
+    const chats = emitted.filter(e => e.event === 'chat');
+    expect(chats.length).toBe(0);
+  });
 });

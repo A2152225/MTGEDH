@@ -21,6 +21,7 @@ import { ClashModal } from "./components/ClashModal";
 import { VoteModal } from "./components/VoteModal";
 import { CastSpellModal } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
+import { CombatControlModal, type CombatControlDeclarations } from "./components/CombatControlModal";
 import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
 import { CardSelectionModal } from "./components/CardSelectionModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
@@ -247,6 +248,8 @@ export function App() {
   const [combatModalError, setCombatModalError] = useState<string | null>(null);
   const lastCombatErrorSeenRef = useRef<string | null>(null);
   const [combatPreviewAttackTargets, setCombatPreviewAttackTargets] = useState<Record<string, string> | null>(null);
+  const [combatControlModalOpen, setCombatControlModalOpen] = useState(false);
+  const [combatControlMode, setCombatControlMode] = useState<'attackers' | 'blockers'>('attackers');
   const combatPreviewEmitTimerRef = useRef<any>(null);
   const combatPreviewPendingRef = useRef<Record<string, string> | null>(null);
   
@@ -1109,12 +1112,23 @@ export function App() {
     const turnPlayer = safeView.turnPlayer;
     const isYourTurn = you != null && turnPlayer != null && turnPlayer === you;
     const stackLength = (safeView as any).stack?.length || 0;
+    const combatControl = ((safeView as any)?.combat?.combatControl || (safeView as any)?.combatControl) as any;
+    const isCombatController = !!you && !!combatControl && combatControl.controllerId === you;
     // Include combatNumber to handle multiple combat phases per turn (Aurelia, Combat Celebrant, etc.)
     const combatNumber = (safeView as any).combatNumber || 1;
     const turnId = `${safeView.turn}-${combatNumber}-${step}`; // Unique ID for this combat step
     
     // Declare attackers
     if (step === "declareattackers" || step === "declare_attackers") {
+      if (isCombatController && !!combatControl?.controlsAttackers) {
+        setCombatControlMode('attackers');
+        setCombatControlModalOpen(true);
+        setCombatModalOpen(false);
+        setCombatModalError(null);
+        setCombatModalReadOnly(false);
+        return;
+      }
+
       if (isYourTurn) {
         // Don't show the modal if we've already shown it for this step
         if (hasShownAttackersModal.current === turnId) {
@@ -1161,6 +1175,15 @@ export function App() {
     }
     // Show blocker modal when you're being attacked during declare blockers step
     else if (step === "declareblockers" || step === "declare_blockers") {
+      if (isCombatController && !!combatControl?.controlsBlockers) {
+        setCombatControlMode('blockers');
+        setCombatControlModalOpen(true);
+        setCombatModalOpen(false);
+        setCombatModalError(null);
+        setCombatModalReadOnly(false);
+        return;
+      }
+
       // Spectators (or clients without an assigned player id) only ever get a read-only view.
       if (!you) {
         const anyAttackersDeclared = (safeView.battlefield || []).some((p: any) => !!p?.attacking);
@@ -1232,6 +1255,7 @@ export function App() {
       }
     }
     else {
+      setCombatControlModalOpen(false);
       setCombatModalOpen(false);
       setCombatModalError(null);
       setCombatModalReadOnly(false);
@@ -3623,6 +3647,24 @@ export function App() {
     }
   };
 
+  const handleDeclareControlledCombat = (selections: CombatControlDeclarations) => {
+    if (!safeView) return;
+
+    if (combatControlMode === 'attackers') {
+      socket.emit('declareControlledAttackers', {
+        gameId: safeView.id,
+        attackers: selections.attackers || [],
+      });
+    } else {
+      socket.emit('declareControlledBlockers', {
+        gameId: safeView.id,
+        blockers: selections.blockers || [],
+      });
+    }
+
+    setCombatControlModalOpen(false);
+  };
+
   // Bounce land handler - player selects which land to return
   const handleBounceLandSelect = (permanentId: string) => {
     if (!safeView || !bounceLandData) return;
@@ -4244,6 +4286,11 @@ export function App() {
     const turnPlayer = safeView.turnPlayer;
     if (!turnPlayer) return [];
     return (safeView.players || []).filter((p: any) => p.id !== turnPlayer);
+  }, [safeView]);
+
+  const combatControlEffect = useMemo(() => {
+    if (!safeView) return null;
+    return ((safeView as any)?.combat?.combatControl || (safeView as any)?.combatControl || null) as any;
   }, [safeView]);
 
   const combatModalInitialAttackTargets = useMemo(() => {
@@ -5589,6 +5636,21 @@ export function App() {
         // The modal can only be closed by confirming or skipping blockers
         onCancel={combatMode === 'attackers' && !combatModalReadOnly ? () => setCombatModalOpen(false) : undefined}
       />
+
+      {/* Combat Control Modal (Master Warcraft / Odric) */}
+      {safeView && you && combatControlEffect && (
+        <CombatControlModal
+          open={combatControlModalOpen && combatControlEffect.controllerId === you}
+          mode={combatControlMode}
+          combatControl={combatControlEffect}
+          allCreatures={(safeView.battlefield || []) as BattlefieldPermanent[]}
+          currentAttackers={attackingCreatures as BattlefieldPermanent[]}
+          defenders={combatModalAttackersDefenders as any}
+          players={(safeView.players || []) as any}
+          currentPlayerId={you}
+          onConfirm={handleDeclareControlledCombat}
+        />
+      )}
 
       {/* Bounce Land Choice Modal */}
       <BounceLandChoiceModal

@@ -20,17 +20,31 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
   /**
    * Emit a payment prompt to an opponent when a "may pay" trigger resolves
    */
-  socket.on("emitOpponentMayPayPrompt", ({
-    gameId,
-    promptId,
-    sourceName,
-    sourceController,
-    decidingPlayer,
-    manaCost,
-    declineEffect,
-    triggerText,
+  socket.on("emitOpponentMayPayPrompt", (payload?: {
+    gameId?: unknown;
+    promptId?: unknown;
+    sourceName?: unknown;
+    sourceController?: unknown;
+    decidingPlayer?: unknown;
+    manaCost?: unknown;
+    declineEffect?: unknown;
+    triggerText?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const promptId = payload?.promptId;
+    const sourceName = payload?.sourceName;
+    const sourceController = payload?.sourceController;
+    const decidingPlayer = payload?.decidingPlayer;
+    const manaCost = payload?.manaCost;
+    const declineEffect = payload?.declineEffect;
+    const triggerText = payload?.triggerText;
+    const declineEffectText = typeof declineEffect === 'string' ? declineEffect : undefined;
+    const triggerTextValue = typeof triggerText === 'string' ? triggerText : undefined;
+
     if (!gameId || typeof gameId !== 'string') return;
+    if (!decidingPlayer || typeof decidingPlayer !== 'string') return;
+    if (!sourceName || typeof sourceName !== 'string') return;
+    if (!manaCost || typeof manaCost !== 'string') return;
 
     // This is a high-risk enqueue endpoint; it should never be callable cross-game.
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
@@ -109,7 +123,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: decidingPlayer,
-      description: triggerText || `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} may pay ${manaCost}.`,
+      description: triggerTextValue || `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} may pay ${manaCost}.`,
       mandatory: true,
 
       // Custom metadata for resolution handler + client UI
@@ -119,8 +133,8 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
       sourceController,
       decidingPlayer,
       manaCost,
-      declineEffect,
-      triggerText,
+      declineEffect: declineEffectText,
+      triggerText: triggerTextValue,
       availableMana: manaPool,
 
       options: [
@@ -132,7 +146,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         {
           id: 'decline',
           label: 'Decline',
-          description: declineEffect || 'Decline to pay',
+          description: declineEffectText || 'Decline to pay',
         },
       ],
       minSelections: 1,
@@ -144,7 +158,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} may pay ${manaCost}.`,
+      message: triggerTextValue || `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} may pay ${manaCost}.`,
       ts: Date.now(),
     });
   });
@@ -152,16 +166,22 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
   /**
    * Set a trigger shortcut preference for auto-responses
    */
-  socket.on("setOpponentMayPayShortcut", ({
-    gameId,
-    sourceName,
-    preference, // 'always_pay' or 'never_pay'
+  socket.on("setOpponentMayPayShortcut", (payload?: {
+    gameId?: unknown;
+    sourceName?: unknown;
+    preference?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const sourceName = payload?.sourceName;
+    const preference = payload?.preference; // 'always_pay' or 'never_pay'
+
     const pid = socket.data.playerId as PlayerID | undefined;
     const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
     if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
+    if (!sourceName || typeof sourceName !== 'string') return;
+    if (preference !== 'always_pay' && preference !== 'never_pay') return;
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });

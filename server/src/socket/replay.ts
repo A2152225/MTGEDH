@@ -298,7 +298,10 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
   /**
    * Start a replay session for a game
    */
-  socket.on("startReplay", ({ gameId }: { gameId: string }) => {
+  socket.on("startReplay", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+    if (!gameId || typeof gameId !== 'string') return;
+
     try {
       const ctx = getReplayRequesterContext(gameId);
       if (!ctx) return;
@@ -444,7 +447,10 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
   /**
    * Jump to a specific event index
    */
-  socket.on("replayJumpTo", ({ eventIndex }: { eventIndex: number }) => {
+  socket.on("replayJumpTo", (payload?: { eventIndex?: unknown }) => {
+    const eventIndex = payload?.eventIndex;
+    if (typeof eventIndex !== 'number') return;
+
     const session = getValidatedReplaySession();
     if (!session) return;
     
@@ -469,7 +475,10 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
   /**
    * Set playback speed
    */
-  socket.on("replaySetSpeed", ({ speed }: { speed: number }) => {
+  socket.on("replaySetSpeed", (payload?: { speed?: unknown }) => {
+    const speed = payload?.speed;
+    if (typeof speed !== 'number') return;
+
     const session = getValidatedReplaySession();
     if (!session) return;
     
@@ -490,11 +499,15 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
   /**
    * Set focused player for the replay view
    */
-  socket.on("replaySetFocusPlayer", ({ playerId }: { playerId: PlayerID | null }) => {
+  socket.on("replaySetFocusPlayer", (payload?: { playerId?: unknown }) => {
+    const playerId = payload?.playerId;
+    if (!(playerId === null || typeof playerId === 'string')) return;
+    const focusPlayerId = playerId as PlayerID | null;
+
     const session = getValidatedReplaySession();
     if (!session) return;
     
-    session.focusedPlayerId = playerId;
+    session.focusedPlayerId = focusPlayerId;
     
     // Emit updated view with new focus
     socket.emit("replayStateUpdate", generateReplayView(session, socket.id));

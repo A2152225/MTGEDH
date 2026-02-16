@@ -1244,14 +1244,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    * Live preview for attacker allocations (UI only).
    * Lets other players/spectators see allocation as it's being made.
    */
-  socket.on('combatPreviewAttackers', async ({
-    gameId,
-    targets,
-  }: {
-    gameId: string;
-    targets: Record<string, string>;
+  socket.on('combatPreviewAttackers', async (payload?: {
+    gameId?: unknown;
+    targets?: unknown;
   }) => {
     try {
+      const gameId = payload?.gameId;
+      const targets = payload?.targets;
+
       if (!gameId || typeof gameId !== 'string') return;
 
       const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
@@ -1269,8 +1269,11 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       const me = players.find((p: any) => p?.id === playerId);
       if (!me || me?.spectator || me?.isSpectator) return;
 
-      // Only the turn player can publish attacker previews.
-      if (game.state.turnPlayer !== playerId) return;
+      const combatControl = getCombatControl(game);
+      const canPreviewAsController = !!combatControl && combatControl.controlsAttackers && combatControl.controllerId === playerId;
+
+      // Normally the turn player previews. Under combat control, the combat controller previews.
+      if (game.state.turnPlayer !== playerId && !canPreviewAsController) return;
 
       const step = String((game.state as any).step || '').toLowerCase();
       if (step !== 'declareattackers' && step !== 'declare_attackers') return;
@@ -1282,7 +1285,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       const playerIds = new Set(players.map((p: any) => String(p?.id)));
       const controlledCreatureIds = new Set(
         battlefield
-          .filter((p: any) => p && p.controller === playerId)
+          .filter((p: any) => {
+            if (!p) return false;
+            if (canPreviewAsController) {
+              return isCurrentlyCreature(p, battlefield as any, (p as any)?.controller as any);
+            }
+            return p.controller === playerId;
+          })
           .map((p: any) => String(p?.id))
       );
 
@@ -1298,7 +1307,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       io.to(gameId).emit('combatPreviewAttackers', {
         gameId,
-        attackerPlayerId: playerId,
+        attackerPlayerId: game.state.turnPlayer,
         targets: sanitized,
       });
     } catch {
@@ -1313,22 +1322,23 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    * - gameId: string
    * - attackers: Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>
    */
-  socket.on("declareAttackers", async ({
-    gameId,
-    attackers,
-  }: {
-    gameId: string;
-    attackers: Array<{
-      creatureId: string;
-      targetPlayerId?: string;
-      targetPermanentId?: string;
-    }>;
+  socket.on("declareAttackers", async (payload?: {
+    gameId?: unknown;
+    attackers?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const attackers = payload?.attackers;
+
+    if (!gameId || typeof gameId !== 'string') {
+      socket.emit?.('error', { code: 'DECLARE_ATTACKERS_ERROR', message: 'Missing gameId' } as any);
+      return;
+    }
+    if (!Array.isArray(attackers)) {
+      socket.emit?.('error', { code: 'DECLARE_ATTACKERS_ERROR', message: 'Invalid attackers payload' } as any);
+      return;
+    }
+
     try {
-      if (!gameId || typeof gameId !== 'string') {
-        socket.emit?.('error', { code: 'DECLARE_ATTACKERS_ERROR', message: 'Missing gameId' } as any);
-        return;
-      }
 
       const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
       if (!playerId) {
@@ -1443,7 +1453,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       let totalAttackCostRequired = 0;
       const attackCostBreakdown: { playerId: string; cost: number; sources: string[] }[] = [];
       
-      for (const attacker of attackers) {
+      for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
         const targetPlayerId = attacker.targetPlayerId;
         if (targetPlayerId && attackCostPerDefender.has(targetPlayerId)) {
           const costInfo = attackCostPerDefender.get(targetPlayerId)!;
@@ -1562,7 +1572,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Paid attack cost`, game);
       }
       
-      for (const attacker of attackers) {
+      for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
         const creature = battlefield.find((perm: any) => 
           perm.id === attacker.creatureId && 
           perm.controller === playerId
@@ -1774,7 +1784,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       // Process tap triggers for creatures that became tapped from attacking
-      processTapTriggersForAttackers(io, game, gameId, attackers, battlefield, playerId);
+      processTapTriggersForAttackers(io, game, gameId, attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>, battlefield, playerId);
 
       // Use game's declareAttackers method if available
       if (typeof (game as any).declareAttackers === "function") {
@@ -1789,14 +1799,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       try {
         await appendEvent(gameId, (game as any).seq || 0, "declareAttackers", {
           playerId,
-          attackers,
+          attackers: attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>,
         });
       } catch (e) {
         debugWarn(1, "[combat] Failed to persist declareAttackers event:", e);
       }
 
       // Broadcast chat message
-      const attackerCount = attackers.length;
+      const attackerCount = (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>).length;
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
@@ -1812,7 +1822,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         );
         
         // Get the first defender as the default defending player
-        const firstDefender = attackers[0]?.targetPlayerId;
+        const firstDefender = (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>)[0]?.targetPlayerId;
         
         if (attackingCreatures.length > 0 && firstDefender) {
           // Create a minimal context for trigger detection
@@ -1970,7 +1980,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               } else if ((trigger.triggerType as string) === 'battle_cry') {
                 // Battle Cry - Each other attacking creature gets +1/+0 until end of turn
                 // Rule 702.91a: Apply +1/+0 to all OTHER attacking creatures
-                const attackerIds = attackers.map(a => a.creatureId);
+                const attackerIds = (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>).map(a => a.creatureId);
                 const otherAttackers = battlefield.filter((p: any) => 
                   p && attackerIds.includes(p.id) && p.id !== trigger.permanentId
                 );
@@ -2080,7 +2090,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       try {
         if (attackerCount >= 4) {
           // Look for Odric or similar cards among the attacking creatures
-          for (const attacker of attackers) {
+          for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
             const permanent = battlefield.find((p: any) => p?.id === attacker.creatureId);
             if (!permanent || !permanent.card) continue;
             
@@ -2130,7 +2140,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       io.to(gameId).emit("combatStateUpdated", {
         gameId,
         phase: "declareAttackers",
-        attackers: attackers.map(a => ({
+        attackers: (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>).map(a => ({
           permanentId: a.creatureId,
           defending: a.targetPlayerId || a.targetPermanentId,
         })),
@@ -2160,21 +2170,23 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    * - gameId: string
    * - blockers: Array<{ blockerId: string; attackerId: string }>
    */
-  socket.on("declareBlockers", async ({
-    gameId,
-    blockers,
-  }: {
-    gameId: string;
-    blockers: Array<{
-      blockerId: string;
-      attackerId: string;
-    }>;
+  socket.on("declareBlockers", async (payload?: {
+    gameId?: unknown;
+    blockers?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const blockers = payload?.blockers;
+
+    if (!gameId || typeof gameId !== 'string') {
+      socket.emit?.('error', { code: 'DECLARE_BLOCKERS_ERROR', message: 'Missing gameId' } as any);
+      return;
+    }
+    if (!Array.isArray(blockers)) {
+      socket.emit?.('error', { code: 'DECLARE_BLOCKERS_ERROR', message: 'Invalid blockers payload' } as any);
+      return;
+    }
+
     try {
-      if (!gameId || typeof gameId !== 'string') {
-        socket.emit?.('error', { code: 'DECLARE_BLOCKERS_ERROR', message: 'Missing gameId' } as any);
-        return;
-      }
 
       const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
       if (!playerId) {
@@ -2219,7 +2231,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       const resolvedBlockers: Array<{ blockerId: string; attackerId: string }> = [];
       const usedTokenIds = new Set<string>(); // Track which tokens have been assigned
       
-      for (const blocker of blockers) {
+      for (const blocker of blockers as Array<{ blockerId: string; attackerId: string }>) {
         let actualBlockerId = blocker.blockerId;
         
         // Check if this is a grouped token ID (starts with "group_")
@@ -2603,7 +2615,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       io.to(gameId).emit("combatStateUpdated", {
         gameId,
         phase: "declareBlockers",
-        blockers: blockers.map(b => ({
+        blockers: (blockers as Array<{ blockerId: string; attackerId: string }>).map(b => ({
           blockerId: b.blockerId,
           attackerId: b.attackerId,
         })),
@@ -2629,10 +2641,12 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
   /**
    * Skip declaring attackers - pass without attacking
    */
-  socket.on("skipDeclareAttackers", async ({ gameId }: { gameId: string }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+  socket.on("skipDeclareAttackers", async (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
 
+    if (!gameId || typeof gameId !== 'string') return;
+
+    try {
       const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
       if (!playerId) return;
 
@@ -2714,10 +2728,12 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
   /**
    * Skip declaring blockers - pass without blocking
    */
-  socket.on("skipDeclareBlockers", async ({ gameId }: { gameId: string }) => {
-    try {
-      if (!gameId || typeof gameId !== 'string') return;
+  socket.on("skipDeclareBlockers", async (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
 
+    if (!gameId || typeof gameId !== 'string') return;
+
+    try {
       const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
       if (!playerId) return;
 
@@ -2785,22 +2801,30 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    * - controlsAttackers: boolean - Whether this effect controls attacker declarations
    * - controlsBlockers: boolean - Whether this effect controls blocker declarations
    */
-  socket.on("applyCombatControl", async ({
-    gameId,
-    sourceId,
-    sourceName,
-    controlsAttackers,
-    controlsBlockers,
-  }: {
-    gameId: string;
-    sourceId: string;
-    sourceName: string;
-    controlsAttackers: boolean;
-    controlsBlockers: boolean;
+  socket.on("applyCombatControl", async (payload?: {
+    gameId?: unknown;
+    sourceId?: unknown;
+    sourceName?: unknown;
+    controlsAttackers?: unknown;
+    controlsBlockers?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const sourceId = payload?.sourceId;
+    const sourceName = payload?.sourceName;
+    const controlsAttackers = payload?.controlsAttackers;
+    const controlsBlockers = payload?.controlsBlockers;
+
     try {
       if (!gameId || typeof gameId !== 'string') {
         socket.emit?.('error', { code: 'COMBAT_CONTROL_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+      if (!sourceId || typeof sourceId !== 'string' || !sourceName || typeof sourceName !== 'string') {
+        socket.emit?.('error', { code: 'COMBAT_CONTROL_ERROR', message: 'Invalid combat control source' } as any);
+        return;
+      }
+      if (typeof controlsAttackers !== 'boolean' || typeof controlsBlockers !== 'boolean') {
+        socket.emit?.('error', { code: 'COMBAT_CONTROL_ERROR', message: 'Invalid combat control flags' } as any);
         return;
       }
 
@@ -2883,19 +2907,31 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    * - gameId: string
    * - attackers: Array<{ creatureId: string; targetPlayerId: string }>
    */
-  socket.on("declareControlledAttackers", async ({
-    gameId,
-    attackers,
-  }: {
-    gameId: string;
-    attackers: Array<{
-      creatureId: string;
-      targetPlayerId: string;
-    }>;
+  socket.on("declareControlledAttackers", async (payload?: {
+    gameId?: unknown;
+    attackers?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const attackersRaw = payload?.attackers;
+
     try {
       if (!gameId || typeof gameId !== 'string') {
         socket.emit?.('error', { code: 'CONTROLLED_ATTACKERS_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+      if (!Array.isArray(attackersRaw)) {
+        socket.emit?.('error', { code: 'CONTROLLED_ATTACKERS_ERROR', message: 'Invalid attackers payload' } as any);
+        return;
+      }
+
+      const attackers = attackersRaw
+        .filter((entry: any) => entry && typeof entry === 'object')
+        .map((entry: any) => ({
+          creatureId: typeof entry.creatureId === 'string' ? entry.creatureId : null,
+          targetPlayerId: typeof entry.targetPlayerId === 'string' ? entry.targetPlayerId : null,
+        }));
+      if (attackers.some((entry) => !entry.creatureId || !entry.targetPlayerId)) {
+        socket.emit?.('error', { code: 'CONTROLLED_ATTACKERS_ERROR', message: 'Invalid attackers payload' } as any);
         return;
       }
 
@@ -3091,19 +3127,31 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    * - gameId: string
    * - blockers: Array<{ blockerId: string; attackerId: string }>
    */
-  socket.on("declareControlledBlockers", async ({
-    gameId,
-    blockers,
-  }: {
-    gameId: string;
-    blockers: Array<{
-      blockerId: string;
-      attackerId: string;
-    }>;
+  socket.on("declareControlledBlockers", async (payload?: {
+    gameId?: unknown;
+    blockers?: unknown;
   }) => {
+    const gameId = payload?.gameId;
+    const blockersRaw = payload?.blockers;
+
     try {
       if (!gameId || typeof gameId !== 'string') {
         socket.emit?.('error', { code: 'CONTROLLED_BLOCKERS_ERROR', message: 'Missing gameId' } as any);
+        return;
+      }
+      if (!Array.isArray(blockersRaw)) {
+        socket.emit?.('error', { code: 'CONTROLLED_BLOCKERS_ERROR', message: 'Invalid blockers payload' } as any);
+        return;
+      }
+
+      const blockers = blockersRaw
+        .filter((entry: any) => entry && typeof entry === 'object')
+        .map((entry: any) => ({
+          blockerId: typeof entry.blockerId === 'string' ? entry.blockerId : null,
+          attackerId: typeof entry.attackerId === 'string' ? entry.attackerId : null,
+        }));
+      if (blockers.some((entry) => !entry.blockerId || !entry.attackerId)) {
+        socket.emit?.('error', { code: 'CONTROLLED_BLOCKERS_ERROR', message: 'Invalid blockers payload' } as any);
         return;
       }
 
@@ -3321,7 +3369,9 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
    * Clear combat control effect
    * Called when combat ends or the control effect expires
    */
-  socket.on("clearCombatControl", async ({ gameId }: { gameId: string }) => {
+  socket.on("clearCombatControl", async (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+
     try {
       if (!gameId || typeof gameId !== 'string') return;
 

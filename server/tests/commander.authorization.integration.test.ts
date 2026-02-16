@@ -145,4 +145,33 @@ describe('commander authorization (integration)', () => {
     const debugDump = emitted.find(e => e.event === 'debugLibraryDump');
     expect(debugDump).toBeUndefined();
   });
+
+  it('does not throw when debug dump payload is missing (crash-safety)', async () => {
+    const p1 = 'p1';
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    const io = createMockIo(emitted);
+    registerCommanderHandlers(io as any, socket as any);
+
+    expect(() => handlers['dumpLibrary'](undefined as any)).not.toThrow();
+    expect(() => handlers['dumpImportedDeckBuffer'](undefined as any)).not.toThrow();
+    expect(() => handlers['dumpCommanderState'](undefined as any)).not.toThrow();
+  });
+
+  it('does not throw when commander action payload is missing (crash-safety)', async () => {
+    const p1 = 'p1';
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    const io = createMockIo(emitted);
+    registerCommanderHandlers(io as any, socket as any);
+
+    expect(() => handlers['castCommander'](undefined as any)).not.toThrow();
+    expect(() => handlers['moveCommanderToCommandZone'](undefined as any)).not.toThrow();
+
+    const castErr = emitted.find(e => e.event === 'error' && e.payload?.code === 'CAST_COMMANDER_INVALID');
+    expect(castErr).toBeDefined();
+
+    const moveErr = emitted.find(e => e.event === 'error' && e.payload?.code === 'MOVE_COMMANDER_INVALID');
+    expect(moveErr).toBeDefined();
+  });
 });
