@@ -157,4 +157,15 @@ describe('cancelResolutionStep authorization (integration)', () => {
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await expect(handlers['getResolutionQueue'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['getMyNextResolutionStep'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['cancelResolutionStep'](undefined as any)).resolves.toBeUndefined();
+  });
 });

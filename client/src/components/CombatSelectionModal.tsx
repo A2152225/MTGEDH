@@ -15,6 +15,10 @@ export interface CombatSelectionModalProps {
   availableCreatures: BattlefieldPermanent[];
   attackingCreatures?: BattlefieldPermanent[]; // For blocker mode: which creatures are attacking
   defenders?: PlayerRef[]; // For attacker mode: which players/planeswalkers can be attacked
+  /** Pre-fill attacker selections (primarily for read-only viewers) */
+  initialAttackTargets?: Record<string, string>;
+  /** Called when attacker targets change (interactive attackers mode only) */
+  onAttackTargetsChange?: (targets: Record<string, string>) => void;
   onConfirm: (selections: AttackerSelection[] | BlockerSelection[]) => void;
   onSkip: () => void;
   onCancel?: () => void;
@@ -392,6 +396,8 @@ export function CombatSelectionModal({
   availableCreatures,
   attackingCreatures = [],
   defenders = [],
+  initialAttackTargets,
+  onAttackTargetsChange,
   onConfirm,
   onSkip,
   onCancel,
@@ -426,12 +432,37 @@ export function CombatSelectionModal({
       setBulkAttackCount(0);
       setGroupTargets(new Map());
     }
-  }, [open, mode, defenders]);
+  }, [open, mode, defenders, initialAttackTargets]);
 
-  // Filter to only untapped creatures for attackers
+  // In read-only attackers mode, keep selections synced to the provided targets (live preview).
+  React.useEffect(() => {
+    if (!open) return;
+    if (mode !== 'attackers') return;
+    if (!readOnly) return;
+    if (!initialAttackTargets) return;
+
+    setSelectedAttackers(new Map(Object.entries(initialAttackTargets)));
+  }, [open, mode, readOnly, initialAttackTargets]);
+
+  // Notify parent when interactive attacker targets change (for live preview broadcast).
+  React.useEffect(() => {
+    if (!open) return;
+    if (mode !== 'attackers') return;
+    if (!isInteractive) return;
+    if (!onAttackTargetsChange) return;
+
+    const targets: Record<string, string> = {};
+    for (const [creatureId, targetId] of selectedAttackers.entries()) {
+      if (!targetId) continue;
+      targets[String(creatureId)] = String(targetId);
+    }
+    onAttackTargetsChange(targets);
+  }, [open, mode, isInteractive, onAttackTargetsChange, selectedAttackers]);
+
+  // Filter to only untapped creatures for attackers (interactive only)
   const availableForAttack = useMemo(() => {
-    return availableCreatures.filter(c => !c.tapped);
-  }, [availableCreatures]);
+    return readOnly ? availableCreatures : availableCreatures.filter(c => !c.tapped);
+  }, [availableCreatures, readOnly]);
 
   // Filter to only untapped creatures for blocking
   const availableForBlock = useMemo(() => {
@@ -628,11 +659,17 @@ export function CombatSelectionModal({
   };
 
   const handleSetAttackTarget = (creatureId: string, targetId: string) => {
+    if (!isInteractive) return;
     setSelectedAttackers(prev => {
       const next = new Map(prev);
       next.set(creatureId, targetId);
       return next;
     });
+  };
+
+  const handleSkip = () => {
+    if (!isInteractive) return;
+    onSkip();
   };
 
   const handleToggleBlocker = (blockerId: string, attackerId: string) => {
@@ -794,7 +831,11 @@ export function CombatSelectionModal({
                     min="0"
                     max={unselectedCount}
                     value={bulkAttackCount}
-                    onChange={(e) => setBulkAttackCount(Math.min(Math.max(0, parseInt(e.target.value) || 0), unselectedCount))}
+                    disabled={!isInteractive}
+                    onChange={(e) => {
+                      if (!isInteractive) return;
+                      setBulkAttackCount(Math.min(Math.max(0, parseInt(e.target.value) || 0), unselectedCount));
+                    }}
                     style={{
                       width: 60,
                       padding: '4px 8px',
@@ -808,7 +849,11 @@ export function CombatSelectionModal({
                   />
                   <select
                     value={bulkAttackTarget}
-                    onChange={(e) => setBulkAttackTarget(e.target.value)}
+                    disabled={!isInteractive}
+                    onChange={(e) => {
+                      if (!isInteractive) return;
+                      setBulkAttackTarget(e.target.value);
+                    }}
                     style={{
                       padding: '4px 8px',
                       borderRadius: 4,
@@ -824,14 +869,14 @@ export function CombatSelectionModal({
                   </select>
                   <button
                     onClick={() => handleBulkAttack(bulkAttackCount, bulkAttackTarget)}
-                    disabled={bulkAttackCount === 0 || !bulkAttackTarget}
+                    disabled={!isInteractive || bulkAttackCount === 0 || !bulkAttackTarget}
                     style={{
                       padding: '4px 10px',
                       borderRadius: 4,
                       border: 'none',
-                      background: bulkAttackCount === 0 ? '#555' : '#dc2626',
+                      background: (!isInteractive || bulkAttackCount === 0) ? '#555' : '#dc2626',
                       color: '#fff',
-                      cursor: bulkAttackCount === 0 ? 'not-allowed' : 'pointer',
+                      cursor: (!isInteractive || bulkAttackCount === 0) ? 'not-allowed' : 'pointer',
                       fontSize: 12,
                     }}
                   >
@@ -948,6 +993,7 @@ export function CombatSelectionModal({
                             <select
                               value={groupTarget}
                               onChange={(e) => {
+                                if (!isInteractive) return;
                                 e.stopPropagation();
                                 setGroupTargets(prev => {
                                   const next = new Map(prev);
@@ -956,6 +1002,7 @@ export function CombatSelectionModal({
                                 });
                               }}
                               onClick={(e) => e.stopPropagation()}
+                              disabled={!isInteractive}
                               style={{
                                 padding: '3px 6px',
                                 borderRadius: 4,
@@ -1637,15 +1684,17 @@ export function CombatSelectionModal({
           }}
         >
           <button
-            onClick={onSkip}
+            onClick={handleSkip}
+            disabled={!isInteractive}
             style={{
               padding: '10px 20px',
               borderRadius: 8,
               border: '1px solid #4a4a6a',
               backgroundColor: 'transparent',
               color: '#fff',
-              cursor: 'pointer',
+              cursor: !isInteractive ? 'not-allowed' : 'pointer',
               fontSize: 14,
+              opacity: !isInteractive ? 0.5 : 1,
             }}
           >
             {mode === 'attackers' ? "Don't Attack" : "Don't Block"}
@@ -1653,6 +1702,7 @@ export function CombatSelectionModal({
           <button
             onClick={handleConfirm}
             disabled={
+              !isInteractive ||
               (mode === 'attackers' && selectedAttackers.size === 0) ||
               (mode === 'blockers' && menaceViolations.size > 0)
             }
@@ -1662,10 +1712,13 @@ export function CombatSelectionModal({
               border: 'none',
               backgroundColor: mode === 'attackers' ? '#ef4444' : '#10b981',
               color: '#fff',
-              cursor: 'pointer',
+              cursor: (!isInteractive ||
+                (mode === 'attackers' && selectedAttackers.size === 0) ||
+                (mode === 'blockers' && menaceViolations.size > 0)) ? 'not-allowed' : 'pointer',
               fontSize: 14,
               fontWeight: 600,
               opacity: (
+                !isInteractive ||
                 (mode === 'attackers' && selectedAttackers.size === 0) ||
                 (mode === 'blockers' && menaceViolations.size > 0)
               ) ? 0.5 : 1,

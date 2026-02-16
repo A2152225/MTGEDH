@@ -1,5 +1,11 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, appendGameEvent, broadcastGame } from "./util";
+import {
+  ensureGame,
+  appendGameEvent,
+  broadcastGame,
+  getOrInitManaPool,
+  validateAndConsumeManaCostFromPool,
+} from "./util";
 import { GameStep } from "../../../shared/src";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
@@ -20,6 +26,11 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         socket.emit("error", { code: "SUNDIAL", message: "Missing gameId" });
         return;
       }
+
+        if (action !== "endTurn") {
+          socket.emit?.("error", { code: "INVALID_ACTION", message: "Unsupported action." });
+          return;
+        }
 
       if ((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) {
         socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -56,36 +67,59 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Looser permission: accept if player controls a battlefield permanent named 'sundial'
-      // OR has a commander/hand/graveyard card with 'sundial' in name (case-insensitive).
+      // Strict permission: the player must control an untapped battlefield permanent named
+      // "Sundial of the Infinite" and have priority to activate it.
       const bf = (game.state && (game.state as any).battlefield) || [];
-      const zones = (game as any).state?.zones || {};
-      const cz = (game as any).state?.commandZone || {};
+      const nameMatches = (n?: string) =>
+        typeof n === "string" && n.toLowerCase().includes("sundial of the infinite");
 
-      const nameMatches = (n?: string) => (typeof n === "string" && n.toLowerCase().includes("sundial"));
-
-      let allowed = false;
-
+      let sundialPerm: any | undefined;
       try {
-        // battlefield control
-        if (Array.isArray(bf) && bf.some((perm: any) => perm.controller === playerId && nameMatches(perm.card?.name))) allowed = true;
-
-        // commander in command zone
-        const czInfo = cz[playerId];
-        if (!allowed && czInfo && Array.isArray(czInfo.commanderCards) && czInfo.commanderCards.some((c: any) => nameMatches(c.name))) allowed = true;
-
-        // hand / graveyard / other zones (loose permission)
-        const playerZones = zones[playerId] || {};
-        if (!allowed && Array.isArray(playerZones.hand) && playerZones.hand.some((c: any) => nameMatches(c?.name))) allowed = true;
-        if (!allowed && Array.isArray(playerZones.graveyard) && playerZones.graveyard.some((c: any) => nameMatches(c?.name))) allowed = true;
+        if (Array.isArray(bf)) {
+          sundialPerm = bf.find(
+            (perm: any) => perm && perm.controller === playerId && nameMatches(perm.card?.name)
+          );
+        }
       } catch (err) {
-        // defensive: do not fail permission check on unexpected shapes
-        debugWarn(1, "sundialActivate: permisssion check failed shape test", err);
+        debugWarn(1, "sundialActivate: permission check failed shape test", err);
       }
 
-      if (!allowed) {
-        socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' });
+      if (!sundialPerm) {
+        socket.emit?.("error", { code: "NOT_AUTHORIZED", message: "Not authorized." });
         return;
+      }
+
+      if ((sundialPerm as any).tapped) {
+        socket.emit?.("error", { code: "INVALID_ACTION", message: "Sundial is tapped." });
+        return;
+      }
+
+      const statePriority = (game.state as any)?.priority;
+      if (!statePriority || String(statePriority) !== String(playerId)) {
+        socket.emit?.("error", { code: "INVALID_ACTION", message: "You don't have priority." });
+        return;
+      }
+
+      // Pay {1} from floating mana pool and tap the Sundial.
+      const pool = getOrInitManaPool(game.state as any, String(playerId));
+      const payment = validateAndConsumeManaCostFromPool(pool as any, "{1}", { logPrefix: "[sundialActivate]" });
+      if (payment.ok === false) {
+        socket.emit?.("error", { code: "INVALID_ACTION", message: payment.error });
+        return;
+      }
+
+      try {
+        (sundialPerm as any).tapped = true;
+      } catch {
+        // best-effort
+      }
+
+      if (typeof (game as any).bumpSeq === "function") {
+        try {
+          (game as any).bumpSeq();
+        } catch {
+          // ignore
+        }
       }
 
       // Perform exiling of the stack
@@ -100,44 +134,23 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
         debugWarn(2, "sundialActivate: exileStack threw", err);
       }
 
-      // Handle requested action
+      // End the turn
       try {
-        if (action === "endTurn") {
-          game.nextTurn();
-        } else if (action === "cleanup") {
-          try {
-            // set state.step to CLEANUP and bump seq via nextStep to roll to nextTurn on next invocation
-            (game.state as any).step = GameStep.CLEANUP as any;
-            // optional: call game.nextStep() here to immediately roll to nextTurn
-            // game.nextStep();
-            // we'll persist a note
-          } catch (err) {
-            debugWarn(1, "sundialActivate cleanup: failed to set CLEANUP", err);
-          }
-        } else if (action === "skipSteps" && Array.isArray(skipSteps) && skipSteps.length) {
-          try {
-            // ask game wrapper to remove scheduled steps (string list)
-            if (typeof (game as any).removeScheduledSteps === "function") {
-              const removed = (game as any).removeScheduledSteps(skipSteps);
-              debug(2, "sundialActivate removed scheduled steps count:", removed);
-            } else {
-              // Fallback: clear all scheduled steps if fine-grained removal not available
-              if (typeof (game as any).clearScheduledSteps === "function") (game as any).clearScheduledSteps();
-            }
-          } catch (err) {
-            debugWarn(1, "sundialActivate skipSteps failed", err);
-          }
-        } else {
-          // unknown action: log
-          debugWarn(2, "sundialActivate: unknown action", action);
-        }
+        game.nextTurn();
       } catch (err) {
-        debugWarn(1, "sundialActivate: action handling failed", err);
+        debugWarn(1, "sundialActivate: nextTurn failed", err);
       }
 
       // Persist the activation
       try {
-        appendGameEvent(game, gameId, "sundialActivated", { by: playerId, exiled: exiledCount, action, skipSteps });
+        appendGameEvent(game, gameId, "sundialActivated", {
+          by: playerId,
+          exiled: exiledCount,
+          action,
+          skipSteps,
+          paid: "{1}",
+          tapped: true,
+        });
       } catch (err) {
         debugWarn(1, "sundialActivate: appendGameEvent failed", err);
       }

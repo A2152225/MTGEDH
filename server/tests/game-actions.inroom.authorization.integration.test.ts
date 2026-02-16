@@ -103,4 +103,22 @@ describe('game-actions in-room authorization (integration)', () => {
     const perm = (game.state as any).battlefield[0];
     expect(perm?.phasedOut).toBe(false);
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const p1 = 'p1';
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await expect(handlers['resolveAllTriggers'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['claimMyTurn'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['randomizeStartingPlayer'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['shuffleHand'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['restartGame'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['restartGameClear'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['keepHand'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['mulligan'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['concede'](undefined as any)).resolves.toBeUndefined();
+  });
 });

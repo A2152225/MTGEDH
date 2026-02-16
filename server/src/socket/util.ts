@@ -1461,11 +1461,14 @@ export function broadcastGame(
   if (participants && participants.length) {
     for (const p of participants) {
       try {
+        const participantIsSpectator = !!(
+          (p as any)?.spectator || (p as any)?.isSpectator
+        );
         let rawView;
         try {
           rawView =
             typeof (game as any).viewFor === "function"
-              ? (game as any).viewFor(p.playerId, !!p.spectator)
+              ? (game as any).viewFor(p.playerId, participantIsSpectator)
               : (game as any).state;
         } catch {
           rawView = (game as any).state;
@@ -1503,7 +1506,7 @@ export function broadcastGame(
           const statePlayers: any[] = (game as any).state?.players || [];
           const firstId: string | undefined = statePlayers[0]?.id;
           rawView = firstId
-            ? (game as any).viewFor(firstId, false)
+            ? (game as any).viewFor(firstId, true)
             : (game as any).state;
         } else {
           rawView = (game as any).state;
@@ -1626,8 +1629,14 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
         debug(1, `[checkAndEmitPlayerElimination] Player ${playerName} eliminated: ${reason}`);
         
         // Check if game is over (only 1 or 0 active players remaining)
-        const activePlayers = players.filter((p: any) => 
-          p && p.id && !p.hasLost && !p.eliminated && !p.conceded && !p.isSpectator
+        const activePlayers = players.filter(
+          (p: any) =>
+            p &&
+            p.id &&
+            !p.hasLost &&
+            !p.eliminated &&
+            !p.conceded &&
+            !(p.spectator || p.isSpectator)
         );
         
         if (activePlayers.length === 1) {

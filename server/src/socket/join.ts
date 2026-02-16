@@ -30,7 +30,7 @@ function safeParticipants(game: any) {
       ? game.state.players.map((p: any) => ({
           playerId: p.id,
           socketId: (p as any).socketId ?? undefined,
-          spectator: !!p.spectator,
+          spectator: !!(p.spectator || p.isSpectator),
         }))
       : [];
   } catch {
@@ -746,6 +746,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                       id: playerId,
                       name: playerName,
                       spectator: Boolean(spectator),
+                      isSpectator: Boolean(spectator),
                       seatToken: token,
                       socketId: socket.id,
                     };
@@ -886,6 +887,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 id: newId,
                 name: playerName,
                 spectator: Boolean(spectator),
+                isSpectator: Boolean(spectator),
                 seatToken: tokenToUse,
                 socketId: socket.id,
                 inactive: hasGameStarted && !spectator, // Mark as inactive if game has started and not a spectator
@@ -930,6 +932,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 gameId,
                 playerId,
                 spectator: Boolean(spectator),
+                isSpectator: Boolean(spectator),
               };
             } catch {}
             try {
@@ -1109,7 +1112,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 const viewer = isJudge ? ("spectator:judge" as any) : playerId;
                 return (game as any).viewFor(
                   viewer,
-                  Boolean(socket.data?.spectator)
+                  Boolean((socket.data as any)?.spectator || (socket.data as any)?.isSpectator)
                 );
               })()
             : game.state;

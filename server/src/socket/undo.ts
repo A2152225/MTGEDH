@@ -151,7 +151,7 @@ function cleanupExpiredRequests(): void {
 function getPlayerIds(game: any): string[] {
   const players = game.state?.players || [];
   return players
-    .filter((p: any) => p && !p.spectator)
+    .filter((p: any) => p && !p.spectator && !p.isSpectator)
     .map((p: any) => p.id);
 }
 
@@ -161,7 +161,7 @@ function getPlayerIds(game: any): string[] {
 function getAIPlayerIds(game: any): string[] {
   const players = game.state?.players || [];
   return players
-    .filter((p: any) => p && !p.spectator && p.isAI)
+    .filter((p: any) => p && !p.spectator && !p.isSpectator && p.isAI)
     .map((p: any) => p.id);
 }
 
@@ -171,7 +171,7 @@ function getAIPlayerIds(game: any): string[] {
 function getHumanPlayerIds(game: any): string[] {
   const players = game.state?.players || [];
   return players
-    .filter((p: any) => p && !p.spectator && !p.isAI)
+    .filter((p: any) => p && !p.spectator && !p.isSpectator && !p.isAI)
     .map((p: any) => p.id);
 }
 
@@ -269,7 +269,7 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
         savedParticipants = existingGame.participants().map((p: any) => ({
           socketId: p.socketId,
           playerId: p.playerId,
-          spectator: !!p.spectator,
+          spectator: !!(p.spectator || p.isSpectator),
         }));
       }
     } catch (e) {
@@ -602,8 +602,14 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   };
 
   // Request an undo
-  socket.on("requestUndo", ({ gameId, actionsToUndo = 1 }: { gameId: string; actionsToUndo?: number }) => {
+  socket.on("requestUndo", (payload?: { gameId?: string; actionsToUndo?: unknown }) => {
+    const gameId = payload?.gameId;
+    const actionsToUndo = payload?.actionsToUndo ?? 1;
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing gameId.' });
+        return;
+      }
       handleRequestUndo(gameId, actionsToUndo);
 
     } catch (err: any) {
@@ -616,8 +622,17 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Respond to an undo request
-  socket.on("respondUndo", ({ gameId, undoId, approved }: { gameId: string; undoId: string; approved: boolean }) => {
+  socket.on("respondUndo", (payload?: { gameId?: string; undoId?: string; approved?: boolean }) => {
+    const gameId = payload?.gameId;
+    const undoId = payload?.undoId;
+    const approved = payload?.approved;
+
     try {
+      if (!gameId || typeof gameId !== 'string' || typeof undoId !== 'string' || typeof approved !== 'boolean') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid undo response payload.' });
+        return;
+      }
+
       const socketGameId = (socket.data as any)?.gameId;
       if (socketGameId && socketGameId !== gameId) {
         socket.emit("error", { code: "NOT_IN_GAME", message: "You are not in this game" });
@@ -694,7 +709,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       // Check if rejected
       if (!approved) {
         request.status = 'rejected';
-        
+
         io.to(gameId).emit("undoCancelled", {
           gameId,
           undoId: request.id,
@@ -708,7 +723,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
           message: `Undo request declined by ${playerName}.`,
           ts: Date.now(),
         });
-        
+
         return;
       }
 
@@ -726,7 +741,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
         // Actually perform the undo by replaying events
         const undoResult = performUndo(gameId, request.actionsToUndo);
-        
+
         if (undoResult.success) {
           io.to(gameId).emit("undoConfirmed", {
             gameId,
@@ -748,7 +763,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
             undoId: request.id,
             reason: undoResult.error || "Failed to perform undo",
           });
-          
+
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
             gameId,
@@ -766,7 +781,6 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
       }
-
     } catch (err: any) {
       debugError(1, `respondUndo error for game ${gameId}:`, err);
       socket.emit("error", {
@@ -777,8 +791,15 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Cancel an undo request (by the requester)
-  socket.on("cancelUndo", ({ gameId, undoId }: { gameId: string; undoId: string }) => {
+  socket.on("cancelUndo", (payload?: { gameId?: string; undoId?: string }) => {
+    const gameId = payload?.gameId;
+    const undoId = payload?.undoId;
     try {
+      if (!gameId || typeof gameId !== 'string' || typeof undoId !== 'string') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid cancel undo payload.' });
+        return;
+      }
+
       const socketGameId = (socket.data as any)?.gameId;
       if (socketGameId && socketGameId !== gameId) {
         socket.emit("error", { code: "NOT_IN_GAME", message: "You are not in this game" });
@@ -863,15 +884,16 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         message: `${request.requesterName} cancelled their undo request.`,
         ts: Date.now(),
       });
-
     } catch (err: any) {
       debugError(1, `cancelUndo error for game ${gameId}:`, err);
     }
   });
 
   // Get available undo count (number of events that can be undone)
-  socket.on("getUndoCount", ({ gameId }: { gameId: string }) => {
+  socket.on("getUndoCount", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       if (!ensureInGameRoomForRead(gameId)) return;
       const game = ensureGame(gameId);
       if (!game) return;
@@ -893,8 +915,10 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Get smart undo counts (step, phase, turn)
-  socket.on("getSmartUndoCounts", ({ gameId }: { gameId: string }) => {
+  socket.on("getSmartUndoCounts", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       if (!ensureInGameRoomForRead(gameId)) return;
       const game = ensureGame(gameId);
       if (!game) return;
@@ -923,8 +947,13 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to step (convenience wrapper)
-  socket.on("requestUndoToStep", ({ gameId }: { gameId: string }) => {
+  socket.on("requestUndoToStep", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing gameId.' });
+        return;
+      }
       const ctx = getUndoRequesterContext(gameId);
       if (!ctx) return;
 
@@ -946,8 +975,13 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to phase (convenience wrapper)
-  socket.on("requestUndoToPhase", ({ gameId }: { gameId: string }) => {
+  socket.on("requestUndoToPhase", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing gameId.' });
+        return;
+      }
       const ctx = getUndoRequesterContext(gameId);
       if (!ctx) return;
 
@@ -969,8 +1003,13 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   });
 
   // Request undo to turn (convenience wrapper)
-  socket.on("requestUndoToTurn", ({ gameId }: { gameId: string }) => {
+  socket.on("requestUndoToTurn", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing gameId.' });
+        return;
+      }
       const ctx = getUndoRequesterContext(gameId);
       if (!ctx) return;
 

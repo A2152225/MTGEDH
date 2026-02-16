@@ -73,4 +73,14 @@ describe('saved decks in-room authorization (integration)', () => {
     const detail = emitted.find(e => e.event === 'savedDeckDetail');
     expect(detail).toBeUndefined();
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false, gameId }, emitted);
+
+    registerDeckHandlers(io as any, socket as any);
+
+    await expect(handlers['listSavedDecks'](undefined as any)).resolves.toBeUndefined();
+  });
 });

@@ -1043,7 +1043,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
 
   // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
-  socket.on("beginExplore", ({ gameId, permanentId }) => {
+  socket.on("beginExplore", (payload?: { gameId?: unknown; permanentId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const permanentId = payload?.permanentId;
+
+    if (!permanentId || typeof permanentId !== 'string') return;
+
     const ctx = ensureInRoomAndSeated(gameId);
     if (!ctx) return;
 
@@ -1100,7 +1105,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // and once in the Resolution Queue response handler). This is acceptable because
   // peekTopN doesn't modify the library - it only reveals what's there. The actual card
   // movement happens when the Resolution Queue step is completed via applyEvent("exploreResolve").
-  socket.on("beginBatchExplore", ({ gameId, permanentIds }) => {
+  socket.on("beginBatchExplore", (payload?: { gameId?: unknown; permanentIds?: unknown }) => {
+    const gameId = payload?.gameId;
+    const permanentIds = (payload as any)?.permanentIds as unknown;
+
     const ctx = ensureInRoomAndSeated(gameId);
     if (!ctx) return;
 
@@ -1172,7 +1180,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // Request full library for searching (tutor effect)
-  socket.on("requestLibrarySearch", ({ gameId, title, description, filter, maxSelections, moveTo, shuffleAfter }) => {
+  socket.on(
+    "requestLibrarySearch",
+    (payload?: {
+      gameId?: unknown;
+      title?: unknown;
+      description?: unknown;
+      filter?: any;
+      maxSelections?: unknown;
+      moveTo?: unknown;
+      shuffleAfter?: unknown;
+    }) => {
+      const gameId = payload?.gameId;
+      const title = payload?.title;
+      const description = payload?.description;
+      const filter = (payload as any)?.filter;
+      const maxSelections = payload?.maxSelections;
+      const moveTo = payload?.moveTo;
+      const shuffleAfter = payload?.shuffleAfter;
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!(
       (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
@@ -1262,11 +1287,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.LIBRARY_SEARCH,
       playerId: pid as PlayerID,
-      sourceName: title || 'Search Library',
+      sourceName: typeof title === 'string' && title ? title : 'Search Library',
       description: finalDescription || undefined,
-      searchCriteria: title || 'Search your library',
+      searchCriteria: typeof title === 'string' && title ? title : 'Search your library',
       minSelections: 0,
-      maxSelections: maxSelections || 1,
+      maxSelections: typeof maxSelections === 'number' && Number.isFinite(maxSelections) ? maxSelections : 1,
       mandatory: false,
       destination,
       reveal: false,
@@ -1281,14 +1306,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controlledBy: searchCheck.controlledBy,
       },
     } as any);
-  });
+    }
+  );
 
   // Handle graveyard ability activation
-  socket.on("activateGraveyardAbility", ({ gameId, cardId, abilityId }) => {
-    const ctx = ensureInRoomAndSeated(gameId);
-    if (!ctx) return;
+  socket.on(
+    "activateGraveyardAbility",
+    (payload?: { gameId?: unknown; cardId?: unknown; abilityId?: unknown }) => {
+      const gameIdRaw = payload?.gameId;
+      const cardId = payload?.cardId;
+      const abilityId = payload?.abilityId;
 
-    const { gameId: gid, game, pid } = ctx;
+      if (!cardId || typeof cardId !== 'string') return;
+      if (!abilityId || typeof abilityId !== 'string') return;
+
+      const ctx = ensureInRoomAndSeated(gameIdRaw);
+      if (!ctx) return;
+
+      const { gameId, game, pid } = ctx;
 
     // Split Second: players can't cast spells or activate non-mana abilities.
     if (isSplitSecondLockActive(game.state)) {
@@ -1344,15 +1379,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         game.bumpSeq();
       }
       
-      appendEvent(gid, (game as any).seq ?? 0, "activateGraveyardAbility", {
+      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
         playerId: pid,
         cardId,
         abilityId,
       });
       
-      io.to(gid).emit("chat", {
+      io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
-        gameId: gid,
+        gameId,
         from: "system",
         message: `${getPlayerName(game, pid)} cast ${cardName} using ${abilityId}.`,
         ts: Date.now(),
@@ -1869,20 +1904,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         game.bumpSeq();
       }
       
-      io.to(gid).emit("chat", {
+      io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
-        gameId: gid,
+        gameId,
         from: "system",
         message: `${getPlayerName(game, pid)} activated an ability on ${cardName} from graveyard.`,
         ts: Date.now(),
       });
     }
     
-    broadcastGame(io, game, gid);
-  });
+    broadcastGame(io, game, gameId);
+    }
+  );
   
   // Get graveyard contents for viewing
-  socket.on("requestGraveyardView", ({ gameId, targetPlayerId }) => {
+  socket.on(
+    "requestGraveyardView",
+    (payload?: { gameId?: unknown; targetPlayerId?: unknown }) => {
+      const gameId = payload?.gameId;
+      const targetPlayerId = payload?.targetPlayerId;
     const pid = socket.data.playerId as string | undefined;
     if (!pid) return;
 
@@ -1893,7 +1933,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     const game = ensureGame(gameId);
-    const targetPid = targetPlayerId || pid;
+    const targetPid = typeof targetPlayerId === 'string' && targetPlayerId ? targetPlayerId : pid;
     const zones = (game.state as any)?.zones?.[targetPid];
     
     if (!zones) {
@@ -1908,15 +1948,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       playerId: targetPid,
       cards: graveyard,
     });
-  });
+    }
+  );
 
   // Tap a permanent on the battlefield
-  socket.on("tapPermanent", ({ gameId, permanentId }) => {
-    const ctx = ensureInRoomAndSeated(gameId);
-    if (!ctx) return;
+  socket.on(
+    "tapPermanent",
+    (payload?: { gameId?: unknown; permanentId?: unknown }) => {
+      const gameIdRaw = payload?.gameId;
+      const permanentId = payload?.permanentId;
 
-    const { gameId: gid, game, pid } = ctx;
-    const battlefield = getBattlefield(game);
+      if (!permanentId || typeof permanentId !== 'string') return;
+
+      const ctx = ensureInRoomAndSeated(gameIdRaw);
+      if (!ctx) return;
+
+      const { gameId, game, pid } = ctx;
+      const battlefield = getBattlefield(game);
     
     const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
     if (!permanent) {
@@ -2402,17 +2450,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
     
-    appendEvent(gid, (game as any).seq ?? 0, "tapPermanent", { playerId: pid, permanentId });
+    appendEvent(gameId, (game as any).seq ?? 0, "tapPermanent", { playerId: pid, permanentId });
     
-    broadcastGame(io, game, gid);
-  });
+    broadcastGame(io, game, gameId);
+    }
+  );
 
   // Untap a permanent on the battlefield
-  socket.on("untapPermanent", ({ gameId, permanentId }) => {
-    const ctx = ensureInRoomAndSeated(gameId);
+  socket.on(
+    "untapPermanent",
+    (payload?: { gameId?: unknown; permanentId?: unknown }) => {
+      const gameIdRaw = payload?.gameId;
+      const permanentId = payload?.permanentId;
+
+      if (!permanentId || typeof permanentId !== 'string') return;
+
+      const ctx = ensureInRoomAndSeated(gameIdRaw);
     if (!ctx) return;
 
-    const { gameId: gid, game, pid } = ctx;
+    const { gameId, game, pid } = ctx;
     const battlefield = getBattlefield(game);
     
     const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
@@ -2438,21 +2494,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
     
-    appendEvent(gid, (game as any).seq ?? 0, "untapPermanent", { playerId: pid, permanentId });
+    appendEvent(gameId, (game as any).seq ?? 0, "untapPermanent", { playerId: pid, permanentId });
     
-    broadcastGame(io, game, gid);
-  });
+    broadcastGame(io, game, gameId);
+    }
+  );
 
   // Exchange oracle text boxes between two permanents (text-changing effects)
-  socket.on("exchangeTextBoxes", ({ gameId, sourcePermanentId, targetPermanentId }: {
-    gameId: string;
-    sourcePermanentId: string;
-    targetPermanentId: string;
-  }) => {
-    const ctx = ensureInRoomAndSeated(gameId);
-    if (!ctx) return;
+  socket.on(
+    "exchangeTextBoxes",
+    (payload?: { gameId?: unknown; sourcePermanentId?: unknown; targetPermanentId?: unknown }) => {
+      const gameIdRaw = payload?.gameId;
+      const sourcePermanentId = payload?.sourcePermanentId;
+      const targetPermanentId = payload?.targetPermanentId;
 
-    const { gameId: gid, game, pid } = ctx;
+      if (typeof sourcePermanentId !== "string" || typeof targetPermanentId !== "string") return;
+
+      const ctx = ensureInRoomAndSeated(gameIdRaw);
+      if (!ctx) return;
+
+      const { gameId, game, pid } = ctx;
     const battlefield = game.state?.battlefield || [];
 
     const source = battlefield.find((p: any) => p?.id === sourcePermanentId);
@@ -2478,7 +2539,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
 
-    appendEvent(gid, (game as any).seq ?? 0, "exchangeTextBoxes", {
+    appendEvent(gameId, (game as any).seq ?? 0, "exchangeTextBoxes", {
       playerId: pid,
       sourcePermanentId,
       targetPermanentId,
@@ -2486,24 +2547,32 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const sourceName = source?.card?.name || "Unknown";
     const targetName = target?.card?.name || "Unknown";
-    io.to(gid).emit("chat", {
+    io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
-      gameId: gid,
+      gameId,
       from: "system",
       message: `${getPlayerName(game, pid)} exchanged text boxes of ${sourceName} and ${targetName}.`,
       ts: Date.now(),
     });
 
-    broadcastGame(io, game, gid);
-  });
+    broadcastGame(io, game, gameId);
+    }
+  );
 
   // Sacrifice a permanent on the battlefield
-  socket.on("sacrificePermanent", ({ gameId, permanentId }) => {
-    const ctx = ensureInRoomAndSeated(gameId);
-    if (!ctx) return;
+  socket.on(
+    "sacrificePermanent",
+    (payload?: { gameId?: unknown; permanentId?: unknown }) => {
+      const gameIdRaw = payload?.gameId;
+      const permanentId = payload?.permanentId;
 
-    const { gameId: gid, game, pid } = ctx;
-    const battlefield = game.state?.battlefield || [];
+      if (!permanentId || typeof permanentId !== "string") return;
+
+      const ctx = ensureInRoomAndSeated(gameIdRaw);
+      if (!ctx) return;
+
+      const { gameId, game, pid } = ctx;
+      const battlefield = game.state?.battlefield || [];
     
     const permIndex = battlefield.findIndex((p: any) => p?.id === permanentId && p?.controller === pid);
     if (permIndex === -1) {
@@ -2572,11 +2641,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
     
-    appendEvent(gid, (game as any).seq ?? 0, "sacrificePermanent", { playerId: pid, permanentId });
-    
-      io.to(gid).emit("chat", {
+    appendEvent(gameId, (game as any).seq ?? 0, "sacrificePermanent", { playerId: pid, permanentId });
+
+    io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
-        gameId: gid,
+      gameId,
       from: "system",
       message: `${getPlayerName(game, pid)} sacrificed ${cardName}.`,
       ts: Date.now(),
@@ -2669,18 +2738,27 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       } as any);
     }
     
-    broadcastGame(io, game, gid);
-  });
+    broadcastGame(io, game, gameId);
+    }
+  );
 
   // Activate a battlefield ability (fetch lands, mana abilities, etc.)
-  socket.on("activateBattlefieldAbility", async ({ gameId, permanentId, abilityId }) => {
-    const ctx = ensureInRoomAndSeated(gameId);
+  socket.on(
+    "activateBattlefieldAbility",
+    async (payload?: { gameId?: unknown; permanentId?: unknown; abilityId?: unknown }) => {
+    const gameIdRaw = payload?.gameId;
+    const permanentId = payload?.permanentId;
+    const abilityId = payload?.abilityId;
+
+    if (typeof permanentId !== "string") return;
+
+    const ctx = ensureInRoomAndSeated(gameIdRaw);
     if (!ctx) return;
 
-    const { gameId: gid, game, pid } = ctx;
+    const { gameId, game, pid } = ctx;
 
     // Validate abilityId is provided
-    if (!abilityId || typeof abilityId !== 'string') {
+    if (!abilityId || typeof abilityId !== "string") {
       socket.emit("error", {
         code: "INVALID_ABILITY",
         message: "Ability ID is required",
@@ -8520,26 +8598,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
    * This allows players to override the default ordering when they want to
    * maximize damage taken (e.g., for Selfless Squire, redirect effects).
    */
-  socket.on("setReplacementEffectOrder", ({
-    gameId,
-    effectType,
-    useCustomOrder,
-    customOrder,
-    mode,
-  }: {
-    gameId: string;
-    effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
-    useCustomOrder?: boolean;
-    customOrder?: string[];  // Source names in desired order
-    mode?: 'minimize' | 'maximize' | 'custom' | 'auto';
-  }) => {
+  socket.on(
+    "setReplacementEffectOrder",
+    (payload?: {
+      gameId?: unknown;
+      effectType?: unknown;
+      useCustomOrder?: unknown;
+      customOrder?: unknown;
+      mode?: unknown;
+    }) => {
+    const gameId = payload?.gameId;
+    const effectType = payload?.effectType;
+    const useCustomOrder = payload?.useCustomOrder;
+    const customOrder = payload?.customOrder;
+    const mode = payload?.mode;
+
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!(
       (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
     );
     if (!pid || socketIsSpectator) return;
 
-    if (!gameId || typeof gameId !== 'string') return;
+    if (!gameId || typeof gameId !== "string") return;
+    if (
+      effectType !== "damage" &&
+      effectType !== "life_gain" &&
+      effectType !== "counters" &&
+      effectType !== "tokens"
+    ) {
+      return;
+    }
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
@@ -8562,19 +8650,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     (game.state as any).replacementEffectPreferences = (game.state as any).replacementEffectPreferences || {};
     (game.state as any).replacementEffectPreferences[pid] = (game.state as any).replacementEffectPreferences[pid] || {};
     
-    const normalizedMode: 'minimize' | 'maximize' | 'custom' | 'auto' = (() => {
-      if (mode) return mode;
+    const normalizedMode: "minimize" | "maximize" | "custom" | "auto" = (() => {
+      if (mode === "minimize" || mode === "maximize" || mode === "custom" || mode === "auto") return mode;
 
       // Back-compat: previous API was a boolean toggle.
       // For damage: toggle means maximize vs minimize.
       // For others: toggle means custom vs auto.
-      if (effectType === 'damage') {
+      if (effectType === "damage") {
         return useCustomOrder ? 'maximize' : 'minimize';
       }
       return useCustomOrder ? 'custom' : 'auto';
     })();
 
-    const normalizedCustomOrder = Array.isArray(customOrder) ? customOrder : [];
+    const normalizedCustomOrder = Array.isArray(customOrder) ? (customOrder as string[]) : [];
     const normalizedUseCustomOrder = normalizedMode === 'maximize' || normalizedMode === 'custom';
 
     (game.state as any).replacementEffectPreferences[pid][effectType] = {
@@ -8625,20 +8713,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   /**
    * Get current replacement effect ordering preferences for a player
    */
-  socket.on("getReplacementEffectOrder", ({
-    gameId,
-    effectType,
-  }: {
-    gameId: string;
-    effectType?: 'damage' | 'life_gain' | 'counters' | 'tokens';
-  }) => {
+  socket.on(
+    "getReplacementEffectOrder",
+    (payload?: { gameId?: unknown; effectType?: unknown }) => {
+    const gameId = payload?.gameId;
+    const effectType = payload?.effectType;
+
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!(
       (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
     );
     if (!pid || socketIsSpectator) return;
 
-    if (!gameId || typeof gameId !== 'string') return;
+    if (!gameId || typeof gameId !== "string") return;
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
@@ -8659,7 +8746,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const preferences = (game.state as any).replacementEffectPreferences?.[pid] || {};
     
-    if (effectType) {
+    if (
+      effectType === "damage" ||
+      effectType === "life_gain" ||
+      effectType === "counters" ||
+      effectType === "tokens"
+    ) {
       socket.emit("replacementEffectOrderResponse", {
         gameId,
         effectType,
@@ -8698,7 +8790,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
   // Cycling - discard a card from hand, pay cost, and draw a card
   // Properly uses the stack per MTG rules (Rule 702.29)
-  socket.on("activateCycling", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
+  socket.on(
+    "activateCycling",
+    (payload?: { gameId?: unknown; cardId?: unknown }) => {
+      const gameId = payload?.gameId;
+      const cardId = payload?.cardId;
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!(
       (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
@@ -8706,6 +8802,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socketIsSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
+    if (!cardId || typeof cardId !== 'string') return;
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
@@ -8841,5 +8938,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     broadcastGame(io, game, gameId);
-  });
+    }
+  );
 }

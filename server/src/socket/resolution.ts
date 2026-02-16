@@ -1540,7 +1540,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   /**
    * Get all pending resolution steps for a game
    */
-  socket.on("getResolutionQueue", ({ gameId }: { gameId: string }) => {
+  socket.on("getResolutionQueue", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     const pid = socket.data.playerId as string | undefined;
 
     if (!gameId || typeof gameId !== 'string') return;
@@ -1570,7 +1571,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   /**
    * Get the next resolution step for the current player
    */
-  socket.on("getMyNextResolutionStep", ({ gameId }: { gameId: string }) => {
+  socket.on("getMyNextResolutionStep", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
 
@@ -4907,7 +4909,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   /**
    * Cancel/decline a resolution step (for non-mandatory steps)
    */
-  socket.on("cancelResolutionStep", ({ gameId, stepId }: { gameId: string; stepId: string }) => {
+  socket.on(
+    "cancelResolutionStep",
+    (payload?: { gameId?: unknown; stepId?: unknown }) => {
+      const gameId = payload?.gameId;
+      const stepId = payload?.stepId;
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
     if (!pid || socketIsSpectator) {
@@ -4916,6 +4922,10 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     }
 
     if (!gameId || typeof gameId !== 'string') return;
+    if (!stepId || typeof stepId !== 'string') {
+      socket.emit("error", { code: "STEP_NOT_FOUND", message: "Resolution step not found" });
+      return;
+    }
     if (!(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
@@ -5064,7 +5074,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         broadcastGame(io, game, gameId);
       }
     }
-  });
+    }
+  );
   
   // =========================================================================
   // Set up event forwarding from ResolutionQueueManager to Socket.IO

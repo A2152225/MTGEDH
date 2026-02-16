@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, afterAll } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const testDbFile = path.resolve(__dirname, '..', 'data', 'mtgedh.test.sqlite');
+const workerId =
+  (process.env.VITEST_WORKER_ID || process.env.VITEST_POOL_ID || '').trim() ||
+  String(process.pid);
+const testDbFile = path.resolve(__dirname, '..', 'data', `mtgedh.test.${workerId}.sqlite`);
 
 function rmIfExists(filePath: string) {
   try {

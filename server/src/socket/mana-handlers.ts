@@ -22,27 +22,33 @@ export function registerManaHandlers(io: Server, socket: Socket) {
    * Add mana to a player's mana pool
    * Used for manual adjustments or card effects that add restricted mana
    */
-  socket.on("addManaToPool", ({
-    gameId,
-    color,
-    amount,
-    restriction,
-    restrictedTo,
-    sourceId,
-    sourceName,
-  }: {
-    gameId: string;
-    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-    amount: number;
-    restriction?: string;
-    restrictedTo?: string;
-    sourceId?: string;
-    sourceName?: string;
-  }) => {
+  socket.on(
+    "addManaToPool",
+    (payload?: {
+      gameId?: string;
+      color?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+      amount?: number;
+      restriction?: string;
+      restrictedTo?: string;
+      sourceId?: string;
+      sourceName?: string;
+    }) => {
+      const { gameId, color, amount, restriction, restrictedTo, sourceId, sourceName } = payload || ({} as any);
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
+
+    if (
+      typeof amount !== 'number' ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !color ||
+      (color !== 'white' && color !== 'blue' && color !== 'black' && color !== 'red' && color !== 'green' && color !== 'colorless')
+    ) {
+      socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid mana payload.' });
+      return;
+    }
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -105,27 +111,42 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     // Emit mana pool update
     broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana', game);
     broadcastGame(io, game, gameId);
-  });
+    },
+  );
 
   /**
    * Remove mana from a player's mana pool
    * Used for manual adjustments or payment verification
    */
-  socket.on("removeManaFromPool", ({
-    gameId,
-    color,
-    amount,
-    restrictedIndex,
-  }: {
-    gameId: string;
-    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-    amount: number;
-    restrictedIndex?: number;
-  }) => {
+  socket.on(
+    "removeManaFromPool",
+    (payload?: {
+      gameId?: string;
+      color?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+      amount?: number;
+      restrictedIndex?: number;
+    }) => {
+      const { gameId, color, amount, restrictedIndex } = payload || ({} as any);
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
+
+    if (
+      typeof amount !== 'number' ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !color ||
+      (color !== 'white' && color !== 'blue' && color !== 'black' && color !== 'red' && color !== 'green' && color !== 'colorless')
+    ) {
+      socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid mana payload.' });
+      return;
+    }
+
+    if (restrictedIndex !== undefined && (typeof restrictedIndex !== 'number' || !Number.isInteger(restrictedIndex) || restrictedIndex < 0)) {
+      socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid restricted mana index.' });
+      return;
+    }
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -195,29 +216,45 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     // Emit mana pool update
     broadcastManaPoolUpdate(io, gameId, pid, pool, 'Removed mana', game);
     broadcastGame(io, game, gameId);
-  });
+    },
+  );
 
   /**
    * Set mana pool "doesn't empty" effect
    * Used by cards like Horizon Stone, Omnath Locus of Mana, Kruphix
    */
-  socket.on("setManaPoolDoesNotEmpty", ({
-    gameId,
-    sourceId,
-    sourceName,
-    convertsTo,
-    convertsToColorless,
-  }: {
-    gameId: string;
-    sourceId: string;
-    sourceName: string;
-    convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-    convertsToColorless?: boolean;
-  }) => {
+  socket.on(
+    "setManaPoolDoesNotEmpty",
+    (payload?: {
+      gameId?: string;
+      sourceId?: string;
+      sourceName?: string;
+      convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+      convertsToColorless?: boolean;
+    }) => {
+      const { gameId, sourceId, sourceName, convertsTo, convertsToColorless } = payload || ({} as any);
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
+
+    if (typeof sourceId !== 'string' || sourceId.length === 0 || typeof sourceName !== 'string' || sourceName.length === 0) {
+      socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid source for mana retention.' });
+      return;
+    }
+
+    if (
+      convertsTo !== undefined &&
+      convertsTo !== 'white' &&
+      convertsTo !== 'blue' &&
+      convertsTo !== 'black' &&
+      convertsTo !== 'red' &&
+      convertsTo !== 'green' &&
+      convertsTo !== 'colorless'
+    ) {
+      socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Invalid convertsTo value.' });
+      return;
+    }
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -279,23 +316,23 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     // Emit mana pool update
     broadcastManaPoolUpdate(io, gameId, pid, pool, `Doesn't empty (${sourceName})`, game);
     broadcastGame(io, game, gameId);
-  });
+    },
+  );
 
   /**
    * Remove mana pool "doesn't empty" effect
    * Called when the source permanent leaves the battlefield
    */
-  socket.on("removeManaPoolDoesNotEmpty", ({
-    gameId,
-    sourceId,
-  }: {
-    gameId: string;
-    sourceId: string;
-  }) => {
+  socket.on(
+    "removeManaPoolDoesNotEmpty",
+    (payload?: { gameId?: string; sourceId?: string }) => {
+      const { gameId, sourceId } = payload || ({} as any);
     const pid = socket.data.playerId as string | undefined;
     if (!pid || (socket.data as any)?.spectator || (socket.data as any)?.isSpectator) return;
 
     if (!gameId || typeof gameId !== 'string') return;
+
+    if (typeof sourceId !== 'string' || sourceId.length === 0) return;
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
@@ -331,5 +368,6 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
 
     broadcastGame(io, game, gameId);
-  });
+    },
+  );
 }

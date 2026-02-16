@@ -92,4 +92,24 @@ describe('randomness in-room authorization (integration)', () => {
     const anyBroadcast = emitted.find(e => e.room === gameId && (e.event === 'dieRollResult' || e.event === 'chat'));
     expect(anyBroadcast).toBeUndefined();
   });
+
+  it('does not crash on missing payload', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerRandomnessHandlers(io as any, socket as any);
+
+    expect(() => handlers['rollDie'](undefined as any)).not.toThrow();
+    expect(() => handlers['flipCoin'](undefined as any)).not.toThrow();
+  });
 });

@@ -38,8 +38,10 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     return { game, pid };
   }
 
-  socket.on("clearPriorityTimer", ({ gameId }: { gameId: string }) => {
+  socket.on("clearPriorityTimer", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const ctx = ensureInRoomAndSeated(gameId);
       if (!ctx) return;
 
@@ -50,8 +52,10 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     }
   });
 
-  socket.on("schedulePriorityTimeout", ({ gameId }: { gameId: string }) => {
+  socket.on("schedulePriorityTimeout", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const ctx = ensureInRoomAndSeated(gameId);
       if (!ctx) return;
       const game = ctx.game;

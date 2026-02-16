@@ -191,6 +191,52 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
       .map((p: any) => p.id);
   };
 
+  const getValidatedReplaySession = (): ReplaySession | null => {
+    const viewerId = socket.id;
+    const session = replaySessions.get(viewerId);
+
+    if (!session) {
+      socket.emit("error", {
+        code: "NO_REPLAY_SESSION",
+        message: "No active replay session",
+      });
+      return null;
+    }
+
+    const socketIsSpectator = !!(
+      (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+    );
+    if (socketIsSpectator) {
+      cleanupSession(viewerId);
+      socket.emit("error", {
+        code: "NOT_AUTHORIZED",
+        message: "Spectators cannot control replays",
+      });
+      return null;
+    }
+
+    const socketGameId = (socket.data as any)?.gameId as string | undefined;
+    if (socketGameId && socketGameId !== session.gameId) {
+      cleanupSession(viewerId);
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "Not in game.",
+      });
+      return null;
+    }
+
+    if (!socket.rooms.has(session.gameId)) {
+      cleanupSession(viewerId);
+      socket.emit("error", {
+        code: "NOT_IN_GAME",
+        message: "Not in game.",
+      });
+      return null;
+    }
+
+    return session;
+  };
+
   const getReplayRequesterContext = (gameId: string) => {
     const playerId = socket.data.playerId;
     const socketIsSpectator = !!(
@@ -325,16 +371,8 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
    * Play/resume the replay
    */
   socket.on("replayPlay", () => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
-    if (!session) {
-      socket.emit("error", {
-        code: "NO_REPLAY_SESSION",
-        message: "No active replay session",
-      });
-      return;
-    }
+    const session = getValidatedReplaySession();
+    if (!session) return;
     
     startPlayback(session, io, socket.id);
     socket.emit("replayPlaying", { isPlaying: true });
@@ -344,9 +382,7 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
    * Pause the replay
    */
   socket.on("replayPause", () => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
+    const session = getValidatedReplaySession();
     if (!session) return;
     
     pausePlayback(session);
@@ -357,16 +393,8 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
    * Step forward one event
    */
   socket.on("replayStepForward", () => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
-    if (!session) {
-      socket.emit("error", {
-        code: "NO_REPLAY_SESSION",
-        message: "No active replay session",
-      });
-      return;
-    }
+    const session = getValidatedReplaySession();
+    if (!session) return;
     
     // Pause automatic playback if playing
     pausePlayback(session);
@@ -387,23 +415,15 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
    * Step backward one event (replay from beginning to target index)
    */
   socket.on("replayStepBackward", () => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
-    if (!session) {
-      socket.emit("error", {
-        code: "NO_REPLAY_SESSION",
-        message: "No active replay session",
-      });
-      return;
-    }
+    const session = getValidatedReplaySession();
+    if (!session) return;
     
     // Pause automatic playback
     pausePlayback(session);
     
     if (session.currentEventIndex <= 0) {
       // Already at beginning
-      socket.emit("replayStateUpdate", generateReplayView(session, viewerId));
+      socket.emit("replayStateUpdate", generateReplayView(session, socket.id));
       return;
     }
     
@@ -418,23 +438,15 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
       session.currentEventIndex++;
     }
     
-    socket.emit("replayStateUpdate", generateReplayView(session, viewerId));
+    socket.emit("replayStateUpdate", generateReplayView(session, socket.id));
   });
   
   /**
    * Jump to a specific event index
    */
   socket.on("replayJumpTo", ({ eventIndex }: { eventIndex: number }) => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
-    if (!session) {
-      socket.emit("error", {
-        code: "NO_REPLAY_SESSION",
-        message: "No active replay session",
-      });
-      return;
-    }
+    const session = getValidatedReplaySession();
+    if (!session) return;
     
     // Pause automatic playback
     pausePlayback(session);
@@ -451,16 +463,14 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
       session.currentEventIndex++;
     }
     
-    socket.emit("replayStateUpdate", generateReplayView(session, viewerId));
+    socket.emit("replayStateUpdate", generateReplayView(session, socket.id));
   });
   
   /**
    * Set playback speed
    */
   socket.on("replaySetSpeed", ({ speed }: { speed: number }) => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
+    const session = getValidatedReplaySession();
     if (!session) return;
     
     // Clamp speed between 100ms (fast) and 10000ms (slow)
@@ -481,31 +491,21 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
    * Set focused player for the replay view
    */
   socket.on("replaySetFocusPlayer", ({ playerId }: { playerId: PlayerID | null }) => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
+    const session = getValidatedReplaySession();
     if (!session) return;
     
     session.focusedPlayerId = playerId;
     
     // Emit updated view with new focus
-    socket.emit("replayStateUpdate", generateReplayView(session, viewerId));
+    socket.emit("replayStateUpdate", generateReplayView(session, socket.id));
   });
   
   /**
    * Get list of players in the replay (for focus selection UI)
    */
   socket.on("replayGetPlayers", () => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
-    if (!session) {
-      socket.emit("error", {
-        code: "NO_REPLAY_SESSION",
-        message: "No active replay session",
-      });
-      return;
-    }
+    const session = getValidatedReplaySession();
+    if (!session) return;
     
     const players = (session.gameState?.state?.players || []).map((p: any) => ({
       id: p.id,
@@ -524,16 +524,8 @@ export function registerReplayHandlers(io: Server, socket: Socket) {
    * Get event list for scrubber/timeline UI
    */
   socket.on("replayGetEvents", () => {
-    const viewerId = socket.id;
-    const session = replaySessions.get(viewerId);
-    
-    if (!session) {
-      socket.emit("error", {
-        code: "NO_REPLAY_SESSION",
-        message: "No active replay session",
-      });
-      return;
-    }
+    const session = getValidatedReplaySession();
+    if (!session) return;
     
     // Return simplified event list for UI display
     const eventSummaries = session.events.map((e: any, index: number) => ({

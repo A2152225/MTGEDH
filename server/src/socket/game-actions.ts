@@ -137,7 +137,7 @@ function checkAllHumanPlayersMulliganed(game: any): boolean {
     const mulliganState = (game.state as any)?.mulliganState || {};
 
     const humanPlayers = players.filter((p: any) =>
-      p && !p.spectator && !p.isAI && p.id && !String(p.id).startsWith("ai_")
+      p && !p.spectator && !p.isSpectator && !p.isAI && p.id && !String(p.id).startsWith("ai_")
     );
 
     if (humanPlayers.length === 0) return false;
@@ -173,7 +173,7 @@ function calculateEffectiveMulliganCount(
 
   const houseRules = game.state?.houseRules || {};
   const players = game.state?.players || [];
-  const isMultiplayer = players.filter((p: any) => p && !p.spectator).length > 2;
+  const isMultiplayer = players.filter((p: any) => p && !p.spectator && !p.isSpectator).length > 2;
 
   let effectiveCount = actualMulligans;
 
@@ -219,7 +219,7 @@ function checkAllPlayersKeptHands(game: any): { allKept: boolean; waitingPlayers
     const players = game.state?.players || [];
     const mulliganState = (game.state as any)?.mulliganState || {};
     
-    const nonSpectatorPlayers = players.filter((p: any) => p && !p.spectator);
+    const nonSpectatorPlayers = players.filter((p: any) => p && !p.spectator && !p.isSpectator);
     const waitingPlayers: string[] = [];
     
     for (const player of nonSpectatorPlayers) {
@@ -254,7 +254,7 @@ function checkAllPlayersHaveDecks(game: any): { allHaveDecks: boolean; waitingPl
     const players = game.state?.players || [];
     const zones = game.state?.zones || {};
     
-    const nonSpectatorPlayers = players.filter((p: any) => p && !p.spectator);
+    const nonSpectatorPlayers = players.filter((p: any) => p && !p.spectator && !p.isSpectator);
     const waitingPlayers: string[] = [];
     
     for (const player of nonSpectatorPlayers) {
@@ -7224,6 +7224,19 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (!ensureInGameRoom(gameId)) return;
 
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (socketIsSpectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Spectators can't pass priority." } as any);
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator || me?.isSpectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized." } as any);
+        return;
+      }
+
       const { changed, resolvedNow, advanceStep } = (game as any).passPriority(playerId, isAutoPass);
       if (!changed) return;
 
@@ -7331,7 +7344,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 
                 // Find the socket for the controller and send library search request
                 for (const s of io.sockets.sockets.values()) {
-                  if (s.data?.playerId === resolvedController && !s.data?.spectator) {
+                  if (s.data?.playerId === resolvedController && !(s.data as any)?.spectator && !(s.data as any)?.isSpectator) {
                     // Queue library search via Resolution Queue
                     const isSplit = tutorInfo.splitDestination === true;
                     const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
@@ -7488,8 +7501,10 @@ export function registerGameActions(io: Server, socket: Socket) {
    * 1. The player has priority
    * 2. All stack items are triggered abilities controlled by the player
    */
-  socket.on("resolveAllTriggers", ({ gameId }: { gameId: string }) => {
+  socket.on("resolveAllTriggers", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -7594,13 +7609,28 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Claim turn (pre-game only) - set yourself as active player when pre-game and turnPlayer is unset.
-  socket.on("claimMyTurn", ({ gameId }: { gameId: string }) => {
+  socket.on("claimMyTurn", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
       if (!ensureInGameRoom(gameId)) return;
+
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (socketIsSpectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Spectators can't claim the starting turn." } as any);
+        return;
+      }
+
+      const statePlayers = ((game.state as any)?.players || []) as any[];
+      const me = statePlayers.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator || me?.isSpectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized." } as any);
+        return;
+      }
 
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
@@ -7656,13 +7686,28 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Randomize starting player
-  socket.on("randomizeStartingPlayer", ({ gameId }: { gameId: string }) => {
+  socket.on("randomizeStartingPlayer", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
       if (!ensureInGameRoom(gameId)) return;
+
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (socketIsSpectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Spectators can't randomize the starting player." } as any);
+        return;
+      }
+
+      const statePlayers = ((game.state as any)?.players || []) as any[];
+      const me = statePlayers.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator || me?.isSpectator) {
+        socket.emit("error", { code: "NOT_AUTHORIZED", message: "Not authorized." } as any);
+        return;
+      }
 
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const isPreGame =
@@ -7676,7 +7721,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      const players = (game.state?.players || []).filter((p: any) => p && !p.spectator);
+      const players = (game.state?.players || []).filter((p: any) => p && !p.spectator && !p.isSpectator);
       if (players.length === 0) {
         socket.emit("error", {
           code: "RANDOMIZE_NO_PLAYERS",
@@ -8894,8 +8939,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Shuffle player's hand (server-authoritative) ΓÇö randomize order of cards in hand.
-  socket.on("shuffleHand", ({ gameId }: { gameId: string }) => {
+  socket.on("shuffleHand", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       const spectator = !!(
@@ -9146,7 +9193,8 @@ export function registerGameActions(io: Server, socket: Socket) {
     ({ gameId, direction }: { gameId: string; direction: 1 | -1 }) => {
       try {
         const playerId = socket.data?.playerId;
-        if (!playerId || typeof playerId !== "string" || socket.data?.spectator) {
+        const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+        if (!playerId || typeof playerId !== "string" || socketIsSpectator) {
           socket.emit("error", {
             code: "NOT_AUTHORIZED",
             message: "Not authorized.",
@@ -9196,6 +9244,16 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
 
+        const statePlayers = ((game.state as any)?.players || []) as any[];
+        const me = statePlayers.find((p: any) => p?.id === playerId);
+        if (!me || me?.spectator || me?.isSpectator) {
+          socket.emit("error", {
+            code: "NOT_AUTHORIZED",
+            message: "Not authorized.",
+          });
+          return;
+        }
+
         game.setTurnDirection(direction);
         appendGameEvent(game, gameId, "setTurnDirection", { direction });
         broadcastGame(io, game, gameId);
@@ -9209,8 +9267,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   );
 
   // Restart (keep roster/players)
-  socket.on("restartGame", ({ gameId }) => {
+  socket.on("restartGame", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== "string") return;
       const playerId = socket.data?.playerId;
       if (!playerId || typeof playerId !== "string") {
         socket.emit("error", {
@@ -9271,8 +9331,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Restart (clear roster/players)
-  socket.on("restartGameClear", ({ gameId }) => {
+  socket.on("restartGameClear", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== "string") return;
       const playerId = socket.data?.playerId;
       if (!playerId || typeof playerId !== "string") {
         socket.emit("error", {
@@ -9338,8 +9400,10 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Keep hand - player accepts their current hand
   // If mulligans were taken, this triggers the London Mulligan bottom selection
-  socket.on("keepHand", ({ gameId }: { gameId: string }) => {
+  socket.on("keepHand", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -9472,8 +9536,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Mulligan - player shuffles hand back and draws a new hand (minus one card)
-  socket.on("mulligan", ({ gameId }: { gameId: string }) => {
+  socket.on("mulligan", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
+      if (!gameId || typeof gameId !== 'string') return;
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
@@ -11080,7 +11146,8 @@ export function registerGameActions(io: Server, socket: Socket) {
    * 3. On their next turn, all their permanents are exiled and their turn is skipped
    * 4. If only one player remains, that player wins
    */
-  socket.on("concede", ({ gameId }: { gameId: string }) => {
+  socket.on("concede", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
 

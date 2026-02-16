@@ -60,7 +60,7 @@ function listAllGames(): void {
       const activeConnections = GameManager.getActiveConnectionsCount(id);
       
       const playerNames = inMem?.state?.players
-        ?.filter((p: any) => !p.spectator)
+        ?.filter((p: any) => !(p.spectator || p.isSpectator))
         ?.map((p: any) => p.name)
         ?.join(', ') || 'None';
       

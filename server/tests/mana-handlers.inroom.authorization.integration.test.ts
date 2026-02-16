@@ -88,4 +88,23 @@ describe('mana-handlers in-room authorization (integration)', () => {
     expect(err?.payload?.code).toBe('NOT_AUTHORIZED');
     expect((game.state as any).manaPool).toBeUndefined();
   });
+
+  it('does not crash on missing payload', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerManaHandlers(io as any, socket as any);
+
+    expect(() => handlers['addManaToPool'](undefined as any)).not.toThrow();
+  });
 });

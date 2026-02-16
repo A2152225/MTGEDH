@@ -112,4 +112,21 @@ describe('tapPermanent in-room authorization (integration)', () => {
     const permanent = (game.state as any).battlefield.find((p: any) => p.id === 'perm_1');
     expect(Boolean(permanent?.tapped)).toBe(false);
   });
+
+  it('does not throw when payload is missing (crash-safety)', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false, gameId: 'g' }, emitted);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await expect(handlers['beginExplore'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['beginBatchExplore'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['requestLibrarySearch'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['activateGraveyardAbility'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['requestGraveyardView'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['tapPermanent'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['untapPermanent'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['sacrificePermanent'](undefined as any)).resolves.toBeUndefined();
+    await expect(handlers['activateCycling'](undefined as any)).resolves.toBeUndefined();
+  });
 });

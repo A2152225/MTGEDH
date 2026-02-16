@@ -99,4 +99,148 @@ describe('sundialActivate in-room authorization (integration)', () => {
     expect(err?.payload?.code).toBe('NOT_IN_GAME');
     expect(nextTurnCalled).toBe(false);
   });
+
+  it('rejects sundialActivate when player does not control a battlefield Sundial (even if they have one in hand)', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = { [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 } };
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ id: 'c1', name: 'Sundial of the Infinite' }],
+      },
+    };
+
+    let nextTurnCalled = false;
+    (game as any).nextTurn = () => {
+      nextTurnCalled = true;
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerSundialHandlers(io as any, socket as any);
+
+    await handlers['sundialActivate']({ gameId, action: 'endTurn' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_AUTHORIZED');
+    expect(nextTurnCalled).toBe(false);
+  });
+
+  it("rejects sundialActivate when player doesn't have priority", async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).priority = p2;
+    (game.state as any).manaPool = { [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 } };
+    (game.state as any).battlefield = [
+      { id: 'perm1', controller: p1, tapped: false, card: { name: 'Sundial of the Infinite' } },
+    ];
+
+    let nextTurnCalled = false;
+    (game as any).nextTurn = () => {
+      nextTurnCalled = true;
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerSundialHandlers(io as any, socket as any);
+
+    await handlers['sundialActivate']({ gameId, action: 'endTurn' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('INVALID_ACTION');
+    expect(nextTurnCalled).toBe(false);
+  });
+
+  it('rejects sundialActivate when Sundial is tapped', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = { [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 } };
+    (game.state as any).battlefield = [
+      { id: 'perm1', controller: p1, tapped: true, card: { name: 'Sundial of the Infinite' } },
+    ];
+
+    let nextTurnCalled = false;
+    (game as any).nextTurn = () => {
+      nextTurnCalled = true;
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerSundialHandlers(io as any, socket as any);
+
+    await handlers['sundialActivate']({ gameId, action: 'endTurn' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('INVALID_ACTION');
+    expect(nextTurnCalled).toBe(false);
+  });
+
+  it('allows sundialActivate when player controls untapped Sundial, has priority, and can pay {1}', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = { [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 } };
+    (game.state as any).battlefield = [
+      { id: 'perm1', controller: p1, tapped: false, card: { name: 'Sundial of the Infinite' } },
+    ];
+
+    let nextTurnCalled = false;
+    (game as any).nextTurn = () => {
+      nextTurnCalled = true;
+    };
+    (game as any).exileStack = () => 0;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerSundialHandlers(io as any, socket as any);
+
+    await handlers['sundialActivate']({ gameId, action: 'endTurn' });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err).toBeUndefined();
+    expect(nextTurnCalled).toBe(true);
+
+    const pool = (game.state as any).manaPool?.[p1];
+    expect(pool?.colorless).toBe(0);
+    expect(((game.state as any).battlefield?.[0] as any)?.tapped).toBe(true);
+  });
 });

@@ -1226,6 +1226,13 @@ export async function executeDeclareAttackers(
     ts: Date.now(),
   });
 
+  // Clear any live preview now that attackers are locked in.
+  io.to(gameId).emit('combatPreviewAttackers', {
+    gameId,
+    attackerPlayerId: playerId,
+    targets: {},
+  });
+
   broadcastGame(io, game, gameId);
 }
 
@@ -1233,6 +1240,72 @@ export async function executeDeclareAttackers(
  * Register combat phase socket handlers
  */
 export function registerCombatHandlers(io: Server, socket: Socket): void {
+  /**
+   * Live preview for attacker allocations (UI only).
+   * Lets other players/spectators see allocation as it's being made.
+   */
+  socket.on('combatPreviewAttackers', async ({
+    gameId,
+    targets,
+  }: {
+    gameId: string;
+    targets: Record<string, string>;
+  }) => {
+    try {
+      if (!gameId || typeof gameId !== 'string') return;
+
+      const playerId = (socket.data as any)?.playerId as PlayerID | undefined;
+      if (!playerId) return;
+
+      const socketGameId = (socket.data as any)?.gameId;
+      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) return;
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === playerId);
+      if (!me || me?.spectator || me?.isSpectator) return;
+
+      // Only the turn player can publish attacker previews.
+      if (game.state.turnPlayer !== playerId) return;
+
+      const step = String((game.state as any).step || '').toLowerCase();
+      if (step !== 'declareattackers' && step !== 'declare_attackers') return;
+
+      if (!targets || typeof targets !== 'object') return;
+
+      // Sanitize: allow only controlled creatures and only player-id targets.
+      const battlefield = (game.state?.battlefield || []) as any[];
+      const playerIds = new Set(players.map((p: any) => String(p?.id)));
+      const controlledCreatureIds = new Set(
+        battlefield
+          .filter((p: any) => p && p.controller === playerId)
+          .map((p: any) => String(p?.id))
+      );
+
+      const sanitized: Record<string, string> = {};
+      const entries = Object.entries(targets);
+      for (const [creatureIdRaw, targetIdRaw] of entries) {
+        const creatureId = String(creatureIdRaw);
+        const targetId = String(targetIdRaw);
+        if (!controlledCreatureIds.has(creatureId)) continue;
+        if (!playerIds.has(targetId)) continue;
+        sanitized[creatureId] = targetId;
+      }
+
+      io.to(gameId).emit('combatPreviewAttackers', {
+        gameId,
+        attackerPlayerId: playerId,
+        targets: sanitized,
+      });
+    } catch {
+      // Best-effort UI preview; ignore errors
+    }
+  });
+
   /**
    * Declare attackers - player selects which creatures to attack with
    * 
@@ -1277,7 +1350,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
@@ -2123,7 +2196,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
@@ -2577,7 +2650,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
@@ -2620,6 +2693,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         ts: Date.now(),
       });
 
+      // Clear any live preview now that attackers are locked in.
+      io.to(gameId).emit('combatPreviewAttackers', {
+        gameId,
+        attackerPlayerId: playerId,
+        targets: {},
+      });
+
       if (typeof (game as any).bumpSeq === "function") {
         (game as any).bumpSeq();
       }
@@ -2655,7 +2735,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
@@ -2744,7 +2824,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
@@ -2839,7 +2919,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
@@ -3047,7 +3127,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }
@@ -3265,7 +3345,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       const players = ((game.state as any)?.players || []) as any[];
       const me = players.find((p: any) => p?.id === playerId);
-      if (!me || me?.spectator) {
+      if (!me || me?.spectator || me?.isSpectator) {
         socket.emit?.('error', { code: 'NOT_AUTHORIZED', message: 'Not authorized.' } as any);
         return;
       }

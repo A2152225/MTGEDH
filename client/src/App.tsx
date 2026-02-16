@@ -243,8 +243,12 @@ export function App() {
   // Combat selection modal state
   const [combatModalOpen, setCombatModalOpen] = useState(false);
   const [combatMode, setCombatMode] = useState<'attackers' | 'blockers'>('attackers');
+  const [combatModalReadOnly, setCombatModalReadOnly] = useState(false);
   const [combatModalError, setCombatModalError] = useState<string | null>(null);
   const lastCombatErrorSeenRef = useRef<string | null>(null);
+  const [combatPreviewAttackTargets, setCombatPreviewAttackTargets] = useState<Record<string, string> | null>(null);
+  const combatPreviewEmitTimerRef = useRef<any>(null);
+  const combatPreviewPendingRef = useRef<Record<string, string> | null>(null);
   
   // NOTE: Mox Diamond replacement-effect interaction is now handled by the
   // Resolution Queue via a generic option-choice step.
@@ -1099,17 +1103,17 @@ export function App() {
 
   // Combat phase detection - auto-open combat modal when step changes
   React.useEffect(() => {
-    if (!safeView || !you) return;
+    if (!safeView) return;
     
     const step = String((safeView as any).step || "").toLowerCase();
     const turnPlayer = safeView.turnPlayer;
-    const isYourTurn = turnPlayer != null && turnPlayer === you;
+    const isYourTurn = you != null && turnPlayer != null && turnPlayer === you;
     const stackLength = (safeView as any).stack?.length || 0;
     // Include combatNumber to handle multiple combat phases per turn (Aurelia, Combat Celebrant, etc.)
     const combatNumber = (safeView as any).combatNumber || 1;
     const turnId = `${safeView.turn}-${combatNumber}-${step}`; // Unique ID for this combat step
     
-    // Only show attacker modal on your turn during declare attackers step
+    // Declare attackers
     if (step === "declareattackers" || step === "declare_attackers") {
       if (isYourTurn) {
         // Don't show the modal if we've already shown it for this step
@@ -1119,6 +1123,7 @@ export function App() {
         
         // Check if there are any valid creatures that can attack
         const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+          if (!you) return false;
           if (p.controller !== you) return false;
           // Check if it's currently a creature (handles reconfigure/bestow)
           if (!isCurrentlyCreature(p)) return false;
@@ -1136,15 +1141,41 @@ export function App() {
           }
           // Don't show the modal either way
           setCombatModalOpen(false);
+          setCombatModalReadOnly(false);
         } else {
           setCombatMode('attackers');
+          setCombatModalReadOnly(false);
           setCombatModalOpen(true);
           hasShownAttackersModal.current = turnId; // Mark that we've shown the modal
         }
+      } else {
+        // Non-active players: show a read-only declare attackers modal
+        if (hasShownAttackersModal.current === turnId) {
+          return;
+        }
+        setCombatMode('attackers');
+        setCombatModalReadOnly(true);
+        setCombatModalOpen(true);
+        hasShownAttackersModal.current = turnId;
       }
     }
     // Show blocker modal when you're being attacked during declare blockers step
     else if (step === "declareblockers" || step === "declare_blockers") {
+      // Spectators (or clients without an assigned player id) only ever get a read-only view.
+      if (!you) {
+        const anyAttackersDeclared = (safeView.battlefield || []).some((p: any) => !!p?.attacking);
+        if (anyAttackersDeclared) {
+          setCombatMode('blockers');
+          setCombatModalReadOnly(true);
+          setCombatModalOpen(true);
+        } else {
+          setCombatModalOpen(false);
+          setCombatModalError(null);
+          setCombatModalReadOnly(false);
+        }
+        return;
+      }
+
       // Note: attackers can target either a playerId OR a permanentId (planeswalker/battle).
       // If a planeswalker/battle you control is being attacked, you are still the defending player
       // and must be prompted to declare blockers.
@@ -1178,16 +1209,32 @@ export function App() {
       const youAlreadyDeclared = blockersDeclaredBy.includes(you);
       if (attackersTargetingYou.length > 0 && !youAlreadyDeclared) {
         setCombatMode('blockers');
+        setCombatModalReadOnly(false);
         setCombatModalOpen(true);
       } else if (youAlreadyDeclared && combatMode === 'blockers' && combatModalOpen) {
         // Server accepted declaration/skip; ensure the modal is closed.
         setCombatModalOpen(false);
         setCombatModalError(null);
+        setCombatModalReadOnly(false);
+      } else {
+        // Not the defending player (or not being attacked): keep a read-only blockers view open
+        // so everyone can see attackers during the blockers window.
+        const anyAttackersDeclared = (safeView.battlefield || []).some((p: any) => !!p?.attacking);
+        if (anyAttackersDeclared) {
+          setCombatMode('blockers');
+          setCombatModalReadOnly(true);
+          setCombatModalOpen(true);
+        } else {
+          setCombatModalOpen(false);
+          setCombatModalError(null);
+          setCombatModalReadOnly(false);
+        }
       }
     }
     else {
       setCombatModalOpen(false);
       setCombatModalError(null);
+      setCombatModalReadOnly(false);
       // Reset auto-skip tracker when we leave combat steps
       if (hasAutoSkippedAttackers.current) {
         hasAutoSkippedAttackers.current = null;
@@ -1202,6 +1249,36 @@ export function App() {
       }
     }
   }, [safeView, you]);
+
+  // Live attacker allocation preview from the active player (read-only viewers)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      const gameId = payload?.gameId;
+      if (!gameId || gameId !== safeView?.id) return;
+
+      const attackerPlayerId = payload?.attackerPlayerId;
+      // Only accept preview for the current turn player
+      if (!attackerPlayerId || attackerPlayerId !== safeView?.turnPlayer) return;
+
+      const targets = payload?.targets;
+      if (!targets || typeof targets !== 'object') return;
+
+      setCombatPreviewAttackTargets(targets as Record<string, string>);
+    };
+
+    socket.on('combatPreviewAttackers', handler);
+    return () => {
+      socket.off('combatPreviewAttackers', handler);
+    };
+  }, [safeView?.id, safeView?.turnPlayer]);
+
+  // Clear preview when leaving declare attackers
+  React.useEffect(() => {
+    const step = String((safeView as any)?.step || '').toLowerCase();
+    if (step !== 'declareattackers' && step !== 'declare_attackers') {
+      setCombatPreviewAttackTargets(null);
+    }
+  }, [safeView]);
 
   // If the server rejects an illegal block declaration, it will emit a socket "error".
   // Ensure the blockers modal re-opens (or stays open) and surface the message.
@@ -1239,6 +1316,7 @@ export function App() {
     if (attackersTargetingYou.length > 0 && !youAlreadyDeclared) {
       setCombatMode('blockers');
       setCombatModalError(lastError);
+      setCombatModalReadOnly(false);
       setCombatModalOpen(true);
     }
   }, [lastError, safeView, you]);
@@ -4147,6 +4225,60 @@ export function App() {
     return (safeView.players || []).filter((p: any) => p.id !== you);
   }, [safeView, you]);
 
+  const combatModalAttackersAvailableCreatures = useMemo(() => {
+    if (!safeView) return [];
+    const turnPlayer = safeView.turnPlayer;
+    if (!turnPlayer) return [];
+
+    // For read-only viewers, show the active player's combat-relevant creatures
+    // (include currently-attacking creatures even if they are tapped).
+    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+      if (p.controller !== turnPlayer) return false;
+      if (!isCurrentlyCreature(p)) return false;
+      return canCreatureAttack(p) || !!(p as any).attacking;
+    });
+  }, [safeView]);
+
+  const combatModalAttackersDefenders = useMemo(() => {
+    if (!safeView) return [];
+    const turnPlayer = safeView.turnPlayer;
+    if (!turnPlayer) return [];
+    return (safeView.players || []).filter((p: any) => p.id !== turnPlayer);
+  }, [safeView]);
+
+  const combatModalInitialAttackTargets = useMemo(() => {
+    if (!safeView) return undefined;
+    const turnPlayer = safeView.turnPlayer;
+    if (!turnPlayer) return undefined;
+
+    const battlefield = (safeView.battlefield || []) as any[];
+    const players = (safeView.players || []) as any[];
+    const playerIds = new Set(players.map((p: any) => p.id));
+
+    const initialTargets: Record<string, string> = {};
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== turnPlayer) continue;
+      if (!isCurrentlyCreature(perm)) continue;
+
+      const target = perm.attacking;
+      if (!target || typeof target !== 'string') continue;
+
+      // If targeting a player, keep as-is
+      if (playerIds.has(target)) {
+        initialTargets[String(perm.id)] = target;
+        continue;
+      }
+
+      // If targeting a planeswalker/battle permanent, map to its controller (defending player)
+      const targetPerm = battlefield.find((p: any) => p?.id === target);
+      if (targetPerm?.controller) {
+        initialTargets[String(perm.id)] = String(targetPerm.controller);
+      }
+    }
+
+    return initialTargets;
+  }, [safeView]);
+
   // Get text colors based on current background setting
   const textColors = getTextColorsForBackground(appearanceSettings.tableBackground);
 
@@ -5414,9 +5546,35 @@ export function App() {
       <CombatSelectionModal
         open={combatModalOpen}
         mode={combatMode}
-        availableCreatures={combatMode === 'blockers' ? myBlockerCreatures : myCreatures}
+        readOnly={combatModalReadOnly}
+        availableCreatures={
+          combatMode === 'attackers'
+            ? (combatModalReadOnly ? combatModalAttackersAvailableCreatures : myCreatures)
+            : (combatModalReadOnly ? [] : myBlockerCreatures)
+        }
         attackingCreatures={attackingCreatures}
-        defenders={defenders}
+        defenders={combatMode === 'attackers' && combatModalReadOnly ? combatModalAttackersDefenders : defenders}
+        initialAttackTargets={
+          combatMode === 'attackers' && combatModalReadOnly
+            ? (combatPreviewAttackTargets ?? combatModalInitialAttackTargets)
+            : undefined
+        }
+        onAttackTargetsChange={
+          combatMode === 'attackers' && !combatModalReadOnly && safeView?.id
+            ? (targets) => {
+                // Throttle to reduce spam while still feeling real-time.
+                combatPreviewPendingRef.current = targets;
+                if (combatPreviewEmitTimerRef.current) return;
+                combatPreviewEmitTimerRef.current = setTimeout(() => {
+                  const pending = combatPreviewPendingRef.current;
+                  combatPreviewEmitTimerRef.current = null;
+                  combatPreviewPendingRef.current = null;
+                  if (!pending) return;
+                  socket.emit('combatPreviewAttackers', { gameId: safeView.id, targets: pending });
+                }, 120);
+              }
+            : undefined
+        }
         errorMessage={combatMode === 'blockers' ? combatModalError : null}
         isYourTurn={safeView != null && safeView.turnPlayer != null && safeView.turnPlayer === you}
         onConfirm={(selections) => {
@@ -5429,7 +5587,7 @@ export function App() {
         onSkip={handleSkipCombat}
         // For blockers mode, don't provide onCancel to prevent accidental closure
         // The modal can only be closed by confirming or skipping blockers
-        onCancel={combatMode === 'attackers' ? () => setCombatModalOpen(false) : undefined}
+        onCancel={combatMode === 'attackers' && !combatModalReadOnly ? () => setCombatModalOpen(false) : undefined}
       />
 
       {/* Bounce Land Choice Modal */}

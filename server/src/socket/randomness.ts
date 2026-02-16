@@ -30,7 +30,9 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
    * Handle die roll requests.
    * Broadcasts the result to all players in the game.
    */
-  socket.on("rollDie", ({ gameId, sides }: { gameId: string; sides: number }) => {
+  socket.on("rollDie", (payload?: { gameId?: string; sides?: number }) => {
+    const gameId = payload?.gameId;
+    let sides = payload?.sides;
     try {
       if (!gameId || typeof gameId !== 'string') return;
 
@@ -57,7 +59,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       }
       
       // Validate sides
-      if (!sides || sides < 2) {
+      if (typeof sides !== 'number' || !Number.isFinite(sides) || sides < 2) {
         sides = 6; // Default to d6
       }
       if (sides > 1000) {
@@ -113,7 +115,8 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
    * Handle coin flip requests.
    * Broadcasts the result to all players in the game.
    */
-  socket.on("flipCoin", ({ gameId }: { gameId: string }) => {
+  socket.on("flipCoin", (payload?: { gameId?: string }) => {
+    const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
 

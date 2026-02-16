@@ -59,8 +59,10 @@ export function registerAutomationHandlers(
   /**
    * Handle decision submission (targets, modes, X values, etc.)
    */
-  socket.on("submitDecision", async (payload) => {
-      const { gameId, decisionId, selection } = payload;
+    socket.on("submitDecision", async (payload: any) => {
+      const gameId = payload?.gameId;
+      const decisionId = payload?.decisionId;
+      const selection = payload?.selection;
       const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
@@ -119,9 +121,14 @@ export function registerAutomationHandlers(
   /**
    * Handle spell casting with targets/modes
    */
-  socket.on("castSpell", async (payload) => {
-    const { gameId, cardId, targets, modes, xValue, manaPayment } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("castSpell", async (payload: any) => {
+    const gameId = payload?.gameId;
+    const cardId = payload?.cardId;
+    const targets = payload?.targets;
+    const modes = payload?.modes;
+    const xValue = payload?.xValue;
+    const manaPayment = payload?.manaPayment;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -170,9 +177,14 @@ export function registerAutomationHandlers(
   /**
    * Handle ability activation
    */
-  socket.on("activateAbility", async (payload) => {
-    const { gameId, permanentId, abilityIndex, targets, manaPayment, xValue } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("activateAbility", async (payload: any) => {
+    const gameId = payload?.gameId;
+    const permanentId = payload?.permanentId;
+    const abilityIndex = payload?.abilityIndex;
+    const targets = payload?.targets;
+    const manaPayment = payload?.manaPayment;
+    const xValue = payload?.xValue;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -223,9 +235,10 @@ export function registerAutomationHandlers(
   /**
    * Handle mulligan decision
    */
-  socket.on("mulliganDecision", async (payload) => {
-    const { gameId, keep } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("mulliganDecision", async (payload: any) => {
+    const gameId = payload?.gameId;
+    const keep = payload?.keep;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -261,9 +274,10 @@ export function registerAutomationHandlers(
   /**
    * Handle mulligan bottom cards selection
    */
-  socket.on("mulliganBottomCards", async (payload) => {
-    const { gameId, cardIds } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("mulliganBottomCards", async (payload: any) => {
+    const gameId = payload?.gameId;
+    const cardIds = payload?.cardIds;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -291,9 +305,10 @@ export function registerAutomationHandlers(
   /**
    * Handle auto-pass toggle
    */
-  socket.on("setAutoPass", (payload) => {
-    const { gameId, enabled } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("setAutoPass", (payload: any) => {
+    const gameId = payload?.gameId;
+    const enabled = !!payload?.enabled;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -364,9 +379,10 @@ export function registerAutomationHandlers(
   /**
    * Handle auto-pass for rest of turn toggle
    */
-  socket.on("setAutoPassForTurn", (payload) => {
-    const { gameId, enabled } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("setAutoPassForTurn", (payload: any) => {
+    const gameId = payload?.gameId;
+    const enabled = !!payload?.enabled;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -425,9 +441,9 @@ export function registerAutomationHandlers(
    * Handle claim priority (player wants to retain priority and take action)
    * This prevents auto-pass from immediately passing their priority
    */
-  socket.on("claimPriority", (payload) => {
-    const { gameId } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("claimPriority", (payload: any) => {
+    const gameId = payload?.gameId;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -438,6 +454,11 @@ export function registerAutomationHandlers(
     }
     
     debug(2, `[Automation] Player ${playerId} claimed priority in game ${gameId}`);
+
+    // Only meaningful if the player currently has priority.
+    if ((game.state as any).priority !== playerId) {
+      return;
+    }
     
     // Mark that this player has claimed priority for this step
     // This will prevent auto-pass from passing them immediately
@@ -498,9 +519,11 @@ export function registerAutomationHandlers(
   /**
    * Handle phase stop toggle
    */
-  socket.on("setStop", (payload) => {
-    const { gameId, phase, enabled } = payload;
-      const ctx = ensureInGameRoomAndSeated(gameId);
+  socket.on("setStop", (payload: any) => {
+    const gameId = payload?.gameId;
+    const phase = payload?.phase;
+    const enabled = !!payload?.enabled;
+    const ctx = ensureInGameRoomAndSeated(gameId);
       if (!ctx) return;
       const { playerId } = ctx;
     
@@ -530,7 +553,9 @@ export function registerAutomationHandlers(
   // of the stack is a triggered ability from that source.
   // This is separate from the "ignored cards" list (which affects canAct/canRespond).
   socket.on("yieldToTriggerSource", (payload) => {
-    const { gameId, sourceId, sourceName } = payload as any;
+    const gameId = (payload as any)?.gameId;
+    const sourceId = (payload as any)?.sourceId;
+    const sourceName = (payload as any)?.sourceName;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;
@@ -571,7 +596,8 @@ export function registerAutomationHandlers(
   });
 
   socket.on("unyieldToTriggerSource", (payload) => {
-    const { gameId, sourceId } = payload as any;
+    const gameId = (payload as any)?.gameId;
+    const sourceId = (payload as any)?.sourceId;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;
@@ -603,7 +629,12 @@ export function registerAutomationHandlers(
    * can ignore it so they don't have to pass priority every phase.
    */
   socket.on("ignoreCardForAutoPass", (payload) => {
-    const { gameId, permanentId, cardId, cardName, zone, imageUrl: providedImageUrl } = payload as any;
+    const gameId = (payload as any)?.gameId;
+    const permanentId = (payload as any)?.permanentId;
+    const cardId = (payload as any)?.cardId;
+    const cardName = (payload as any)?.cardName;
+    const zone = (payload as any)?.zone;
+    const providedImageUrl = (payload as any)?.imageUrl;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;
@@ -679,7 +710,9 @@ export function registerAutomationHandlers(
    * Supports both permanentId (battlefield) and cardId (other zones)
    */
   socket.on("unignoreCardForAutoPass", (payload) => {
-    const { gameId, permanentId, cardId } = payload as any;
+    const gameId = (payload as any)?.gameId;
+    const permanentId = (payload as any)?.permanentId;
+    const cardId = (payload as any)?.cardId;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;
@@ -723,7 +756,7 @@ export function registerAutomationHandlers(
    * Handle clearing all ignored cards.
    */
   socket.on("clearIgnoredCards", (payload) => {
-    const { gameId } = payload;
+    const gameId = payload?.gameId;
     const ctx = ensureInGameRoomAndSeated(gameId);
     if (!ctx) return;
     const { game, playerId } = ctx;

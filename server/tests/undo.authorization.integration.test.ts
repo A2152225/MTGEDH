@@ -296,4 +296,30 @@ describe('undo authorization (integration)', () => {
     const err = emitted.find(e => e.event === 'error' && e.payload?.code === 'NOT_IN_GAME');
     expect(err).toBeTruthy();
   });
+
+  it('does not crash on missing payload for undo events', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    expect(() => handlers['requestUndo'](undefined as any)).not.toThrow();
+    expect(() => handlers['respondUndo'](undefined as any)).not.toThrow();
+    expect(() => handlers['cancelUndo'](undefined as any)).not.toThrow();
+    expect(() => handlers['getUndoCount'](undefined as any)).not.toThrow();
+    expect(() => handlers['getSmartUndoCounts'](undefined as any)).not.toThrow();
+    expect(() => handlers['requestUndoToStep'](undefined as any)).not.toThrow();
+    expect(() => handlers['requestUndoToPhase'](undefined as any)).not.toThrow();
+    expect(() => handlers['requestUndoToTurn'](undefined as any)).not.toThrow();
+  });
 });

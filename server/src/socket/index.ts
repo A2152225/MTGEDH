@@ -42,6 +42,94 @@ export function registerSocketHandlers(
   io.on("connection", (socket) => {
     debug(2, `Socket connected: ${socket.id}`);
 
+    // Defense-in-depth: once a socket is associated with a gameId,
+    // reject any incoming event that targets a different gameId or a room
+    // the socket is not currently joined to.
+    // This does NOT replace per-handler authorization checks; it narrows the
+    // attack surface for missed checks.
+    try {
+      socket.use((packet: any[], next) => {
+        try {
+          const eventName = packet?.[0];
+          const payload = packet?.[1];
+
+          // Some events intentionally run before room join / without a room.
+          // Keep this list small and security-reviewed.
+          const allowWithoutRoom = new Set<string>([
+            "joinGame",
+            "deleteGame",
+            "createGame",
+            "createGameWithAI",
+            "createGameWithMultipleAI",
+          ]);
+
+          const payloadGameId =
+            payload && typeof payload === "object" ? (payload as any).gameId : undefined;
+
+          // If the payload has no gameId, we can't validate here.
+          const socketGameId = (socket.data as any)?.gameId as string | undefined;
+
+          // If there is no gameId in the payload, we can't validate here.
+          if (!payloadGameId || typeof payloadGameId !== "string") return next();
+
+          // If the socket is already associated with a game, never allow cross-game messages.
+          if (socketGameId && payloadGameId !== socketGameId) {
+            try {
+              socket.emit?.("error", {
+                code: "NOT_IN_GAME",
+                message: "Not in game.",
+              } as any);
+            } catch {
+              // ignore
+            }
+            return next(new Error("NOT_IN_GAME"));
+          }
+
+          const inRoom = !!(socket as any)?.rooms?.has?.(payloadGameId);
+
+          // Allowlisted events may run without room membership, but are still bound
+          // to the socket's current gameId (enforced above).
+          if (allowWithoutRoom.has(String(eventName || ""))) return next();
+
+          // If the socket is already associated with a game, enforce same-game + in-room.
+          if (socketGameId) {
+            if (payloadGameId !== socketGameId || !inRoom) {
+              try {
+                socket.emit?.("error", {
+                  code: "NOT_IN_GAME",
+                  message: "Not in game.",
+                } as any);
+              } catch {
+                // ignore
+              }
+              return next(new Error("NOT_IN_GAME"));
+            }
+            return next();
+          }
+
+          // If the socket is not yet associated with a game, still require room membership
+          // for any game-scoped event.
+          if (!inRoom) {
+            try {
+              socket.emit?.("error", {
+                code: "NOT_IN_GAME",
+                message: "Not in game.",
+              } as any);
+            } catch {
+              // ignore
+            }
+            return next(new Error("NOT_IN_GAME"));
+          }
+
+          return next();
+        } catch {
+          return next();
+        }
+      });
+    } catch {
+      // ignore middleware setup errors
+    }
+
     // Register modular event handlers
     registerJoinHandlers(io, socket);
     registerGameActions(io, socket);

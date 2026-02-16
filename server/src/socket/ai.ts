@@ -872,7 +872,9 @@ export async function handleAIGameFlow(
         const mulliganState = (game.state as any).mulliganState || {};
         
         // Check if all players have kept their hands
-        const allPlayers = players.filter((p: any) => p && !p.spectator);
+        const allPlayers = players.filter(
+          (p: any) => p && !(p.spectator || p.isSpectator)
+        );
         const allKeptHands = allPlayers.every((p: any) => {
           const pMulliganState = mulliganState[p.id];
           return pMulliganState && pMulliganState.hasKeptHand;
@@ -5605,7 +5607,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   }) => {
     try {
       const requesterId = socket.data?.playerId as PlayerID | undefined;
-      if (!requesterId || socket.data?.spectator) {
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (!requesterId || socketIsSpectator) {
         socket.emit('error', {
           code: 'AI_NOT_AUTHORIZED',
           message: 'Only the game creator can add AI players.',
@@ -5634,6 +5637,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' });
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === requesterId);
+      if (!me || me?.spectator || me?.isSpectator) {
+        socket.emit('error', {
+          code: 'AI_NOT_AUTHORIZED',
+          message: 'Only the game creator can add AI players.',
+        });
         return;
       }
       
@@ -5686,7 +5699,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
   }) => {
     try {
       const requesterId = socket.data?.playerId as PlayerID | undefined;
-      if (!requesterId || socket.data?.spectator) {
+      const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+      if (!requesterId || socketIsSpectator) {
         socket.emit('error', {
           code: 'AI_NOT_AUTHORIZED',
           message: 'Only the game creator can remove AI players.',
@@ -5715,6 +5729,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' });
+        return;
+      }
+
+      const players = ((game.state as any)?.players || []) as any[];
+      const me = players.find((p: any) => p?.id === requesterId);
+      if (!me || me?.spectator || me?.isSpectator) {
+        socket.emit('error', {
+          code: 'AI_NOT_AUTHORIZED',
+          message: 'Only the game creator can remove AI players.',
+        });
         return;
       }
       

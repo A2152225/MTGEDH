@@ -1661,34 +1661,36 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   );
 
   // getImportedDeckCandidates
-  socket.on("getImportedDeckCandidates", ({ gameId }: { gameId: string }) => {
+  socket.on("getImportedDeckCandidates", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+    const safeGameId = typeof gameId === "string" ? gameId : undefined;
     const pid = socket.data.playerId as PlayerID | undefined;
     const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
     if (!pid || socketIsSpectator) {
-      socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+      socket.emit("importedDeckCandidates", { gameId: safeGameId, candidates: [] });
       return;
     }
     if (!gameId || typeof gameId !== "string") {
-      socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+      socket.emit("importedDeckCandidates", { gameId: safeGameId, candidates: [] });
       return;
     }
 
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
-      socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+      socket.emit("importedDeckCandidates", { gameId: safeGameId, candidates: [] });
       return;
     }
 
     try {
       const game = ensureGame(gameId);
       if (!game) {
-        socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+        socket.emit("importedDeckCandidates", { gameId: safeGameId, candidates: [] });
         return;
       }
 
       const players = (game.state as any)?.players;
       const me = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
       if (!me || me.spectator || me.isSpectator) {
-        socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+        socket.emit("importedDeckCandidates", { gameId: safeGameId, candidates: [] });
         return;
       }
 
@@ -1708,10 +1710,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         playerId: pid,
         candidatesCount: candidates.length,
       });
-      socket.emit("importedDeckCandidates", { gameId, candidates });
+      socket.emit("importedDeckCandidates", { gameId: safeGameId, candidates });
     } catch (err) {
       debugWarn(1, "getImportedDeckCandidates failed:", err);
-      socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+      socket.emit("importedDeckCandidates", { gameId: safeGameId, candidates: [] });
     }
   });
 
@@ -2293,62 +2295,69 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   );
 
   // listSavedDecks - get all saved decks
-  socket.on("listSavedDecks", ({ gameId, folder }: { gameId: string; folder?: string }) => {
+  socket.on(
+    "listSavedDecks",
+    (payload?: { gameId?: unknown; folder?: unknown }) => {
+      const gameId = payload?.gameId;
+      const folder = payload?.folder;
+      const safeGameId = typeof gameId === "string" ? gameId : undefined;
     try {
       debug(1, "[deck] listSavedDecks called", {
-        gameId,
-        folder,
+        gameId: safeGameId,
+        folder: typeof folder === 'string' ? folder : undefined,
         playerId: socket.data.playerId,
       });
 
       if (!gameId || typeof gameId !== "string") {
-        socket.emit("deckError", { gameId, message: "GameId required." });
+        socket.emit("deckError", { gameId: safeGameId, message: "GameId required." });
         return;
       }
 
       const pid = socket.data.playerId as PlayerID | undefined;
       const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
       if (!pid || socketIsSpectator) {
-        socket.emit("deckError", { gameId, message: "Not authorized." });
+        socket.emit("deckError", { gameId: safeGameId, message: "Not authorized." });
         return;
       }
 
       if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
-        socket.emit("deckError", { gameId, message: "Not in game." });
+        socket.emit("deckError", { gameId: safeGameId, message: "Not in game." });
         return;
       }
 
       const game = ensureGame(gameId);
       if (!game) {
-        socket.emit("deckError", { gameId, message: "Game not found." });
+        socket.emit("deckError", { gameId: safeGameId, message: "Game not found." });
         return;
       }
 
       const players = (game.state as any)?.players;
       const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
       if (!seated || seated.spectator || seated.isSpectator) {
-        socket.emit("deckError", { gameId, message: "Not authorized." });
+        socket.emit("deckError", { gameId: safeGameId, message: "Not authorized." });
         return;
       }
 
       const allDecks = listDecks();
-      const decksToShow = folder !== undefined 
-        ? allDecks.filter(d => d.folder === folder)
+      const folderStr = typeof folder === 'string' ? folder : undefined;
+      const decksToShow = folderStr !== undefined 
+        ? allDecks.filter(d => d.folder === folderStr)
         : allDecks;
       socket.emit("savedDecksList", { 
-        gameId, 
+        gameId: safeGameId, 
         decks: decksToShow,
         folders: buildFolderTree(allDecks),
-        currentFolder: folder || ''
+        currentFolder: folderStr || ''
       });
     } catch (err) {
       debugError(1, "listSavedDecks handler failed:", err);
       socket.emit("deckError", {
-        gameId,
+        gameId: safeGameId,
         message: "Failed to list decks.",
       });
     }
-  });
+    }
+  );
 
   // getSavedDeck - get details of a specific saved deck
   socket.on(

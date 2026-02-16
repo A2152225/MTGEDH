@@ -191,6 +191,7 @@ export class MinimalGameAdapter {
         id: pid,
         name: playerName,
         spectator: Boolean(spectator),
+        isSpectator: Boolean(spectator),
       });
       // no seat management in adapter
       this.bumpSeq();
@@ -209,7 +210,7 @@ export class MinimalGameAdapter {
     return (this.state.players || []).map((p: any) => ({
       playerId: p.id,
       socketId: undefined,
-      spectator: !!p.spectator,
+      spectator: !!(p.spectator || p.isSpectator),
     }));
   }
 
@@ -474,7 +475,11 @@ class GameManagerClass {
         const socket = this.ioServer.sockets.sockets.get(socketId);
         // Only count non-spectator players - spectators don't prevent game deletion
         // since they're not active participants in the game
-        if (socket && socket.data.playerId && !socket.data.spectator) {
+        if (
+          socket &&
+          socket.data.playerId &&
+          !(socket.data.spectator || (socket.data as any).isSpectator)
+        ) {
           count++;
         }
       }
