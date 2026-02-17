@@ -116,6 +116,56 @@ describe('Oracle IR Parser', () => {
     expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
   });
 
+  it('parses "those opponents" as contextual selector alias', () => {
+    const text = 'Those opponents lose 1 life.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('lose_life');
+    expect((steps[0] as any).who).toEqual({ kind: 'each_of_those_opponents' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses "all of those opponents" as contextual selector alias', () => {
+    const text = 'All of those opponents lose 1 life.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('lose_life');
+    expect((steps[0] as any).who).toEqual({ kind: 'each_of_those_opponents' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses "all those opponents" as contextual selector alias', () => {
+    const text = 'All those opponents lose 1 life.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('lose_life');
+    expect((steps[0] as any).who).toEqual({ kind: 'each_of_those_opponents' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses "him or her" as target_player for deterministic life loss', () => {
+    const text = 'Him or her loses 1 life.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('lose_life');
+    expect((steps[0] as any).who).toEqual({ kind: 'target_player' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses \"that creature's owner\" as target_player for deterministic draw", () => {
+    const text = "That creature's owner draws a card.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('draw');
+    expect((steps[0] as any).who).toEqual({ kind: 'target_player' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
   it("parses exile_top for each of your opponents' libraries", () => {
     const text = "Exile the top card of each of your opponents' libraries.";
     const ir = parseOracleTextToIR(text);
@@ -124,6 +174,28 @@ describe('Oracle IR Parser', () => {
     const exileTop = steps.find(s => s.kind === 'exile_top') as any;
     expect(exileTop).toBeTruthy();
     expect(exileTop.who).toEqual({ kind: 'each_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses exile_top for those opponents' libraries as contextual selector alias", () => {
+    const text = "Exile the top card of those opponents' libraries.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses exile_top for all of those opponents' libraries as contextual selector alias", () => {
+    const text = "Exile the top card of all of those opponents' libraries.";
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_of_those_opponents' });
     expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
   });
 
@@ -169,6 +241,17 @@ describe('Oracle IR Parser', () => {
     expect(exileTop).toBeTruthy();
     expect(exileTop.who).toEqual({ kind: 'each_player' });
     expect(exileTop.amount).toEqual({ kind: 'number', value: 2 });
+  });
+
+  it("parses exile_top for 'defending player exiles the top card of their library'", () => {
+    const text = 'Defending player exiles the top card of their library.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'target_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
   });
 
   it("upgrades exile_top into impulse for 'that player\'s library'", () => {
@@ -818,6 +901,170 @@ describe('Oracle IR Parser', () => {
     expect(impulse.duration).toBe('until_end_of_next_turn');
   });
 
+  it("parses impulse exile-from-top when subject is 'its owner'", () => {
+    const text =
+      "Whenever a creature is dealt damage, its owner may exile that many cards from the top of their library. They may play those cards until the end of their next turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'that many' });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+  });
+
+  it("parses impulse exile-from-top when subject is 'that permanent's controller'", () => {
+    const text =
+      "Whenever a creature is dealt damage, that permanent's controller may exile a card from the top of their library. They may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-from-top when subject is 'that permanent's owner'", () => {
+    const text =
+      "Whenever a creature is dealt damage, that permanent's owner may exile a card from the top of their library. They may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-from-top when subject is 'that creature's owner'", () => {
+    const text =
+      "Whenever a creature is dealt damage, that creature's owner may exile a card from the top of their library. They may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-from-top when subject is 'that card's controller'", () => {
+    const text =
+      "Whenever a creature is dealt damage, that card's controller may exile a card from the top of their library. They may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-from-top when subject is 'that card's owner'", () => {
+    const text =
+      "Whenever a creature is dealt damage, that card's owner may exile a card from the top of their library. They may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-from-top when subject is 'that artifact's controller'", () => {
+    const text =
+      "Whenever a creature is dealt damage, that artifact's controller may exile a card from the top of their library. They may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-from-top when subject is 'defending player'", () => {
+    const text =
+      'Whenever a creature is dealt damage, defending player may exile a card from the top of their library. They may play that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-until when subject is 'the defending player'", () => {
+    const text =
+      'Whenever this creature deals combat damage to a player, the defending player exiles cards from the top of their library until they exile a nonland card. You may cast that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'until they exile a nonland card' });
+    expect(impulse.permission).toBe('cast');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-top from 'the defending player\'s library' source wording", () => {
+    const text =
+      "Exile the top card of the defending player's library. You may play that card this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
+  it("parses impulse exile-top when variable amount uses 'its owner's library' source wording", () => {
+    const text =
+      "Whenever a creature is dealt damage, exile that many cards from the top of its owner's library. You may play those cards this turn.";
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities[0];
+
+    expect(ability.type).toBe('triggered');
+    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'that many' });
+    expect(impulse.permission).toBe('play');
+    expect(impulse.duration).toBe('this_turn');
+  });
+
   it('parses impulse exile-top with remains-exiled duration (suffix form)', () => {
     const text = "Exile the top card of each opponent's library. You may play those cards for as long as they remain exiled.";
     const ir = parseOracleTextToIR(text);
@@ -921,6 +1168,73 @@ describe('Oracle IR Parser', () => {
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('this_turn');
     expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission is granted to "its owner" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission is granted to "its owner" for plural exile (target player)', () => {
+    const text = 'Target player exiles the top two cards of their library. Its owner may cast them this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission references spells they exiled this way (target player)', () => {
+    const text =
+      'Target player exiles the top two cards of their library. Its owner may cast spells they exiled this way this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission references the spell they exiled this way (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner may cast the spell they exiled this way this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until the end of this turn" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it until the end of this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
   });
 
   it('upgrades target-opponent exile_top into impulse when deterministic text intervenes', () => {
@@ -1698,6 +2012,66 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('cast');
   });
 
+  it("parses impulse exile-until when subject is 'each of those opponents'", () => {
+    const text =
+      'Each of those opponents exiles cards from the top of their library until they exile a nonland card. You may cast that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('nonland');
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until when subject is 'those opponents'", () => {
+    const text =
+      'Those opponents exile cards from the top of their library until they exile a nonland card. You may cast that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('nonland');
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until when subject is 'all of those opponents'", () => {
+    const text =
+      'All of those opponents exile cards from the top of their library until they exile a nonland card. You may cast that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('nonland');
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses impulse exile-until when subject is 'all those opponents'", () => {
+    const text =
+      'All those opponents exile cards from the top of their library until they exile a nonland card. You may cast that card this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(impulse.amount).toMatchObject({ kind: 'unknown' });
+    expect(String(impulse.amount.raw || '')).toContain('nonland');
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
   it("parses impulse exile-until + 'cast that card by paying life' permission (corpus: Bismuth Mindrender)", () => {
     const text =
       "Whenever this creature deals combat damage to a player, that player exiles cards from the top of their library until they exile a nonland card. You may cast that card by paying life equal to the spell's mana value rather than paying its mana cost.";
@@ -1773,7 +2147,7 @@ describe('Oracle IR Parser', () => {
 
     const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
-    expect(impulse.who).toEqual({ kind: 'unknown', raw: "its owner's" });
+    expect(impulse.who).toEqual({ kind: 'target_player' });
     expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'cards equal to its power' });
     expect(impulse.duration).toBe('as_long_as_remains_exiled');
     expect(impulse.permission).toBe('cast');
@@ -2715,6 +3089,90 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it("parses look-then-exile face-down impulse (those opponents' libraries alias)", () => {
+    const text =
+      "Look at the top card of those opponents' libraries, then exile those cards face down. You may play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it("parses split-clause look-then-exile face-down impulse (those opponents' libraries alias)", () => {
+    const text =
+      "Look at the top card of those opponents' libraries. Then exile those cards face down. You may play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses split-clause look-top-two then exile-those-cards face-down impulse', () => {
+    const text =
+      "Look at the top two cards of target opponent's library. Then exile those cards face down. You may play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses split-clause look-top-two then exile-those-cards impulse (no face down)', () => {
+    const text =
+      "Look at the top two cards of target opponent's library. Then exile those cards. You may play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses standalone split-clause look-top-two then exile-those-cards face-down exile_top', () => {
+    const text = "Look at the top two cards of target opponent's library. Then exile those cards face down.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'target_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 2 });
+  });
+
+  it('parses standalone split-clause look-top-two then exile-those-cards exile_top (no face down)', () => {
+    const text = "Look at the top two cards of target opponent's library. Then exile those cards.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'target_opponent' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 2 });
+  });
+
   it('parses combined look+exile face-down impulse (each opponent)', () => {
     const text =
       "Look at the top card of each opponent's library and exile those cards face down. You may play those cards for as long as they remain exiled.";
@@ -2728,6 +3186,60 @@ describe('Oracle IR Parser', () => {
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('as_long_as_remains_exiled');
     expect(impulse.permission).toBe('play');
+  });
+
+  it("parses combined look+exile face-down impulse (those opponents' libraries alias)", () => {
+    const text =
+      "Look at the top card of those opponents' libraries and exile those cards face down. You may play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses combined look+exile impulse (no face down)', () => {
+    const text =
+      "Look at the top two cards of target opponent's library and exile those cards. You may play those cards for as long as they remain exiled.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it("parses standalone look+exile face-down exile_top (those opponents' libraries alias)", () => {
+    const text = "Look at the top card of those opponents' libraries and exile those cards face down.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it("parses standalone look+exile exile_top (no face down, those opponents' libraries alias)", () => {
+    const text = "Look at the top card of those opponents' libraries and exile those cards.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const exileTop = steps.find(s => s.kind === 'exile_top') as any;
+    expect(exileTop).toBeTruthy();
+    expect(exileTop.who).toEqual({ kind: 'each_of_those_opponents' });
+    expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
   });
 
   it('parses combined look+exile face-down impulse (target opponent, top two)', () => {

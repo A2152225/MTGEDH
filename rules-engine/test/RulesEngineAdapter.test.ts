@@ -1511,6 +1511,70 @@ describe('RulesEngineAdapter', () => {
       expect(player2.life).toBe(37);
       expect(player3.life).toBe(38);
     });
+
+
+    it('should process combat damage triggers with relational opponent context for exile-top effects during dealCombatDamage action', () => {
+      const stateWithRelationalExile: any = {
+        ...testGameState,
+        players: [
+          {
+            ...testGameState.players[0],
+            library: [{ id: 'p1c1' }],
+            exile: [],
+          },
+          {
+            ...testGameState.players[1],
+            library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+            exile: [],
+          },
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [{ id: 'p3c1' }, { id: 'p3c2' }],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+        battlefield: [
+          {
+            id: 'relational-exile-perm',
+            controller: 'player1',
+            card: {
+              name: 'Relational Exile Source',
+              oracle_text:
+                "Whenever this creature deals combat damage to a player, exile the top card of each of those opponents' libraries. You may play those cards this turn.",
+            },
+          },
+        ],
+      };
+
+      adapter.initializeGame('test-game', stateWithRelationalExile);
+      const result = adapter.executeAction('test-game', {
+        type: 'dealCombatDamage',
+        playerId: 'player1',
+        attackers: [
+          { attackerId: 'atk-1', defendingPlayerId: 'player2', damage: 2, creature: { name: 'Pirate A', power: 2 } },
+          { attackerId: 'atk-2', defendingPlayerId: 'player3', damage: 1, creature: { name: 'Pirate B', power: 1 } },
+        ],
+      });
+
+      const player2 = result.next.players.find(p => p.id === 'player2') as any;
+      const player3 = result.next.players.find(p => p.id === 'player3') as any;
+
+      expect((player2.library || []).map((c: any) => c.id)).toEqual(['p2c2']);
+      expect((player3.library || []).map((c: any) => c.id)).toEqual(['p3c2']);
+      expect((player2.exile || []).map((c: any) => c.id)).toContain('p2c1');
+      expect((player3.exile || []).map((c: any) => c.id)).toContain('p3c1');
+    });
   });
   
   describe('checkStateBasedActions', () => {

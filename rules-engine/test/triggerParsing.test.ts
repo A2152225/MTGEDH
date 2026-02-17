@@ -129,6 +129,39 @@ describe('Trigger Parsing', () => {
       expect(abilities.length).toBeGreaterThan(0);
       expect(abilities[0].event).toBe(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
     });
+
+    it('should preserve multi-sentence trigger effects on the same line', () => {
+      const oracleText =
+        "Whenever this creature deals combat damage to a player, exile the top card of each of those opponents' libraries. You may play those cards this turn.";
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Relational Exile Source');
+
+      expect(abilities.length).toBeGreaterThan(0);
+      expect(abilities[0].event).toBe(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
+      expect(String(abilities[0].effect || '')).toContain("exile the top card of each of those opponents' libraries");
+      expect(String(abilities[0].effect || '')).toContain('you may play those cards this turn');
+    });
+
+    it('should preserve multiline trigger effects until the next trigger header', () => {
+      const oracleText =
+        "Whenever this creature deals combat damage to a player, exile the top card of each of those opponents' libraries.\nYou may play those cards this turn.";
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Relational Exile Source');
+
+      expect(abilities.length).toBeGreaterThan(0);
+      expect(abilities[0].event).toBe(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
+      expect(String(abilities[0].effect || '')).toContain('you may play those cards this turn');
+    });
+
+    it('should split adjacent trigger headers into separate parsed abilities', () => {
+      const oracleText =
+        'Whenever this creature attacks, draw a card. Whenever this creature deals combat damage to a player, create a Treasure token.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Dual Trigger Source');
+
+      expect(abilities.length).toBe(2);
+      expect(abilities[0].event).toBe(TriggerEvent.ATTACKS);
+      expect(abilities[1].event).toBe(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
+      expect(String(abilities[0].effect || '')).toContain('draw a card');
+      expect(String(abilities[1].effect || '')).toContain('create a treasure token');
+    });
     
     it('should parse spell cast trigger', () => {
       const oracleText = 'Whenever you cast a creature spell, create a 1/1 token.';

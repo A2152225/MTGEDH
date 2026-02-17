@@ -364,8 +364,22 @@ function resolvePlayersFromDamageTarget(
 
   // Only support exact, non-targeting player group targets.
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
-  if (t === 'that player' || t === 'he or she' || t === 'they' || t === 'its controller') return resolvePlayers(state, { kind: 'target_player' }, ctx);
+  if (
+    t === 'that player' ||
+    t === 'he or she' ||
+    t === 'him or her' ||
+    t === 'they' ||
+    t === 'its controller' ||
+    t === 'its owner' ||
+    isThatOwnerOrControllerSelector(t)
+  ) return resolvePlayers(state, { kind: 'target_player' }, ctx);
+  if (t === 'defending player' || t === 'the defending player') {
+    return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
+  }
   if (t === 'that opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
+  if (isThoseOpponentsSelector(t)) {
+    return resolvePlayers(state, { kind: 'each_of_those_opponents' }, ctx);
+  }
   if (t === 'each player') return resolvePlayers(state, { kind: 'each_player' }, ctx);
   if (t === 'each of your opponents' || t === 'each of the opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
   if (t === 'each opponent') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
@@ -378,9 +392,25 @@ function resolvePlayersFromDamageTarget(
   return [];
 }
 
+function isThatOwnerOrControllerSelector(raw: string | undefined): boolean {
+  const s = String(raw || '')
+    .replace(/[’]/g, "'")
+    .trim()
+    .toLowerCase();
+  return /^that [a-z0-9][a-z0-9 -]*'s (?:controller|owner)$/i.test(s);
+}
+
+function isThoseOpponentsSelector(raw: string | undefined): boolean {
+  const s = String(raw || '')
+    .replace(/[’]/g, "'")
+    .trim()
+    .toLowerCase();
+  return s === 'each of those opponents' || s === 'those opponents' || s === 'all of those opponents' || s === 'all those opponents';
+}
+
 function parseDeterministicMixedDamageTarget(
   rawText: string
-): { readonly players: ReadonlySet<'you' | 'each_player' | 'each_opponent'>; readonly selectors: readonly SimpleBattlefieldSelector[] } | null {
+): { readonly players: ReadonlySet<'you' | 'each_player' | 'each_opponent' | 'each_of_those_opponents' | 'target_player' | 'target_opponent'>; readonly selectors: readonly SimpleBattlefieldSelector[] } | null {
   const lower = String(rawText || '')
     .replace(/\u2019/g, "'")
     .toLowerCase()
@@ -394,7 +424,7 @@ function parseDeterministicMixedDamageTarget(
   const parts = lower.split(/\s*(?:,|and)\s*/i).map(p => p.trim()).filter(Boolean);
   if (parts.length <= 1) return null;
 
-  const players = new Set<'you' | 'each_player' | 'each_opponent'>();
+  const players = new Set<'you' | 'each_player' | 'each_opponent' | 'each_of_those_opponents' | 'target_player' | 'target_opponent'>();
   const selectors: SimpleBattlefieldSelector[] = [];
 
   for (const part of parts) {
@@ -417,6 +447,30 @@ function parseDeterministicMixedDamageTarget(
       part === 'all your opponents'
     ) {
       players.add('each_opponent');
+      continue;
+    }
+    if (isThoseOpponentsSelector(part)) {
+      players.add('each_of_those_opponents');
+      continue;
+    }
+    if (
+      part === 'that player' ||
+      part === 'he or she' ||
+      part === 'him or her' ||
+      part === 'they' ||
+      part === 'its controller' ||
+      part === 'its owner' ||
+      isThatOwnerOrControllerSelector(part)
+    ) {
+      players.add('target_player');
+      continue;
+    }
+    if (
+      part === 'that opponent' ||
+      part === 'defending player' ||
+      part === 'the defending player'
+    ) {
+      players.add('target_opponent');
       continue;
     }
 
@@ -808,9 +862,21 @@ function parseSimpleBattlefieldSelector(
 }
 
 function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlefieldSelector, ctx: OracleIRExecutionContext): boolean {
+  const normalizeId = (value: unknown): PlayerID | undefined => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const normalized = String(value).trim();
+    return normalized ? (normalized as PlayerID) : undefined;
+  };
   const normalizedControllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
-  if (sel.controllerFilter === 'you' && perm.controller !== normalizedControllerId) return false;
-  if (sel.controllerFilter === 'opponents' && perm.controller === normalizedControllerId) return false;
+  const permanentControllerId = normalizeId((perm as any)?.controller);
+
+  if (sel.controllerFilter === 'you') {
+    if (!permanentControllerId || permanentControllerId !== normalizedControllerId) return false;
+  }
+
+  if (sel.controllerFilter === 'opponents') {
+    if (!permanentControllerId || permanentControllerId === normalizedControllerId) return false;
+  }
 
   const typeLine = String((perm as any)?.card?.type_line || '').toLowerCase();
   if (sel.types.includes('permanent')) return true;
@@ -2151,7 +2217,13 @@ export function applyOracleIRStepsToGameState(
                   ? resolvePlayers(nextState, { kind: 'you' } as any, ctx)
                   : who === 'each_player'
                     ? resolvePlayers(nextState, { kind: 'each_player' } as any, ctx)
-                    : resolvePlayers(nextState, { kind: 'each_opponent' } as any, ctx);
+                    : who === 'each_opponent'
+                      ? resolvePlayers(nextState, { kind: 'each_opponent' } as any, ctx)
+                      : who === 'each_of_those_opponents'
+                        ? resolvePlayers(nextState, { kind: 'each_of_those_opponents' } as any, ctx)
+                        : who === 'target_player'
+                          ? resolvePlayers(nextState, { kind: 'target_player' } as any, ctx)
+                          : resolvePlayers(nextState, { kind: 'target_opponent' } as any, ctx);
               for (const id of ids) playerIds.add(id);
             }
 

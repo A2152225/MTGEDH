@@ -1495,7 +1495,11 @@ export function parseTriggeredAbilitiesFromText(
   
   // Pattern for triggered abilities
   // Matches: "When/Whenever/At the beginning of [event], [effect]"
-  const triggerPattern = /\b(when(?:ever)?|at(?:\s+the\s+beginning\s+of)?)\s+([^,]+),\s*([^.]+\.?)/gi;
+  // Capture effect text lazily until the next trigger header (or end of text)
+  // so multiline and multi-sentence trigger effects are preserved while
+  // adjacent triggers remain split into separate abilities.
+  const triggerPattern =
+    /\b(when(?:ever)?|at(?:\s+the\s+beginning\s+of)?)\s+([^,]+),\s*([\s\S]*?)(?=(?:\bwhen(?:ever)?|\bat(?:\s+the\s+beginning\s+of)?)\s+[^,]+,|$)/gi;
   
   let match;
   let index = 0;
