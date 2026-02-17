@@ -80,12 +80,18 @@ function parseQuantity(raw: string | undefined): OracleQuantity {
 }
 
 function parsePlayerSelector(raw: string | undefined): OraclePlayerSelector {
-  const s = String(raw || '').trim().toLowerCase();
+  const s = String(raw || '')
+    .replace(/[’]/g, "'")
+    .trim()
+    .toLowerCase();
   if (!s) return { kind: 'you' };
 
   if (s === 'you') return { kind: 'you' };
   if (s === 'each player') return { kind: 'each_player' };
   if (s === 'each opponent') return { kind: 'each_opponent' };
+  if (s === 'each of your opponents') return { kind: 'each_opponent' };
+  if (s === 'your opponents') return { kind: 'each_opponent' };
+  if (s === 'each of those opponents') return { kind: 'each_of_those_opponents' };
   if (s === 'target player') return { kind: 'target_player' };
   if (s === 'target opponent') return { kind: 'target_opponent' };
 
@@ -194,7 +200,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Draw
   {
-    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?draws?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    const m = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?draws?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (m) {
       const who = parsePlayerSelector(m[1]);
       const amount = parseQuantity(m[2]);
@@ -211,7 +217,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     // Examples: "Add {R}{R}{R}." / "Add {2}{C}." / "Add {G}."
     // We intentionally avoid parsing "Add {R} or {G}" etc. (player choice).
     const m = clause.match(
-      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?adds?\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*$/i
+      /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?adds?\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*$/i
     );
     if (m) {
       const mana = String(m[2] || '').trim();
@@ -224,7 +230,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   // Scry
   {
     const m = clause.match(
-      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?(?:scry|scries)\s+(a|an|\d+|x|[a-z]+)\b/i
+      /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?(?:scry|scries)\s+(a|an|\d+|x|[a-z]+)\b/i
     );
     if (m) {
       const who = parsePlayerSelector(m[1]);
@@ -236,7 +242,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   // Surveil
   {
     const m = clause.match(
-      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?(?:surveil|surveils)\s+(a|an|\d+|x|[a-z]+)\b/i
+      /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?(?:surveil|surveils)\s+(a|an|\d+|x|[a-z]+)\b/i
     );
     if (m) {
       const who = parsePlayerSelector(m[1]);
@@ -252,7 +258,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     // (Executor only applies discard when hand size <= amount, so this cannot force a choice.)
     {
       const mHand = clause.match(
-        /^(?:(you|each player|each opponent|target player|target opponent)\s+)?discards?\s+(?:your|their)\s+hand\b/i
+        /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?discards?\s+(?:your|their)\s+hand\b/i
       );
       if (mHand) {
         const who = parsePlayerSelector(mHand[1]);
@@ -260,7 +266,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       }
 
       const mAllInHand = clause.match(
-        /^(?:(you|each player|each opponent|target player|target opponent)\s+)?discards?\s+all\s+cards?\s+in\s+(?:your|their)\s+hand\b/i
+        /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?discards?\s+all\s+cards?\s+in\s+(?:your|their)\s+hand\b/i
       );
       if (mAllInHand) {
         const who = parsePlayerSelector(mAllInHand[1]);
@@ -268,7 +274,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       }
     }
 
-    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?discards?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    const m = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?discards?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (m) {
       const who = parsePlayerSelector(m[1]);
       const amount = parseQuantity(m[2]);
@@ -283,7 +289,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   // Mill
   {
     const m = clause.match(
-      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?mill(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i
+      /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?mill(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i
     );
     if (m) {
       const who = parsePlayerSelector(m[1]);
@@ -298,7 +304,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Gain/Lose life
   {
-    const gain = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?gains?\s+(\d+|x|[a-z]+)\s+life\b/i);
+    const gain = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?gains?\s+(\d+|x|[a-z]+)\s+life\b/i);
     if (gain) {
       return withMeta({
         kind: 'gain_life',
@@ -312,7 +318,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       return withMeta({ kind: 'gain_life', who: { kind: 'you' }, amount: parseQuantity(gain2[1]), raw: rawClause });
     }
 
-    const lose = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?loses?\s+(\d+|x|[a-z]+)\s+life\b/i);
+    const lose = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?loses?\s+(\d+|x|[a-z]+)\s+life\b/i);
     if (lose) {
       return withMeta({
         kind: 'lose_life',
@@ -352,7 +358,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   // Create token(s)
   {
     const m = clause.match(
-      /^(?:(you|each player|each opponent|target player|target opponent)\s+)?create(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+(tapped\s+)?(.+?)\s+(?:creature\s+)?token(?:s)?\b/i
+      /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?create(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+(tapped\s+)?(.+?)\s+(?:creature\s+)?token(?:s)?\b/i
     );
     if (m) {
       const who = parsePlayerSelector(m[1]);
@@ -396,7 +402,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Sacrifice
   {
-    const m = clause.match(/^(?:(you|each player|each opponent|target player|target opponent)\s+)?sacrifices?\s+(.+)$/i);
+    const m = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?sacrifices?\s+(.+)$/i);
     if (m) {
       return withMeta({
         kind: 'sacrifice',
@@ -497,7 +503,7 @@ function tryParseMultiCreateTokensClause(rawClause: string): OracleEffectStep[] 
   };
 
   const prefix = clause.match(
-    /^(?:(you|each player|each opponent|target player|target opponent)\s+)?create(?:s)?\s+(.+)$/i
+    /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent)\s+)?create(?:s)?\s+(.+)$/i
   );
   if (!prefix) return null;
 
@@ -1867,7 +1873,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
         else if (src === "that opponent's") who = { kind: 'target_opponent' };
         else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
         else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
-        else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
+        else if (src.startsWith('each of those opponents')) who = { kind: 'each_of_those_opponents' };
       } else {
         const m2 = firstCleanNoChoose.match(
           /^exile\s+the\s+top\s+card\s+of\s+(your|target player['’]s|target opponent['’]s|that player['’]s|that opponent['’]s|their|his or her|each player['’]s|each players['’]|each opponent['’]s|each opponents['’]|each of your opponents['’]|each of those opponents['’])\s+librar(?:y|ies)(?:\s+face down)?(?:,\s*where\s+[a-z]\s+(?:is|equals?)\s+.+)?\s*$/i
@@ -1883,7 +1889,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
-          else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
+          else if (src.startsWith('each of those opponents')) who = { kind: 'each_of_those_opponents' };
         }
       }
 
@@ -1953,7 +1959,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
-          else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
+          else if (src.startsWith('each of those opponents')) who = { kind: 'each_of_those_opponents' };
         }
       }
       if (!amount) {
@@ -1971,7 +1977,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
-          else if (src.startsWith('each of those opponents')) who = { kind: 'unknown', raw: rawSrc };
+          else if (src.startsWith('each of those opponents')) who = { kind: 'each_of_those_opponents' };
         }
       }
 

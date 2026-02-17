@@ -9,6 +9,12 @@ export type OraclePlayerSelector =
   | { readonly kind: 'you' }
   | { readonly kind: 'each_player' }
   | { readonly kind: 'each_opponent' }
+  /**
+   * Contextual subset reference used by oracle text such as
+   * "each of those opponents". The concrete set is defined by prior
+   * text in the same ability (e.g. opponents dealt damage).
+   */
+  | { readonly kind: 'each_of_those_opponents' }
   | { readonly kind: 'target_player' }
   | { readonly kind: 'target_opponent' }
   /** Special-case selector used by move_zone battlefield control overrides. */

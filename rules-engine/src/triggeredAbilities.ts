@@ -7,7 +7,12 @@
  * Based on MagicCompRules 20251114.txt
  */
 
+import type { GameState, PlayerID } from '../../shared/src';
 import type { StackObject } from './spellCasting';
+import type { OracleIRExecutionEventHint } from './oracleIRExecutor';
+import type { OracleIRExecutionOptions, OracleIRExecutionResult } from './oracleIRExecutor';
+import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from './oracleIRExecutor';
+import { parseOracleTextToIR } from './oracleIRParser';
 
 /**
  * Rule 603.1: Triggered ability keywords
@@ -120,7 +125,14 @@ export interface TriggeredAbility {
   readonly controllerId: string;
   readonly keyword: TriggerKeyword;
   readonly event: TriggerEvent;
+  /** Legacy/general condition field retained for compatibility. */
   readonly condition?: string;
+  /** Trigger-context filter inferred from trigger condition text. */
+  readonly triggerFilter?: string;
+  /** Intervening-if clause text from trigger condition (if present). */
+  readonly interveningIfClause?: string;
+  /** True when the trigger has an intervening-if clause in its oracle text. */
+  readonly hasInterveningIf?: boolean;
   readonly effect: string;
   readonly targets?: readonly string[];
   readonly optional?: boolean; // "may" trigger
@@ -136,6 +148,13 @@ export interface TriggerInstance {
   readonly sourceName: string;
   readonly controllerId: string;
   readonly effect: string;
+  readonly triggerFilter?: string;
+  readonly interveningIfClause?: string;
+  readonly hasInterveningIf?: boolean;
+  /** Trigger-time snapshot for future resolution-time rule checks. */
+  readonly triggerEventDataSnapshot?: TriggerEventData;
+  /** Cached trigger-time truth value for intervening-if clauses. */
+  readonly interveningIfWasTrueAtTrigger?: boolean;
   readonly targets?: readonly string[];
   readonly timestamp: number;
   readonly hasTriggered: boolean;
@@ -161,8 +180,13 @@ export function createEmptyTriggerQueue(): TriggerQueue {
  */
 export function createTriggerInstance(
   ability: TriggeredAbility,
-  timestamp: number
+  timestamp: number,
+  eventDataSnapshot?: TriggerEventData
 ): TriggerInstance {
+  const interveningIfWasTrueAtTrigger = ability.interveningIfClause
+    ? evaluateTriggerCondition(ability.interveningIfClause, ability.controllerId, eventDataSnapshot)
+    : undefined;
+
   return {
     id: `trigger-${timestamp}-${ability.id}`,
     abilityId: ability.id,
@@ -170,6 +194,11 @@ export function createTriggerInstance(
     sourceName: ability.sourceName,
     controllerId: ability.controllerId,
     effect: ability.effect,
+    triggerFilter: ability.triggerFilter,
+    interveningIfClause: ability.interveningIfClause,
+    hasInterveningIf: ability.hasInterveningIf,
+    ...(eventDataSnapshot ? { triggerEventDataSnapshot: eventDataSnapshot } : {}),
+    ...(interveningIfWasTrueAtTrigger !== undefined ? { interveningIfWasTrueAtTrigger } : {}),
     targets: ability.targets,
     timestamp,
     hasTriggered: true,
@@ -227,6 +256,12 @@ export function putTriggersOnStack(
   // Convert to stack objects
   const stackObjects: StackObject[] = sorted.map(trigger => {
     logs.push(`${trigger.sourceName} triggered ability goes on stack`);
+    const triggerMetaBase = buildStackTriggerMetaFromEventData(
+      trigger.effect,
+      trigger.sourceId,
+      trigger.controllerId,
+      trigger.triggerEventDataSnapshot
+    );
     
     return {
       id: trigger.id,
@@ -234,6 +269,13 @@ export function putTriggersOnStack(
       cardName: `${trigger.sourceName} trigger`,
       controllerId: trigger.controllerId,
       targets: trigger.targets || [],
+      triggerMeta: {
+        ...triggerMetaBase,
+        triggerFilter: trigger.triggerFilter,
+        interveningIfClause: trigger.interveningIfClause,
+        hasInterveningIf: trigger.hasInterveningIf,
+        interveningIfWasTrueAtTrigger: trigger.interveningIfWasTrueAtTrigger,
+      },
       timestamp: trigger.timestamp,
       type: 'ability',
     };
@@ -271,8 +313,23 @@ export function checkTrigger(
     return false;
   }
   
-  // Check condition if present
-  if (ability.condition) {
+  // Check trigger filter (from trigger condition parsing) first.
+  if (ability.triggerFilter) {
+    if (!evaluateTriggerCondition(ability.triggerFilter, ability.controllerId, eventData)) {
+      return false;
+    }
+  }
+
+  // Intervening-if clause must be true both when triggering and when resolving.
+  // Here we enforce the trigger-time check.
+  if (ability.interveningIfClause) {
+    if (!evaluateTriggerCondition(ability.interveningIfClause, ability.controllerId, eventData)) {
+      return false;
+    }
+  }
+
+  // Legacy/general condition fallback.
+  if (ability.condition && !ability.triggerFilter && !ability.interveningIfClause) {
     if (!evaluateTriggerCondition(ability.condition, ability.controllerId, eventData)) {
       return false;
     }
@@ -289,6 +346,10 @@ export interface TriggerEventData {
   readonly sourceControllerId?: string;
   readonly targetId?: string;
   readonly targetControllerId?: string;
+  /** Explicit player-target binding when known at trigger resolution time. */
+  readonly targetPlayerId?: string;
+  /** Explicit opponent-target binding when known at trigger resolution time. */
+  readonly targetOpponentId?: string;
   readonly permanentTypes?: readonly string[];
   readonly creatureCount?: number;
   readonly landCount?: number;
@@ -308,7 +369,454 @@ export interface TriggerEventData {
   readonly controlledPermanents?: readonly string[];
   readonly graveyard?: readonly string[];
   readonly hand?: readonly string[];
+  /** Generic affected player ids for the triggering event. */
+  readonly affectedPlayerIds?: readonly string[];
+  /** Affected opponent ids for the triggering event. */
+  readonly affectedOpponentIds?: readonly string[];
+  /** Opponents dealt damage by the triggering event/source (Breeches-style antecedent). */
+  readonly opponentsDealtDamageIds?: readonly string[];
   readonly battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
+}
+
+/**
+ * Build normalized trigger event data from one or more heterogeneous payloads.
+ *
+ * This centralizes best-effort target/relational extraction so trigger call sites
+ * (combat, spell-cast, draw, etc.) can supply context with consistent shape.
+ */
+export function buildTriggerEventDataFromPayloads(
+  sourceControllerId?: string,
+  ...payloads: any[]
+): TriggerEventData {
+  const toId = (value: any): string | undefined => {
+    const id = String(value || '').trim();
+    return id.length > 0 ? id : undefined;
+  };
+
+  const pickFirstString = (...values: any[]): string | undefined => {
+    for (const value of values) {
+      const id = toId(value);
+      if (id) return id;
+    }
+    return undefined;
+  };
+
+  const scalarString = (field: string): string | undefined => {
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') continue;
+      const value = toId((payload as any)[field]);
+      if (value) return value;
+    }
+    return undefined;
+  };
+
+  const scalarNumber = (field: string): number | undefined => {
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') continue;
+      const raw = (payload as any)[field];
+      if (raw === undefined || raw === null) continue;
+      const num = Number(raw);
+      if (Number.isFinite(num)) return num;
+    }
+    return undefined;
+  };
+
+  const scalarBool = (field: string): boolean | undefined => {
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') continue;
+      const raw = (payload as any)[field];
+      if (typeof raw === 'boolean') return raw;
+    }
+    return undefined;
+  };
+
+  const collectIds = (...fields: string[]): string[] => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: any) => {
+      const id = toId(value);
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push(id);
+    };
+
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') continue;
+      for (const field of fields) {
+        const value = (payload as any)[field];
+        if (Array.isArray(value)) {
+          for (const item of value) push(item);
+        } else {
+          push(value);
+        }
+      }
+    }
+
+    return out;
+  };
+
+  const collectCombatOpponentIds = (): string[] => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: any) => {
+      const id = toId(value);
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push(id);
+    };
+
+    const processAssignments = (assignments: any[]) => {
+      for (const assignment of assignments) {
+        if (!assignment || typeof assignment !== 'object') continue;
+        push((assignment as any).defendingPlayerId);
+        push((assignment as any).targetOpponentId);
+        push((assignment as any).targetPlayerId);
+      }
+    };
+
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') continue;
+      const direct = (payload as any).attackers;
+      if (Array.isArray(direct)) processAssignments(direct);
+      const damageAssignments = (payload as any).damageAssignments;
+      if (Array.isArray(damageAssignments)) processAssignments(damageAssignments);
+      const combatAttackers = (payload as any).combat?.attackers;
+      if (Array.isArray(combatAttackers)) processAssignments(combatAttackers);
+    }
+
+    return out;
+  };
+
+  const explicitAffectedPlayerIds = collectIds('affectedPlayerIds');
+  const explicitAffectedOpponentIds = collectIds('affectedOpponentIds');
+  const explicitOpponentsDealtDamageIds = collectIds('opponentsDealtDamageIds');
+  const combatOpponentIds = collectCombatOpponentIds();
+  const isOpponentId = (id: string | undefined): boolean =>
+    Boolean(id) && (!sourceControllerId || id !== sourceControllerId);
+
+  const targetIds = collectIds(
+    'target',
+    'targetId',
+    'targetPlayerId',
+    'targetOpponentId',
+    'targets',
+    'targetIds',
+    'targetPlayerIds',
+    'targetOpponentIds'
+  );
+
+  const targetPlayerId = pickFirstString(
+    scalarString('targetPlayerId'),
+    scalarString('targetId'),
+    scalarString('targetOpponentId'),
+    targetIds[0],
+    explicitAffectedPlayerIds[0]
+  );
+
+  const targetOpponentId = pickFirstString(
+    (() => {
+      const id = scalarString('targetOpponentId');
+      return isOpponentId(id) ? id : undefined;
+    })(),
+    targetIds.find(id => isOpponentId(id)),
+    explicitAffectedOpponentIds.find(id => isOpponentId(id)),
+    explicitOpponentsDealtDamageIds.find(id => isOpponentId(id)),
+    combatOpponentIds.find(id => isOpponentId(id))
+  );
+
+  const affectedPlayerIds =
+    explicitAffectedPlayerIds.length > 0
+      ? explicitAffectedPlayerIds
+      : targetIds.length > 0
+        ? targetIds
+        : undefined;
+
+  const affectedOpponentIdsRaw =
+    explicitAffectedOpponentIds.length > 0
+      ? explicitAffectedOpponentIds
+      : combatOpponentIds.length > 0
+        ? combatOpponentIds
+        : affectedPlayerIds?.filter(id => id !== sourceControllerId) || [];
+  const affectedOpponentIdsSanitized = affectedOpponentIdsRaw.filter(id => isOpponentId(id));
+
+  const opponentsDealtDamageIdsRaw =
+    explicitOpponentsDealtDamageIds.length > 0
+      ? explicitOpponentsDealtDamageIds
+      : combatOpponentIds;
+  const opponentsDealtDamageIdsSanitized = opponentsDealtDamageIdsRaw.filter(id => isOpponentId(id));
+
+  const sourceId = scalarString('sourceId');
+  const targetId = scalarString('targetId') ?? targetPlayerId ?? targetOpponentId;
+
+  return {
+    sourceId,
+    sourceControllerId,
+    targetId,
+    targetControllerId: scalarString('targetControllerId'),
+    targetPlayerId,
+    targetOpponentId,
+    lifeTotal: scalarNumber('lifeTotal'),
+    lifeLost: scalarNumber('lifeLost'),
+    lifeGained: scalarNumber('lifeGained'),
+    damageDealt: scalarNumber('damageDealt'),
+    cardsDrawn: scalarNumber('cardsDrawn'),
+    spellType: scalarString('spellType'),
+    isYourTurn: scalarBool('isYourTurn'),
+    isOpponentsTurn: scalarBool('isOpponentsTurn'),
+    affectedPlayerIds: affectedPlayerIds && affectedPlayerIds.length > 0 ? affectedPlayerIds : undefined,
+    affectedOpponentIds:
+      affectedOpponentIdsSanitized.length > 0 ? affectedOpponentIdsSanitized : undefined,
+    opponentsDealtDamageIds:
+      opponentsDealtDamageIdsSanitized.length > 0 ? opponentsDealtDamageIdsSanitized : undefined,
+  };
+}
+
+/**
+ * Build stack trigger metadata from normalized trigger event context.
+ */
+export function buildStackTriggerMetaFromEventData(
+  effectText: string | undefined,
+  sourceId: string,
+  sourceControllerId: string,
+  eventData?: TriggerEventData
+): {
+  effectText?: string;
+  triggerEventDataSnapshot?: {
+    sourceId?: string;
+    sourceControllerId?: string;
+    targetId?: string;
+    targetControllerId?: string;
+    targetPlayerId?: string;
+    targetOpponentId?: string;
+    affectedPlayerIds?: readonly string[];
+    affectedOpponentIds?: readonly string[];
+    opponentsDealtDamageIds?: readonly string[];
+    lifeTotal?: number;
+    lifeLost?: number;
+    lifeGained?: number;
+    damageDealt?: number;
+    cardsDrawn?: number;
+    isYourTurn?: boolean;
+    isOpponentsTurn?: boolean;
+    battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
+  };
+} {
+  const normalized = buildTriggerEventDataFromPayloads(
+    sourceControllerId,
+    eventData,
+    { sourceId, sourceControllerId }
+  );
+
+  return {
+    effectText,
+    triggerEventDataSnapshot: {
+      sourceId: normalized.sourceId,
+      sourceControllerId: normalized.sourceControllerId,
+      targetId: normalized.targetId,
+      targetControllerId: normalized.targetControllerId,
+      targetPlayerId: normalized.targetPlayerId,
+      targetOpponentId: normalized.targetOpponentId,
+      affectedPlayerIds: normalized.affectedPlayerIds,
+      affectedOpponentIds: normalized.affectedOpponentIds,
+      opponentsDealtDamageIds: normalized.opponentsDealtDamageIds,
+      lifeTotal: normalized.lifeTotal,
+      lifeLost: normalized.lifeLost,
+      lifeGained: normalized.lifeGained,
+      damageDealt: normalized.damageDealt,
+      cardsDrawn: normalized.cardsDrawn,
+      isYourTurn: normalized.isYourTurn,
+      isOpponentsTurn: normalized.isOpponentsTurn,
+      battlefield: normalized.battlefield,
+    },
+  };
+}
+
+/**
+ * Convert trigger-event context into Oracle IR execution hints.
+ *
+ * This lets trigger resolution feed relational selectors (for example
+ * "each of those opponents") into the Oracle IR executor without bespoke
+ * per-card plumbing.
+ */
+export function buildOracleIRExecutionEventHintFromTriggerData(
+  eventData?: TriggerEventData
+): OracleIRExecutionEventHint | undefined {
+  if (!eventData) return undefined;
+
+  const isOpponentId = (id: string | undefined): boolean => {
+    if (!id) return false;
+    return !eventData.sourceControllerId || id !== eventData.sourceControllerId;
+  };
+
+  const dedupe = (ids: readonly string[] | undefined): readonly string[] | undefined => {
+    if (!Array.isArray(ids) || ids.length === 0) return undefined;
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out.length > 0 ? out : undefined;
+  };
+
+  const dedupeOpponents = (ids: readonly string[] | undefined): readonly string[] | undefined =>
+    dedupe((ids || []).filter(id => isOpponentId(id)));
+
+  const targetOpponentId = isOpponentId(eventData.targetOpponentId)
+    ? eventData.targetOpponentId
+    : dedupeOpponents(eventData.affectedOpponentIds)?.[0] ??
+      dedupeOpponents(eventData.opponentsDealtDamageIds)?.[0];
+
+  const hint: OracleIRExecutionEventHint = {
+    targetPlayerId: eventData.targetPlayerId,
+    targetOpponentId,
+    affectedPlayerIds: dedupe(eventData.affectedPlayerIds),
+    affectedOpponentIds: dedupeOpponents(eventData.affectedOpponentIds),
+    opponentsDealtDamageIds: dedupeOpponents(eventData.opponentsDealtDamageIds),
+  };
+
+  if (
+    !hint.targetPlayerId &&
+    !hint.targetOpponentId &&
+    !hint.affectedPlayerIds &&
+    !hint.affectedOpponentIds &&
+    !hint.opponentsDealtDamageIds
+  ) {
+    return undefined;
+  }
+
+  return hint;
+}
+
+/**
+ * Build resolution-time trigger context from current game state.
+ *
+ * This provides a practical baseline for intervening-if resolution checks,
+ * even when full event replay context is unavailable.
+ */
+export function buildResolutionEventDataFromGameState(
+  state: GameState,
+  controllerId: string,
+  base?: TriggerEventData
+): TriggerEventData {
+  const battlefield = ((state.battlefield || []) as any[]).map(p => ({
+    id: String(p?.id || ''),
+    controllerId: String(p?.controller || ''),
+    types: String((p?.card?.type_line || '') as any)
+      .split(/[\s—-]+/)
+      .map(t => t.trim())
+      .filter(Boolean),
+  }));
+
+  const controller = (state.players || []).find((p: any) => p?.id === controllerId) as any;
+
+  return {
+    ...base,
+    sourceControllerId: controllerId,
+    lifeTotal: Number(controller?.life ?? base?.lifeTotal ?? 0),
+    isYourTurn: String((state as any).turnPlayer || '') === controllerId,
+    isOpponentsTurn: String((state as any).turnPlayer || '') !== controllerId,
+    battlefield,
+  };
+}
+
+/**
+ * Execute a triggered ability's effect text through the Oracle IR parser/executor.
+ *
+ * This is the integration seam that lets trigger pipelines pass `TriggerEventData`
+ * and automatically resolve contextual selectors such as "each of those opponents"
+ * or target-bound selectors in multiplayer.
+ */
+export function executeTriggeredAbilityEffectWithOracleIR(
+  state: GameState,
+  ability: Pick<TriggeredAbility, 'controllerId' | 'sourceId' | 'sourceName' | 'effect'>,
+  eventData?: TriggerEventData,
+  options: OracleIRExecutionOptions = {}
+): OracleIRExecutionResult {
+  const ir = parseOracleTextToIR(ability.effect, ability.sourceName);
+  const steps = ir.abilities.flatMap(a => a.steps);
+
+  const hint = buildOracleIRExecutionEventHintFromTriggerData(eventData);
+  const ctx = buildOracleIRExecutionContext(
+    {
+      controllerId: ability.controllerId as PlayerID,
+      sourceId: ability.sourceId,
+      sourceName: ability.sourceName,
+    },
+    hint
+  );
+
+  return applyOracleIRStepsToGameState(state, steps, ctx, options);
+}
+
+export interface ProcessEventOracleExecutionResult {
+  readonly state: GameState;
+  readonly triggers: readonly TriggerInstance[];
+  readonly executions: readonly OracleIRExecutionResult[];
+  readonly log: readonly string[];
+}
+
+export interface ProcessEventOracleExecutionOptions extends OracleIRExecutionOptions {
+  /**
+   * Optional resolution-time context. When provided, intervening-if clauses are
+   * rechecked against this data instead of trigger-time event data.
+   */
+  readonly resolutionEventData?: TriggerEventData;
+}
+
+/**
+ * Convenience helper: find triggered abilities for an event, create trigger
+ * instances, and immediately execute their effect text via Oracle IR.
+ *
+ * This keeps deterministic trigger automation in a single call path while
+ * preserving trigger instance creation for external stack/visibility systems.
+ */
+export function processEventAndExecuteTriggeredOracle(
+  state: GameState,
+  event: TriggerEvent,
+  abilities: readonly TriggeredAbility[],
+  eventData?: TriggerEventData,
+  options: ProcessEventOracleExecutionOptions = {}
+): ProcessEventOracleExecutionResult {
+  const triggeredAbilities = findTriggeringAbilities(abilities, event, eventData);
+  const timestamp = Date.now();
+
+  const triggers: TriggerInstance[] = [];
+  const executions: OracleIRExecutionResult[] = [];
+  const log: string[] = [];
+
+  let nextState = state;
+
+  for (let idx = 0; idx < triggeredAbilities.length; idx++) {
+    const ability = triggeredAbilities[idx];
+    const trigger = createTriggerInstance(ability, timestamp + idx, eventData);
+    triggers.push(trigger);
+
+    if (ability.interveningIfClause) {
+      const resolutionData =
+        options.resolutionEventData ?? buildResolutionEventDataFromGameState(nextState, ability.controllerId, eventData);
+      const stillTrue = evaluateTriggerCondition(ability.interveningIfClause, ability.controllerId, resolutionData);
+      if (!stillTrue) {
+        log.push(`${ability.sourceName} trigger skipped at resolution (intervening-if false)`);
+        continue;
+      }
+    }
+
+    const execution = executeTriggeredAbilityEffectWithOracleIR(nextState, ability, eventData, options);
+    executions.push(execution);
+    nextState = execution.state;
+
+    log.push(`${ability.sourceName} triggered ability processed`);
+    log.push(...execution.log);
+  }
+
+  return {
+    state: nextState,
+    triggers,
+    executions,
+    log,
+  };
 }
 
 /**
@@ -367,13 +875,13 @@ export function evaluateTriggerCondition(
     return true; // Triggers for everyone
   }
   
-  // "if you control" checks
-  if (conditionLower.includes('if you control')) {
+  // "if you control" checks (also support normalized form "you control ...")
+  if (conditionLower.includes('if you control') || conditionLower.startsWith('you control ')) {
     return evaluateControlCondition(conditionLower, controllerId, eventData);
   }
   
-  // "if an opponent controls" checks
-  if (conditionLower.includes('if an opponent controls')) {
+  // "if an opponent controls" checks (also support normalized form "an opponent controls ...")
+  if (conditionLower.includes('if an opponent controls') || conditionLower.startsWith('an opponent controls ')) {
     return evaluateOpponentControlCondition(conditionLower, controllerId, eventData);
   }
   
@@ -604,7 +1112,7 @@ export function processEvent(
   const timestamp = Date.now();
   
   return triggeredAbilities.map(ability =>
-    createTriggerInstance(ability, timestamp)
+    createTriggerInstance(ability, timestamp, eventData)
   );
 }
 
@@ -874,7 +1382,7 @@ export function parseTriggeredAbilitiesFromText(
         : TriggerKeyword.WHEN;
     
     const triggerCondition = match[2].trim();
-    const effect = match[3].trim();
+    let effect = match[3].trim();
     
     // Detect the event type from the trigger condition
     const eventInfo = detectEventFromCondition(triggerCondition);
@@ -882,16 +1390,30 @@ export function parseTriggeredAbilitiesFromText(
     // Check for optional triggers ("you may")
     const optional = effect.includes('you may') || effect.includes('may have');
     
-    // Check for intervening-if clause
-    const interveningIf = triggerCondition.includes(' if ') 
-      ? triggerCondition.split(' if ')[1] 
+    // Check for intervening-if clause.
+    // Common forms:
+    // - "Whenever X, if Y, Z." (leading in effect segment)
+    // - "Whenever X if Y, Z." (embedded in trigger-condition segment)
+    let interveningIf = triggerCondition.includes(' if ')
+      ? triggerCondition.split(' if ')[1]
       : undefined;
+
+    if (!interveningIf) {
+      const leadingIf = effect.match(/^if\s+([^,]+),\s*(.+)$/i);
+      if (leadingIf) {
+        interveningIf = String(leadingIf[1] || '').trim();
+        effect = String(leadingIf[2] || '').trim();
+      }
+    }
     
     // Check if this is a self-trigger
     const selfTrigger = triggerCondition.includes('this creature') ||
                         triggerCondition.includes('this permanent') ||
                         triggerCondition.includes(`${cardName.toLowerCase()}`);
     
+    const triggerFilter = eventInfo.filter;
+    const hasInterveningIf = Boolean(interveningIf);
+
     abilities.push({
       id: `${permanentId}-trigger-${index}`,
       sourceId: permanentId,
@@ -899,7 +1421,10 @@ export function parseTriggeredAbilitiesFromText(
       controllerId,
       keyword,
       event: eventInfo.event,
-      condition: eventInfo.filter || interveningIf,
+      condition: triggerFilter || interveningIf,
+      ...(triggerFilter ? { triggerFilter } : {}),
+      ...(interveningIf ? { interveningIfClause: interveningIf } : {}),
+      ...(hasInterveningIf ? { hasInterveningIf } : {}),
       effect,
       optional,
     });

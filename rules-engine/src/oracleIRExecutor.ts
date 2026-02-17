@@ -13,10 +13,120 @@ export interface OracleIRExecutionOptions {
   readonly allowOptional?: boolean;
 }
 
+export interface OracleIRSelectorContext {
+  /** Bound target for selectors parsed as target player. */
+  readonly targetPlayerId?: PlayerID;
+  /** Bound target for selectors parsed as target opponent. */
+  readonly targetOpponentId?: PlayerID;
+  /** Bound antecedent set for selectors parsed as "each of those opponents". */
+  readonly eachOfThoseOpponents?: readonly PlayerID[];
+}
+
+export interface OracleIRExecutionEventHint {
+  /** Best-effort single target player from trigger/ability resolution context. */
+  readonly targetPlayerId?: PlayerID;
+  /** Best-effort single target opponent from trigger/ability resolution context. */
+  readonly targetOpponentId?: PlayerID;
+  /** Generic affected players for this event (may include non-opponents). */
+  readonly affectedPlayerIds?: readonly PlayerID[];
+  /** Affected opponents for this event (preferred for relational opponent selectors). */
+  readonly affectedOpponentIds?: readonly PlayerID[];
+  /** Opponents dealt damage by the triggering event/source (Breeches-style antecedent). */
+  readonly opponentsDealtDamageIds?: readonly PlayerID[];
+}
+
 export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  /**
+   * Optional selector bindings supplied by the caller from trigger/target resolution context.
+   * This allows relational selectors such as "each of those opponents" to execute
+   * deterministically in multiplayer when the antecedent set is known.
+   */
+  readonly selectorContext?: OracleIRSelectorContext;
+}
+
+/**
+ * Build/augment an execution context from trigger/target event hints.
+ *
+ * This keeps selector binding logic in one place so callers can pass whichever
+ * event fields they already have, and relational selectors like
+ * "each of those opponents" can resolve with minimal glue code.
+ */
+export function buildOracleIRExecutionContext(
+  base: OracleIRExecutionContext,
+  hint?: OracleIRExecutionEventHint
+): OracleIRExecutionContext {
+  const baseSel = base.selectorContext;
+
+  const dedupe = (ids: readonly PlayerID[] | undefined): readonly PlayerID[] | undefined => {
+    if (!Array.isArray(ids) || ids.length === 0) return undefined;
+    const out: PlayerID[] = [];
+    const seen = new Set<PlayerID>();
+    for (const id of ids) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out.length > 0 ? out : undefined;
+  };
+
+  const eachOfThoseOpponents =
+    dedupe(hint?.affectedOpponentIds) ??
+    dedupe(hint?.opponentsDealtDamageIds) ??
+    dedupe(hint?.affectedPlayerIds) ??
+    dedupe(hint?.targetOpponentId ? [hint.targetOpponentId] : undefined) ??
+    dedupe(hint?.targetPlayerId ? [hint.targetPlayerId] : undefined) ??
+    baseSel?.eachOfThoseOpponents;
+
+  const sanitizedEachOfThoseOpponents = eachOfThoseOpponents
+    ? dedupe(eachOfThoseOpponents.filter(id => id !== base.controllerId))
+    : undefined;
+
+  const singleton = (ids: readonly PlayerID[] | undefined): PlayerID | undefined =>
+    Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
+
+  const dedupedAffectedPlayers = dedupe(hint?.affectedPlayerIds);
+  const dedupedAffectedOpponents = dedupe(hint?.affectedOpponentIds);
+  const dedupedOpponentsDealtDamage = dedupe(hint?.opponentsDealtDamageIds);
+  const explicitTargetOpponentId =
+    hint?.targetOpponentId && hint.targetOpponentId !== base.controllerId
+      ? hint.targetOpponentId
+      : undefined;
+  const inferredTargetOpponentId =
+    singleton(sanitizedEachOfThoseOpponents) ??
+    singleton(dedupedAffectedOpponents) ??
+    singleton(dedupedOpponentsDealtDamage);
+  const inferredTargetPlayerId =
+    singleton(dedupedAffectedPlayers) ??
+    inferredTargetOpponentId;
+  const baseTargetFromOpponent = baseSel?.targetOpponentId;
+  const baseTargetFromPlayer =
+    baseSel?.targetPlayerId && baseSel.targetPlayerId !== base.controllerId
+      ? baseSel.targetPlayerId
+      : undefined;
+
+  const selectorContext: OracleIRSelectorContext = {
+    targetPlayerId:
+      hint?.targetPlayerId ??
+      explicitTargetOpponentId ??
+      inferredTargetPlayerId ??
+      baseSel?.targetPlayerId ??
+      baseTargetFromOpponent,
+    targetOpponentId:
+      explicitTargetOpponentId ??
+      inferredTargetOpponentId ??
+      baseSel?.targetOpponentId ??
+      baseTargetFromPlayer,
+    ...(sanitizedEachOfThoseOpponents ? { eachOfThoseOpponents: sanitizedEachOfThoseOpponents } : {}),
+  };
+
+  if (!selectorContext.targetPlayerId && !selectorContext.targetOpponentId && !selectorContext.eachOfThoseOpponents) {
+    return base;
+  }
+
+  return { ...base, selectorContext };
 }
 
 export interface OracleIRExecutionResult {
@@ -151,16 +261,57 @@ function resolvePlayers(
   selector: OraclePlayerSelector,
   ctx: OracleIRExecutionContext
 ): readonly PlayerID[] {
+  const allPlayerIds = new Set(state.players.map(p => p.id));
+  const opponents = state.players.filter(p => p.id !== ctx.controllerId).map(p => p.id);
+  const opponentIdSet = new Set(opponents);
+
+  const dedupe = (ids: readonly PlayerID[]): readonly PlayerID[] => {
+    const out: PlayerID[] = [];
+    const seen = new Set<PlayerID>();
+    for (const id of ids) {
+      if (!allPlayerIds.has(id)) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  };
+
+  const dedupeOpponents = (ids: readonly PlayerID[]): readonly PlayerID[] =>
+    dedupe(ids.filter(id => opponentIdSet.has(id)));
+
   switch (selector.kind) {
     case 'you':
       return [ctx.controllerId];
     case 'each_player':
       return state.players.map(p => p.id);
     case 'each_opponent':
-      return state.players.filter(p => p.id !== ctx.controllerId).map(p => p.id);
-    // Targeting not supported by this executor yet.
-    case 'target_player':
-    case 'target_opponent':
+      return opponents;
+    // Contextual subset ("each of those opponents").
+    // Without trigger-context threading this is ambiguous in multiplayer,
+    // but in 1v1 the subset can only be that opponent when present.
+    case 'each_of_those_opponents': {
+      const contextual = ctx.selectorContext?.eachOfThoseOpponents;
+      if (Array.isArray(contextual) && contextual.length > 0) {
+        return dedupeOpponents(contextual as PlayerID[]);
+      }
+      return opponents.length === 1 ? [opponents[0]] : [];
+    }
+    // Deterministic target support:
+    // - target_opponent resolves from selector context when available,
+    //   otherwise only when there is a single legal opponent.
+    // - target_player resolves from selector context when available,
+    //   otherwise remains unresolved because it can include multiple legal choices.
+    case 'target_opponent': {
+      const bound = ctx.selectorContext?.targetOpponentId;
+      if (bound && opponentIdSet.has(bound)) return [bound];
+      return opponents.length === 1 ? [opponents[0]] : [];
+    }
+    case 'target_player': {
+      const bound = ctx.selectorContext?.targetPlayerId;
+      if (bound && allPlayerIds.has(bound)) return [bound];
+      return [];
+    }
     case 'unknown':
     default:
       return [];

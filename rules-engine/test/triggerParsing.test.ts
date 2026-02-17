@@ -2,6 +2,7 @@
  * Tests for trigger parsing from oracle text
  */
 import { describe, it, expect } from 'vitest';
+import type { GameState } from '../../shared/src';
 import {
   TriggerEvent,
   TriggerKeyword,
@@ -14,7 +15,65 @@ import {
   createSacrificeTrigger,
   createCompoundTrigger,
   checkMultipleTriggers,
+  createEmptyTriggerQueue,
+  putTriggersOnStack,
+  processEvent,
+  buildResolutionEventDataFromGameState,
+  buildTriggerEventDataFromPayloads,
+  buildStackTriggerMetaFromEventData,
+  buildOracleIRExecutionEventHintFromTriggerData,
+  executeTriggeredAbilityEffectWithOracleIR,
+  processEventAndExecuteTriggeredOracle,
 } from '../src/triggeredAbilities';
+
+function makeState(overrides: Partial<GameState> = {}): GameState {
+  return {
+    id: 'game1',
+    format: 'commander',
+    players: [
+      {
+        id: 'p1',
+        name: 'P1',
+        seat: 0,
+        life: 40,
+        library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+        hand: [],
+        graveyard: [],
+        exile: [],
+      } as any,
+      {
+        id: 'p2',
+        name: 'P2',
+        seat: 1,
+        life: 40,
+        library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+        hand: [],
+        graveyard: [],
+        exile: [],
+      } as any,
+      {
+        id: 'p3',
+        name: 'P3',
+        seat: 2,
+        life: 40,
+        library: [{ id: 'p3c1' }, { id: 'p3c2' }],
+        hand: [],
+        graveyard: [],
+        exile: [],
+      } as any,
+    ],
+    startingLife: 40,
+    life: {},
+    turnPlayer: 'p1',
+    priority: 'p1',
+    stack: [],
+    battlefield: [],
+    commandZone: {} as any,
+    phase: 'pre_game' as any,
+    active: true,
+    ...overrides,
+  } as any;
+}
 
 describe('Trigger Parsing', () => {
   describe('parseTriggeredAbilitiesFromText', () => {
@@ -108,6 +167,15 @@ describe('Trigger Parsing', () => {
       
       expect(abilities.length).toBeGreaterThan(0);
       expect(abilities[0].event).toBe(TriggerEvent.ARTIFACT_SACRIFICED);
+    });
+
+    it('should capture intervening-if metadata from trigger condition', () => {
+      const oracleText = 'Whenever a creature attacks, if you control an artifact, draw a card.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Test Card');
+
+      expect(abilities.length).toBeGreaterThan(0);
+      expect(Boolean((abilities[0] as any).hasInterveningIf)).toBe(true);
+      expect((abilities[0] as any).interveningIfClause).toBe('you control an artifact');
     });
   });
   
@@ -232,6 +300,394 @@ describe('Trigger Parsing', () => {
       expect(TriggerEvent.SACRIFICED).toBe('sacrificed');
       expect(TriggerEvent.CREATURE_SACRIFICED).toBe('creature_sacrificed');
       expect(TriggerEvent.ARTIFACT_SACRIFICED).toBe('artifact_sacrificed');
+    });
+  });
+
+  describe('Oracle IR execution hint adapter', () => {
+    it('builds normalized trigger event data from combat assignments', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        attackers: [
+          { attackerId: 'a1', defendingPlayerId: 'p2', damage: 2 },
+          { attackerId: 'a2', defendingPlayerId: 'p3', damage: 1 },
+        ],
+      });
+
+      expect(eventData.sourceControllerId).toBe('p1');
+      expect(eventData.affectedOpponentIds).toEqual(['p2', 'p3']);
+      expect(eventData.opponentsDealtDamageIds).toEqual(['p2', 'p3']);
+      expect(eventData.targetOpponentId).toBe('p2');
+    });
+
+    it('builds normalized trigger event data from explicit target fields', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targetOpponentId: 'p3',
+      });
+
+      expect(eventData.sourceControllerId).toBe('p1');
+      expect(eventData.targetOpponentId).toBe('p3');
+      expect(eventData.targetPlayerId).toBe('p3');
+      expect(eventData.affectedOpponentIds).toEqual(['p3']);
+    });
+
+    it('sanitizes opponent-scoped fields to exclude controller id', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targetOpponentId: 'p1',
+        affectedOpponentIds: ['p1', 'p2', 'p2'],
+        opponentsDealtDamageIds: ['p1', 'p3'],
+      });
+
+      expect(eventData.targetOpponentId).toBe('p2');
+      expect(eventData.affectedOpponentIds).toEqual(['p2']);
+      expect(eventData.opponentsDealtDamageIds).toEqual(['p3']);
+    });
+
+    it('builds stack trigger meta snapshot from normalized event data', () => {
+      const meta = buildStackTriggerMetaFromEventData(
+        'Target opponent loses 1 life.',
+        'src-1',
+        'p1',
+        {
+          targetOpponentId: 'p3',
+          attackers: [
+            { attackerId: 'a1', defendingPlayerId: 'p2' },
+          ],
+        } as any
+      );
+
+      expect(meta.effectText).toBe('Target opponent loses 1 life.');
+      expect(meta.triggerEventDataSnapshot?.sourceId).toBe('src-1');
+      expect(meta.triggerEventDataSnapshot?.sourceControllerId).toBe('p1');
+      expect(meta.triggerEventDataSnapshot?.targetOpponentId).toBe('p3');
+      expect(meta.triggerEventDataSnapshot?.affectedOpponentIds).toEqual(['p2']);
+      expect(meta.triggerEventDataSnapshot?.opponentsDealtDamageIds).toEqual(['p2']);
+    });
+
+    it('builds hint with explicit target bindings', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p3',
+      });
+
+      expect(hint).toEqual({
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p3',
+        affectedPlayerIds: undefined,
+        affectedOpponentIds: undefined,
+        opponentsDealtDamageIds: undefined,
+      });
+    });
+
+    it('builds deduped relational-opponent hint from affected/opponents-dealt-damage ids', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({
+        affectedOpponentIds: ['p2', 'p2', 'p3'],
+        opponentsDealtDamageIds: ['p3', 'p4'],
+      });
+
+      expect(hint?.affectedOpponentIds).toEqual(['p2', 'p3']);
+      expect(hint?.opponentsDealtDamageIds).toEqual(['p3', 'p4']);
+    });
+
+    it('keeps targetOpponentId available for relational fallback when list fields are absent', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({
+        targetOpponentId: 'p3',
+      });
+
+      expect(hint).toEqual({
+        targetPlayerId: undefined,
+        targetOpponentId: 'p3',
+        affectedPlayerIds: undefined,
+        affectedOpponentIds: undefined,
+        opponentsDealtDamageIds: undefined,
+      });
+    });
+
+    it('returns undefined when event data has no selector-relevant fields', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({ sourceId: 'abc' });
+      expect(hint).toBeUndefined();
+    });
+
+    it('sanitizes opponent-scoped hint fields to exclude source controller id', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({
+        sourceControllerId: 'p1',
+        targetOpponentId: 'p1',
+        affectedOpponentIds: ['p1', 'p2', 'p2'],
+        opponentsDealtDamageIds: ['p1', 'p3'],
+      });
+
+      expect(hint).toEqual({
+        targetPlayerId: undefined,
+        targetOpponentId: 'p2',
+        affectedPlayerIds: undefined,
+        affectedOpponentIds: ['p2'],
+        opponentsDealtDamageIds: ['p3'],
+      });
+    });
+  });
+
+  describe('Triggered ability Oracle IR execution integration', () => {
+    it('executes contextual each_of_those_opponents effect from TriggerEventData in multiplayer', () => {
+      const start = makeState();
+
+      const result = executeTriggeredAbilityEffectWithOracleIR(
+        start,
+        {
+          controllerId: 'p1',
+          sourceId: 'breeches-1',
+          sourceName: 'Breeches, Brazen Plunderer',
+          effect:
+            "Exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.",
+        },
+        {
+          opponentsDealtDamageIds: ['p2'],
+        }
+      );
+
+      const p2 = result.state.players.find(p => p.id === 'p2') as any;
+      const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+      expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+      expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+      expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+      expect(p3.library.map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
+      expect(p3.exile || []).toHaveLength(0);
+    });
+
+    it('executes target_opponent effect from TriggerEventData target binding in multiplayer', () => {
+      const start = makeState();
+
+      const result = executeTriggeredAbilityEffectWithOracleIR(
+        start,
+        {
+          controllerId: 'p1',
+          sourceId: 'test-1',
+          sourceName: 'Test Trigger Source',
+          effect: 'Target opponent loses 1 life.',
+        },
+        {
+          targetOpponentId: 'p3',
+        }
+      );
+
+      const p2 = result.state.players.find(p => p.id === 'p2') as any;
+      const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+      expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+      expect(p2.life).toBe(40);
+      expect(p3.life).toBe(39);
+    });
+
+    it('processEventAndExecuteTriggeredOracle auto-processes contextual opponent subset trigger effects', () => {
+      const start = makeState();
+      const abilities = [
+        {
+          id: 'breeches-trigger',
+          sourceId: 'breeches-1',
+          sourceName: 'Breeches, Brazen Plunderer',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
+          effect:
+            "Exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.",
+        } as any,
+      ];
+
+      const result = processEventAndExecuteTriggeredOracle(
+        start,
+        TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
+        abilities,
+        { opponentsDealtDamageIds: ['p2', 'p3'] }
+      );
+
+      const p2 = result.state.players.find(p => p.id === 'p2') as any;
+      const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+      expect(result.triggers).toHaveLength(1);
+      expect(result.executions).toHaveLength(1);
+      expect(result.executions[0].appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+      expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+      expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+      expect(p3.library.map((c: any) => c.id)).toEqual(['p3c2']);
+      expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1']);
+    });
+
+    it('processEventAndExecuteTriggeredOracle auto-processes target_opponent-bound effects', () => {
+      const start = makeState();
+      const abilities = [
+        {
+          id: 'life-trigger',
+          sourceId: 'source-1',
+          sourceName: 'Life Trigger',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.ATTACKS,
+          effect: 'Target opponent loses 1 life.',
+        } as any,
+      ];
+
+      const result = processEventAndExecuteTriggeredOracle(start, TriggerEvent.ATTACKS, abilities, { targetOpponentId: 'p2' });
+      const p2 = result.state.players.find(p => p.id === 'p2') as any;
+      const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+      expect(result.triggers).toHaveLength(1);
+      expect(result.executions).toHaveLength(1);
+      expect(result.executions[0].appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+      expect(p2.life).toBe(39);
+      expect(p3.life).toBe(40);
+      expect(result.triggers[0]?.triggerEventDataSnapshot?.targetOpponentId).toBe('p2');
+    });
+
+    it('processEventAndExecuteTriggeredOracle rechecks intervening-if against resolutionEventData when provided', () => {
+      const start = makeState();
+      const abilities = [
+        {
+          id: 'if-resolution-trigger',
+          sourceId: 'source-if-resolution',
+          sourceName: 'Intervening If Resolution Source',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.ATTACKS,
+          effect: 'Draw a card.',
+          interveningIfClause: 'you control an artifact',
+          hasInterveningIf: true,
+        } as any,
+      ];
+
+      const result = processEventAndExecuteTriggeredOracle(
+        start,
+        TriggerEvent.ATTACKS,
+        abilities,
+        {
+          sourceControllerId: 'p1',
+          battlefield: [{ id: 'perm-a', controllerId: 'p1', types: ['Artifact'] }],
+        },
+        {
+          resolutionEventData: {
+            sourceControllerId: 'p1',
+            battlefield: [{ id: 'perm-c', controllerId: 'p1', types: ['Creature'] }],
+          },
+        }
+      );
+
+      const p1 = result.state.players.find(p => p.id === 'p1') as any;
+      expect(result.triggers).toHaveLength(1);
+      expect(result.triggers[0]?.interveningIfWasTrueAtTrigger).toBe(true);
+      expect(result.executions).toHaveLength(0);
+      expect(p1.hand || []).toHaveLength(0);
+      expect(result.log.some(x => x.includes('intervening-if false'))).toBe(true);
+    });
+
+    it('processEventAndExecuteTriggeredOracle does not trigger when intervening-if is false at trigger time', () => {
+      const start = makeState();
+      const abilities = [
+        {
+          id: 'if-trigger',
+          sourceId: 'source-if',
+          sourceName: 'Intervening If Source',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.ATTACKS,
+          effect: 'Draw a card.',
+          interveningIfClause: 'you control an artifact',
+          hasInterveningIf: true,
+        } as any,
+      ];
+
+      const result = processEventAndExecuteTriggeredOracle(
+        start,
+        TriggerEvent.ATTACKS,
+        abilities,
+        {
+          sourceControllerId: 'p1',
+          battlefield: [
+            { id: 'perm-1', controllerId: 'p1', types: ['Creature'] },
+          ],
+        }
+      );
+
+      const p1 = result.state.players.find(p => p.id === 'p1') as any;
+      expect(result.triggers).toHaveLength(0);
+      expect(result.executions).toHaveLength(0);
+      expect(p1.hand || []).toHaveLength(0);
+    });
+
+    it('processEventAndExecuteTriggeredOracle uses current-state-derived resolution data when explicit resolutionEventData is absent', () => {
+      const start = makeState({
+        battlefield: [] as any,
+      });
+      const abilities = [
+        {
+          id: 'if-default-resolution',
+          sourceId: 'source-if-default-resolution',
+          sourceName: 'Intervening If Default Resolution Source',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.ATTACKS,
+          effect: 'Draw a card.',
+          interveningIfClause: 'you control an artifact',
+          hasInterveningIf: true,
+        } as any,
+      ];
+
+      const result = processEventAndExecuteTriggeredOracle(
+        start,
+        TriggerEvent.ATTACKS,
+        abilities,
+        {
+          sourceControllerId: 'p1',
+          battlefield: [{ id: 'perm-a', controllerId: 'p1', types: ['Artifact'] }],
+        }
+      );
+
+      const p1 = result.state.players.find(p => p.id === 'p1') as any;
+      expect(result.triggers).toHaveLength(1);
+      expect(result.executions).toHaveLength(0);
+      expect(p1.hand || []).toHaveLength(0);
+      expect(result.log.some(x => x.includes('intervening-if false'))).toBe(true);
+    });
+
+    it('propagates trigger metadata onto ability stack objects', () => {
+      const abilities = [
+        {
+          id: 'meta-trigger',
+          sourceId: 'meta-source',
+          sourceName: 'Meta Source',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.ATTACKS,
+          effect: 'Draw a card.',
+          interveningIfClause: 'you control an artifact',
+          hasInterveningIf: true,
+          triggerFilter: 'you',
+        } as any,
+      ];
+
+      const instances = processEvent(TriggerEvent.ATTACKS, abilities, {
+        sourceControllerId: 'p1',
+        battlefield: [{ id: 'perm-a', controllerId: 'p1', types: ['Artifact'] }],
+      });
+
+      let queue = createEmptyTriggerQueue();
+      for (const t of instances) queue = { triggers: [...queue.triggers, t] };
+      const { stackObjects } = putTriggersOnStack(queue, 'p1');
+
+      expect(stackObjects).toHaveLength(1);
+      expect((stackObjects[0] as any).triggerMeta?.hasInterveningIf).toBe(true);
+      expect((stackObjects[0] as any).triggerMeta?.interveningIfClause).toBe('you control an artifact');
+      expect((stackObjects[0] as any).triggerMeta?.interveningIfWasTrueAtTrigger).toBe(true);
+      expect((stackObjects[0] as any).triggerMeta?.triggerEventDataSnapshot?.sourceControllerId).toBe('p1');
+    });
+  });
+
+  describe('Resolution event data builder', () => {
+    it('buildResolutionEventDataFromGameState derives controller turn/life/battlefield context', () => {
+      const state = makeState({ turnPlayer: 'p1' } as any);
+      const out = buildResolutionEventDataFromGameState(state, 'p1');
+
+      expect(out.sourceControllerId).toBe('p1');
+      expect(out.isYourTurn).toBe(true);
+      expect(out.isOpponentsTurn).toBe(false);
+      expect(out.lifeTotal).toBe(40);
+      expect(Array.isArray(out.battlefield)).toBe(true);
     });
   });
 });

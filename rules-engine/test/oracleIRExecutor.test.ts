@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { GameState } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
-import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
+import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
   return {
@@ -7399,7 +7399,7 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
   });
 
-  it('skips impulse_exile_top when it is targeting-dependent (target opponent)', () => {
+  it('applies impulse_exile_top when target_opponent has a single legal candidate (1v1)', () => {
     const ir = parseOracleTextToIR(
       "Exile the top two cards of target opponent's library face down. You may look at and play those cards for as long as they remain exiled.",
       'Test'
@@ -7436,10 +7436,11 @@ describe('Oracle IR Executor', () => {
     const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
-    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
-    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
-    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
-    expect(p2.exile || []).toHaveLength(0);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
+    expect(p2.exile || []).toHaveLength(2);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
   });
 
   it("skips impulse_exile_top when it is targeting-dependent (that player's library)", () => {
@@ -7488,7 +7489,7 @@ describe('Oracle IR Executor', () => {
     expect(p2.exile || []).toHaveLength(0);
   });
 
-  it('skips impulse_exile_top for combined look+exile face-down template when targeting-dependent (target opponent)', () => {
+  it('applies impulse_exile_top for combined look+exile face-down template when target_opponent has a single legal candidate', () => {
     const ir = parseOracleTextToIR(
       "Look at the top two cards of target opponent's library and exile those cards face down. You may play those cards for as long as they remain exiled.",
       'Test'
@@ -7525,9 +7526,668 @@ describe('Oracle IR Executor', () => {
     const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
+    expect(p2.exile || []).toHaveLength(2);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+  });
+
+  it('skips impulse_exile_top when target_opponent is ambiguous in multiplayer', () => {
+    const ir = parseOracleTextToIR(
+      "Exile the top two cards of target opponent's library face down. You may look at and play those cards for as long as they remain exiled.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }, { id: 'p2c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }, { id: 'p3c2' }, { id: 'p3c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
     expect(p2.exile || []).toHaveLength(0);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c1', 'p3c2', 'p3c3']);
+    expect(p3.exile || []).toHaveLength(0);
+  });
+
+  it('applies impulse_exile_top for contextual each_of_those_opponents selector in 1v1 (AtomicCards: Breeches)', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever one or more Pirates you control deal damage to your opponents, exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.",
+      'Breeches, Brazen Plunderer'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1']);
+  });
+
+  it('skips impulse_exile_top for contextual each_of_those_opponents selector in multiplayer ambiguity', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever one or more Pirates you control deal damage to your opponents, exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.",
+      'Breeches, Brazen Plunderer'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }, { id: 'p3c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect(p2.exile || []).toHaveLength(0);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
+    expect(p3.exile || []).toHaveLength(0);
+  });
+
+  it('applies impulse_exile_top for target_opponent in multiplayer when selectorContext binds the target', () => {
+    const ir = parseOracleTextToIR(
+      "Exile the top two cards of target opponent's library face down. You may look at and play those cards for as long as they remain exiled.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }, { id: 'p2c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }, { id: 'p3c2' }, { id: 'p3c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p3' },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
+    expect(p2.exile || []).toHaveLength(0);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c3']);
+    expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
+  });
+
+  it('applies contextual each_of_those_opponents selector in multiplayer when selectorContext binds antecedent set', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever one or more Pirates you control deal damage to your opponents, exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.",
+      'Breeches, Brazen Plunderer'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }, { id: 'p3c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { eachOfThoseOpponents: ['p3'] },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect(p2.exile || []).toHaveLength(0);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c2']);
+    expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1']);
+  });
+
+  it('applies lose_life to contextual each_of_those_opponents in multiplayer when selectorContext binds antecedent set', () => {
+    const ir = parseOracleTextToIR('Each of those opponents loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { eachOfThoseOpponents: ['p2'] },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'lose_life')).toBe(false);
+    expect(p2.life).toBe(39);
+    expect(p3.life).toBe(40);
+  });
+
+  it('buildOracleIRExecutionContext maps event hint affectedOpponentIds into each_of_those_opponents execution', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever one or more Pirates you control deal damage to your opponents, exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.",
+      'Breeches, Brazen Plunderer'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }, { id: 'p2c2' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }, { id: 'p3c2' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext(
+      { controllerId: 'p1' },
+      { affectedOpponentIds: ['p2'], opponentsDealtDamageIds: ['p3'] }
+    );
+
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    // affectedOpponentIds has precedence for relational selector binding.
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
+    expect(p3.exile || []).toHaveLength(0);
+  });
+
+  it('buildOracleIRExecutionContext falls back to targetOpponentId for each_of_those_opponents execution', () => {
+    const ir = parseOracleTextToIR(
+      "Each of those opponents loses 1 life.",
+      'Test Relational'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, { targetOpponentId: 'p3' });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'lose_life')).toBe(false);
+    expect(p2.life).toBe(40);
+    expect(p3.life).toBe(39);
+  });
+
+  it('buildOracleIRExecutionContext maps targetOpponentId for multiplayer target_opponent resolution', () => {
+    const ir = parseOracleTextToIR(
+      "Exile the top two cards of target opponent's library face down. You may look at and play those cards for as long as they remain exiled.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }, { id: 'p2c2' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }, { id: 'p3c2' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, { targetOpponentId: 'p3' });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect(p2.exile || []).toHaveLength(0);
+    expect(p3.library.map((c: any) => c.id)).toEqual([]);
+    expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
+  });
+
+  it('buildOracleIRExecutionContext maps targetOpponentId into target_player fallback', () => {
+    const ir = parseOracleTextToIR('Target player loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, { targetOpponentId: 'p3' });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(p2.life).toBe(40);
+    expect(p3.life).toBe(39);
+  });
+
+  it('buildOracleIRExecutionContext falls back to targetPlayerId for each_of_those_opponents when relational sets are absent', () => {
+    const ir = parseOracleTextToIR('Each of those opponents loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, { targetPlayerId: 'p2' });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(p2.life).toBe(39);
+    expect(p3.life).toBe(40);
+  });
+
+  it('buildOracleIRExecutionContext sanitizes each_of_those_opponents by removing controller id', () => {
+    const ctx = buildOracleIRExecutionContext(
+      { controllerId: 'p1' },
+      { affectedPlayerIds: ['p1', 'p2', 'p2', 'p3'] }
+    );
+
+    expect(ctx.selectorContext?.eachOfThoseOpponents).toEqual(['p2', 'p3']);
+  });
+
+  it('buildOracleIRExecutionContext infers targetOpponentId from singleton affectedOpponentIds', () => {
+    const ir = parseOracleTextToIR('Target opponent loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, { affectedOpponentIds: ['p3'] });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(p2.life).toBe(40);
+    expect(p3.life).toBe(39);
+  });
+
+  it('buildOracleIRExecutionContext infers targetPlayerId from singleton affectedPlayerIds', () => {
+    const ir = parseOracleTextToIR('Target player loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, { affectedPlayerIds: ['p2'] });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(p2.life).toBe(39);
+    expect(p3.life).toBe(40);
+  });
+
+  it('buildOracleIRExecutionContext falls back targetPlayerId from base targetOpponentId', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+        selectorContext: { targetOpponentId: 'p3' },
+      },
+      { affectedPlayerIds: ['p2', 'p3'] }
+    );
+
+    expect(ctx.selectorContext?.targetPlayerId).toBe('p3');
+    expect(ctx.selectorContext?.targetOpponentId).toBe('p3');
+  });
+
+  it('buildOracleIRExecutionContext falls back targetOpponentId from base targetPlayerId when base target is an opponent', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+        selectorContext: { targetPlayerId: 'p2' },
+      },
+      { affectedPlayerIds: ['p2', 'p3'] }
+    );
+
+    expect(ctx.selectorContext?.targetPlayerId).toBe('p2');
+    expect(ctx.selectorContext?.targetOpponentId).toBe('p2');
+  });
+
+  it('buildOracleIRExecutionContext precedence: explicit hint wins over inferred singleton and base fallback', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+        selectorContext: { targetPlayerId: 'p2', targetOpponentId: 'p2' },
+      },
+      {
+        targetOpponentId: 'p3',
+        affectedOpponentIds: ['p2'],
+      }
+    );
+
+    expect(ctx.selectorContext?.targetOpponentId).toBe('p3');
+    expect(ctx.selectorContext?.targetPlayerId).toBe('p3');
+  });
+
+  it('buildOracleIRExecutionContext precedence: inferred singleton wins over base fallback when explicit is absent', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+        selectorContext: { targetPlayerId: 'p2', targetOpponentId: 'p2' },
+      },
+      {
+        affectedOpponentIds: ['p3'],
+      }
+    );
+
+    expect(ctx.selectorContext?.targetOpponentId).toBe('p3');
+    expect(ctx.selectorContext?.targetPlayerId).toBe('p3');
+  });
+
+  it('buildOracleIRExecutionContext precedence: base fallback is used when explicit and inferred are absent', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+        selectorContext: { targetPlayerId: 'p2', targetOpponentId: 'p2' },
+      },
+      {
+        affectedOpponentIds: ['p2', 'p3'],
+      }
+    );
+
+    expect(ctx.selectorContext?.targetOpponentId).toBe('p2');
+    expect(ctx.selectorContext?.targetPlayerId).toBe('p2');
+  });
+
+  it('buildOracleIRExecutionContext ignores targetOpponentId when it equals controller id', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+      },
+      {
+        targetOpponentId: 'p1',
+      }
+    );
+
+    expect(ctx.selectorContext).toBeUndefined();
+  });
+
+  it('buildOracleIRExecutionContext relational matrix enforces precedence + sanitization', () => {
+    const cases: Array<{
+      name: string;
+      hint: any;
+      expectedEach: string[];
+    }> = [
+      {
+        name: 'affectedOpponentIds wins over other relational sets',
+        hint: {
+          affectedOpponentIds: ['p3', 'p2', 'p3'],
+          opponentsDealtDamageIds: ['p2'],
+          affectedPlayerIds: ['p2'],
+        },
+        expectedEach: ['p3', 'p2'],
+      },
+      {
+        name: 'opponentsDealtDamageIds wins when affectedOpponentIds absent',
+        hint: {
+          opponentsDealtDamageIds: ['p2', 'p2', 'p3'],
+          affectedPlayerIds: ['p3'],
+        },
+        expectedEach: ['p2', 'p3'],
+      },
+      {
+        name: 'affectedPlayerIds fallback removes controller and dedupes',
+        hint: {
+          affectedPlayerIds: ['p1', 'p2', 'p2', 'p3'],
+        },
+        expectedEach: ['p2', 'p3'],
+      },
+      {
+        name: 'targetPlayer fallback removes controller',
+        hint: {
+          targetPlayerId: 'p1',
+        },
+        expectedEach: [],
+      },
+      {
+        name: 'targetOpponent fallback yields singleton relational set',
+        hint: {
+          targetOpponentId: 'p3',
+        },
+        expectedEach: ['p3'],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, testCase.hint);
+      const actual = ctx.selectorContext?.eachOfThoseOpponents || [];
+      expect(actual, testCase.name).toEqual(testCase.expectedEach);
+      expect(actual.includes('p1'), `${testCase.name} should exclude controller`).toBe(false);
+      expect(new Set(actual).size, `${testCase.name} should dedupe ids`).toBe(actual.length);
+    }
+  });
+
+  it('buildOracleIRExecutionContext sanitizes base relational context even without hint', () => {
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: 'p1',
+      selectorContext: {
+        eachOfThoseOpponents: ['p1', 'p2', 'p2', 'p3'],
+      },
+    });
+
+    expect(ctx.selectorContext?.eachOfThoseOpponents).toEqual(['p2', 'p3']);
+  });
+
+  it('buildOracleIRExecutionContext fills missing base targetOpponentId from base targetPlayerId without hint', () => {
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: 'p1',
+      selectorContext: {
+        targetPlayerId: 'p2',
+      },
+    });
+
+    expect(ctx.selectorContext?.targetPlayerId).toBe('p2');
+    expect(ctx.selectorContext?.targetOpponentId).toBe('p2');
   });
 });

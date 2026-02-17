@@ -81,6 +81,12 @@ import {
   createEmptyTriggerQueue,
   putTriggersOnStack,
   processEvent,
+  buildTriggerEventDataFromPayloads,
+  buildStackTriggerMetaFromEventData,
+  executeTriggeredAbilityEffectWithOracleIR,
+  buildResolutionEventDataFromGameState,
+  evaluateTriggerCondition,
+  type TriggerEventData,
   type TriggerQueue,
   type TriggeredAbility,
   TriggerEvent,
@@ -109,6 +115,7 @@ import {
   performStateBasedActions,
   checkWinConditions,
   executeTurnBasedAction,
+  checkCombatDamageToPlayerTriggers,
   GamePhase,
   GameStep,
 } from './actions';
@@ -497,7 +504,26 @@ export class RulesEngineAdapter {
       hasPriority,
     };
   }
-  
+
+  /** Build a de-duplicated target id list from normalized trigger event data. */
+  private collectTargetIdsFromEventData(eventData?: TriggerEventData): string[] {
+    if (!eventData) return [];
+    const ordered = [
+      ...(eventData.affectedPlayerIds || []),
+      ...(eventData.targetPlayerId ? [eventData.targetPlayerId] : []),
+      ...(eventData.targetOpponentId ? [eventData.targetOpponentId] : []),
+    ];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const id of ordered) {
+      const normalized = String(id || '').trim();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+    }
+    return out;
+  }
+
   /**
    * Parse mana cost string like "{2}{U}{U}" into a ManaCost object
    */
@@ -716,7 +742,21 @@ export class RulesEngineAdapter {
         result = executeFetchland(gameId, action, actionContext);
         break;
       case 'dealCombatDamage':
-        result = executeCombatDamage(gameId, action, actionContext);
+        {
+          const combatResult = executeCombatDamage(gameId, action, actionContext);
+          const triggerResult = checkCombatDamageToPlayerTriggers(
+            combatResult.next,
+            action.playerId,
+            action.attackers || []
+          );
+          result = {
+            next: triggerResult.state,
+            log: [
+              ...(combatResult.log || []),
+              ...(triggerResult.logs || []),
+            ],
+          };
+        }
         break;
       case 'initializeGame':
         result = initializeGame(gameId, action.players, actionContext);
@@ -783,6 +823,16 @@ export class RulesEngineAdapter {
     if (!player) {
       return { next: state, log: ['Player not found'] };
     }
+
+    const spellTargetHints = buildTriggerEventDataFromPayloads(
+      action.playerId,
+      action.targets,
+      action
+    );
+    const selectedSpellTargets =
+      Array.isArray(action.targets) && action.targets.length > 0
+        ? action.targets
+        : this.collectTargetIdsFromEventData(spellTargetHints);
     
     // Prepare casting context
     const manaCost = action.manaCost ? this.parseManaCostString(action.manaCost) : {};
@@ -791,7 +841,7 @@ export class RulesEngineAdapter {
       cardName: action.cardName || 'Unknown Card',
       controllerId: action.playerId,
       manaCost,
-      targets: action.targets,
+      targets: selectedSpellTargets,
       modes: action.modes,
       xValue: action.xValue,
     };
@@ -855,13 +905,32 @@ export class RulesEngineAdapter {
     }
     
     // Add to stack (stored separately for now)
+    const spellEffectText =
+      (typeof action.oracleText === 'string' && action.oracleText.trim()) ||
+      (typeof action.effectText === 'string' && action.effectText.trim()) ||
+      (typeof action.card?.oracle_text === 'string' && action.card.oracle_text.trim()) ||
+      undefined;
+    const selectedSpellTargetPlayerId = spellTargetHints.targetPlayerId;
+    const selectedSpellTargetOpponentId = spellTargetHints.targetOpponentId;
+    const spellTriggerMeta = buildStackTriggerMetaFromEventData(
+      spellEffectText,
+      action.cardId,
+      action.playerId,
+      {
+        ...spellTargetHints,
+        targetPlayerId: selectedSpellTargetPlayerId,
+        targetOpponentId: selectedSpellTargetOpponentId,
+      }
+    );
+
     const stack = this.stacks.get(gameId)!;
     const stackResult = pushToStack(stack, {
       id: castResult.stackObjectId!,
       spellId: action.cardId,
       cardName: action.cardName || 'Unknown Card',
       controllerId: action.playerId,
-      targets: action.targets || [],
+      targets: selectedSpellTargets,
+      triggerMeta: spellTriggerMeta,
       timestamp: Date.now(),
       type: 'spell',
     });
@@ -1093,13 +1162,36 @@ export class RulesEngineAdapter {
     };
     
     // Add to stack
+    const abilityTargetHints = buildTriggerEventDataFromPayloads(
+      action.playerId,
+      ability.targets,
+      action
+    );
+    const selectedAbilityTargets =
+      Array.isArray(ability.targets) && ability.targets.length > 0
+        ? ability.targets
+        : this.collectTargetIdsFromEventData(abilityTargetHints);
+    const selectedPlayerTargetId = abilityTargetHints.targetPlayerId;
+    const selectedOpponentTargetId = abilityTargetHints.targetOpponentId;
+    const abilityTriggerMeta = buildStackTriggerMetaFromEventData(
+      ability.effect,
+      ability.sourceId,
+      action.playerId,
+      {
+        ...abilityTargetHints,
+        targetPlayerId: selectedPlayerTargetId,
+        targetOpponentId: selectedOpponentTargetId,
+      }
+    );
+
     const stack = this.stacks.get(gameId)!;
     const stackResult = pushToStack(stack, {
       id: result.stackObjectId!,
       spellId: ability.id,
       cardName: `${ability.sourceName} ability`,
       controllerId: action.playerId,
-      targets: ability.targets || [],
+      targets: selectedAbilityTargets,
+      triggerMeta: abilityTriggerMeta,
       timestamp: Date.now(),
       type: 'ability',
     });
@@ -1164,10 +1256,74 @@ export class RulesEngineAdapter {
         data: { object: popResult.object },
       });
     }
+
+    let nextState = state;
+    const oracleLogs: string[] = [];
+    if (!resolveResult.countered) {
+      const triggerMeta = popResult.object.triggerMeta;
+      const effectText = triggerMeta?.effectText;
+
+      if (effectText && effectText.trim().length > 0) {
+        const normalizedEventData = buildTriggerEventDataFromPayloads(
+          popResult.object.controllerId,
+          triggerMeta.triggerEventDataSnapshot,
+          {
+            sourceId: popResult.object.spellId,
+            sourceControllerId: popResult.object.controllerId,
+            targets: popResult.object.targets,
+          }
+        );
+
+        const executionEventData: TriggerEventData = {
+          ...(triggerMeta.triggerEventDataSnapshot || {}),
+          ...normalizedEventData,
+          sourceId: normalizedEventData.sourceId ?? triggerMeta.triggerEventDataSnapshot?.sourceId ?? popResult.object.spellId,
+          sourceControllerId:
+            normalizedEventData.sourceControllerId ??
+            triggerMeta.triggerEventDataSnapshot?.sourceControllerId ??
+            popResult.object.controllerId,
+        };
+
+        const resolutionEventData = buildResolutionEventDataFromGameState(
+          nextState,
+          popResult.object.controllerId,
+          executionEventData
+        );
+
+        if (triggerMeta.interveningIfClause) {
+          const stillTrue = evaluateTriggerCondition(
+            triggerMeta.interveningIfClause,
+            popResult.object.controllerId,
+            resolutionEventData
+          );
+          if (!stillTrue) {
+            oracleLogs.push('[oracle-ir] Trigger skipped at resolution (intervening-if false)');
+            return {
+              next: nextState,
+              log: [...(resolveResult.log || [`Resolved ${popResult.object.cardName}`]), ...oracleLogs],
+            };
+          }
+        }
+
+        const executeResult = executeTriggeredAbilityEffectWithOracleIR(
+          nextState,
+          {
+            controllerId: popResult.object.controllerId,
+            sourceId: popResult.object.spellId,
+            sourceName: popResult.object.cardName,
+            effect: effectText,
+          },
+          resolutionEventData,
+          { allowOptional: false }
+        );
+        nextState = executeResult.state;
+        oracleLogs.push(...(executeResult.log || []));
+      }
+    }
     
     return {
-      next: state,
-      log: resolveResult.log || [`Resolved ${popResult.object.cardName}`],
+      next: nextState,
+      log: [...(resolveResult.log || [`Resolved ${popResult.object.cardName}`]), ...oracleLogs],
     };
   }
   

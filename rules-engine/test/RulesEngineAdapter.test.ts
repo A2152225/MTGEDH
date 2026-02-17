@@ -343,6 +343,210 @@ describe('RulesEngineAdapter', () => {
       expect(result.next).toBeDefined();
       expect(result.log).toBeDefined();
     });
+
+    it('should execute spell oracle effect on stack resolution', () => {
+      const stateWithHand: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'spell-1', name: 'Test Spell', type_line: 'Instant' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithHand);
+      const castResult = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'spell-1',
+        cardName: 'Test Spell',
+        cardTypes: ['instant'],
+        manaCost: '{U}',
+        targets: ['player2'],
+        oracleText: 'Target opponent loses 1 life.',
+      });
+      expect(castResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      expect(player2?.life).toBe(39);
+    });
+
+    it('should resolve targeted opponent spell effect in multiplayer from stack targets', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          {
+            ...testGameState.players[0],
+            hand: [{ id: 'spell-2', name: 'Targeted Spell', type_line: 'Instant' }],
+          },
+          ...testGameState.players.slice(1),
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+      const castResult = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'spell-2',
+        cardName: 'Targeted Spell',
+        cardTypes: ['instant'],
+        manaCost: '{U}',
+        targets: ['player3'],
+        oracleText: 'Target opponent loses 1 life.',
+      });
+      expect(castResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      const player3 = resolveResult.next.players.find(p => p.id === 'player3');
+      expect(player2?.life).toBe(40);
+      expect(player3?.life).toBe(39);
+    });
+
+    it('should resolve targeted opponent spell effect from targetOpponentId when targets array is absent', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          {
+            ...testGameState.players[0],
+            hand: [{ id: 'spell-3', name: 'Alt Target Spell', type_line: 'Instant' }],
+          },
+          ...testGameState.players.slice(1),
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+      const castResult = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'spell-3',
+        cardName: 'Alt Target Spell',
+        cardTypes: ['instant'],
+        manaCost: '{U}',
+        targetOpponentId: 'player3',
+        oracleText: 'Target opponent loses 1 life.',
+      });
+      expect(castResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      const player3 = resolveResult.next.players.find(p => p.id === 'player3');
+      expect(player2?.life).toBe(40);
+      expect(player3?.life).toBe(39);
+    });
+
+    it('should resolve each-of-those-opponents spell effect from affectedOpponentIds context', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          {
+            ...testGameState.players[0],
+            hand: [{ id: 'spell-4', name: 'Relational Spell', type_line: 'Instant' }],
+          },
+          ...testGameState.players.slice(1),
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          {
+            id: 'player4',
+            name: 'Player 4',
+            seat: 3,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3', 'player4'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+      const castResult = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'spell-4',
+        cardName: 'Relational Spell',
+        cardTypes: ['instant'],
+        manaCost: '{U}',
+        affectedOpponentIds: ['player2', 'player3'],
+        oracleText: 'Each of those opponents loses 1 life.',
+      });
+      expect(castResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      const player3 = resolveResult.next.players.find(p => p.id === 'player3');
+      const player4 = resolveResult.next.players.find(p => p.id === 'player4');
+      expect(player2?.life).toBe(39);
+      expect(player3?.life).toBe(39);
+      expect(player4?.life).toBe(40);
+    });
     
     it('should emit SPELL_CAST event', () => {
       let eventFired = false;
@@ -490,6 +694,404 @@ describe('RulesEngineAdapter', () => {
       const p1 = result.next.players.find(p => p.id === 'player1') as any;
       expect((p1.exile || []).some((c: any) => c.id === 'ex1')).toBe(false);
       expect((result.next as any).playableFromExile?.player1?.ex1).toBeUndefined();
+    });
+
+    it('should execute triggered ability oracle effect on stack resolution', () => {
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-1',
+            spellId: 'trigger-source-1',
+            cardName: 'Breeches Trigger',
+            controllerId: 'player1',
+            targets: [],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'Target opponent loses 1 life.',
+              triggerEventDataSnapshot: {
+                sourceId: 'trigger-source-1',
+                sourceControllerId: 'player1',
+                targetOpponentId: 'player2',
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = result.next.players.find(p => p.id === 'player2');
+      expect(player2?.life).toBe(39);
+    });
+
+    it('should skip triggered oracle effect when intervening-if is false at resolution', () => {
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-2',
+            spellId: 'trigger-source-2',
+            cardName: 'Intervening Trigger',
+            controllerId: 'player1',
+            targets: [],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'Target opponent loses 1 life.',
+              interveningIfClause: 'you control an artifact',
+              triggerEventDataSnapshot: {
+                sourceId: 'trigger-source-2',
+                sourceControllerId: 'player1',
+                targetOpponentId: 'player2',
+                battlefield: [
+                  {
+                    id: 'snapshot-artifact',
+                    controllerId: 'player1',
+                    types: ['artifact'],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = result.next.players.find(p => p.id === 'player2');
+      expect(player2?.life).toBe(40);
+      expect(result.log?.some(msg => msg.includes('intervening-if false'))).toBe(true);
+    });
+
+    it('should execute activated ability oracle effect on stack resolution', () => {
+      const activateResult = adapter.executeAction('test-game', {
+        type: 'activateAbility',
+        playerId: 'player1',
+        ability: {
+          id: 'test-ability-1',
+          sourceId: 'source-1',
+          sourceName: 'Test Permanent',
+          controllerId: 'player1',
+          effect: 'Target opponent loses 1 life.',
+        },
+      });
+
+      expect(activateResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      expect(player2?.life).toBe(39);
+    });
+
+    it('should resolve targeted opponent in multiplayer for activated ability oracle effect', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          ...testGameState.players,
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+
+      const activateResult = adapter.executeAction('test-game', {
+        type: 'activateAbility',
+        playerId: 'player1',
+        ability: {
+          id: 'test-ability-2',
+          sourceId: 'source-2',
+          sourceName: 'Targeted Ability Source',
+          controllerId: 'player1',
+          effect: 'Target opponent loses 1 life.',
+          targets: ['player3'],
+        },
+      });
+
+      expect(activateResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      const player3 = resolveResult.next.players.find(p => p.id === 'player3');
+      expect(player2?.life).toBe(40);
+      expect(player3?.life).toBe(39);
+    });
+
+    it('should resolve targeted opponent for activated ability from targetOpponentId when ability.targets is absent', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          ...testGameState.players,
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+
+      const activateResult = adapter.executeAction('test-game', {
+        type: 'activateAbility',
+        playerId: 'player1',
+        targetOpponentId: 'player3',
+        ability: {
+          id: 'test-ability-3',
+          sourceId: 'source-3',
+          sourceName: 'Alt Target Ability Source',
+          controllerId: 'player1',
+          effect: 'Target opponent loses 1 life.',
+        },
+      });
+
+      expect(activateResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      const player3 = resolveResult.next.players.find(p => p.id === 'player3');
+      expect(player2?.life).toBe(40);
+      expect(player3?.life).toBe(39);
+    });
+
+    it('should resolve each-of-those-opponents activated ability from affectedOpponentIds context', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          ...testGameState.players,
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          {
+            id: 'player4',
+            name: 'Player 4',
+            seat: 3,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3', 'player4'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+
+      const activateResult = adapter.executeAction('test-game', {
+        type: 'activateAbility',
+        playerId: 'player1',
+        affectedOpponentIds: ['player2', 'player4'],
+        ability: {
+          id: 'test-ability-4',
+          sourceId: 'source-4',
+          sourceName: 'Relational Ability Source',
+          controllerId: 'player1',
+          effect: 'Each of those opponents loses 1 life.',
+        },
+      });
+
+      expect(activateResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      const player3 = resolveResult.next.players.find(p => p.id === 'player3');
+      const player4 = resolveResult.next.players.find(p => p.id === 'player4');
+      expect(player2?.life).toBe(39);
+      expect(player3?.life).toBe(40);
+      expect(player4?.life).toBe(39);
+    });
+
+    it('should infer each-of-those-opponents from combat attackers defendingPlayerId payload', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          ...testGameState.players,
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          {
+            id: 'player4',
+            name: 'Player 4',
+            seat: 3,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3', 'player4'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+
+      const activateResult = adapter.executeAction('test-game', {
+        type: 'activateAbility',
+        playerId: 'player1',
+        attackers: [
+          { attackerId: 'a1', defendingPlayerId: 'player2', damage: 2 },
+          { attackerId: 'a2', defendingPlayerId: 'player4', damage: 3 },
+        ],
+        ability: {
+          id: 'test-ability-5',
+          sourceId: 'source-5',
+          sourceName: 'Combat Relational Ability Source',
+          controllerId: 'player1',
+          effect: 'Each of those opponents loses 1 life.',
+        },
+      });
+
+      expect(activateResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = resolveResult.next.players.find(p => p.id === 'player2');
+      const player3 = resolveResult.next.players.find(p => p.id === 'player3');
+      const player4 = resolveResult.next.players.find(p => p.id === 'player4');
+      expect(player2?.life).toBe(39);
+      expect(player3?.life).toBe(40);
+      expect(player4?.life).toBe(39);
+    });
+
+    it('should process combat damage triggers with relational opponent context during dealCombatDamage action', () => {
+      const stateWithBreeches: any = {
+        ...testGameState,
+        players: [
+          {
+            ...testGameState.players[0],
+            library: [{ id: 'p1c1' }],
+          },
+          {
+            ...testGameState.players[1],
+            library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+            exile: [],
+          },
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [{ id: 'p3c1' }, { id: 'p3c2' }],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+        battlefield: [
+          {
+            id: 'breeches-perm',
+            controller: 'player1',
+            card: {
+              name: 'Breeches, Brazen Plunderer',
+              oracle_text:
+                'Whenever this creature deals combat damage to a player, each of those opponents loses 1 life.',
+            },
+          },
+        ],
+      };
+
+      adapter.initializeGame('test-game', stateWithBreeches);
+      const result = adapter.executeAction('test-game', {
+        type: 'dealCombatDamage',
+        playerId: 'player1',
+        attackers: [
+          { attackerId: 'atk-1', defendingPlayerId: 'player2', damage: 2, creature: { name: 'Pirate A', power: 2 } },
+          { attackerId: 'atk-2', defendingPlayerId: 'player3', damage: 1, creature: { name: 'Pirate B', power: 1 } },
+        ],
+      });
+
+      const player2 = result.next.players.find(p => p.id === 'player2') as any;
+      const player3 = result.next.players.find(p => p.id === 'player3') as any;
+      expect(player2.life).toBe(37);
+      expect(player3.life).toBe(38);
     });
   });
   

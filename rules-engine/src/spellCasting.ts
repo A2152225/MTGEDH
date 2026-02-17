@@ -155,6 +155,32 @@ export interface StackObject {
   readonly targets: readonly string[];
   readonly modes?: readonly string[];
   readonly xValue?: number;
+  readonly triggerMeta?: {
+    readonly effectText?: string;
+    readonly triggerFilter?: string;
+    readonly interveningIfClause?: string;
+    readonly hasInterveningIf?: boolean;
+    readonly interveningIfWasTrueAtTrigger?: boolean;
+    readonly triggerEventDataSnapshot?: {
+      readonly sourceId?: string;
+      readonly sourceControllerId?: string;
+      readonly targetId?: string;
+      readonly targetControllerId?: string;
+      readonly targetPlayerId?: string;
+      readonly targetOpponentId?: string;
+      readonly affectedPlayerIds?: readonly string[];
+      readonly affectedOpponentIds?: readonly string[];
+      readonly opponentsDealtDamageIds?: readonly string[];
+      readonly lifeTotal?: number;
+      readonly lifeLost?: number;
+      readonly lifeGained?: number;
+      readonly damageDealt?: number;
+      readonly cardsDrawn?: number;
+      readonly isYourTurn?: boolean;
+      readonly isOpponentsTurn?: boolean;
+      readonly battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
+    };
+  };
   readonly timestamp: number;
   readonly type: 'spell' | 'ability';
 }

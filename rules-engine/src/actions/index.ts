@@ -88,6 +88,7 @@ export {
 // Triggered abilities handler
 export {
   processTriggers,
+  processTriggersAutoOracle,
   findTriggeredAbilities,
   checkETBTriggers,
   checkDiesTriggers,
@@ -96,7 +97,10 @@ export {
   checkLandfallTriggers,
   checkSpellCastTriggers,
   checkDrawTriggers,
+  checkCombatDamageToPlayerTriggers,
   type TriggerResult,
+  type TriggerProcessingOptions,
+  type CombatDamageTriggerAssignment,
 } from './triggersHandler';
 
 // Game setup and mulligan

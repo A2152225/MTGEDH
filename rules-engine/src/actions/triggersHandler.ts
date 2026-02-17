@@ -9,9 +9,12 @@ import type { GameState, KnownCardRef, BattlefieldPermanent } from '../../../sha
 import {
   TriggerEvent,
   processEvent,
+  processEventAndExecuteTriggeredOracle,
   putTriggersOnStack,
   createEmptyTriggerQueue,
+  buildTriggerEventDataFromPayloads,
   type TriggeredAbility,
+  type TriggerEventData,
   parseTriggeredAbilitiesFromText,
 } from '../triggeredAbilities';
 import { 
@@ -25,7 +28,31 @@ import { hasChangeling, getAllCreatureTypes } from '../tribalSupport';
 export interface TriggerResult {
   state: GameState;
   triggersAdded: number;
+  oracleStepsApplied?: number;
   logs: string[];
+}
+
+export interface TriggerProcessingOptions {
+  /**
+   * When true, triggered ability effect text is executed immediately via Oracle IR
+   * (deterministic subset only) in addition to queueing stack trigger objects.
+   */
+  autoExecuteOracle?: boolean;
+  /** Forwarded to Oracle IR execution when autoExecuteOracle is enabled. */
+  allowOptional?: boolean;
+  /**
+   * Optional resolution-time trigger context used for intervening-if rechecks
+   * during auto Oracle execution.
+   */
+  resolutionEventData?: TriggerEventData;
+}
+
+export interface CombatDamageTriggerAssignment {
+  readonly attackerId?: string;
+  readonly damage?: number;
+  readonly defendingPlayerId?: string;
+  readonly targetPlayerId?: string;
+  readonly targetOpponentId?: string;
 }
 
 /**
@@ -34,13 +61,36 @@ export interface TriggerResult {
 export function processTriggers(
   state: GameState,
   event: TriggerEvent,
-  registeredAbilities: TriggeredAbility[]
+  registeredAbilities: TriggeredAbility[],
+  eventData?: TriggerEventData,
+  options: TriggerProcessingOptions = {}
 ): TriggerResult {
   const logs: string[] = [];
-  const triggerInstances = processEvent(event, registeredAbilities);
+  const autoExecuteOracle = Boolean(options.autoExecuteOracle);
+
+  let nextState = state;
+  let triggerInstances = processEvent(event, registeredAbilities, eventData);
+  let oracleStepsApplied = 0;
+
+  if (autoExecuteOracle) {
+    const execution = processEventAndExecuteTriggeredOracle(
+      nextState,
+      event,
+      registeredAbilities,
+      eventData,
+      {
+        allowOptional: options.allowOptional,
+        resolutionEventData: options.resolutionEventData,
+      }
+    );
+    nextState = execution.state;
+    triggerInstances = [...execution.triggers];
+    oracleStepsApplied = execution.executions.reduce((sum, r) => sum + (r.appliedSteps?.length || 0), 0);
+    logs.push(...execution.log);
+  }
   
   if (triggerInstances.length === 0) {
-    return { state, triggersAdded: 0, logs };
+    return { state: nextState, triggersAdded: 0, oracleStepsApplied, logs };
   }
   
   // Queue triggers
@@ -56,13 +106,30 @@ export function processTriggers(
   logs.push(...log);
   
   // Add to game stack
-  const updatedStack = [...(state.stack || []), ...stackObjects];
+  const updatedStack = [...(nextState.stack || []), ...stackObjects];
   
   return {
-    state: { ...state, stack: updatedStack as any },
+    state: { ...nextState, stack: updatedStack as any },
     triggersAdded: stackObjects.length,
+    oracleStepsApplied,
     logs,
   };
+}
+
+/**
+ * Convenience wrapper for deterministic trigger automation.
+ */
+export function processTriggersAutoOracle(
+  state: GameState,
+  event: TriggerEvent,
+  registeredAbilities: TriggeredAbility[],
+  eventData?: TriggerEventData,
+  options: Omit<TriggerProcessingOptions, 'autoExecuteOracle'> = {}
+): TriggerResult {
+  return processTriggers(state, event, registeredAbilities, eventData, {
+    ...options,
+    autoExecuteOracle: true,
+  });
 }
 
 /**
@@ -246,7 +313,12 @@ export function checkTribalCastTriggers(
     return { state, triggersAdded: 0, logs };
   }
   
-  return processTriggers(state, TriggerEvent.CREATURE_SPELL_CAST, triggeredAbilities);
+  return processTriggersAutoOracle(
+    state,
+    TriggerEvent.CREATURE_SPELL_CAST,
+    triggeredAbilities,
+    buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] })
+  );
 }
 
 /**
@@ -262,7 +334,12 @@ export function checkLandfallTriggers(
     a.controllerId === landPlayerId
   );
   
-  return processTriggers(state, TriggerEvent.LANDFALL, landfallAbilities);
+  return processTriggersAutoOracle(
+    state,
+    TriggerEvent.LANDFALL,
+    landfallAbilities,
+    buildTriggerEventDataFromPayloads(landPlayerId, { affectedPlayerIds: [landPlayerId] })
+  );
 }
 
 /**
@@ -278,7 +355,12 @@ export function checkSpellCastTriggers(
     a.controllerId === casterId
   );
   
-  return processTriggers(state, TriggerEvent.SPELL_CAST, spellCastAbilities);
+  return processTriggersAutoOracle(
+    state,
+    TriggerEvent.SPELL_CAST,
+    spellCastAbilities,
+    buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] })
+  );
 }
 
 /**
@@ -300,5 +382,41 @@ export function checkDrawTriggers(
     return true;
   });
   
-  return processTriggers(state, TriggerEvent.DRAWN, drawAbilities);
+  return processTriggersAutoOracle(
+    state,
+    TriggerEvent.DRAWN,
+    drawAbilities,
+    buildTriggerEventDataFromPayloads(
+      drawingPlayerId,
+      {
+        affectedPlayerIds: [drawingPlayerId],
+        affectedOpponentIds: isOpponentDraw ? [drawingPlayerId] : undefined,
+      }
+    )
+  );
+}
+
+/**
+ * Check triggers that care about combat damage to players and provide
+ * relational opponent context for Oracle IR automation.
+ */
+export function checkCombatDamageToPlayerTriggers(
+  state: GameState,
+  sourceControllerId: string,
+  assignments: readonly CombatDamageTriggerAssignment[] = []
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const combatAbilities = abilities.filter(a => a.event === TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
+
+  const eventData = buildTriggerEventDataFromPayloads(
+    sourceControllerId,
+    { attackers: assignments }
+  );
+
+  return processTriggersAutoOracle(
+    state,
+    TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
+    combatAbilities,
+    eventData
+  );
 }

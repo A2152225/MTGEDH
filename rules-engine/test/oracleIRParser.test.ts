@@ -106,6 +106,16 @@ describe('Oracle IR Parser', () => {
     expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
   });
 
+  it('parses "each of those opponents" as contextual selector', () => {
+    const text = 'Each of those opponents loses 1 life.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0].kind).toBe('lose_life');
+    expect((steps[0] as any).who).toEqual({ kind: 'each_of_those_opponents' });
+    expect((steps[0] as any).amount).toEqual({ kind: 'number', value: 1 });
+  });
+
   it("parses exile_top for each of your opponents' libraries", () => {
     const text = "Exile the top card of each of your opponents' libraries.";
     const ir = parseOracleTextToIR(text);
@@ -1019,7 +1029,7 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
-  it("parses impulse exile-top from each of those opponents' libraries as an unsupported selector", () => {
+  it("parses impulse exile-top from Breeches (AtomicCards) with contextual each_of_those_opponents selector", () => {
     const text =
       "Whenever one or more Pirates you control deal damage to your opponents, exile the top card of each of those opponents' libraries. You may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.";
     const ir = parseOracleTextToIR(text);
@@ -1027,7 +1037,7 @@ describe('Oracle IR Parser', () => {
 
     const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
-    expect(impulse.who).toEqual({ kind: 'unknown', raw: "each of those opponents'" });
+    expect(impulse.who).toEqual({ kind: 'each_of_those_opponents' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('this_turn');
     expect(impulse.permission).toBe('play');
