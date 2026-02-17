@@ -2001,6 +2001,72 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
   });
 
+  it('applies deal_damage to "that player" via target_player selector context binding', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to that player.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(38);
+  });
+
+  it('applies deal_damage to "its controller" via target_player selector context binding', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to its controller.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(38);
+  });
+
+  it('applies deal_damage to "that opponent" via target_opponent selector context binding', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to that opponent.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(38);
+  });
+
   it('applies deal_damage to each player (deterministic player target)', () => {
     const ir = parseOracleTextToIR('Deal 2 damage to each player.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -8113,6 +8179,173 @@ describe('Oracle IR Executor', () => {
     expect(ctx.selectorContext).toBeUndefined();
   });
 
+  it('buildOracleIRExecutionContext ignores controller id from affectedOpponentIds for opponent inference', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+      },
+      {
+        affectedOpponentIds: ['p1'],
+      }
+    );
+
+    expect(ctx.selectorContext).toBeUndefined();
+  });
+
+  it('buildOracleIRExecutionContext infers targetOpponentId from sanitized singleton affectedOpponentIds', () => {
+    const ctx = buildOracleIRExecutionContext(
+      {
+        controllerId: 'p1',
+      },
+      {
+        affectedOpponentIds: ['p1', 'p3'],
+      }
+    );
+
+    expect(ctx.selectorContext?.targetOpponentId).toBe('p3');
+    expect(ctx.selectorContext?.targetPlayerId).toBe('p3');
+  });
+
+  it('buildOracleIRExecutionContext normalizes whitespace-padded targetOpponentId', () => {
+    const ir = parseOracleTextToIR('Target opponent loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'p1' }, { targetOpponentId: '  p3  ' as any });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(p2.life).toBe(40);
+    expect(p3.life).toBe(39);
+  });
+
+  it('buildOracleIRExecutionContext normalizes whitespace-padded relational ids', () => {
+    const ctx = buildOracleIRExecutionContext(
+      { controllerId: 'p1' },
+      { affectedOpponentIds: [' p2 ', 'p2', ' p3  '] as any }
+    );
+
+    expect(ctx.selectorContext?.eachOfThoseOpponents).toEqual(['p2', 'p3']);
+  });
+
+  it('target_opponent resolves from direct selectorContext with whitespace-padded id', () => {
+    const ir = parseOracleTextToIR('Target opponent loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: '  p3  ' as any },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p3') as any).life).toBe(39);
+  });
+
+  it('each_of_those_opponents resolves from direct selectorContext with normalized ids', () => {
+    const ir = parseOracleTextToIR('Each of those opponents loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: {
+        eachOfThoseOpponents: [' p2 ', 'p2', '  p3  ', 'ghost' as any],
+      },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(39);
+    expect((result.state.players.find(p => p.id === 'p3') as any).life).toBe(39);
+  });
+
+  it('buildOracleIRExecutionContext ignores object-valued target ids', () => {
+    const ctx = buildOracleIRExecutionContext(
+      { controllerId: 'p1' },
+      { targetOpponentId: { bad: true } as any, targetPlayerId: { bad: true } as any }
+    );
+
+    expect(ctx.selectorContext).toBeUndefined();
+  });
+
+  it('target_opponent does not resolve when controller is not a valid player in state', () => {
+    const ir = parseOracleTextToIR('Target opponent loses 2 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext(
+      { controllerId: 'ghost-player' as PlayerID },
+      { targetOpponentId: 'p2' as PlayerID }
+    );
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(false);
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p3') as any).life).toBe(40);
+  });
+
+  it('each_opponent does not resolve when controller is not a valid player in state', () => {
+    const ir = parseOracleTextToIR('Each opponent loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const ctx = buildOracleIRExecutionContext({ controllerId: 'ghost-player' as PlayerID });
+    const result = applyOracleIRStepsToGameState(start, steps, ctx);
+
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(false);
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p3') as any).life).toBe(40);
+  });
+
   it('buildOracleIRExecutionContext relational matrix enforces precedence + sanitization', () => {
     const cases: Array<{
       name: string;
@@ -8179,6 +8412,27 @@ describe('Oracle IR Executor', () => {
     expect(ctx.selectorContext?.eachOfThoseOpponents).toEqual(['p2', 'p3']);
   });
 
+  it('buildOracleIRExecutionContext normalizes whitespace-padded base controllerId', () => {
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: '  p1  ' as any,
+      selectorContext: {
+        eachOfThoseOpponents: ['p1', 'p2'],
+      },
+    });
+
+    expect(ctx.controllerId).toBe('p1');
+    expect(ctx.selectorContext?.eachOfThoseOpponents).toEqual(['p2']);
+  });
+
+  it('buildOracleIRExecutionContext normalizes base controllerId without selector context or hint', () => {
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: '  p1  ' as any,
+    });
+
+    expect(ctx.controllerId).toBe('p1');
+    expect(ctx.selectorContext).toBeUndefined();
+  });
+
   it('buildOracleIRExecutionContext fills missing base targetOpponentId from base targetPlayerId without hint', () => {
     const ctx = buildOracleIRExecutionContext({
       controllerId: 'p1',
@@ -8189,5 +8443,399 @@ describe('Oracle IR Executor', () => {
 
     expect(ctx.selectorContext?.targetPlayerId).toBe('p2');
     expect(ctx.selectorContext?.targetOpponentId).toBe('p2');
+  });
+
+  it('applyOracleIRStepsToGameState resolves "you" selector with whitespace-padded controllerId', () => {
+    const ir = parseOracleTextToIR('You gain 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: '  p1  ' as any,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'gain_life')).toBe(true);
+    expect(p1.life).toBe(41);
+    expect(p2.life).toBe(40);
+  });
+
+  it('applyOracleIRStepsToGameState resolves battlefield "you control" filter with whitespace-padded controllerId', () => {
+    const ir = parseOracleTextToIR('Destroy all creatures you control.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'c1',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          faceDown: false,
+          counters: {},
+          card: { id: 'c1', name: 'Self Creature', type_line: 'Creature' },
+        } as any,
+        {
+          id: 'c2',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          faceDown: false,
+          counters: {},
+          card: { id: 'c2', name: 'Opp Creature', type_line: 'Creature' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: '  p1  ' as any,
+    });
+
+    const battlefield = (result.state as any).battlefield as any[];
+    expect(battlefield.some(p => p.id === 'c1')).toBe(false);
+    expect(battlefield.some(p => p.id === 'c2')).toBe(true);
+  });
+
+  it('applyOracleIRStepsToGameState resolves battlefield opponents filter with whitespace-padded controllerId', () => {
+    const ir = parseOracleTextToIR('Destroy all creatures your opponents control.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'c1',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          faceDown: false,
+          counters: {},
+          card: { id: 'c1', name: 'Self Creature', type_line: 'Creature' },
+        } as any,
+        {
+          id: 'c2',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          faceDown: false,
+          counters: {},
+          card: { id: 'c2', name: 'Opp Creature', type_line: 'Creature' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: '  p1  ' as any,
+    });
+
+    const battlefield = (result.state as any).battlefield as any[];
+    expect(battlefield.some(p => p.id === 'c1')).toBe(true);
+    expect(battlefield.some(p => p.id === 'c2')).toBe(false);
+  });
+
+  it('applyOracleIRStepsToGameState resolves move_zone from your graveyard with whitespace-padded controllerId', () => {
+    const ir = parseOracleTextToIR('Return all creature cards from your graveyard to your hand.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [{ id: 'h0', name: 'Existing', type_line: 'Instant' }],
+          graveyard: [
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'g2', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: '  p1  ' as any,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['g2']);
+    expect(p1.hand.map((c: any) => c.id)).toEqual(['h0', 'g1']);
+  });
+
+  it('applyOracleIRStepsToGameState resolves each-opponent move_zone with whitespace-padded controllerId', () => {
+    const ir = parseOracleTextToIR("Return all creature cards from each opponent's graveyard to their hands.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'p1g1', name: 'P1 Bear', type_line: 'Creature — Bear' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'p2g1', name: 'P2 Giant', type_line: 'Creature — Giant' }],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: '  p1  ' as any,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['p1g1']);
+    expect(p1.hand).toEqual([]);
+    expect(p2.graveyard).toEqual([]);
+    expect(p2.hand.map((c: any) => c.id)).toEqual(['p2g1']);
+  });
+
+  it('applyOracleIRStepsToGameState resolves "that player loses life" via target_player context binding', () => {
+    const ir = parseOracleTextToIR('That player loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(39);
+  });
+
+  it('applyOracleIRStepsToGameState resolves "that opponent loses life" via target_opponent context binding', () => {
+    const ir = parseOracleTextToIR('That opponent loses 1 life.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p1') as any).life).toBe(40);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(39);
+  });
+
+  it('applyOracleIRStepsToGameState resolves "that player draws" via target_player context binding', () => {
+    const ir = parseOracleTextToIR('That player draws a card.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    expect(((result.state.players.find(p => p.id === 'p1') as any).hand || []).length).toBe(0);
+    expect(((result.state.players.find(p => p.id === 'p2') as any).hand || []).map((c: any) => c.id)).toEqual(['p2c1']);
+  });
+
+  it('applyOracleIRStepsToGameState resolves "that player discards" via target_player context binding', () => {
+    const ir = parseOracleTextToIR('That player discards a card.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [{ id: 'h1', name: 'Card 1', type_line: 'Instant' }],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect((p2.hand || []).length).toBe(0);
+    expect((p2.graveyard || []).map((c: any) => c.id)).toEqual(['h1']);
+  });
+
+  it('applyOracleIRStepsToGameState resolves "that opponent mills" via target_opponent context binding', () => {
+    const ir = parseOracleTextToIR('That opponent mills a card.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect((p1.graveyard || []).length).toBe(0);
+    expect((p2.graveyard || []).map((c: any) => c.id)).toEqual(['p2c1']);
+  });
+
+  it('applyOracleIRStepsToGameState does not execute each-opponent move_zone when controller is invalid', () => {
+    const ir = parseOracleTextToIR("Return all creature cards from each opponent's graveyard to their hands.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'p1g1', name: 'P1 Bear', type_line: 'Creature — Bear' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'p2g1', name: 'P2 Giant', type_line: 'Creature — Giant' }],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'ghost-player' as any,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['p1g1']);
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2g1']);
+    expect(p1.hand).toEqual([]);
+    expect(p2.hand).toEqual([]);
   });
 });

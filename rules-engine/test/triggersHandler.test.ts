@@ -5,6 +5,7 @@ import {
   processTriggers,
   processTriggersAutoOracle,
   checkCombatDamageToPlayerTriggers,
+  checkDrawTriggers,
 } from '../src/actions/triggersHandler';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -107,9 +108,47 @@ describe('triggersHandler Oracle automation', () => {
 
     expect(result.triggersAdded).toBe(1);
     expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(result.oracleExecutions).toBe(1);
+    expect(result.oracleStepsSkipped).toBe(0);
     expect(p2.life).toBe(40);
     expect(p3.life).toBe(39);
     expect((result.state.stack || []).length).toBe(1);
+  });
+
+  it('reports skipped oracle steps for unsupported deterministic trigger execution', () => {
+    const start = makeState();
+    const abilities = [
+      {
+        id: 'a2-skip',
+        sourceId: 'src2-skip',
+        sourceName: 'Skip Trigger',
+        controllerId: 'p1',
+        keyword: 'whenever',
+        event: TriggerEvent.ATTACKS,
+        effect: 'Target player loses 1 life.',
+      } as any,
+    ];
+
+    const result = processTriggers(
+      start,
+      TriggerEvent.ATTACKS,
+      abilities,
+      undefined,
+      { autoExecuteOracle: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect(result.oracleStepsApplied).toBe(0);
+    expect((result.oracleStepsSkipped || 0) > 0).toBe(true);
+    expect(p1.life).toBe(40);
+    expect(p2.life).toBe(40);
+    expect(p3.life).toBe(40);
+    expect(result.logs.some(x => x.includes('[triggers] Oracle auto-execution: executions=1'))).toBe(true);
   });
 
   it('processTriggersAutoOracle resolves relational each_of_those_opponents from event data', () => {
@@ -209,5 +248,32 @@ describe('triggersHandler Oracle automation', () => {
     expect((result.oracleStepsApplied || 0) > 0).toBe(true);
     expect(p2.life).toBe(39);
     expect(p3.life).toBe(39);
+  });
+
+  it('checkDrawTriggers binds "that player" to the drawing opponent in opponent-draw context', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'draw-trigger-1',
+          controller: 'p1',
+          card: {
+            name: 'Draw Trigger Source',
+            oracle_text: 'Whenever an opponent draws a card, that player loses 1 life.',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkDrawTriggers(start, 'p2', true);
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(p1.life).toBe(40);
+    expect(p2.life).toBe(39);
+    expect(p3.life).toBe(40);
   });
 });

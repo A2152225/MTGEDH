@@ -58,6 +58,13 @@ export function buildOracleIRExecutionContext(
   base: OracleIRExecutionContext,
   hint?: OracleIRExecutionEventHint
 ): OracleIRExecutionContext {
+  const normalizeId = (value: unknown): PlayerID | undefined => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const normalized = String(value).trim();
+    return normalized ? (normalized as PlayerID) : undefined;
+  };
+
+  const normalizedControllerId = normalizeId(base.controllerId) ?? base.controllerId;
   const baseSel = base.selectorContext;
 
   const dedupe = (ids: readonly PlayerID[] | undefined): readonly PlayerID[] | undefined => {
@@ -65,34 +72,44 @@ export function buildOracleIRExecutionContext(
     const out: PlayerID[] = [];
     const seen = new Set<PlayerID>();
     for (const id of ids) {
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
+      const normalized = normalizeId(id);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
     }
     return out.length > 0 ? out : undefined;
   };
+
+  const hintTargetOpponentId = normalizeId(hint?.targetOpponentId);
+  const hintTargetPlayerId = normalizeId(hint?.targetPlayerId);
+  const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
+  const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
 
   const eachOfThoseOpponents =
     dedupe(hint?.affectedOpponentIds) ??
     dedupe(hint?.opponentsDealtDamageIds) ??
     dedupe(hint?.affectedPlayerIds) ??
-    dedupe(hint?.targetOpponentId ? [hint.targetOpponentId] : undefined) ??
-    dedupe(hint?.targetPlayerId ? [hint.targetPlayerId] : undefined) ??
+    dedupe(hintTargetOpponentId ? [hintTargetOpponentId] : undefined) ??
+    dedupe(hintTargetPlayerId ? [hintTargetPlayerId] : undefined) ??
     baseSel?.eachOfThoseOpponents;
 
   const sanitizedEachOfThoseOpponents = eachOfThoseOpponents
-    ? dedupe(eachOfThoseOpponents.filter(id => id !== base.controllerId))
+    ? dedupe(eachOfThoseOpponents.filter(id => id !== normalizedControllerId))
     : undefined;
 
   const singleton = (ids: readonly PlayerID[] | undefined): PlayerID | undefined =>
     Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
 
   const dedupedAffectedPlayers = dedupe(hint?.affectedPlayerIds);
-  const dedupedAffectedOpponents = dedupe(hint?.affectedOpponentIds);
-  const dedupedOpponentsDealtDamage = dedupe(hint?.opponentsDealtDamageIds);
+  const dedupedAffectedOpponents = dedupe(
+    (hint?.affectedOpponentIds || []).filter(id => normalizeId(id) !== normalizedControllerId) as PlayerID[]
+  );
+  const dedupedOpponentsDealtDamage = dedupe(
+    (hint?.opponentsDealtDamageIds || []).filter(id => normalizeId(id) !== normalizedControllerId) as PlayerID[]
+  );
   const explicitTargetOpponentId =
-    hint?.targetOpponentId && hint.targetOpponentId !== base.controllerId
-      ? hint.targetOpponentId
+    hintTargetOpponentId && hintTargetOpponentId !== normalizedControllerId
+      ? hintTargetOpponentId
       : undefined;
   const inferredTargetOpponentId =
     singleton(sanitizedEachOfThoseOpponents) ??
@@ -101,32 +118,33 @@ export function buildOracleIRExecutionContext(
   const inferredTargetPlayerId =
     singleton(dedupedAffectedPlayers) ??
     inferredTargetOpponentId;
-  const baseTargetFromOpponent = baseSel?.targetOpponentId;
+  const baseTargetFromOpponent = baseTargetOpponentId;
   const baseTargetFromPlayer =
-    baseSel?.targetPlayerId && baseSel.targetPlayerId !== base.controllerId
-      ? baseSel.targetPlayerId
+    baseTargetPlayerId && baseTargetPlayerId !== normalizedControllerId
+      ? baseTargetPlayerId
       : undefined;
 
   const selectorContext: OracleIRSelectorContext = {
     targetPlayerId:
-      hint?.targetPlayerId ??
+      hintTargetPlayerId ??
       explicitTargetOpponentId ??
       inferredTargetPlayerId ??
-      baseSel?.targetPlayerId ??
+      baseTargetPlayerId ??
       baseTargetFromOpponent,
     targetOpponentId:
       explicitTargetOpponentId ??
       inferredTargetOpponentId ??
-      baseSel?.targetOpponentId ??
+      baseTargetOpponentId ??
       baseTargetFromPlayer,
     ...(sanitizedEachOfThoseOpponents ? { eachOfThoseOpponents: sanitizedEachOfThoseOpponents } : {}),
   };
 
   if (!selectorContext.targetPlayerId && !selectorContext.targetOpponentId && !selectorContext.eachOfThoseOpponents) {
-    return base;
+    if (normalizedControllerId === base.controllerId) return base;
+    return { ...base, controllerId: normalizedControllerId };
   }
 
-  return { ...base, selectorContext };
+  return { ...base, controllerId: normalizedControllerId, selectorContext };
 }
 
 export interface OracleIRExecutionResult {
@@ -261,28 +279,39 @@ function resolvePlayers(
   selector: OraclePlayerSelector,
   ctx: OracleIRExecutionContext
 ): readonly PlayerID[] {
+  const normalizeId = (value: unknown): PlayerID | undefined => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const normalized = String(value).trim();
+    return normalized ? (normalized as PlayerID) : undefined;
+  };
+
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   const allPlayerIds = new Set(state.players.map(p => p.id));
-  const opponents = state.players.filter(p => p.id !== ctx.controllerId).map(p => p.id);
+  const hasValidController = allPlayerIds.has(controllerId);
+  const opponents = hasValidController
+    ? state.players.filter(p => p.id !== controllerId).map(p => p.id)
+    : [];
   const opponentIdSet = new Set(opponents);
 
   const dedupe = (ids: readonly PlayerID[]): readonly PlayerID[] => {
     const out: PlayerID[] = [];
     const seen = new Set<PlayerID>();
     for (const id of ids) {
-      if (!allPlayerIds.has(id)) continue;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
+      const normalized = normalizeId(id);
+      if (!normalized || !allPlayerIds.has(normalized)) continue;
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
     }
     return out;
   };
 
   const dedupeOpponents = (ids: readonly PlayerID[]): readonly PlayerID[] =>
-    dedupe(ids.filter(id => opponentIdSet.has(id)));
+    dedupe(ids).filter(id => opponentIdSet.has(id));
 
   switch (selector.kind) {
     case 'you':
-      return [ctx.controllerId];
+      return hasValidController ? [controllerId] : [];
     case 'each_player':
       return state.players.map(p => p.id);
     case 'each_opponent':
@@ -303,12 +332,12 @@ function resolvePlayers(
     // - target_player resolves from selector context when available,
     //   otherwise remains unresolved because it can include multiple legal choices.
     case 'target_opponent': {
-      const bound = ctx.selectorContext?.targetOpponentId;
+      const bound = normalizeId(ctx.selectorContext?.targetOpponentId);
       if (bound && opponentIdSet.has(bound)) return [bound];
       return opponents.length === 1 ? [opponents[0]] : [];
     }
     case 'target_player': {
-      const bound = ctx.selectorContext?.targetPlayerId;
+      const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
       if (bound && allPlayerIds.has(bound)) return [bound];
       return [];
     }
@@ -335,6 +364,8 @@ function resolvePlayersFromDamageTarget(
 
   // Only support exact, non-targeting player group targets.
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
+  if (t === 'that player' || t === 'he or she' || t === 'they' || t === 'its controller') return resolvePlayers(state, { kind: 'target_player' }, ctx);
+  if (t === 'that opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
   if (t === 'each player') return resolvePlayers(state, { kind: 'each_player' }, ctx);
   if (t === 'each of your opponents' || t === 'each of the opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
   if (t === 'each opponent') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
@@ -777,8 +808,9 @@ function parseSimpleBattlefieldSelector(
 }
 
 function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlefieldSelector, ctx: OracleIRExecutionContext): boolean {
-  if (sel.controllerFilter === 'you' && perm.controller !== ctx.controllerId) return false;
-  if (sel.controllerFilter === 'opponents' && perm.controller === ctx.controllerId) return false;
+  const normalizedControllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  if (sel.controllerFilter === 'you' && perm.controller !== normalizedControllerId) return false;
+  if (sel.controllerFilter === 'opponents' && perm.controller === normalizedControllerId) return false;
 
   const typeLine = String((perm as any)?.card?.type_line || '').toLowerCase();
   if (sel.types.includes('permanent')) return true;
@@ -1750,6 +1782,7 @@ export function applyOracleIRStepsToGameState(
   const log: string[] = [];
   const appliedSteps: OracleEffectStep[] = [];
   const skippedSteps: OracleEffectStep[] = [];
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
 
   let nextState = state;
 
@@ -2251,7 +2284,10 @@ export function applyOracleIRStepsToGameState(
             break;
           }
 
-          const opponents = (nextState.players as any[]).filter(p => p?.id && p.id !== ctx.controllerId);
+          const hasValidController = (nextState.players as any[]).some(p => p?.id === controllerId);
+          const opponents = hasValidController
+            ? (nextState.players as any[]).filter(p => p?.id && p.id !== controllerId)
+            : [];
           for (const p of opponents) {
             const r =
               step.to === 'hand'
@@ -2263,7 +2299,7 @@ export function applyOracleIRStepsToGameState(
                     : putAllMatchingFromExileOntoBattlefieldWithController(
                         nextState,
                         p.id,
-                        ctx.controllerId,
+                        controllerId,
                         parsedEachOpponentsExile.cardType,
                         (step as any).entersTapped
                       );
@@ -2291,7 +2327,10 @@ export function applyOracleIRStepsToGameState(
             break;
           }
 
-          const opponents = (nextState.players as any[]).filter(p => p?.id && p.id !== ctx.controllerId);
+          const hasValidController = (nextState.players as any[]).some(p => p?.id === controllerId);
+          const opponents = hasValidController
+            ? (nextState.players as any[]).filter(p => p?.id && p.id !== controllerId)
+            : [];
           for (const p of opponents) {
             const r =
               step.to === 'hand'
@@ -2302,7 +2341,7 @@ export function applyOracleIRStepsToGameState(
                     : putAllMatchingFromGraveyardOntoBattlefieldWithController(
                         nextState,
                         p.id,
-                        ctx.controllerId,
+                        controllerId,
                         parsedEachOpponentsGy.cardType,
                         (step as any).entersTapped
                       )
@@ -2331,7 +2370,10 @@ export function applyOracleIRStepsToGameState(
             break;
           }
 
-          const opponents = (nextState.players as any[]).filter(p => p?.id && p.id !== ctx.controllerId);
+          const hasValidController = (nextState.players as any[]).some(p => p?.id === controllerId);
+          const opponents = hasValidController
+            ? (nextState.players as any[]).filter(p => p?.id && p.id !== controllerId)
+            : [];
           for (const p of opponents) {
             const r =
               step.to === 'battlefield'
@@ -2339,7 +2381,7 @@ export function applyOracleIRStepsToGameState(
                   ? putAllMatchingFromHandOntoBattlefieldWithController(
                       nextState,
                       p.id,
-                      ctx.controllerId,
+                      controllerId,
                       parsedEachOpponentsHand.cardType,
                       (step as any).entersTapped
                     )
@@ -2368,7 +2410,7 @@ export function applyOracleIRStepsToGameState(
                     ? putAllMatchingFromGraveyardOntoBattlefieldWithController(
                         nextState,
                         p.id,
-                        ctx.controllerId,
+                        controllerId,
                         parsedEachPlayersGy.cardType,
                         (step as any).entersTapped
                       )
@@ -2398,7 +2440,7 @@ export function applyOracleIRStepsToGameState(
                     ? putAllMatchingFromExileOntoBattlefieldWithController(
                         nextState,
                         p.id,
-                        ctx.controllerId,
+                        controllerId,
                         parsedEachPlayersExile.cardType,
                         (step as any).entersTapped
                       )
@@ -2424,7 +2466,7 @@ export function applyOracleIRStepsToGameState(
                   ? putAllMatchingFromHandOntoBattlefieldWithController(
                       nextState,
                       p.id,
-                      ctx.controllerId,
+                      controllerId,
                       parsedEachPlayersHand.cardType,
                       (step as any).entersTapped
                     )
@@ -2439,14 +2481,14 @@ export function applyOracleIRStepsToGameState(
 
         if (parsedFromGraveyard) {
           if (step.to === 'hand') {
-            const r = returnAllMatchingFromGraveyardToHand(nextState, ctx.controllerId, parsedFromGraveyard.cardType);
+            const r = returnAllMatchingFromGraveyardToHand(nextState, controllerId, parsedFromGraveyard.cardType);
             nextState = r.state;
             log.push(...r.log);
             appliedSteps.push(step);
             break;
           }
           if (step.to === 'exile') {
-            const r = exileAllMatchingFromGraveyard(nextState, ctx.controllerId, parsedFromGraveyard.cardType);
+            const r = exileAllMatchingFromGraveyard(nextState, controllerId, parsedFromGraveyard.cardType);
             nextState = r.state;
             log.push(...r.log);
             appliedSteps.push(step);
@@ -2455,7 +2497,7 @@ export function applyOracleIRStepsToGameState(
           if (step.to === 'battlefield') {
             const r = putAllMatchingFromGraveyardOntoBattlefield(
               nextState,
-              ctx.controllerId,
+              controllerId,
               parsedFromGraveyard.cardType,
               (step as any).entersTapped
             );
@@ -2471,14 +2513,14 @@ export function applyOracleIRStepsToGameState(
 
         if (parsedFromExile) {
           if (step.to === 'hand') {
-            const r = moveAllMatchingFromExile(nextState, ctx.controllerId, parsedFromExile.cardType, 'hand');
+            const r = moveAllMatchingFromExile(nextState, controllerId, parsedFromExile.cardType, 'hand');
             nextState = r.state;
             log.push(...r.log);
             appliedSteps.push(step);
             break;
           }
           if (step.to === 'graveyard') {
-            const r = moveAllMatchingFromExile(nextState, ctx.controllerId, parsedFromExile.cardType, 'graveyard');
+            const r = moveAllMatchingFromExile(nextState, controllerId, parsedFromExile.cardType, 'graveyard');
             nextState = r.state;
             log.push(...r.log);
             appliedSteps.push(step);
@@ -2490,12 +2532,12 @@ export function applyOracleIRStepsToGameState(
               battlefieldControllerKind === 'you'
                 ? putAllMatchingFromExileOntoBattlefieldWithController(
                     nextState,
-                    ctx.controllerId,
-                    ctx.controllerId,
+                    controllerId,
+                    controllerId,
                     parsedFromExile.cardType,
                     (step as any).entersTapped
                   )
-                : putAllMatchingFromExileOntoBattlefield(nextState, ctx.controllerId, parsedFromExile.cardType, (step as any).entersTapped);
+                : putAllMatchingFromExileOntoBattlefield(nextState, controllerId, parsedFromExile.cardType, (step as any).entersTapped);
             nextState = r.state;
             log.push(...r.log);
             appliedSteps.push(step);
@@ -2516,8 +2558,8 @@ export function applyOracleIRStepsToGameState(
 
         const r =
           step.to === 'battlefield'
-            ? putAllMatchingFromHandOntoBattlefield(nextState, ctx.controllerId, parsedFromHand!.cardType, (step as any).entersTapped)
-            : moveAllMatchingFromHand(nextState, ctx.controllerId, parsedFromHand!.cardType, step.to);
+            ? putAllMatchingFromHandOntoBattlefield(nextState, controllerId, parsedFromHand!.cardType, (step as any).entersTapped)
+            : moveAllMatchingFromHand(nextState, controllerId, parsedFromHand!.cardType, step.to);
         nextState = r.state;
         log.push(...r.log);
         appliedSteps.push(step);

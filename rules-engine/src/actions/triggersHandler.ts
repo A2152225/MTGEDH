@@ -29,6 +29,8 @@ export interface TriggerResult {
   state: GameState;
   triggersAdded: number;
   oracleStepsApplied?: number;
+  oracleStepsSkipped?: number;
+  oracleExecutions?: number;
   logs: string[];
 }
 
@@ -71,6 +73,8 @@ export function processTriggers(
   let nextState = state;
   let triggerInstances = processEvent(event, registeredAbilities, eventData);
   let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
 
   if (autoExecuteOracle) {
     const execution = processEventAndExecuteTriggeredOracle(
@@ -86,11 +90,16 @@ export function processTriggers(
     nextState = execution.state;
     triggerInstances = [...execution.triggers];
     oracleStepsApplied = execution.executions.reduce((sum, r) => sum + (r.appliedSteps?.length || 0), 0);
+    oracleStepsSkipped = execution.executions.reduce((sum, r) => sum + (r.skippedSteps?.length || 0), 0);
+    oracleExecutions = execution.executions.length;
+    logs.push(
+      `[triggers] Oracle auto-execution: executions=${oracleExecutions}, applied=${oracleStepsApplied}, skipped=${oracleStepsSkipped}`
+    );
     logs.push(...execution.log);
   }
   
   if (triggerInstances.length === 0) {
-    return { state: nextState, triggersAdded: 0, oracleStepsApplied, logs };
+    return { state: nextState, triggersAdded: 0, oracleStepsApplied, oracleStepsSkipped, oracleExecutions, logs };
   }
   
   // Queue triggers
@@ -101,7 +110,14 @@ export function processTriggers(
   
   // Put on stack in APNAP order
   const activePlayerId = state.players[state.activePlayerIndex || 0]?.id || '';
-  const { stackObjects, log } = putTriggersOnStack(queue, activePlayerId);
+  const apnapTurnOrder = (() => {
+    const ids = (state.players || []).map(p => String((p as any)?.id || '').trim()).filter(Boolean);
+    if (ids.length === 0) return ids;
+    const activeIdx = ids.indexOf(activePlayerId);
+    if (activeIdx < 0) return ids;
+    return [...ids.slice(activeIdx), ...ids.slice(0, activeIdx)];
+  })();
+  const { stackObjects, log } = putTriggersOnStack(queue, activePlayerId, apnapTurnOrder);
   
   logs.push(...log);
   
@@ -112,6 +128,8 @@ export function processTriggers(
     state: { ...nextState, stack: updatedStack as any },
     triggersAdded: stackObjects.length,
     oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
     logs,
   };
 }
@@ -387,8 +405,10 @@ export function checkDrawTriggers(
     TriggerEvent.DRAWN,
     drawAbilities,
     buildTriggerEventDataFromPayloads(
-      drawingPlayerId,
+      undefined,
       {
+        targetPlayerId: drawingPlayerId,
+        ...(isOpponentDraw ? { targetOpponentId: drawingPlayerId } : {}),
         affectedPlayerIds: [drawingPlayerId],
         affectedOpponentIds: isOpponentDraw ? [drawingPlayerId] : undefined,
       }

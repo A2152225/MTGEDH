@@ -9,6 +9,9 @@ This implementation delivers a comprehensive upgrade to the MTGEDH project, intr
 - **Hybrid AI/Human Play Support**
 - **Extensive Testing and Documentation**
 
+Related planning reference:
+- [Oracle Automation Roadmap](./oracle-automation-roadmap.md)
+
 ## What Was Delivered
 
 ### 1. Core Framework Components

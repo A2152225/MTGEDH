@@ -224,7 +224,8 @@ export function queueTrigger(
  */
 export function putTriggersOnStack(
   queue: Readonly<TriggerQueue>,
-  activePlayerId: string
+  activePlayerId: string,
+  turnOrder?: readonly string[]
 ): {
   queue: TriggerQueue;
   stackObjects: StackObject[];
@@ -239,10 +240,33 @@ export function putTriggersOnStack(
   }
   
   const logs: string[] = [];
+  const normalizedTurnOrder = Array.isArray(turnOrder)
+    ? turnOrder
+        .map(id => String(id || '').trim())
+        .filter(Boolean)
+    : [];
+  const activeIndexInTurnOrder = normalizedTurnOrder.indexOf(activePlayerId);
+  const playerApnapRank = new Map<string, number>();
+  if (activeIndexInTurnOrder >= 0) {
+    for (let offset = 0; offset < normalizedTurnOrder.length; offset++) {
+      const idx = (activeIndexInTurnOrder + offset) % normalizedTurnOrder.length;
+      const playerId = normalizedTurnOrder[idx];
+      if (!playerApnapRank.has(playerId)) {
+        playerApnapRank.set(playerId, offset);
+      }
+    }
+  }
   
   // Sort triggers by APNAP order
   const sorted = [...queue.triggers].sort((a, b) => {
-    // Active player's triggers first
+    const rankA = playerApnapRank.get(a.controllerId);
+    const rankB = playerApnapRank.get(b.controllerId);
+
+    if (rankA !== undefined && rankB !== undefined && rankA !== rankB) {
+      return rankA - rankB;
+    }
+
+    // Fallback when full turn order is unavailable.
     if (a.controllerId === activePlayerId && b.controllerId !== activePlayerId) {
       return -1;
     }
@@ -389,7 +413,8 @@ export function buildTriggerEventDataFromPayloads(
   ...payloads: any[]
 ): TriggerEventData {
   const toId = (value: any): string | undefined => {
-    const id = String(value || '').trim();
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const id = String(value).trim();
     return id.length > 0 ? id : undefined;
   };
 
@@ -400,6 +425,8 @@ export function buildTriggerEventDataFromPayloads(
     }
     return undefined;
   };
+
+  const normalizedSourceControllerId = toId(sourceControllerId);
 
   const scalarString = (field: string): string | undefined => {
     for (const payload of payloads) {
@@ -491,8 +518,10 @@ export function buildTriggerEventDataFromPayloads(
   const explicitAffectedOpponentIds = collectIds('affectedOpponentIds');
   const explicitOpponentsDealtDamageIds = collectIds('opponentsDealtDamageIds');
   const combatOpponentIds = collectCombatOpponentIds();
+  const singleton = (ids: readonly string[]): string | undefined =>
+    Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
   const isOpponentId = (id: string | undefined): boolean =>
-    Boolean(id) && (!sourceControllerId || id !== sourceControllerId);
+    Boolean(id) && (!normalizedSourceControllerId || id !== normalizedSourceControllerId);
 
   const targetIds = collectIds(
     'target',
@@ -505,30 +534,37 @@ export function buildTriggerEventDataFromPayloads(
     'targetOpponentIds'
   );
 
+  const playerScopedTargetIds = collectIds(
+    'targetPlayerId',
+    'targetOpponentId',
+    'targetPlayerIds',
+    'targetOpponentIds'
+  );
+
+  const explicitTargetPlayerId = scalarString('targetPlayerId');
+  const explicitTargetOpponentId = scalarString('targetOpponentId');
+
   const targetPlayerId = pickFirstString(
-    scalarString('targetPlayerId'),
-    scalarString('targetId'),
-    scalarString('targetOpponentId'),
-    targetIds[0],
-    explicitAffectedPlayerIds[0]
+    explicitTargetPlayerId,
+    explicitTargetOpponentId,
+    singleton(explicitAffectedPlayerIds)
   );
 
   const targetOpponentId = pickFirstString(
     (() => {
-      const id = scalarString('targetOpponentId');
+      const id = explicitTargetOpponentId;
       return isOpponentId(id) ? id : undefined;
     })(),
-    targetIds.find(id => isOpponentId(id)),
-    explicitAffectedOpponentIds.find(id => isOpponentId(id)),
-    explicitOpponentsDealtDamageIds.find(id => isOpponentId(id)),
-    combatOpponentIds.find(id => isOpponentId(id))
+    singleton(explicitAffectedOpponentIds.filter(id => isOpponentId(id))),
+    singleton(explicitOpponentsDealtDamageIds.filter(id => isOpponentId(id))),
+    singleton(combatOpponentIds.filter(id => isOpponentId(id)))
   );
 
   const affectedPlayerIds =
     explicitAffectedPlayerIds.length > 0
       ? explicitAffectedPlayerIds
-      : targetIds.length > 0
-        ? targetIds
+      : playerScopedTargetIds.length > 0
+        ? playerScopedTargetIds
         : undefined;
 
   const affectedOpponentIdsRaw =
@@ -550,7 +586,7 @@ export function buildTriggerEventDataFromPayloads(
 
   return {
     sourceId,
-    sourceControllerId,
+    sourceControllerId: normalizedSourceControllerId,
     targetId,
     targetControllerId: scalarString('targetControllerId'),
     targetPlayerId,
@@ -643,9 +679,19 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
 ): OracleIRExecutionEventHint | undefined {
   if (!eventData) return undefined;
 
+  const normalizeId = (value: unknown): string | undefined => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const normalized = String(value).trim();
+    return normalized || undefined;
+  };
+
+  const normalizedSourceControllerId = String(eventData.sourceControllerId || '').trim() || undefined;
+  const normalizedTargetPlayerId = normalizeId(eventData.targetPlayerId);
+  const normalizedRawTargetOpponentId = normalizeId(eventData.targetOpponentId);
+
   const isOpponentId = (id: string | undefined): boolean => {
     if (!id) return false;
-    return !eventData.sourceControllerId || id !== eventData.sourceControllerId;
+    return !normalizedSourceControllerId || id !== normalizedSourceControllerId;
   };
 
   const dedupe = (ids: readonly string[] | undefined): readonly string[] | undefined => {
@@ -653,9 +699,10 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     const out: string[] = [];
     const seen = new Set<string>();
     for (const id of ids) {
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
+      const normalized = normalizeId(id);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
     }
     return out.length > 0 ? out : undefined;
   };
@@ -663,17 +710,23 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
   const dedupeOpponents = (ids: readonly string[] | undefined): readonly string[] | undefined =>
     dedupe((ids || []).filter(id => isOpponentId(id)));
 
-  const targetOpponentId = isOpponentId(eventData.targetOpponentId)
-    ? eventData.targetOpponentId
-    : dedupeOpponents(eventData.affectedOpponentIds)?.[0] ??
-      dedupeOpponents(eventData.opponentsDealtDamageIds)?.[0];
+  const singleton = (ids: readonly string[] | undefined): string | undefined =>
+    Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
+
+  const dedupedAffectedOpponents = dedupeOpponents(eventData.affectedOpponentIds);
+  const dedupedOpponentsDealtDamage = dedupeOpponents(eventData.opponentsDealtDamageIds);
+
+  const targetOpponentId = isOpponentId(normalizedRawTargetOpponentId)
+    ? normalizedRawTargetOpponentId
+    : singleton(dedupedAffectedOpponents) ??
+      singleton(dedupedOpponentsDealtDamage);
 
   const hint: OracleIRExecutionEventHint = {
-    targetPlayerId: eventData.targetPlayerId,
+    targetPlayerId: normalizedTargetPlayerId,
     targetOpponentId,
     affectedPlayerIds: dedupe(eventData.affectedPlayerIds),
-    affectedOpponentIds: dedupeOpponents(eventData.affectedOpponentIds),
-    opponentsDealtDamageIds: dedupeOpponents(eventData.opponentsDealtDamageIds),
+    affectedOpponentIds: dedupedAffectedOpponents,
+    opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
   };
 
   if (
@@ -700,23 +753,47 @@ export function buildResolutionEventDataFromGameState(
   controllerId: string,
   base?: TriggerEventData
 ): TriggerEventData {
+  const normalizeId = (value: unknown): string | undefined => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const normalized = String(value).trim();
+    return normalized || undefined;
+  };
+
+  const normalizedControllerId = normalizeId(controllerId) ?? normalizeId(base?.sourceControllerId);
+  const normalizedTurnPlayerId = normalizeId((state as any).turnPlayer);
+
   const battlefield = ((state.battlefield || []) as any[]).map(p => ({
-    id: String(p?.id || ''),
-    controllerId: String(p?.controller || ''),
+    id: normalizeId(p?.id) || '',
+    controllerId: normalizeId(p?.controller) || '',
     types: String((p?.card?.type_line || '') as any)
       .split(/[\s—-]+/)
       .map(t => t.trim())
       .filter(Boolean),
   }));
 
-  const controller = (state.players || []).find((p: any) => p?.id === controllerId) as any;
+  const controller = (state.players || []).find(
+    (p: any) => normalizeId(p?.id) === normalizedControllerId
+  ) as any;
+  const hasValidController = Boolean(controller);
+  const resolvedLifeTotal = (() => {
+    const controllerLife = Number(controller?.life);
+    if (Number.isFinite(controllerLife)) return controllerLife;
+    const baseLife = Number(base?.lifeTotal);
+    return Number.isFinite(baseLife) ? baseLife : undefined;
+  })();
 
   return {
     ...base,
-    sourceControllerId: controllerId,
-    lifeTotal: Number(controller?.life ?? base?.lifeTotal ?? 0),
-    isYourTurn: String((state as any).turnPlayer || '') === controllerId,
-    isOpponentsTurn: String((state as any).turnPlayer || '') !== controllerId,
+    sourceControllerId: normalizedControllerId,
+    lifeTotal: resolvedLifeTotal,
+    isYourTurn:
+      hasValidController && normalizedTurnPlayerId !== undefined
+        ? normalizedTurnPlayerId === normalizedControllerId
+        : Boolean(base?.isYourTurn),
+    isOpponentsTurn:
+      hasValidController && normalizedTurnPlayerId !== undefined
+        ? normalizedTurnPlayerId !== normalizedControllerId
+        : Boolean(base?.isOpponentsTurn),
     battlefield,
   };
 }
@@ -999,6 +1076,10 @@ function evaluateOpponentControlCondition(
     const creatures = opponentPermanents.filter(
       p => p.types?.some(t => t.toLowerCase() === 'creature')
     );
+    const countMatch = condition.match(/(\d+)\s+or\s+more\s+creatures?/);
+    if (countMatch) {
+      return creatures.length >= parseInt(countMatch[1], 10);
+    }
     return creatures.length > 0;
   }
   
@@ -1006,7 +1087,52 @@ function evaluateOpponentControlCondition(
     const artifacts = opponentPermanents.filter(
       p => p.types?.some(t => t.toLowerCase() === 'artifact')
     );
+    const countMatch = condition.match(/(\d+)\s+or\s+more\s+artifacts?/);
+    if (countMatch) {
+      return artifacts.length >= parseInt(countMatch[1], 10);
+    }
     return artifacts.length > 0;
+  }
+
+  if (condition.includes('enchantment')) {
+    const enchantments = opponentPermanents.filter(
+      p => p.types?.some(t => t.toLowerCase() === 'enchantment')
+    );
+    const countMatch = condition.match(/(\d+)\s+or\s+more\s+enchantments?/);
+    if (countMatch) {
+      return enchantments.length >= parseInt(countMatch[1], 10);
+    }
+    return enchantments.length > 0;
+  }
+
+  if (condition.includes('land')) {
+    const lands = opponentPermanents.filter(
+      p => p.types?.some(t => t.toLowerCase() === 'land')
+    );
+    const countMatch = condition.match(/(\d+)\s+or\s+more\s+lands?/);
+    if (countMatch) {
+      return lands.length >= parseInt(countMatch[1], 10);
+    }
+    return lands.length > 0;
+  }
+
+  if (condition.includes('planeswalker')) {
+    const planeswalkers = opponentPermanents.filter(
+      p => p.types?.some(t => t.toLowerCase() === 'planeswalker')
+    );
+    const countMatch = condition.match(/(\d+)\s+or\s+more\s+planeswalkers?/);
+    if (countMatch) {
+      return planeswalkers.length >= parseInt(countMatch[1], 10);
+    }
+    return planeswalkers.length > 0;
+  }
+
+  if (condition.includes('permanent')) {
+    const countMatch = condition.match(/(\d+)\s+or\s+more\s+permanents?/);
+    if (countMatch) {
+      return opponentPermanents.length >= parseInt(countMatch[1], 10);
+    }
+    return opponentPermanents.length > 0;
   }
   
   return opponentPermanents.length > 0;

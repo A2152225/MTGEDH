@@ -912,14 +912,27 @@ export class RulesEngineAdapter {
       undefined;
     const selectedSpellTargetPlayerId = spellTargetHints.targetPlayerId;
     const selectedSpellTargetOpponentId = spellTargetHints.targetOpponentId;
+    const normalizedSelectedSpellTargets = Array.isArray(selectedSpellTargets)
+      ? selectedSpellTargets
+          .map((id: any) => String(id || '').trim())
+          .filter((id: string) => id.length > 0)
+      : [];
+    const dedupedSelectedSpellTargets = Array.from(new Set(normalizedSelectedSpellTargets));
+    const selectedSpellOpponentTargets = dedupedSelectedSpellTargets.filter(id => id !== action.playerId);
+    const fallbackSpellTargetPlayerId =
+      dedupedSelectedSpellTargets.length === 1 ? dedupedSelectedSpellTargets[0] : undefined;
+    const fallbackSpellTargetOpponentId =
+      selectedSpellOpponentTargets.length === 1 ? selectedSpellOpponentTargets[0] : undefined;
     const spellTriggerMeta = buildStackTriggerMetaFromEventData(
       spellEffectText,
       action.cardId,
       action.playerId,
       {
         ...spellTargetHints,
-        targetPlayerId: selectedSpellTargetPlayerId,
-        targetOpponentId: selectedSpellTargetOpponentId,
+        affectedPlayerIds: spellTargetHints.affectedPlayerIds ?? dedupedSelectedSpellTargets,
+        affectedOpponentIds: spellTargetHints.affectedOpponentIds ?? selectedSpellOpponentTargets,
+        targetPlayerId: selectedSpellTargetPlayerId ?? fallbackSpellTargetPlayerId,
+        targetOpponentId: selectedSpellTargetOpponentId ?? fallbackSpellTargetOpponentId,
       }
     );
 
@@ -1173,14 +1186,27 @@ export class RulesEngineAdapter {
         : this.collectTargetIdsFromEventData(abilityTargetHints);
     const selectedPlayerTargetId = abilityTargetHints.targetPlayerId;
     const selectedOpponentTargetId = abilityTargetHints.targetOpponentId;
+    const normalizedSelectedAbilityTargets = Array.isArray(selectedAbilityTargets)
+      ? selectedAbilityTargets
+          .map((id: any) => String(id || '').trim())
+          .filter((id: string) => id.length > 0)
+      : [];
+    const dedupedSelectedAbilityTargets = Array.from(new Set(normalizedSelectedAbilityTargets));
+    const selectedAbilityOpponentTargets = dedupedSelectedAbilityTargets.filter(id => id !== action.playerId);
+    const fallbackAbilityTargetPlayerId =
+      dedupedSelectedAbilityTargets.length === 1 ? dedupedSelectedAbilityTargets[0] : undefined;
+    const fallbackAbilityTargetOpponentId =
+      selectedAbilityOpponentTargets.length === 1 ? selectedAbilityOpponentTargets[0] : undefined;
     const abilityTriggerMeta = buildStackTriggerMetaFromEventData(
       ability.effect,
       ability.sourceId,
       action.playerId,
       {
         ...abilityTargetHints,
-        targetPlayerId: selectedPlayerTargetId,
-        targetOpponentId: selectedOpponentTargetId,
+        affectedPlayerIds: abilityTargetHints.affectedPlayerIds ?? dedupedSelectedAbilityTargets,
+        affectedOpponentIds: abilityTargetHints.affectedOpponentIds ?? selectedAbilityOpponentTargets,
+        targetPlayerId: selectedPlayerTargetId ?? fallbackAbilityTargetPlayerId,
+        targetOpponentId: selectedOpponentTargetId ?? fallbackAbilityTargetOpponentId,
       }
     );
 
@@ -1264,6 +1290,13 @@ export class RulesEngineAdapter {
       const effectText = triggerMeta?.effectText;
 
       if (effectText && effectText.trim().length > 0) {
+        const normalizedStackTargets = Array.isArray(popResult.object.targets)
+          ? popResult.object.targets
+              .map((id: any) => String(id || '').trim())
+              .filter((id: string) => id.length > 0)
+          : [];
+        const dedupedStackTargets = Array.from(new Set(normalizedStackTargets));
+        const dedupedStackOpponentTargets = dedupedStackTargets.filter(id => id !== popResult.object.controllerId);
         const normalizedEventData = buildTriggerEventDataFromPayloads(
           popResult.object.controllerId,
           triggerMeta.triggerEventDataSnapshot,
@@ -1271,6 +1304,8 @@ export class RulesEngineAdapter {
             sourceId: popResult.object.spellId,
             sourceControllerId: popResult.object.controllerId,
             targets: popResult.object.targets,
+            affectedPlayerIds: dedupedStackTargets,
+            affectedOpponentIds: dedupedStackOpponentTargets,
           }
         );
 

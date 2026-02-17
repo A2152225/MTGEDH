@@ -24,6 +24,7 @@ import {
   buildOracleIRExecutionEventHintFromTriggerData,
   executeTriggeredAbilityEffectWithOracleIR,
   processEventAndExecuteTriggeredOracle,
+  evaluateTriggerCondition,
 } from '../src/triggeredAbilities';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -315,7 +316,7 @@ describe('Trigger Parsing', () => {
       expect(eventData.sourceControllerId).toBe('p1');
       expect(eventData.affectedOpponentIds).toEqual(['p2', 'p3']);
       expect(eventData.opponentsDealtDamageIds).toEqual(['p2', 'p3']);
-      expect(eventData.targetOpponentId).toBe('p2');
+      expect(eventData.targetOpponentId).toBeUndefined();
     });
 
     it('builds normalized trigger event data from explicit target fields', () => {
@@ -329,6 +330,46 @@ describe('Trigger Parsing', () => {
       expect(eventData.affectedOpponentIds).toEqual(['p3']);
     });
 
+    it('does not let generic targetId override explicit targetOpponentId for targetPlayerId inference', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targetId: 'perm-42',
+        targetOpponentId: 'p3',
+      });
+
+      expect(eventData.targetId).toBe('perm-42');
+      expect(eventData.targetOpponentId).toBe('p3');
+      expect(eventData.targetPlayerId).toBe('p3');
+    });
+
+    it('does not infer targetPlayerId from generic targetId when no player-scoped target fields exist', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targetId: 'perm-99',
+      });
+
+      expect(eventData.targetId).toBe('perm-99');
+      expect(eventData.targetPlayerId).toBeUndefined();
+      expect(eventData.targetOpponentId).toBeUndefined();
+    });
+
+    it('does not infer affectedPlayerIds from generic targetIds when player-scoped target fields are absent', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targetIds: ['perm-1', 'perm-2'],
+      });
+
+      expect(eventData.affectedPlayerIds).toBeUndefined();
+      expect(eventData.affectedOpponentIds).toBeUndefined();
+    });
+
+    it('infers affectedPlayerIds from player-scoped target arrays', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targetPlayerIds: ['p2', 'p2'],
+        targetOpponentIds: ['p3'],
+      });
+
+      expect(eventData.affectedPlayerIds).toEqual(['p2', 'p3']);
+      expect(eventData.affectedOpponentIds).toEqual(['p2', 'p3']);
+    });
+
     it('sanitizes opponent-scoped fields to exclude controller id', () => {
       const eventData = buildTriggerEventDataFromPayloads('p1', {
         targetOpponentId: 'p1',
@@ -339,6 +380,29 @@ describe('Trigger Parsing', () => {
       expect(eventData.targetOpponentId).toBe('p2');
       expect(eventData.affectedOpponentIds).toEqual(['p2']);
       expect(eventData.opponentsDealtDamageIds).toEqual(['p3']);
+    });
+
+    it('normalizes whitespace-padded sourceControllerId for opponent sanitization', () => {
+      const eventData = buildTriggerEventDataFromPayloads('  p1  ', {
+        targetOpponentId: 'p1',
+        affectedOpponentIds: ['p1', 'p2'],
+      });
+
+      expect(eventData.sourceControllerId).toBe('p1');
+      expect(eventData.targetOpponentId).toBe('p2');
+      expect(eventData.affectedOpponentIds).toEqual(['p2']);
+    });
+
+    it('ignores object-valued IDs in trigger event-data normalization', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targetOpponentId: { bad: true } as any,
+        affectedOpponentIds: [{ id: 'p2' } as any, 'p3'],
+        affectedPlayerIds: [{ id: 'p2' } as any, 'p2'],
+      });
+
+      expect(eventData.targetOpponentId).toBe('p3');
+      expect(eventData.affectedOpponentIds).toEqual(['p3']);
+      expect(eventData.affectedPlayerIds).toEqual(['p2']);
     });
 
     it('builds stack trigger meta snapshot from normalized event data', () => {
@@ -420,6 +484,58 @@ describe('Trigger Parsing', () => {
         affectedPlayerIds: undefined,
         affectedOpponentIds: ['p2'],
         opponentsDealtDamageIds: ['p3'],
+      });
+    });
+
+    it('sanitizes opponent-scoped hint fields when sourceControllerId has whitespace', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({
+        sourceControllerId: '  p1  ',
+        targetOpponentId: 'p1',
+        affectedOpponentIds: ['p1', 'p2'],
+      });
+
+      expect(hint).toEqual({
+        targetPlayerId: undefined,
+        targetOpponentId: 'p2',
+        affectedPlayerIds: undefined,
+        affectedOpponentIds: ['p2'],
+        opponentsDealtDamageIds: undefined,
+      });
+    });
+
+    it('normalizes whitespace-padded IDs in hint adapter fields', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({
+        sourceControllerId: ' p1 ',
+        targetPlayerId: ' p2 ',
+        targetOpponentId: ' p3 ',
+        affectedPlayerIds: [' p2 ', 'p2'],
+        affectedOpponentIds: [' p3 ', 'p3'],
+      });
+
+      expect(hint).toEqual({
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p3',
+        affectedPlayerIds: ['p2'],
+        affectedOpponentIds: ['p3'],
+        opponentsDealtDamageIds: undefined,
+      });
+    });
+
+    it('ignores object-valued IDs in hint adapter fields', () => {
+      const hint = buildOracleIRExecutionEventHintFromTriggerData({
+        sourceControllerId: 'p1',
+        targetPlayerId: { bad: true } as any,
+        targetOpponentId: { bad: true } as any,
+        affectedPlayerIds: [{ id: 'p2' } as any, 'p2'],
+        affectedOpponentIds: [{ id: 'p3' } as any, 'p3'],
+      });
+
+      expect(hint).toEqual({
+        targetPlayerId: undefined,
+        targetOpponentId: 'p3',
+        affectedPlayerIds: ['p2'],
+        affectedOpponentIds: ['p3'],
+        opponentsDealtDamageIds: undefined,
       });
     });
   });
@@ -676,6 +792,79 @@ describe('Trigger Parsing', () => {
       expect((stackObjects[0] as any).triggerMeta?.interveningIfWasTrueAtTrigger).toBe(true);
       expect((stackObjects[0] as any).triggerMeta?.triggerEventDataSnapshot?.sourceControllerId).toBe('p1');
     });
+
+    it('putTriggersOnStack applies APNAP order across multiplayer turn order', () => {
+      const queue = {
+        triggers: [
+          {
+            id: 't-p3',
+            abilityId: 'a-p3',
+            sourceId: 'src-p3',
+            sourceName: 'P3 Trigger',
+            controllerId: 'p3',
+            effect: 'Draw a card.',
+            timestamp: 1000,
+            hasTriggered: true,
+            onStack: false,
+          },
+          {
+            id: 't-p1',
+            abilityId: 'a-p1',
+            sourceId: 'src-p1',
+            sourceName: 'P1 Trigger',
+            controllerId: 'p1',
+            effect: 'Draw a card.',
+            timestamp: 1000,
+            hasTriggered: true,
+            onStack: false,
+          },
+          {
+            id: 't-p2',
+            abilityId: 'a-p2',
+            sourceId: 'src-p2',
+            sourceName: 'P2 Trigger',
+            controllerId: 'p2',
+            effect: 'Draw a card.',
+            timestamp: 1000,
+            hasTriggered: true,
+            onStack: false,
+          },
+        ],
+      } as any;
+
+      const { stackObjects } = putTriggersOnStack(queue, 'p1', ['p1', 'p2', 'p3']);
+
+      expect(stackObjects.map((obj: any) => obj.controllerId)).toEqual(['p1', 'p2', 'p3']);
+    });
+
+    it('putTriggersOnStack applies APNAP wrap-around when active player is late in turn order', () => {
+      const queue = {
+        triggers: [
+          { id: 't-p1', abilityId: 'a-p1', sourceId: 's1', sourceName: 'P1 Trigger', controllerId: 'p1', effect: 'Draw a card.', timestamp: 1000, hasTriggered: true, onStack: false },
+          { id: 't-p2', abilityId: 'a-p2', sourceId: 's2', sourceName: 'P2 Trigger', controllerId: 'p2', effect: 'Draw a card.', timestamp: 1000, hasTriggered: true, onStack: false },
+          { id: 't-p3', abilityId: 'a-p3', sourceId: 's3', sourceName: 'P3 Trigger', controllerId: 'p3', effect: 'Draw a card.', timestamp: 1000, hasTriggered: true, onStack: false },
+          { id: 't-p4', abilityId: 'a-p4', sourceId: 's4', sourceName: 'P4 Trigger', controllerId: 'p4', effect: 'Draw a card.', timestamp: 1000, hasTriggered: true, onStack: false },
+        ],
+      } as any;
+
+      const { stackObjects } = putTriggersOnStack(queue, 'p3', ['p1', 'p2', 'p3', 'p4']);
+
+      expect(stackObjects.map((obj: any) => obj.controllerId)).toEqual(['p3', 'p4', 'p1', 'p2']);
+    });
+
+    it('putTriggersOnStack falls back to active-first and timestamp order when active is missing from turn order', () => {
+      const queue = {
+        triggers: [
+          { id: 't-p2-late', abilityId: 'a-p2-late', sourceId: 's2l', sourceName: 'P2 Late', controllerId: 'p2', effect: 'Draw a card.', timestamp: 2000, hasTriggered: true, onStack: false },
+          { id: 't-p1', abilityId: 'a-p1', sourceId: 's1', sourceName: 'P1 Trigger', controllerId: 'p1', effect: 'Draw a card.', timestamp: 1500, hasTriggered: true, onStack: false },
+          { id: 't-p2-early', abilityId: 'a-p2-early', sourceId: 's2e', sourceName: 'P2 Early', controllerId: 'p2', effect: 'Draw a card.', timestamp: 1000, hasTriggered: true, onStack: false },
+        ],
+      } as any;
+
+      const { stackObjects } = putTriggersOnStack(queue, 'p1', ['p2', 'p3']);
+
+      expect(stackObjects.map((obj: any) => obj.id)).toEqual(['t-p1', 't-p2-early', 't-p2-late']);
+    });
   });
 
   describe('Resolution event data builder', () => {
@@ -688,6 +877,142 @@ describe('Trigger Parsing', () => {
       expect(out.isOpponentsTurn).toBe(false);
       expect(out.lifeTotal).toBe(40);
       expect(Array.isArray(out.battlefield)).toBe(true);
+    });
+
+    it('buildResolutionEventDataFromGameState normalizes whitespace-padded controller id', () => {
+      const state = makeState({ turnPlayer: 'p1' } as any);
+      const out = buildResolutionEventDataFromGameState(state, '  p1  ' as any);
+
+      expect(out.sourceControllerId).toBe('p1');
+      expect(out.isYourTurn).toBe(true);
+      expect(out.isOpponentsTurn).toBe(false);
+      expect(out.lifeTotal).toBe(40);
+    });
+
+    it('buildResolutionEventDataFromGameState keeps lifeTotal undefined for unknown controller without base fallback', () => {
+      const state = makeState({ turnPlayer: 'p1' } as any);
+      const out = buildResolutionEventDataFromGameState(state, 'ghost-player' as any);
+
+      expect(out.sourceControllerId).toBe('ghost-player');
+      expect(out.lifeTotal).toBeUndefined();
+    });
+
+    it('buildResolutionEventDataFromGameState keeps turn flags false for unknown controller without base fallback', () => {
+      const state = makeState({ turnPlayer: 'p1' } as any);
+      const out = buildResolutionEventDataFromGameState(state, 'ghost-player' as any);
+
+      expect(out.isYourTurn).toBe(false);
+      expect(out.isOpponentsTurn).toBe(false);
+    });
+
+    it('buildResolutionEventDataFromGameState preserves base turn flags when controller is unknown', () => {
+      const state = makeState({ turnPlayer: 'p1' } as any);
+      const out = buildResolutionEventDataFromGameState(state, 'ghost-player' as any, {
+        isYourTurn: true,
+        isOpponentsTurn: false,
+      } as any);
+
+      expect(out.isYourTurn).toBe(true);
+      expect(out.isOpponentsTurn).toBe(false);
+    });
+  });
+
+  describe('Intervening-if condition classes', () => {
+    it('evaluateTriggerCondition supports opponent control count thresholds for creatures', () => {
+      const ok = evaluateTriggerCondition(
+        'if an opponent controls 2 or more creatures',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          battlefield: [
+            { id: 'o1', controllerId: 'p2', types: ['Creature'] },
+            { id: 'o2', controllerId: 'p3', types: ['Creature'] },
+          ],
+        } as any
+      );
+
+      const fail = evaluateTriggerCondition(
+        'if an opponent controls 3 or more creatures',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          battlefield: [
+            { id: 'o1', controllerId: 'p2', types: ['Creature'] },
+            { id: 'o2', controllerId: 'p3', types: ['Creature'] },
+          ],
+        } as any
+      );
+
+      expect(ok).toBe(true);
+      expect(fail).toBe(false);
+    });
+
+    it('evaluateTriggerCondition supports opponent control checks for enchantments and permanents', () => {
+      const enchantmentOk = evaluateTriggerCondition(
+        'if an opponent controls an enchantment',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          battlefield: [
+            { id: 'e1', controllerId: 'p2', types: ['Enchantment'] },
+          ],
+        } as any
+      );
+
+      const permanentCountOk = evaluateTriggerCondition(
+        'if an opponent controls 2 or more permanents',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          battlefield: [
+            { id: 'x1', controllerId: 'p2', types: ['Artifact'] },
+            { id: 'x2', controllerId: 'p3', types: ['Creature'] },
+          ],
+        } as any
+      );
+
+      expect(enchantmentOk).toBe(true);
+      expect(permanentCountOk).toBe(true);
+    });
+
+    it('evaluateTriggerCondition supports opponent land and planeswalker classes with thresholds', () => {
+      const landOk = evaluateTriggerCondition(
+        'if an opponent controls 2 or more lands',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          battlefield: [
+            { id: 'l1', controllerId: 'p2', types: ['Land'] },
+            { id: 'l2', controllerId: 'p3', types: ['Land'] },
+          ],
+        } as any
+      );
+
+      const planeswalkerPresenceOk = evaluateTriggerCondition(
+        'if an opponent controls a planeswalker',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          battlefield: [
+            { id: 'pw1', controllerId: 'p2', types: ['Planeswalker'] },
+          ],
+        } as any
+      );
+
+      const planeswalkerThresholdFail = evaluateTriggerCondition(
+        'if an opponent controls 2 or more planeswalkers',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          battlefield: [
+            { id: 'pw1', controllerId: 'p2', types: ['Planeswalker'] },
+          ],
+        } as any
+      );
+
+      expect(landOk).toBe(true);
+      expect(planeswalkerPresenceOk).toBe(true);
+      expect(planeswalkerThresholdFail).toBe(false);
     });
   });
 });

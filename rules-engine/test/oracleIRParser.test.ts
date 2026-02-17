@@ -812,7 +812,7 @@ describe('Oracle IR Parser', () => {
     expect(ability.type).toBe('triggered');
     const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
-    expect(impulse.who).toEqual({ kind: 'unknown', raw: 'its controller' });
+    expect(impulse.who).toEqual({ kind: 'target_player' });
     expect(impulse.amount).toEqual({ kind: 'unknown', raw: 'that many' });
     expect(impulse.permission).toBe('play');
     expect(impulse.duration).toBe('until_end_of_next_turn');
@@ -1741,7 +1741,7 @@ describe('Oracle IR Parser', () => {
 
     const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
-    expect(impulse.who).toEqual({ kind: 'unknown', raw: 'its controller' });
+    expect(impulse.who).toEqual({ kind: 'target_player' });
     expect(impulse.amount).toMatchObject({ kind: 'unknown' });
     expect(String(impulse.amount.raw || '')).toContain('nonland');
     expect(impulse.duration).toBe('during_resolution');
