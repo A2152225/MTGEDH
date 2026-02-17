@@ -1036,6 +1036,41 @@ describe('RulesEngineAdapter', () => {
       expect(result.log?.some(msg => msg.includes('intervening-if false'))).toBe(true);
     });
 
+    it('should skip triggered oracle effect when intervening-if is flagged but clause is missing', () => {
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-3',
+            spellId: 'trigger-source-3',
+            cardName: 'Intervening Trigger Missing Clause',
+            controllerId: 'player1',
+            targets: [],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'Target opponent loses 1 life.',
+              hasInterveningIf: true,
+              triggerEventDataSnapshot: {
+                sourceId: 'trigger-source-3',
+                sourceControllerId: 'player1',
+                targetOpponentId: 'player2',
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = result.next.players.find(p => p.id === 'player2');
+      expect(player2?.life).toBe(40);
+      expect(result.log?.some(msg => msg.includes('intervening-if missing clause'))).toBe(true);
+    });
+
     it('should execute activated ability oracle effect on stack resolution', () => {
       const activateResult = adapter.executeAction('test-game', {
         type: 'activateAbility',

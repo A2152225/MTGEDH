@@ -221,6 +221,46 @@ describe('triggersHandler Oracle automation', () => {
     expect(result.logs.some(x => x.includes('intervening-if false'))).toBe(true);
   });
 
+  it('processTriggers rechecks intervening-if from condition fallback when clause field is absent', () => {
+    const start = makeState();
+    const abilities = [
+      {
+        id: 'a4b',
+        sourceId: 'if-src-b',
+        sourceName: 'If Source Fallback',
+        controllerId: 'p1',
+        keyword: 'whenever',
+        event: TriggerEvent.ATTACKS,
+        effect: 'Draw a card.',
+        condition: 'you control an artifact',
+        hasInterveningIf: true,
+      } as any,
+    ];
+
+    const result = processTriggers(
+      start,
+      TriggerEvent.ATTACKS,
+      abilities,
+      {
+        sourceControllerId: 'p1',
+        battlefield: [{ id: 'a', controllerId: 'p1', types: ['Artifact'] }],
+      },
+      {
+        autoExecuteOracle: true,
+        resolutionEventData: {
+          sourceControllerId: 'p1',
+          battlefield: [{ id: 'c', controllerId: 'p1', types: ['Creature'] }],
+        },
+      }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleStepsApplied).toBe(0);
+    expect(p1.hand || []).toHaveLength(0);
+    expect(result.logs.some(x => x.includes('intervening-if false'))).toBe(true);
+  });
+
   it('checkCombatDamageToPlayerTriggers derives opponentsDealtDamageIds from assignments', () => {
     const start = makeState({
       battlefield: [

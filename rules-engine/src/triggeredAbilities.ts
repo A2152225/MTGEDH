@@ -161,6 +161,16 @@ export interface TriggerInstance {
   readonly onStack: boolean;
 }
 
+function resolveInterveningIfClause(
+  input: Pick<TriggeredAbility, 'interveningIfClause' | 'hasInterveningIf' | 'condition'>
+): string | undefined {
+  const direct = String(input.interveningIfClause || '').trim();
+  if (direct) return direct;
+  if (!input.hasInterveningIf) return undefined;
+  const fallback = String(input.condition || '').trim();
+  return fallback || undefined;
+}
+
 /**
  * Trigger queue for managing pending triggers
  */
@@ -183,8 +193,9 @@ export function createTriggerInstance(
   timestamp: number,
   eventDataSnapshot?: TriggerEventData
 ): TriggerInstance {
-  const interveningIfWasTrueAtTrigger = ability.interveningIfClause
-    ? evaluateTriggerCondition(ability.interveningIfClause, ability.controllerId, eventDataSnapshot)
+  const resolvedInterveningIfClause = resolveInterveningIfClause(ability);
+  const interveningIfWasTrueAtTrigger = resolvedInterveningIfClause
+    ? evaluateTriggerCondition(resolvedInterveningIfClause, ability.controllerId, eventDataSnapshot)
     : undefined;
 
   return {
@@ -195,7 +206,7 @@ export function createTriggerInstance(
     controllerId: ability.controllerId,
     effect: ability.effect,
     triggerFilter: ability.triggerFilter,
-    interveningIfClause: ability.interveningIfClause,
+    interveningIfClause: resolvedInterveningIfClause,
     hasInterveningIf: ability.hasInterveningIf,
     ...(eventDataSnapshot ? { triggerEventDataSnapshot: eventDataSnapshot } : {}),
     ...(interveningIfWasTrueAtTrigger !== undefined ? { interveningIfWasTrueAtTrigger } : {}),
@@ -346,14 +357,15 @@ export function checkTrigger(
 
   // Intervening-if clause must be true both when triggering and when resolving.
   // Here we enforce the trigger-time check.
-  if (ability.interveningIfClause) {
-    if (!evaluateTriggerCondition(ability.interveningIfClause, ability.controllerId, eventData)) {
+  const resolvedInterveningIfClause = resolveInterveningIfClause(ability);
+  if (resolvedInterveningIfClause) {
+    if (!evaluateTriggerCondition(resolvedInterveningIfClause, ability.controllerId, eventData)) {
       return false;
     }
   }
 
   // Legacy/general condition fallback.
-  if (ability.condition && !ability.triggerFilter && !ability.interveningIfClause) {
+  if (ability.condition && !ability.triggerFilter && !resolvedInterveningIfClause) {
     if (!evaluateTriggerCondition(ability.condition, ability.controllerId, eventData)) {
       return false;
     }
@@ -632,6 +644,7 @@ export function buildStackTriggerMetaFromEventData(
     lifeGained?: number;
     damageDealt?: number;
     cardsDrawn?: number;
+    spellType?: string;
     isYourTurn?: boolean;
     isOpponentsTurn?: boolean;
     battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
@@ -660,6 +673,7 @@ export function buildStackTriggerMetaFromEventData(
       lifeGained: normalized.lifeGained,
       damageDealt: normalized.damageDealt,
       cardsDrawn: normalized.cardsDrawn,
+      spellType: normalized.spellType,
       isYourTurn: normalized.isYourTurn,
       isOpponentsTurn: normalized.isOpponentsTurn,
       battlefield: normalized.battlefield,
@@ -727,6 +741,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     affectedPlayerIds: dedupe(eventData.affectedPlayerIds),
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
+    spellType: eventData.spellType,
   };
 
   if (
@@ -734,7 +749,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     !hint.targetOpponentId &&
     !hint.affectedPlayerIds &&
     !hint.affectedOpponentIds &&
-    !hint.opponentsDealtDamageIds
+    !hint.opponentsDealtDamageIds &&
+    !hint.spellType
   ) {
     return undefined;
   }
@@ -870,10 +886,17 @@ export function processEventAndExecuteTriggeredOracle(
     const trigger = createTriggerInstance(ability, timestamp + idx, eventData);
     triggers.push(trigger);
 
-    if (ability.interveningIfClause) {
+    const resolvedInterveningIfClause = resolveInterveningIfClause(ability);
+
+    if (ability.hasInterveningIf && !resolvedInterveningIfClause) {
+      log.push(`${ability.sourceName} trigger skipped at resolution (intervening-if missing clause)`);
+      continue;
+    }
+
+    if (resolvedInterveningIfClause) {
       const resolutionData =
         options.resolutionEventData ?? buildResolutionEventDataFromGameState(nextState, ability.controllerId, eventData);
-      const stillTrue = evaluateTriggerCondition(ability.interveningIfClause, ability.controllerId, resolutionData);
+      const stillTrue = evaluateTriggerCondition(resolvedInterveningIfClause, ability.controllerId, resolutionData);
       if (!stillTrue) {
         log.push(`${ability.sourceName} trigger skipped at resolution (intervening-if false)`);
         continue;

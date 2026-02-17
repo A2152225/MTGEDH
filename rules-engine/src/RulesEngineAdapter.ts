@@ -929,6 +929,12 @@ export class RulesEngineAdapter {
       action.playerId,
       {
         ...spellTargetHints,
+        spellType:
+          (Array.isArray(action.cardTypes) && action.cardTypes.length > 0
+            ? action.cardTypes.join(' ')
+            : undefined) ??
+          (typeof action.card?.type_line === 'string' ? action.card.type_line : undefined) ??
+          (typeof action.spellType === 'string' ? action.spellType : undefined),
         affectedPlayerIds: spellTargetHints.affectedPlayerIds ?? dedupedSelectedSpellTargets,
         affectedOpponentIds: spellTargetHints.affectedOpponentIds ?? selectedSpellOpponentTargets,
         targetPlayerId: selectedSpellTargetPlayerId ?? fallbackSpellTargetPlayerId,
@@ -1317,6 +1323,9 @@ export class RulesEngineAdapter {
             normalizedEventData.sourceControllerId ??
             triggerMeta.triggerEventDataSnapshot?.sourceControllerId ??
             popResult.object.controllerId,
+          spellType:
+            normalizedEventData.spellType ??
+            triggerMeta.triggerEventDataSnapshot?.spellType,
         };
 
         const resolutionEventData = buildResolutionEventDataFromGameState(
@@ -1325,9 +1334,18 @@ export class RulesEngineAdapter {
           executionEventData
         );
 
-        if (triggerMeta.interveningIfClause) {
+        const resolvedInterveningIfClause = String(triggerMeta.interveningIfClause || '').trim() || undefined;
+        if (triggerMeta.hasInterveningIf && !resolvedInterveningIfClause) {
+          oracleLogs.push('[oracle-ir] Trigger skipped at resolution (intervening-if missing clause)');
+          return {
+            next: nextState,
+            log: [...(resolveResult.log || [`Resolved ${popResult.object.cardName}`]), ...oracleLogs],
+          };
+        }
+
+        if (resolvedInterveningIfClause) {
           const stillTrue = evaluateTriggerCondition(
-            triggerMeta.interveningIfClause,
+            resolvedInterveningIfClause,
             popResult.object.controllerId,
             resolutionEventData
           );

@@ -23,7 +23,17 @@ export type OraclePlayerSelector =
 
 export type OracleObjectSelector =
   | { readonly kind: 'raw'; readonly text: string }
+  | { readonly kind: 'equipped_creature' }
   | { readonly kind: 'unknown'; readonly raw: string };
+
+export type OracleScaler =
+  | { readonly kind: 'per_revealed_this_way' }
+  | { readonly kind: 'unknown'; readonly raw: string };
+
+export type OracleClauseCondition =
+  | { readonly kind: 'if'; readonly raw: string }
+  | { readonly kind: 'as_long_as'; readonly raw: string }
+  | { readonly kind: 'where'; readonly raw: string };
 
 export type OracleZone =
   | 'battlefield'
@@ -109,6 +119,33 @@ export type OracleEffectStep =
       readonly kind: 'mill';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'modify_pt';
+      readonly target: OracleObjectSelector;
+      readonly power: number;
+      readonly toughness: number;
+      /** When true, `power` is a signed X coefficient (e.g. +X => 1, -X => -1). */
+      readonly powerUsesX?: boolean;
+      /** When true, `toughness` is a signed X coefficient (e.g. +X => 1, -X => -1). */
+      readonly toughnessUsesX?: boolean;
+      readonly duration: 'end_of_turn';
+      readonly scaler?: OracleScaler;
+      readonly condition?: OracleClauseCondition;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'modify_pt_per_revealed';
+      /** Currently supports Trepanation-Blade-style "The creature ..." (equipped creature). */
+      readonly target: 'equipped_creature';
+      readonly powerPerCard: number;
+      readonly toughnessPerCard: number;
+      readonly duration: 'end_of_turn';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

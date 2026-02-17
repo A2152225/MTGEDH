@@ -1,6 +1,6 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import { createTokens, createTokensByName, parseTokenCreationFromText, COMMON_TOKENS } from './tokenCreation';
-import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from './oracleIR';
+import type { OracleEffectStep, OracleObjectSelector, OraclePlayerSelector, OracleQuantity } from './oracleIR';
 import { parseManaSymbols } from './types/numbers';
 import { addMana, createEmptyManaPool, ManaType } from './types/mana';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
@@ -33,12 +33,16 @@ export interface OracleIRExecutionEventHint {
   readonly affectedOpponentIds?: readonly PlayerID[];
   /** Opponents dealt damage by the triggering event/source (Breeches-style antecedent). */
   readonly opponentsDealtDamageIds?: readonly PlayerID[];
+  /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
+  readonly spellType?: string;
 }
 
 export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  /** Normalized reference spell types used by some deterministic unknown-amount loops. */
+  readonly referenceSpellTypes?: readonly string[];
   /**
    * Optional selector bindings supplied by the caller from trigger/target resolution context.
    * This allows relational selectors such as "each of those opponents" to execute
@@ -77,6 +81,14 @@ export function buildOracleIRExecutionContext(
       seen.add(normalized);
       out.push(normalized);
     }
+    return out.length > 0 ? out : undefined;
+  };
+
+  const normalizeSpellTypes = (value: unknown): readonly string[] | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const lower = value.toLowerCase();
+    const known = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'tribal'];
+    const out = known.filter(type => lower.includes(type));
     return out.length > 0 ? out : undefined;
   };
 
@@ -139,12 +151,27 @@ export function buildOracleIRExecutionContext(
     ...(sanitizedEachOfThoseOpponents ? { eachOfThoseOpponents: sanitizedEachOfThoseOpponents } : {}),
   };
 
+  const referenceSpellTypes =
+    normalizeSpellTypes(hint?.spellType) ??
+    (Array.isArray(base.referenceSpellTypes) && base.referenceSpellTypes.length > 0
+      ? base.referenceSpellTypes
+      : undefined);
+
   if (!selectorContext.targetPlayerId && !selectorContext.targetOpponentId && !selectorContext.eachOfThoseOpponents) {
-    if (normalizedControllerId === base.controllerId) return base;
-    return { ...base, controllerId: normalizedControllerId };
+    if (normalizedControllerId === base.controllerId && !referenceSpellTypes) return base;
+    return {
+      ...base,
+      controllerId: normalizedControllerId,
+      ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
+    };
   }
 
-  return { ...base, controllerId: normalizedControllerId, selectorContext };
+  return {
+    ...base,
+    controllerId: normalizedControllerId,
+    selectorContext,
+    ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
+  };
 }
 
 export interface OracleIRExecutionResult {
@@ -272,6 +299,315 @@ type SimplePermanentType =
 function quantityToNumber(qty: OracleQuantity): number | null {
   if (qty.kind === 'number') return qty.value;
   return null;
+}
+
+function normalizeOracleText(value: string): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.;:,]+$/g, '')
+    .trim();
+}
+
+function getCardTypeLineLower(card: any): string {
+  return String(card?.type_line || card?.card?.type_line || '')
+    .toLowerCase()
+    .trim();
+}
+
+function getCardTypesFromTypeLine(card: any): readonly string[] | null {
+  const tl = getCardTypeLineLower(card);
+  if (!tl) return null;
+  const known = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'tribal'];
+  const out = known.filter(type => tl.includes(type));
+  return out.length > 0 ? out : null;
+}
+
+function getCardManaValue(card: any): number | null {
+  const raw =
+    card?.manaValue ??
+    card?.mana_value ??
+    card?.cmc ??
+    card?.card?.manaValue ??
+    card?.card?.mana_value ??
+    card?.card?.cmc;
+
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function resolveUnknownExileUntilAmountForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  qty: OracleQuantity,
+  ctx?: OracleIRExecutionContext
+): number | null {
+  if (qty.kind !== 'unknown') return null;
+
+  const raw = normalizeOracleText(String((qty as any).raw || ''));
+  if (!raw.startsWith('until ')) return null;
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return null;
+  const library: any[] = Array.isArray(player.library) ? player.library : [];
+
+  if (raw === 'until they exile a nonland card' || raw === 'until you exile a nonland card') {
+    for (let i = 0; i < library.length; i++) {
+      const typeLine = getCardTypeLineLower(library[i]);
+      if (!typeLine) return null;
+      const isLand = typeLine.includes('land');
+      if (!isLand) return i + 1;
+    }
+    return library.length;
+  }
+
+  if (
+    raw === 'until they exile an instant or sorcery card' ||
+    raw === 'until you exile an instant or sorcery card'
+  ) {
+    for (let i = 0; i < library.length; i++) {
+      const typeLine = getCardTypeLineLower(library[i]);
+      if (!typeLine) return null;
+      const isInstantOrSorcery = typeLine.includes('instant') || typeLine.includes('sorcery');
+      if (isInstantOrSorcery) return i + 1;
+    }
+    return library.length;
+  }
+
+  if (raw === 'until you exile a legendary card' || raw === 'until they exile a legendary card') {
+    for (let i = 0; i < library.length; i++) {
+      const typeLine = getCardTypeLineLower(library[i]);
+      if (!typeLine) return null;
+      if (typeLine.includes('legendary')) return i + 1;
+    }
+    return library.length;
+  }
+
+  const totalMvMatch = raw.match(
+    /^until (?:they|you) have exiled cards with total mana value (\d+) or greater(?: this way)?$/
+  );
+  if (totalMvMatch) {
+    const threshold = Number(totalMvMatch[1]);
+    if (!Number.isFinite(threshold) || threshold <= 0) return null;
+
+    let total = 0;
+    for (let i = 0; i < library.length; i++) {
+      const manaValue = getCardManaValue(library[i]);
+      if (manaValue === null) return null;
+      total += manaValue;
+      if (total >= threshold) return i + 1;
+    }
+    return library.length;
+  }
+
+  if (
+    raw === 'until they exile a card that shares a card type with it' ||
+    raw === 'until you exile a card that shares a card type with it'
+  ) {
+    const refTypes = Array.isArray(ctx?.referenceSpellTypes)
+      ? new Set(ctx!.referenceSpellTypes.map(t => String(t || '').toLowerCase()).filter(Boolean))
+      : null;
+    if (!refTypes || refTypes.size === 0) return null;
+
+    for (let i = 0; i < library.length; i++) {
+      const cardTypes = getCardTypesFromTypeLine(library[i]);
+      if (!cardTypes) return null;
+      const sharesType = cardTypes.some(type => refTypes.has(type));
+      if (sharesType) return i + 1;
+    }
+    return library.length;
+  }
+
+  return null;
+}
+
+function resolveUnknownMillUntilAmountForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  qty: OracleQuantity
+): number | null {
+  if (qty.kind !== 'unknown') return null;
+
+  const raw = normalizeOracleText(String((qty as any).raw || ''));
+  if (raw !== 'until they reveal a land card' && raw !== 'until you reveal a land card') {
+    return null;
+  }
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return null;
+  const library: any[] = Array.isArray(player.library) ? player.library : [];
+
+  for (let i = 0; i < library.length; i++) {
+    const typeLine = getCardTypeLineLower(library[i]);
+    if (!typeLine) return null;
+    if (typeLine.includes('land')) return i + 1;
+  }
+
+  return library.length;
+}
+
+function resolveTrepanationBoostTargetCreatureId(
+  state: GameState,
+  ctx: OracleIRExecutionContext
+): string | undefined {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const sourceId = String(ctx.sourceId || '').trim();
+
+  if (sourceId) {
+    const sourcePerm = battlefield.find(p => p.id === sourceId) as any;
+    const attachedTo = String(sourcePerm?.attachedTo || '').trim();
+    if (attachedTo && battlefield.some(p => p.id === attachedTo)) return attachedTo;
+  }
+
+  const attackers = battlefield.filter(p => String((p as any)?.attacking || '').trim().length > 0);
+  if (attackers.length === 1) return attackers[0].id;
+  return undefined;
+}
+
+function resolveSingleCreatureTargetId(
+  state: GameState,
+  target: OracleObjectSelector,
+  ctx: OracleIRExecutionContext
+): string | undefined {
+  if (target.kind === 'equipped_creature') {
+    return resolveTrepanationBoostTargetCreatureId(state, ctx);
+  }
+
+  if (target.kind !== 'raw') return undefined;
+  const t = String(target.text || '').trim().toLowerCase();
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const creatures = battlefield.filter((p: any) => {
+    const cardType = String((p as any)?.cardType || '').toLowerCase();
+    const typeLine = String((p as any)?.type_line || '').toLowerCase();
+    return cardType.includes('creature') || typeLine.includes('creature');
+  });
+
+  if (t === 'target creature' || t === 'creature' || t.includes('target creature')) {
+    if (creatures.length === 1) return creatures[0].id;
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function applyTemporaryPowerToughnessModifier(
+  state: GameState,
+  creatureId: string,
+  ctx: OracleIRExecutionContext,
+  powerBonus: number,
+  toughnessBonus: number,
+  markTrepanation: boolean
+): GameState | null {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const idx = battlefield.findIndex(p => p.id === creatureId);
+  if (idx < 0) return null;
+
+  const perm: any = battlefield[idx] as any;
+  const modifiers = Array.isArray(perm.modifiers) ? [...perm.modifiers] : [];
+  modifiers.push({
+    type: 'powerToughness',
+    power: powerBonus,
+    toughness: toughnessBonus,
+    sourceId: ctx.sourceId,
+    duration: 'end_of_turn',
+  } as any);
+
+  const nextPerm: any = {
+    ...perm,
+    modifiers,
+  };
+
+  if (markTrepanation) {
+    nextPerm.trepanationBonus = powerBonus;
+    nextPerm.lastTrepanationBonus = powerBonus;
+  }
+
+  battlefield[idx] = nextPerm as any;
+  return { ...(state as any), battlefield } as any;
+}
+
+function evaluateModifyPtCondition(
+  state: GameState,
+  controllerId: PlayerID,
+  conditionRaw: string
+): boolean | null {
+  const raw = normalizeOracleText(conditionRaw);
+  if (!raw) return null;
+
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
+
+  const typeLineLower = (p: any): string =>
+    String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '')
+      .toLowerCase()
+      .trim();
+
+  const normalizeClass = (s: string): string | null => normalizeControlledClassKey(s);
+  const countByClass = (klass: string): number => countControlledByClass(controlled, klass, typeLineLower);
+
+  const mCount = raw.match(/^you control (\d+) or more (.+)$/i);
+  if (mCount) {
+    const threshold = parseInt(String(mCount[1] || '0'), 10) || 0;
+    const klass = normalizeClass(String(mCount[2] || ''));
+    if (!klass) return null;
+    return countByClass(klass) >= threshold;
+  }
+
+  const mAny = raw.match(/^you control (?:(?:a|an)\s+)?(.+)$/i);
+  if (mAny) {
+    const klass = normalizeClass(String(mAny[1] || ''));
+    if (!klass) return null;
+    return countByClass(klass) > 0;
+  }
+
+  return null;
+}
+
+function normalizeControlledClassKey(s: string): string | null {
+  const x = String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (/^creatures?$/.test(x)) return 'creature';
+  if (/^artifacts?$/.test(x)) return 'artifact';
+  if (/^enchantments?$/.test(x)) return 'enchantment';
+  if (/^lands?$/.test(x)) return 'land';
+  if (/^planeswalkers?$/.test(x)) return 'planeswalker';
+  if (/^nonland permanents?$/.test(x)) return 'nonland permanent';
+  if (/^permanents?$/.test(x)) return 'permanent';
+  return null;
+}
+
+function countControlledByClass(
+  controlled: readonly BattlefieldPermanent[],
+  klass: string,
+  typeLineLower: (p: any) => string
+): number {
+  if (klass === 'permanent') return controlled.length;
+  if (klass === 'nonland permanent') {
+    return controlled.filter(p => !typeLineLower(p).includes('land')).length;
+  }
+  return controlled.filter(p => typeLineLower(p).includes(klass)).length;
+}
+
+function evaluateModifyPtWhereX(
+  state: GameState,
+  controllerId: PlayerID,
+  whereRaw: string
+): number | null {
+  const raw = normalizeOracleText(whereRaw);
+  const m = raw.match(/^x is the number of (.+) you control$/i);
+  if (!m) return null;
+
+  const klass = normalizeControlledClassKey(String(m[1] || ''));
+  if (!klass) return null;
+
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
+  const typeLineLower = (p: any): string =>
+    String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '')
+      .toLowerCase()
+      .trim();
+  return countControlledByClass(controlled, klass, typeLineLower);
 }
 
 function resolvePlayers(
@@ -602,6 +938,112 @@ function exileTopCardsForPlayer(
     state: { ...state, players: updatedPlayers as any },
     log: exiled.length > 0 ? [`${playerId} exiles ${exiled.length} card(s) from the top of their library`] : log,
     exiled,
+  };
+}
+
+function shouldReturnUncastExiledToBottom(step: any): boolean {
+  const t = normalizeOracleText(String(step?.raw || ''));
+  if (
+    (/\bput\s+the\s+exiled\s+cards\b/.test(t) && /\bon\s+the\s+bottom\s+of\s+that\s+library\b/.test(t)) ||
+    (/\bput\s+all\s+cards\s+exiled\b/.test(t) && /\bon\s+the\s+bottom\s+of\s+their\s+library\b/.test(t))
+  ) {
+    return true;
+  }
+
+  // Parser can split trailing bottom-of-library rider into a separate sentence,
+  // so infer known deterministic templates by their parsed impulse shape.
+  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
+  const who = String(step?.who?.kind || '');
+  return (
+    step?.kind === 'impulse_exile_top' &&
+    step?.duration === 'during_resolution' &&
+    step?.permission === 'cast' &&
+    step?.amount?.kind === 'unknown' &&
+    (who === 'target_opponent' || who === 'target_player') &&
+    (amountRaw === 'until they exile an instant or sorcery card' ||
+      amountRaw === 'until you exile an instant or sorcery card' ||
+      amountRaw === 'until they exile a card that shares a card type with it' ||
+      amountRaw === 'until you exile a card that shares a card type with it')
+  );
+}
+
+function shouldShuffleRestIntoLibrary(step: any): boolean {
+  const t = normalizeOracleText(String(step?.raw || ''));
+  if (/\bthen\s+shuffles\s+the\s+rest\s+into\s+(?:their|his\s+or\s+her|your)\s+library\b/.test(t)) {
+    return true;
+  }
+
+  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
+  const who = String(step?.who?.kind || '');
+  return (
+    step?.kind === 'impulse_exile_top' &&
+    step?.duration === 'during_resolution' &&
+    step?.permission === 'cast' &&
+    step?.amount?.kind === 'unknown' &&
+    who === 'each_opponent' &&
+    (amountRaw === 'until they exile an instant or sorcery card' ||
+      amountRaw === 'until you exile an instant or sorcery card')
+  );
+}
+
+function splitExiledForShuffleRest(step: any, exiled: readonly any[]): { keepExiled: readonly any[]; returnToLibrary: readonly any[] } {
+  const all = Array.isArray(exiled) ? exiled : [];
+  if (all.length === 0) return { keepExiled: [], returnToLibrary: [] };
+
+  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
+
+  if (
+    amountRaw === 'until they exile an instant or sorcery card' ||
+    amountRaw === 'until you exile an instant or sorcery card'
+  ) {
+    const last = all[all.length - 1];
+    const typeLine = getCardTypeLineLower(last);
+    const hit = typeLine.includes('instant') || typeLine.includes('sorcery');
+    if (!hit) return { keepExiled: [], returnToLibrary: all };
+    return { keepExiled: [last], returnToLibrary: all.slice(0, -1) };
+  }
+
+  // Unsupported shuffle-rest criteria remain conservative: do not mutate zones.
+  return { keepExiled: all, returnToLibrary: [] };
+}
+
+function putSpecificExiledCardsOnLibraryBottom(
+  state: GameState,
+  playerId: PlayerID,
+  cards: readonly any[]
+): { state: GameState; moved: number; log: string[] } {
+  if (!Array.isArray(cards) || cards.length === 0) return { state, moved: 0, log: [] };
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { state, moved: 0, log: [] };
+
+  const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+  const library = Array.isArray(player.library) ? [...player.library] : [];
+
+  const wantedIds = new Set(
+    cards
+      .map(c => String((c as any)?.id ?? (c as any)?.cardId ?? '').trim())
+      .filter(Boolean)
+  );
+  if (wantedIds.size === 0) return { state, moved: 0, log: [] };
+
+  const kept: any[] = [];
+  const moved: any[] = [];
+  for (const card of exile) {
+    const id = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
+    if (id && wantedIds.has(id)) moved.push(card);
+    else kept.push(card);
+  }
+
+  if (moved.length === 0) return { state, moved: 0, log: [] };
+
+  const nextState = clearPlayableFromExileForCards(state, playerId, moved);
+  const movedClean = moved.map(stripImpulsePermissionMarkers);
+  const nextPlayer: any = { ...(player as any), exile: kept, library: [...library, ...movedClean] };
+  const updatedPlayers = nextState.players.map(p => (p.id === playerId ? nextPlayer : p));
+  return {
+    state: { ...nextState, players: updatedPlayers as any } as any,
+    moved: moved.length,
+    log: [`${playerId} puts ${moved.length} exiled card(s) on the bottom of their library`],
   };
 }
 
@@ -1849,6 +2291,7 @@ export function applyOracleIRStepsToGameState(
   const appliedSteps: OracleEffectStep[] = [];
   const skippedSteps: OracleEffectStep[] = [];
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  let lastRevealedCardCount = 0;
 
   let nextState = state;
 
@@ -1862,13 +2305,6 @@ export function applyOracleIRStepsToGameState(
 
     switch (step.kind) {
       case 'exile_top': {
-        const amount = quantityToNumber(step.amount);
-        if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped exile top (unknown amount): ${step.raw}`);
-          break;
-        }
-
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
           skippedSteps.push(step);
@@ -1876,7 +2312,26 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
+        const exileCountByPlayer = new Map<PlayerID, number>();
         for (const playerId of players) {
+          const resolvedCount =
+            quantityToNumber(step.amount) ??
+            resolveUnknownExileUntilAmountForPlayer(nextState, playerId, step.amount, ctx);
+          if (resolvedCount === null) {
+            skippedSteps.push(step);
+            log.push(`Skipped exile top (unknown amount): ${step.raw}`);
+            exileCountByPlayer.clear();
+            break;
+          }
+          exileCountByPlayer.set(playerId, resolvedCount);
+        }
+
+        if (exileCountByPlayer.size === 0) {
+          break;
+        }
+
+        for (const playerId of players) {
+          const amount = exileCountByPlayer.get(playerId) ?? 0;
           const r = exileTopCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
           log.push(...r.log);
@@ -1887,17 +2342,28 @@ export function applyOracleIRStepsToGameState(
       }
 
       case 'impulse_exile_top': {
-        const amount = quantityToNumber(step.amount);
-        if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped impulse exile top (unknown amount): ${step.raw}`);
-          break;
-        }
-
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
           skippedSteps.push(step);
           log.push(`Skipped impulse exile top (unsupported player selector): ${step.raw}`);
+          break;
+        }
+
+        const exileCountByPlayer = new Map<PlayerID, number>();
+        for (const playerId of players) {
+          const resolvedCount =
+            quantityToNumber(step.amount) ??
+            resolveUnknownExileUntilAmountForPlayer(nextState, playerId, step.amount, ctx);
+          if (resolvedCount === null) {
+            skippedSteps.push(step);
+            log.push(`Skipped impulse exile top (unknown amount): ${step.raw}`);
+            exileCountByPlayer.clear();
+            break;
+          }
+          exileCountByPlayer.set(playerId, resolvedCount);
+        }
+
+        if (exileCountByPlayer.size === 0) {
           break;
         }
 
@@ -1911,8 +2377,11 @@ export function applyOracleIRStepsToGameState(
         const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(nextState, (step as any).duration);
         const condition = (step as any).condition;
         const exiledBy = ctx.sourceName;
+        const returnUncastToBottom = shouldReturnUncastExiledToBottom(step as any);
+        const shuffleRestIntoLibrary = shouldShuffleRestIntoLibrary(step as any);
 
         for (const playerId of players) {
+          const amount = exileCountByPlayer.get(playerId) ?? 0;
           const r = exileTopCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
           log.push(...r.log);
@@ -1926,6 +2395,21 @@ export function applyOracleIRStepsToGameState(
           nextState = markerResult.state;
           if (markerResult.granted > 0) {
             log.push(`${playerId} may ${permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} exiled card(s)`);
+          }
+
+          if (shuffleRestIntoLibrary && r.exiled.length > 0) {
+            const split = splitExiledForShuffleRest(step as any, r.exiled);
+            if (split.returnToLibrary.length > 0) {
+              const shuffledRestResult = putSpecificExiledCardsOnLibraryBottom(nextState, playerId, split.returnToLibrary);
+              nextState = shuffledRestResult.state;
+              log.push(...shuffledRestResult.log);
+            }
+          }
+
+          if (returnUncastToBottom && r.exiled.length > 0) {
+            const bottomResult = putSpecificExiledCardsOnLibraryBottom(nextState, playerId, r.exiled);
+            nextState = bottomResult.state;
+            log.push(...bottomResult.log);
           }
         }
 
@@ -2071,13 +2555,6 @@ export function applyOracleIRStepsToGameState(
       }
 
       case 'mill': {
-        const amount = quantityToNumber(step.amount);
-        if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped mill (unknown amount): ${step.raw}`);
-          break;
-        }
-
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
           skippedSteps.push(step);
@@ -2085,12 +2562,143 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
+        const millCountByPlayer = new Map<PlayerID, number>();
         for (const playerId of players) {
+          const resolvedCount =
+            quantityToNumber(step.amount) ??
+            resolveUnknownMillUntilAmountForPlayer(nextState, playerId, step.amount);
+          if (resolvedCount === null) {
+            skippedSteps.push(step);
+            log.push(`Skipped mill (unknown amount): ${step.raw}`);
+            millCountByPlayer.clear();
+            break;
+          }
+          millCountByPlayer.set(playerId, resolvedCount);
+        }
+
+        if (millCountByPlayer.size === 0) {
+          break;
+        }
+
+        for (const playerId of players) {
+          const amount = millCountByPlayer.get(playerId) ?? 0;
           const r = millCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
           log.push(...r.log);
         }
 
+        const unknownRaw = String((step.amount as any)?.raw || '').toLowerCase();
+        const isRevealThisWay = step.amount.kind === 'unknown' && unknownRaw.includes('reveal a land card');
+        if (isRevealThisWay) {
+          lastRevealedCardCount = Array.from(millCountByPlayer.values()).reduce((sum, n) => sum + (Number(n) || 0), 0);
+        }
+
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'modify_pt': {
+        const targetCreatureId = resolveSingleCreatureTargetId(nextState, step.target, ctx);
+        if (!targetCreatureId) {
+          skippedSteps.push(step);
+          log.push(`Skipped P/T modifier (no deterministic creature target): ${step.raw}`);
+          break;
+        }
+
+        let whereXValue: number | null = null;
+
+        if (step.condition) {
+          if (step.condition.kind === 'where') {
+            whereXValue = evaluateModifyPtWhereX(nextState, controllerId, step.condition.raw);
+            if (whereXValue === null) {
+              skippedSteps.push(step);
+              log.push(`Skipped P/T modifier (unsupported where-clause): ${step.raw}`);
+              break;
+            }
+          } else {
+            const cond = evaluateModifyPtCondition(nextState, controllerId, step.condition.raw);
+            if (cond === null) {
+              skippedSteps.push(step);
+              log.push(`Skipped P/T modifier (unsupported condition clause): ${step.raw}`);
+              break;
+            }
+            if (!cond) {
+              skippedSteps.push(step);
+              log.push(`Skipped P/T modifier (condition false): ${step.raw}`);
+              break;
+            }
+          }
+        }
+
+        if (step.scaler?.kind === 'unknown') {
+          skippedSteps.push(step);
+          log.push(`Skipped P/T modifier (unsupported scaler): ${step.raw}`);
+          break;
+        }
+
+        const scale = step.scaler?.kind === 'per_revealed_this_way'
+          ? Math.max(0, lastRevealedCardCount | 0)
+          : 1;
+
+        if ((step.powerUsesX || step.toughnessUsesX) && whereXValue === null) {
+          skippedSteps.push(step);
+          log.push(`Skipped P/T modifier (X used without supported where-clause): ${step.raw}`);
+          break;
+        }
+
+        const basePower = step.powerUsesX ? ((step.power | 0) * (whereXValue ?? 0)) : (step.power | 0);
+        const baseToughness = step.toughnessUsesX ? ((step.toughness | 0) * (whereXValue ?? 0)) : (step.toughness | 0);
+        const powerBonus = basePower * scale;
+        const toughnessBonus = baseToughness * scale;
+        const next = applyTemporaryPowerToughnessModifier(
+          nextState,
+          targetCreatureId,
+          ctx,
+          powerBonus,
+          toughnessBonus,
+          step.scaler?.kind === 'per_revealed_this_way'
+        );
+
+        if (!next) {
+          skippedSteps.push(step);
+          log.push(`Skipped P/T modifier (target not on battlefield): ${step.raw}`);
+          break;
+        }
+
+        nextState = next;
+        log.push(`${targetCreatureId} gets +${powerBonus}/+${toughnessBonus} until end of turn`);
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'modify_pt_per_revealed': {
+        const targetCreatureId = resolveTrepanationBoostTargetCreatureId(nextState, ctx);
+        if (!targetCreatureId) {
+          skippedSteps.push(step);
+          log.push(`Skipped P/T modifier (no deterministic creature target): ${step.raw}`);
+          break;
+        }
+
+        const revealed = Math.max(0, lastRevealedCardCount | 0);
+        const powerBonus = revealed * (step.powerPerCard | 0);
+        const toughnessBonus = revealed * (step.toughnessPerCard | 0);
+
+        const next = applyTemporaryPowerToughnessModifier(
+          nextState,
+          targetCreatureId,
+          ctx,
+          powerBonus,
+          toughnessBonus,
+          true
+        );
+        if (!next) {
+          skippedSteps.push(step);
+          log.push(`Skipped P/T modifier (target not on battlefield): ${step.raw}`);
+          break;
+        }
+
+        nextState = next;
+        log.push(`${targetCreatureId} gets +${powerBonus}/+${toughnessBonus} until end of turn`);
         appliedSteps.push(step);
         break;
       }

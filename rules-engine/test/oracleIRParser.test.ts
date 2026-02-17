@@ -570,6 +570,115 @@ describe('Oracle IR Parser', () => {
     expect(mill.amount).toEqual({ kind: 'number', value: 2 });
   });
 
+  it('parses Trepanation Blade reveal-until-land clause into mill unknown amount', () => {
+    const text =
+      'Whenever equipped creature attacks, defending player reveals cards from the top of their library until they reveal a land card. The creature gets +1/+0 until end of turn for each card revealed this way. That player puts the revealed cards into their graveyard.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities.find(a => a.type === 'triggered')!;
+    expect(ability).toBeTruthy();
+
+    const mill = ability.steps.find(s => s.kind === 'mill') as any;
+    expect(mill).toBeTruthy();
+    expect(mill.who).toEqual({ kind: 'target_opponent' });
+    expect(mill.amount).toEqual({ kind: 'unknown', raw: 'until they reveal a land card' });
+
+    const pump = ability.steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.target).toEqual({ kind: 'equipped_creature' });
+    expect(pump.power).toBe(1);
+    expect(pump.toughness).toBe(0);
+    expect(pump.duration).toBe('end_of_turn');
+    expect(pump.scaler).toEqual({ kind: 'per_revealed_this_way' });
+  });
+
+  it('parses Giant Growth style target creature gets +3/+3 until end of turn into composable modify_pt', () => {
+    const text = 'Target creature gets +3/+3 until end of turn.';
+    const ir = parseOracleTextToIR(text, 'Giant Growth');
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.target).toEqual({ kind: 'raw', text: 'target creature' });
+    expect(pump.power).toBe(3);
+    expect(pump.toughness).toBe(3);
+    expect(pump.duration).toBe('end_of_turn');
+    expect(pump.scaler).toBeUndefined();
+  });
+
+  it('parses unsupported for-each tails into unknown modify_pt scaler for future automation', () => {
+    const text = 'Target creature gets +1/+1 until end of turn for each opponent you attacked with a creature this combat.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.target).toEqual({ kind: 'raw', text: 'target creature' });
+    expect(pump.power).toBe(1);
+    expect(pump.toughness).toBe(1);
+    expect(pump.duration).toBe('end_of_turn');
+    expect(pump.scaler).toEqual({ kind: 'unknown', raw: 'for each opponent you attacked with a creature this combat' });
+  });
+
+  it('parses leading if clause into modify_pt condition metadata', () => {
+    const text = 'If you control an artifact, target creature gets +2/+2 until end of turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.target).toEqual({ kind: 'raw', text: 'target creature' });
+    expect(pump.power).toBe(2);
+    expect(pump.toughness).toBe(2);
+    expect(pump.condition).toEqual({ kind: 'if', raw: 'you control an artifact' });
+  });
+
+  it('parses trailing as long as clause into modify_pt condition metadata', () => {
+    const text = 'Target creature gets +2/+2 until end of turn as long as you control an artifact.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.condition).toEqual({ kind: 'as_long_as', raw: 'you control an artifact' });
+  });
+
+  it('parses trailing where clause into modify_pt condition metadata', () => {
+    const text = 'Target creature gets +2/+2 until end of turn where X is the number of artifacts you control.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.condition).toEqual({ kind: 'where', raw: 'X is the number of artifacts you control' });
+  });
+
+  it('parses X-based modify_pt components with where-clause definition', () => {
+    const text = 'Target creature gets +X/+X until end of turn where X is the number of artifacts you control.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.power).toBe(1);
+    expect(pump.toughness).toBe(1);
+    expect(pump.powerUsesX).toBe(true);
+    expect(pump.toughnessUsesX).toBe(true);
+    expect(pump.condition).toEqual({ kind: 'where', raw: 'X is the number of artifacts you control' });
+  });
+
+  it('parses Undercity Informer activated reveal-until-land clause into mill unknown amount', () => {
+    const text =
+      '{1}, Sacrifice a creature: Target player reveals cards from the top of their library until they reveal a land card, then puts those cards into their graveyard.';
+    const ir = parseOracleTextToIR(text);
+    const ability = ir.abilities.find(a => a.type === 'activated')!;
+    expect(ability).toBeTruthy();
+
+    const mill = ability.steps.find(s => s.kind === 'mill') as any;
+    expect(mill).toBeTruthy();
+    expect(mill.who).toEqual({ kind: 'target_player' });
+    expect(mill.amount).toEqual({ kind: 'unknown', raw: 'until they reveal a land card' });
+  });
+
   it('parses scry and surveil clauses into IR steps', () => {
     const text = 'Scry 2. Then surveil 1.';
     const ir = parseOracleTextToIR(text);
@@ -1183,6 +1292,19 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('cast');
   });
 
+  it('parses impulse exile-top when permission uses "can" for "its owner" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can cast it this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
   it('parses impulse exile-top when permission is granted to "its owner" for plural exile (target player)', () => {
     const text = 'Target player exiles the top two cards of their library. Its owner may cast them this turn.';
     const ir = parseOracleTextToIR(text);
@@ -1234,6 +1356,944 @@ describe('Oracle IR Parser', () => {
     expect(impulse.who).toEqual({ kind: 'target_player' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through end of this turn" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it through end of this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "during their next turn" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it during their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until the end of their next turn" (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner may cast it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until the end of their next turn" (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner can cast it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until the beginning of their next upkeep" (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner may cast it until the beginning of their next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until your next end step" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until your next end step" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can cast it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through their next turn" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through their next turn" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can cast it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next upkeep" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it through your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next end step" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may cast it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through your next end step" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can cast it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until end of combat on their next turn" (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner may cast it until end of combat on their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_combat_on_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its owner may cast it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" with owner can-cast permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its owner can cast it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" with play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its owner may play it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" with owner can-play permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its owner can play it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "during their next turn" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may play it during their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "during their next turn" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can play it during their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "until the end of their next turn" with owner play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner may play it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until the end of their next turn" with owner play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner can play it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next upkeep" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may play it through your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through your next upkeep" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can play it through your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next end step" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may play it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through your next end step" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can play it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "through their next turn" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may play it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through their next turn" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can play it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "until the beginning of their next upkeep" with owner play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner may play it until the beginning of their next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until the beginning of their next upkeep" with owner play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its owner can play it until the beginning of their next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "until your next end step" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner may play it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until your next end step" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its owner can play it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next end step" with owner play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next end step, its owner may play it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its controller may play it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" with controller can-play permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its controller can play it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next end step" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next end step, its controller may play it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its controller may cast it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next turn" with controller can-cast permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next turn, its controller can cast it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next end step" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next end step, its controller may cast it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next end step" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may play it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "during their next turn" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may play it during their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "during their next turn" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can play it during their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "until the end of their next turn" with controller play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its controller may play it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until the end of their next turn" with controller play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its controller can play it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next upkeep" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may play it through your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through your next upkeep" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can play it through your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "through their next turn" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may play it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through their next turn" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can play it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "until the beginning of their next upkeep" with controller play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its controller may play it until the beginning of their next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until the beginning of their next upkeep" with controller play-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its controller can play it until the beginning of their next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "until your next end step" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may play it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can play it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through your next end step" with controller play-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can play it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next upkeep" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it through your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through your next upkeep" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can cast it through your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "this turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until the end of this turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it until the end of this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through end of this turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it through end of this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until your next end step" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until your next end step" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can cast it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through your next end step" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through your next end step" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can cast it through your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "during their next turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it during their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "during their next turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can cast it during their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('during_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "through their next turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "through their next turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can cast it through their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until the end of their next turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller may cast it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until the end of their next turn" with controller cast-permission (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Its controller can cast it until the end of their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until the beginning of their next upkeep" with controller cast-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its controller may cast it until the beginning of their next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "can" + "until the beginning of their next upkeep" with controller cast-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its controller can cast it until the beginning of their next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_upkeep');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses "until end of combat on their next turn" with controller cast-permission (target player)', () => {
+    const text =
+      'Target player exiles the top card of their library. Its controller may cast it until end of combat on their next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_end_of_combat_on_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top when permission uses leading "until your next end step" (target player)', () => {
+    const text = 'Target player exiles the top card of their library. Until your next end step, its owner may cast it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('until_next_end_step');
     expect(impulse.permission).toBe('cast');
   });
 
@@ -1640,6 +2700,28 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses impulse exile-top with next-turn permission (trailing until, can-alias, missing "the")', () => {
+    const text = 'Exile the top card of your library. You can play that card until end of your next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with next-turn permission (trailing until, can-alias, end of the next turn)', () => {
+    const text = 'Exile the top card of your library. You can play that card until end of the next turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse exile-top with next-turn permission (trailing until, end of the next turn)', () => {
     const text = 'Exile the top card of your library. You may play that card until end of the next turn.';
     const ir = parseOracleTextToIR(text);
@@ -1676,6 +2758,28 @@ describe('Oracle IR Parser', () => {
 
   it('parses impulse exile-top with next-end-step permission (trailing)', () => {
     const text = 'Exile the top card of your library. You may play it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with next-end-step permission (trailing can-alias)', () => {
+    const text = 'Exile the top card of your library. You can play it until your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('until_next_end_step');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses impulse exile-top with next-end-step permission (through trailing can-alias)', () => {
+    const text = 'Exile the top card of your library. You can play it through your next end step.';
     const ir = parseOracleTextToIR(text);
     const steps = ir.abilities[0].steps;
 
@@ -2423,6 +3527,18 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('parses impulse exile-top with "until the end of your next turn, you may play them" wording', () => {
+    const text = 'Exile the top two cards of your library. Until the end of your next turn, you may play them.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.amount).toEqual({ kind: 'number', value: 2 });
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse exile-top with "you may play those cards this turn" wording', () => {
     const text = 'Exile the top two cards of your library. You may play those cards this turn.';
     const ir = parseOracleTextToIR(text);
@@ -2491,6 +3607,40 @@ describe('Oracle IR Parser', () => {
     const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
     expect(impulse).toBeTruthy();
     expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with "you can cast it this turn" wording', () => {
+    const text = 'Exile the top card of your library. You can cast it this turn.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('this_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with "until the end of your next turn, you may cast that card" wording', () => {
+    const text = 'Exile the top card of your library. Until the end of your next turn, you may cast that card.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('until_end_of_next_turn');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it('parses impulse exile-top with next-turn cast + mana-rider wording', () => {
+    const text =
+      'Exile the top card of your library. Until the end of your next turn, you may cast that card and you may spend mana as though it were mana of any color to cast that spell.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.duration).toBe('until_end_of_next_turn');
     expect(impulse.permission).toBe('cast');
   });
 
@@ -3271,6 +4421,67 @@ describe('Oracle IR Parser', () => {
     expect(impulse.duration).toBe('as_long_as_remains_exiled');
     expect(impulse.permission).toBe('cast');
   });
+
+  it("parses combined look+exile face-down impulse with cast + mana-rider (that player's library)", () => {
+    const text =
+      "Create a Treasure token, then look at the top card of that player's library and exile it face down. You may cast that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('cast');
+  });
+
+  it("parses combined look+exile face-down impulse with play + mana-rider (that player's library)", () => {
+    const text =
+      "Look at the top card of that player's library, then exile it face down. You may play that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it("parses Gonti-Night-Minister-style look-then-exile play+rider sentence", () => {
+    const text =
+      "Whenever one or more creatures you control deal combat damage to a player, look at the top card of that player's library, then exile it face down. You may play that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.";
+
+    const ir = parseOracleTextToIR(text);
+    const allSteps = ir.abilities.flatMap(a => a.steps);
+
+    const impulse = allSteps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_player' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
+  it('parses Thought-String-Analyst-style singular look+play remains-exiled mana-rider text', () => {
+    const text =
+      "At the beginning of your upkeep, exile the top card of target opponent's library face down. You lose life equal to its mana value. You may look at and play that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.";
+
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const impulse = steps.find(s => s.kind === 'impulse_exile_top') as any;
+    expect(impulse).toBeTruthy();
+    expect(impulse.who).toEqual({ kind: 'target_opponent' });
+    expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
+    expect(impulse.duration).toBe('as_long_as_remains_exiled');
+    expect(impulse.permission).toBe('play');
+  });
+
   it('parses impulse with variable exile amount "a number of ... equal to ..." and a choose-card clause', () => {
     // Corpus example: End-Blaze Epiphany
     const oracleText =

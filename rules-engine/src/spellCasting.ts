@@ -176,6 +176,7 @@ export interface StackObject {
       readonly lifeGained?: number;
       readonly damageDealt?: number;
       readonly cardsDrawn?: number;
+      readonly spellType?: string;
       readonly isYourTurn?: boolean;
       readonly isOpponentsTurn?: boolean;
       readonly battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];

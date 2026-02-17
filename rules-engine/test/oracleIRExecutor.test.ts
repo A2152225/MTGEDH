@@ -831,9 +831,51 @@ describe('Oracle IR Executor', () => {
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
-    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect(p2.exile || []).toHaveLength(2);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+  });
+
+  it('applies impulse_exile_top for target_opponent remains-exiled cast + mana-rider template', () => {
+    const ir = parseOracleTextToIR(
+      "Look at the top card of target opponent's library, then exile it face down. You may cast that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
   });
 
   it('applies standalone split-clause look-top-two then exile-those-cards face-down exile_top in 1v1', () => {
@@ -1971,6 +2013,54 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
   });
 
+  it('applies impulse_exile_top when permission uses "can" for "its owner" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can cast it this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c66' }, { id: 'p2c67' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c67']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c66']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
   it('applies impulse_exile_top when permission is granted to "its owner" for plural exile (target player)', () => {
     const ir = parseOracleTextToIR(
       'Target player exiles the top two cards of their library. Its owner may cast them this turn.',
@@ -2163,6 +2253,3631 @@ describe('Oracle IR Executor', () => {
     expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
     expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through end of this turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it through end of this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "during their next turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it during their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the end of their next turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until the end of their next turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can cast it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c72' }, { id: 'p2c73' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c73']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c72']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the beginning of their next upkeep" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it until the beginning of their next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until your next end step" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until your next end step" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can cast it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c74' }, { id: 'p2c75' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c75']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c74']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through their next turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through their next turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can cast it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c76' }, { id: 'p2c77' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c77']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c76']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next upkeep" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it through your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next end step" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through your next end step" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can cast it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c78' }, { id: 'p2c79' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c79']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c78']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until end of combat on their next turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may cast it until end of combat on their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses leading "until your next turn" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its owner may cast it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses leading "until your next turn" with owner can-cast permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its owner can cast it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c68' }, { id: 'p2c69' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c69']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c68']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next turn" grants owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its owner may play it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land1', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land1']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land1).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next turn" grants owner can-play permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its owner can play it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land69', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land69']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land69).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "during their next turn" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may play it during their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land14', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land14']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land14).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "during their next turn" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can play it during their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land74', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land74']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land74).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the end of their next turn" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may play it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land15', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land15']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land15).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until the end of their next turn" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can play it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land84', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land84']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land84).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next upkeep" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may play it through your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land16', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land16']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land16).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through your next upkeep" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can play it through your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land75', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land75']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land75).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next end step" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may play it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land17', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land17']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land17).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through your next end step" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can play it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land85', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land85']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land85).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through their next turn" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may play it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land33', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land33']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land33).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through their next turn" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can play it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land86', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land86']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land86).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the beginning of their next upkeep" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may play it until the beginning of their next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land34', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land34']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land34).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until the beginning of their next upkeep" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can play it until the beginning of their next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land76', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land76']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land76).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until your next end step" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner may play it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land35', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land35']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land35).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until your next end step" with owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its owner can play it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land87', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land87']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land87).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next end step" grants owner play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next end step, its owner may play it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land36', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land36']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land36).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next turn" grants controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its controller may play it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land2', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land2']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land2).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next turn" grants controller can-play permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its controller can play it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land70', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land70']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land70).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next turn" grants controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its controller may cast it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell1']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell1).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next end step" grants controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next end step, its controller may cast it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell2', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell2']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell2).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next end step" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may play it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land3', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land3']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land3).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "during their next turn" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may play it during their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land18', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land18']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land18).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "during their next turn" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can play it during their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land77', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land77']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land77).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can play it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land68', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land68']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land68).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through your next end step" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can play it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land88', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land88']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land88).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next end step" grants controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next end step, its controller may play it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land37', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land37']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land37).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the end of their next turn" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may play it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land19', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land19']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land19).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until the end of their next turn" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can play it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land89', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land89']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land89).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next upkeep" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may play it through your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land20', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land20']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land20).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through your next upkeep" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can play it through your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land78', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land78']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land78).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through their next turn" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may play it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land21', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land21']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land21).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through their next turn" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can play it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land90', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land90']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land90).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the beginning of their next upkeep" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may play it until the beginning of their next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land22', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land22']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land22).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until the beginning of their next upkeep" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can play it until the beginning of their next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land79', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land79']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land79).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until your next end step" with controller play-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may play it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2land23', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2land23']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2land23).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next upkeep" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it through your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell3', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell3']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell3).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through your next upkeep" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can cast it through your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell71', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell71']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell71).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "this turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell9', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell9']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(9);
+    expect((result.state as any).playableFromExile?.p2?.p2spell9).toBe(9);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the end of this turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it until the end of this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell10', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell10']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(9);
+    expect((result.state as any).playableFromExile?.p2?.p2spell10).toBe(9);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through end of this turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it through end of this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell11', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell11']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(9);
+    expect((result.state as any).playableFromExile?.p2?.p2spell11).toBe(9);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until your next end step" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell12', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell12']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell12).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until your next end step" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can cast it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell80', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell80']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell80).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through your next end step" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell13', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell13']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell13).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through your next end step" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can cast it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell81', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell81']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell81).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "during their next turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it during their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell4', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell4']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell4).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "during their next turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can cast it during their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell72', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell72']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell72).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "through their next turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell5', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell5']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell5).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "through their next turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can cast it through their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell82', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell82']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell82).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the end of their next turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell6', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell6']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell6).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until the end of their next turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can cast it until the end of their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell83', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell83']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell83).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until the beginning of their next upkeep" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it until the beginning of their next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell7', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell7']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell7).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "can" + "until the beginning of their next upkeep" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller can cast it until the beginning of their next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell73', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell73']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell73).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses "until end of combat on their next turn" with controller cast-permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Its controller may cast it until end of combat on their next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2spell8', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2spell8']);
+    expect(p2.exile[0].canBePlayedBy).toBe('p2');
+    expect(p2.exile[0].playableUntilTurn).toBe(10);
+    expect((result.state as any).playableFromExile?.p2?.p2spell8).toBe(10);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when permission uses leading "until your next end step" (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next end step, its owner may cast it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top when leading "until your next turn" grants controller can-cast permission (target player)', () => {
+    const ir = parseOracleTextToIR(
+      'Target player exiles the top card of their library. Until your next turn, its controller can cast it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c70' }, { id: 'p2c71' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c71']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c70']);
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
   });
@@ -2444,6 +6159,68 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
   });
 
+  it('applies impulse_exile_top with trailing next-end-step can-play permission window', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. You can play it until your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top with trailing through-next-end-step can-play permission window', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. You can play it through your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
   it('applies impulse_exile_top with next-turn permission window', () => {
     const ir = parseOracleTextToIR(
       'Exile the top card of your library. Until your next turn, you may play that card.',
@@ -2478,6 +6255,190 @@ describe('Oracle IR Executor', () => {
   it('applies impulse_exile_top when a look clause intervenes', () => {
     const ir = parseOracleTextToIR(
       'Exile the top card of your library. You may look at that card for as long as it remains exiled. You may play that card this turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top with first-person can-cast this-turn wording', () => {
+    const ir = parseOracleTextToIR('Exile the top card of your library. You can cast it this turn.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top with first-person may-cast until-end-of-your-next-turn wording', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. Until the end of your next turn, you may cast that card.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top with first-person next-turn cast + mana-rider wording', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. Until the end of your next turn, you may cast that card and you may spend mana as though it were mana of any color to cast that spell.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top with first-person leading next-turn play-them wording', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top two cards of your library. Until the end of your next turn, you may play them.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(2);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(p1.exile[1]?.id).toBe('c2');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top with first-person can-play until-end-of-your-next-turn wording', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. You can play that card until end of your next turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p1.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top with first-person can-play until-end-of-the-next-turn wording', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top card of your library. You can play that card until end of the next turn.',
       'Test'
     );
     const steps = ir.abilities[0]?.steps ?? [];
@@ -2580,6 +6541,104 @@ describe('Oracle IR Executor', () => {
     expect(p1.exile[0]?.id).toBe('p1c1');
     expect(p2.exile[0]?.id).toBe('p2c1');
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+  });
+
+  it("applies impulse_exile_top for each player with next-turn mana-spend reminder suffix", () => {
+    const ir = parseOracleTextToIR(
+      "Exile the top card of each player's library. Until the end of your next turn, you may play those cards, and mana of any type can be spent to cast those spells.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library).toHaveLength(1);
+    expect(p2.library).toHaveLength(0);
+    expect(p1.exile).toHaveLength(1);
+    expect(p2.exile).toHaveLength(1);
+    expect(p1.exile[0]?.id).toBe('p1c1');
+    expect(p2.exile[0]?.id).toBe('p2c1');
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it('applies impulse_exile_top for target-opponent choose-one next-turn mana rider template', () => {
+    const ir = parseOracleTextToIR(
+      "Exile the top three cards of target opponent's library. Choose one of them. Until the end of your next turn, you may play that card, and you may spend mana as though it were mana of any color to cast it.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }, { id: 'p2c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    expect(p1.library).toHaveLength(2);
+    expect(p2.library).toHaveLength(0);
+    expect(p1.exile).toHaveLength(0);
+    expect(p2.exile).toHaveLength(3);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
   });
 
   it('applies exile_top by exiling the top card of your library', () => {
@@ -2854,6 +6913,621 @@ describe('Oracle IR Executor', () => {
     expect(p1.exile).toHaveLength(0);
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+  });
+
+  it("skips impulse_exile_top for corpus Dead Man's Chest wording when amount is unknown", () => {
+    const ir = parseOracleTextToIR(
+      "When enchanted creature dies, exile cards equal to its power from the top of its owner's library. You may cast spells from among those cards for as long as they remain exiled, and mana of any type can be spent to cast them.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect(p2.exile || []).toHaveLength(0);
+  });
+
+  it('applies impulse_exile_top loop for corpus Transforming Flourish wording (until nonland)', () => {
+    const ir = parseOracleTextToIR(
+      "Destroy target artifact or creature you don't control. If that permanent is destroyed this way, its controller exiles cards from the top of their library until they exile a nonland card, then they may cast that card without paying its mana cost.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', name: 'Island', type_line: 'Basic Land — Island' },
+            { id: 'p2c2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p2.library.map((c: any) => c.id)).toEqual([]);
+    expect(p1.exile || []).toHaveLength(0);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+  });
+
+  it('applies impulse_exile_top loop for corpus Bismuth Mindrender wording (target player until nonland)', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever this creature deals combat damage to a player, that player exiles cards from the top of their library until they exile a nonland card. You may cast that card by paying life equal to the spell's mana value rather than paying its mana cost.",
+      'Test'
+    );
+    const ability = ir.abilities.find(a => a.type === 'triggered');
+    const steps = ability?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Basic Land — Swamp' },
+            { id: 'p2c2', type_line: 'Land' },
+            { id: 'p2c3', type_line: 'Creature — Horror' },
+            { id: 'p2c4', type_line: 'Instant' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
+  });
+
+  it('skips impulse_exile_top for corpus Possibility Storm wording when reference spell type context is missing', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect(p2.exile || []).toHaveLength(0);
+  });
+
+  it('applies impulse_exile_top loop for corpus Possibility Storm wording when reference spell type context is provided', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Basic Land — Forest' },
+            { id: 'p2c2', type_line: 'Creature — Elf' },
+            { id: 'p2c3', type_line: 'Instant' },
+            { id: 'p2c4', type_line: 'Sorcery' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+      referenceSpellTypes: ['instant'],
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4', 'p2c1', 'p2c2', 'p2c3']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual([]);
+  });
+
+  it('applies Possibility Storm cleanup when no shared card type is found (returns all revealed cards)', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Creature — Elf' },
+            { id: 'p2c2', type_line: 'Land' },
+            { id: 'p2c3', type_line: 'Creature — Human' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+      referenceSpellTypes: ['instant'],
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual([]);
+  });
+
+  it('applies impulse_exile_top loop for corpus Chaos Wand wording (until instant or sorcery)', () => {
+    const ir = parseOracleTextToIR(
+      "{4}, {T}: Target opponent exiles cards from the top of their library until they exile an instant or sorcery card. You may cast that card without paying its mana cost. Then put the exiled cards that weren't cast this way on the bottom of that library in a random order.",
+      'Test'
+    );
+    const ability = ir.abilities.find(a => a.type === 'activated');
+    const steps = ability?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', name: 'Forest', type_line: 'Basic Land — Forest' },
+            { id: 'p2c2', name: 'Runeclaw Bear', type_line: 'Creature — Bear' },
+            { id: 'p2c3', name: 'Shock', type_line: 'Instant' },
+            { id: 'p2c4', name: 'Opt', type_line: 'Instant' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4', 'p2c1', 'p2c2', 'p2c3']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual([]);
+  });
+
+  it('applies Chaos Wand bottom-of-library rider when no instant or sorcery is found', () => {
+    const ir = parseOracleTextToIR(
+      "{4}, {T}: Target opponent exiles cards from the top of their library until they exile an instant or sorcery card. You may cast that card without paying its mana cost. Then put the exiled cards that weren't cast this way on the bottom of that library in a random order.",
+      'Test'
+    );
+    const ability = ir.abilities.find(a => a.type === 'activated');
+    const steps = ability?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Basic Land — Plains' },
+            { id: 'p2c2', type_line: 'Creature — Knight' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual([]);
+  });
+
+  it('applies impulse_exile_top loop for corpus Dream Harvest wording (total mana value threshold)', () => {
+    const ir = parseOracleTextToIR(
+      'Each opponent exiles cards from the top of their library until they have exiled cards with total mana value 5 or greater this way. Until end of turn, you may cast cards exiled this way without paying their mana costs.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', mana_value: 2 },
+            { id: 'p2c2', mana_value: 2 },
+            { id: 'p2c3', mana_value: 1 },
+            { id: 'p2c4', mana_value: 6 },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [
+            { id: 'p3c1', mana_value: 3 },
+            { id: 'p3c2', mana_value: 3 },
+            { id: 'p3c3', mana_value: 1 },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c3']);
+    expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
+  });
+
+  it('applies impulse_exile_top loop for corpus Wand of Wonder wording (each opponent until instant or sorcery)', () => {
+    const ir = parseOracleTextToIR(
+      '{4}, {T}: Roll a d20. Each opponent exiles cards from the top of their library until they exile an instant or sorcery card, then shuffles the rest into their library. You may cast up to X instant and/or sorcery spells from among cards exiled this way without paying their mana costs.',
+      'Test'
+    );
+    const ability = ir.abilities.find(a => a.type === 'activated');
+    const steps = ability?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Basic Land — Forest' },
+            { id: 'p2c2', type_line: 'Creature — Bear' },
+            { id: 'p2c3', type_line: 'Instant' },
+            { id: 'p2c4', type_line: 'Sorcery' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [
+            { id: 'p3c1', type_line: 'Sorcery' },
+            { id: 'p3c2', type_line: 'Creature — Elf' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4', 'p2c1', 'p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c3']);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c2']);
+    expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1']);
+  });
+
+  it('applies Wand of Wonder cleanup when an opponent has no instant or sorcery (returns all revealed cards)', () => {
+    const ir = parseOracleTextToIR(
+      '{4}, {T}: Roll a d20. Each opponent exiles cards from the top of their library until they exile an instant or sorcery card, then shuffles the rest into their library. You may cast up to X instant and/or sorcery spells from among cards exiled this way without paying their mana costs.',
+      'Test'
+    );
+    const ability = ir.abilities.find(a => a.type === 'activated');
+    const steps = ability?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Creature — Elf' },
+            { id: 'p2c2', type_line: 'Land' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [
+            { id: 'p3c1', type_line: 'Instant' },
+            { id: 'p3c2', type_line: 'Creature — Human' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual([]);
+    expect(p3.library.map((c: any) => c.id)).toEqual(['p3c2']);
+    expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1']);
   });
 
   it('applies life gain and life loss', () => {
@@ -8599,6 +13273,520 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'mill')).toBe(true);
   });
 
+  it('applies Trepanation Blade reveal-until-land clause as deterministic mill loop', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever equipped creature attacks, defending player reveals cards from the top of their library until they reveal a land card. The creature gets +1/+0 until end of turn for each card revealed this way. That player puts the revealed cards into their graveyard.',
+      'Trepanation Blade'
+    );
+    const ability = ir.abilities.find(a => a.type === 'triggered');
+    const steps = ability?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Creature — Human' },
+            { id: 'p2c2', type_line: 'Instant' },
+            { id: 'p2c3', type_line: 'Land' },
+            { id: 'p2c4', type_line: 'Sorcery' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'blade1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Trepanation Blade',
+          attachedTo: 'attacker1',
+          cardType: 'Artifact',
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'attacker1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Equipped Attacker',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: true,
+          attacking: 'p2',
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'blade1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const attacker = ((result.state as any).battlefield || []).find((p: any) => p.id === 'attacker1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'mill')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'mill')).toBe(false);
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4']);
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
+    expect(attacker.lastTrepanationBonus).toBe(3);
+  });
+
+  it('applies Giant Growth style target creature +3/+3 until end of turn via composable modify_pt', () => {
+    const ir = parseOracleTextToIR('Target creature gets +3/+3 until end of turn.', 'Giant Growth');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+    const ptMod = modifiers.find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(3);
+    expect(ptMod.duration).toBe('end_of_turn');
+  });
+
+  it('safely skips modify_pt with unknown for-each scaler', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +1/+1 until end of turn for each opponent you attacked with a creature this combat.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(modifiers.some((m: any) => m?.type === 'powerToughness')).toBe(false);
+  });
+
+  it('safely skips modify_pt with condition clause metadata', () => {
+    const ir = parseOracleTextToIR(
+      'If you control an artifact, target creature gets +2/+2 until end of turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(modifiers.some((m: any) => m?.type === 'powerToughness')).toBe(false);
+  });
+
+  it('applies modify_pt when supported if-condition is true (you control an artifact)', () => {
+    const ir = parseOracleTextToIR(
+      'If you control an artifact, target creature gets +2/+2 until end of turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'artifact1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Relic',
+          cardType: 'Artifact',
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+    const ptMod = modifiers.find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('applies modify_pt with supported where-clause condition metadata', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +2/+2 until end of turn where X is the number of artifacts you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'artifact1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Relic',
+          cardType: 'Artifact',
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+    const ptMod = modifiers.find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('applies X-based modify_pt using supported where-clause value resolution', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+X until end of turn where X is the number of artifacts you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'artifact1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Relic A',
+          cardType: 'Artifact',
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'artifact2',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Relic B',
+          cardType: 'Artifact',
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+    const ptMod = modifiers.find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('safely skips modify_pt with unsupported where-clause expression', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+X until end of turn where X is the number of cards in your graveyard.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'g1' }, { id: 'g2' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(modifiers.some((m: any) => m?.type === 'powerToughness')).toBe(false);
+  });
+
+  it('applies Undercity Informer activated reveal-until-land clause as deterministic mill loop', () => {
+    const ir = parseOracleTextToIR(
+      '{1}, Sacrifice a creature: Target player reveals cards from the top of their library until they reveal a land card, then puts those cards into their graveyard.',
+      'Undercity Informer'
+    );
+    const ability = ir.abilities.find(a => a.type === 'activated');
+    const steps = ability?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [
+            { id: 'p2c1', type_line: 'Creature — Human' },
+            { id: 'p2c2', type_line: 'Instant' },
+            { id: 'p2c3', type_line: 'Land' },
+            { id: 'p2c4', type_line: 'Sorcery' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'mill')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'mill')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c4']);
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2', 'p2c3']);
+  });
+
   it('creates a Treasure token', () => {
     const ir = parseOracleTextToIR('Create a Treasure token.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -9320,9 +14508,102 @@ describe('Oracle IR Executor', () => {
     expect(p2.exile || []).toHaveLength(0);
   });
 
+  it("applies impulse_exile_top when that-player remains-exiled play + mana-rider has explicit targetPlayerId", () => {
+    const ir = parseOracleTextToIR(
+      "Look at the top card of that player's library, then exile it face down. You may play that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p1.library.map((c: any) => c.id)).toEqual(['p1c1', 'p1c2']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+  });
+
   it('applies impulse_exile_top for combined look+exile face-down template when target_opponent has a single legal candidate', () => {
     const ir = parseOracleTextToIR(
       "Look at the top two cards of target opponent's library and exile those cards face down. You may play those cards for as long as they remain exiled.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }, { id: 'p2c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
+    expect(p2.exile || []).toHaveLength(2);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2c1', 'p2c2']);
+  });
+
+  it('applies impulse_exile_top for combined look+exile face-down template with mana-rider cast-them wording', () => {
+    const ir = parseOracleTextToIR(
+      "Look at the top two cards of target opponent's library and exile those cards face down. You may play those cards for as long as they remain exiled, and mana of any type can be spent to cast them.",
       'Test'
     );
     const steps = ir.abilities[0]?.steps ?? [];
@@ -9637,6 +14918,95 @@ describe('Oracle IR Executor', () => {
     expect((p3.exile || []).map((c: any) => c.id)).toEqual(['p3c1']);
   });
 
+  it('applies impulse_exile_top for Gonti-Night-Minister-style look-then-exile play+rider sentence', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever one or more creatures you control deal combat damage to a player, look at the top card of that player's library, then exile it face down. You may play that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.",
+      'Test'
+    );
+    const allSteps = ir.abilities.flatMap(a => a.steps);
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, allSteps as any, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+  });
+
+  it('applies impulse_exile_top for Thought-String-Analyst-style singular remains-exiled look+play mana-rider text', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your upkeep, exile the top card of target opponent's library face down. You lose life equal to its mana value. You may look at and play that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+    expect(p2.library.map((c: any) => c.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
+  });
+
   it('applies lose_life to contextual each_of_those_opponents in multiplayer when selectorContext binds antecedent set', () => {
     const ir = parseOracleTextToIR('Each of those opponents loses 1 life.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -9695,6 +15065,15 @@ describe('Oracle IR Executor', () => {
     expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
     expect(p3.library.map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
     expect(p3.exile || []).toHaveLength(0);
+  });
+
+  it('buildOracleIRExecutionContext maps spellType hint into referenceSpellTypes', () => {
+    const ctx = buildOracleIRExecutionContext(
+      { controllerId: 'p1' as any },
+      { spellType: 'Instant Sorcery' }
+    ) as any;
+
+    expect(ctx.referenceSpellTypes).toEqual(['instant', 'sorcery']);
   });
 
   it("applies impulse_exile_top when subject is 'its owner' via target_player selector binding", () => {

@@ -322,6 +322,14 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Mill
   {
+    const mUntilRevealLand = clause.match(
+      /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner))\s+)?reveals?\s+cards?\s+from\s+the\s+top\s+of\s+(?:their|your|his or her)\s+library\s+until\s+(?:they|you)\s+reveal\s+a\s+land\s+card\b/i
+    );
+    if (mUntilRevealLand) {
+      const who = parsePlayerSelector(mUntilRevealLand[1]);
+      return withMeta({ kind: 'mill', who, amount: { kind: 'unknown', raw: 'until they reveal a land card' }, raw: rawClause });
+    }
+
     const m = clause.match(
       /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner))\s+)?mill(?:s)?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i
     );
@@ -333,6 +341,95 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     const m2 = clause.match(/^mill\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (m2) {
       return withMeta({ kind: 'mill', who: { kind: 'you' }, amount: parseQuantity(m2[1]), raw: rawClause });
+    }
+  }
+
+  // Temporary P/T modification (composable: target + base delta + duration + optional scaler)
+  {
+    const parseSignedPtComponent = (raw: string): { value: number; usesX: boolean } | null => {
+      const s = String(raw || '').trim().toLowerCase();
+      if (!s) return null;
+      if (/^[+-]?x$/.test(s)) {
+        return { value: s.startsWith('-') ? -1 : 1, usesX: true };
+      }
+      if (/^[+-]?\d+$/.test(s)) {
+        return { value: parseInt(s, 10) || 0, usesX: false };
+      }
+      return null;
+    };
+
+    let workingClause = clause;
+    let leadingCondition: any | undefined;
+    const leadingIf = workingClause.match(/^if\s+([^,]+),\s*(.+)$/i);
+    if (leadingIf) {
+      leadingCondition = { kind: 'if', raw: String(leadingIf[1] || '').trim() };
+      workingClause = String(leadingIf[2] || '').trim();
+    }
+
+    const m = workingClause.match(
+      /^(?:then\s+)?(target\s+creature|the\s+creature)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
+    );
+    if (m) {
+      const targetRaw = String(m[1] || '').trim().toLowerCase();
+      const powerComponent = parseSignedPtComponent(String(m[2] || ''));
+      const toughnessComponent = parseSignedPtComponent(String(m[3] || ''));
+      if (!powerComponent || !toughnessComponent) {
+        // fall through
+      } else {
+      let tail = normalizeOracleText(String(m[4] || ''))
+        .replace(/[,.;]\s*$/g, '')
+        .trim();
+
+      if (/\buntil\s+end\s+of\s+turn\b/i.test(tail)) {
+        tail = tail
+          .replace(/\buntil\s+end\s+of\s+turn\b/i, '')
+          .replace(/^,\s*/i, '')
+          .trim();
+
+        let scaler: any | undefined;
+        let condition: any | undefined = leadingCondition;
+        if (tail) {
+          const mForEach = tail.match(/^for\s+each\s+(.+)$/i);
+          if (mForEach) {
+            const eachRaw = `for each ${String(mForEach[1] || '').trim()}`.trim();
+            scaler = /^for\s+each\s+card\s+revealed\s+this\s+way$/i.test(eachRaw)
+              ? { kind: 'per_revealed_this_way' }
+              : { kind: 'unknown', raw: eachRaw };
+          } else {
+            const mIf = tail.match(/^if\s+(.+)$/i);
+            if (mIf) {
+              condition = { kind: 'if', raw: String(mIf[1] || '').trim() };
+            } else {
+              const mAsLongAs = tail.match(/^as\s+long\s+as\s+(.+)$/i);
+              if (mAsLongAs) {
+                condition = { kind: 'as_long_as', raw: String(mAsLongAs[1] || '').trim() };
+              } else {
+                const mWhere = tail.match(/^where\s+(.+)$/i);
+                if (mWhere) {
+                  condition = { kind: 'where', raw: String(mWhere[1] || '').trim() };
+                }
+              }
+            }
+          }
+        }
+
+        if (!tail || scaler || condition) {
+          const step: any = {
+            kind: 'modify_pt',
+            target: targetRaw === 'the creature' ? { kind: 'equipped_creature' } : { kind: 'raw', text: 'target creature' },
+            power: powerComponent.value,
+            toughness: toughnessComponent.value,
+            ...(powerComponent.usesX ? { powerUsesX: true } : {}),
+            ...(toughnessComponent.usesX ? { toughnessUsesX: true } : {}),
+            duration: 'end_of_turn',
+            raw: rawClause,
+          };
+          if (scaler) step.scaler = scaler;
+          if (condition) step.condition = condition;
+          return withMeta(step as OracleEffectStep);
+        }
+      }
+      }
     }
   }
 
@@ -771,7 +868,19 @@ function parseGlobalExiledWithSourceImpulsePermission(
 
 function parseGlobalLooseImpulsePermission(
   rawClause: string
-): { readonly duration: 'this_turn' | 'during_resolution'; readonly permission: 'play' | 'cast'; readonly rawClause: string } | null {
+): {
+  readonly duration:
+    | 'this_turn'
+    | 'during_resolution'
+    | 'during_next_turn'
+    | 'until_end_of_next_turn'
+    | 'until_next_turn'
+    | 'until_next_upkeep'
+    | 'until_next_end_step'
+    | 'until_end_of_combat_on_next_turn';
+  readonly permission: 'play' | 'cast';
+  readonly rawClause: string;
+} | null {
   const normalized = normalizeOracleText(rawClause);
   if (!normalized) return null;
 
@@ -785,9 +894,14 @@ function parseGlobalLooseImpulsePermission(
 
   // Normalize third-person permissions into our "You may ..." templates.
   clause = clause
-    .replace(/^(they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner)) may\b/i, 'You may')
-    .replace(/^((?:until|through)\b[^,]*,),\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner)) may\b/i, '$1 you may')
-    .replace(/^(during your next turn,?)\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner)) may\b/i, '$1 you may');
+    .replace(/^(they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner)) (?:may|can)\b/i, 'You may')
+    .replace(/^((?:until|through)\b[^,]*,),\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner)) (?:may|can)\b/i, '$1 you may')
+    .replace(/^(during your next turn,?)\s*(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*['’]s (?:controller|owner)) (?:may|can)\b/i, '$1 you may');
+
+  // Normalize leading-duration forms into trailing-duration forms so they can reuse
+  // the same duration recognizers as "You may cast ... until ..." templates.
+  // Example: "Until your next turn, you may cast it." -> "You may cast it until your next turn"
+  clause = clause.replace(/^((?:until|through)\b.*?)(?:,\s*|\s+)you (?:may|can)\s+(play|cast)\s+(.+)$/i, 'You may $2 $3 $1');
 
   // Strip unmodeled casting-cost riders so the core permission can be recognized.
   clause = clause
@@ -800,27 +914,150 @@ function parseGlobalLooseImpulsePermission(
     .trim();
 
   const lower = clause.toLowerCase();
+  const permissionSubject =
+    '(?:you|they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*[\'’]s (?:controller|owner))';
   const objectRef =
     '(?:that card|those cards|them|it|the exiled card|the exiled cards|that spell|those spells|the exiled spell|the exiled spells|(?:the )?card exiled this way|(?:the )?cards exiled this way|(?:the )?spell exiled this way|(?:the )?spells exiled this way|(?:the )?card they exiled this way|(?:the )?cards they exiled this way|(?:the )?spell they exiled this way|(?:the )?spells they exiled this way)';
   const objectRefWithLimit = `(?:up to (?:a|an|\d+|x|[a-z]+) of |one of )?${objectRef}`;
 
-  // "You may play/cast that card this turn"
-  {
-    const m = lower.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit} this turn\s*$`, 'i'));
-    if (m) return { duration: 'this_turn', permission: m[1] as any, rawClause: normalized.trim() };
-  }
-
-  // "You may play/cast that card until end of turn" / "until the end of turn"
+  // Leading-duration forms with explicit subject:
+  // "Until your next turn, its owner may cast it."
   {
     const m = lower.match(
-      new RegExp(`^you may (play|cast) ${objectRefWithLimit} until (?:the )?end of (?:this |that )?turn\s*$`, 'i')
+      new RegExp(`^(?:until|through) (?:your|their|the) next turn,?\\s*${permissionSubject} (?:may|can) (play|cast) ${objectRefWithLimit}\\s*$`, 'i')
+    );
+    if (m) return { duration: 'until_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  {
+    const m = lower.match(
+      new RegExp(
+        `^(?:until|through) (?:the )?end of (?:your|their|the) next turn,?\\s*${permissionSubject} (?:may|can) (play|cast) ${objectRefWithLimit}\\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'until_end_of_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  {
+    const m = lower.match(
+      new RegExp(
+        `^(?:until|through) (?:the beginning of )?(?:your|their|the) next upkeep,?\\s*${permissionSubject} (?:may|can) (play|cast) ${objectRefWithLimit}\\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'until_next_upkeep', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  {
+    const m = lower.match(
+      new RegExp(
+        `^(?:until|through) (?:the beginning of )?(?:your|their|the) next end step,?\\s*${permissionSubject} (?:may|can) (play|cast) ${objectRefWithLimit}\\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'until_next_end_step', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  {
+    const m = lower.match(
+      new RegExp(
+        `^until (?:the )?end of combat on (?:your|their|the) next turn,?\\s*${permissionSubject} (?:may|can) (play|cast) ${objectRefWithLimit}\\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'until_end_of_combat_on_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  {
+    const m = lower.match(
+      new RegExp(`^during (?:your|their|the) next turn,?\\s*${permissionSubject} (?:may|can) (play|cast) ${objectRefWithLimit}\\s*$`, 'i')
+    );
+    if (m) return { duration: 'during_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  {
+    const m = lower.match(
+      new RegExp(
+        `^(?:until|through) (?:the )?end of (?:this |that )?turn,?\\s*${permissionSubject} (?:may|can) (play|cast) ${objectRefWithLimit}\\s*$`,
+        'i'
+      )
     );
     if (m) return { duration: 'this_turn', permission: m[1] as any, rawClause: normalized.trim() };
   }
 
+  // "You may play/cast that card this turn"
+  {
+    const m = lower.match(new RegExp(`^you (?:may|can) (play|cast) ${objectRefWithLimit} this turn\s*$`, 'i'));
+    if (m) return { duration: 'this_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card until/through end of turn" (including this/that turn variants)
+  {
+    const m = lower.match(
+      new RegExp(`^you (?:may|can) (play|cast) ${objectRefWithLimit} (?:until|through) (?:the )?end of (?:this |that )?turn\s*$`, 'i')
+    );
+    if (m) return { duration: 'this_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card during your/their next turn"
+  {
+    const m = lower.match(new RegExp(`^you (?:may|can) (play|cast) ${objectRefWithLimit} during (?:your|their|the) next turn\s*$`, 'i'));
+    if (m) return { duration: 'during_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card until/through end of your/their next turn"
+  {
+    const m = lower.match(
+      new RegExp(`^you (?:may|can) (play|cast) ${objectRefWithLimit} (?:until|through) (?:the )?end of (?:your|their|the) next turn\s*$`, 'i')
+    );
+    if (m) return { duration: 'until_end_of_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card until (the) end of combat on your/their next turn"
+  {
+    const m = lower.match(
+      new RegExp(
+        `^you (?:may|can) (play|cast) ${objectRefWithLimit} until (?:the )?end of combat on (?:your|their|the) next turn\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'until_end_of_combat_on_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card until/through your/their next turn"
+  {
+    const m = lower.match(
+      new RegExp(`^you (?:may|can) (play|cast) ${objectRefWithLimit} (?:until|through) (?:your|their|the) next turn\s*$`, 'i')
+    );
+    if (m) return { duration: 'until_next_turn', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card until/through (the beginning of) your/their next upkeep"
+  {
+    const m = lower.match(
+      new RegExp(
+        `^you (?:may|can) (play|cast) ${objectRefWithLimit} (?:until|through) (?:the beginning of )?(?:your|their|the) next upkeep\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'until_next_upkeep', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
+  // "You may play/cast that card until/through (the beginning of) your/their next end step"
+  {
+    const m = lower.match(
+      new RegExp(
+        `^you (?:may|can) (play|cast) ${objectRefWithLimit} (?:until|through) (?:the beginning of )?(?:your|their|the) next end step\s*$`,
+        'i'
+      )
+    );
+    if (m) return { duration: 'until_next_end_step', permission: m[1] as any, rawClause: normalized.trim() };
+  }
+
   // "You may play/cast that card" (implicit during-resolution permission)
   {
-    const m = lower.match(new RegExp(`^you may (play|cast) ${objectRefWithLimit}\s*$`, 'i'));
+    const m = lower.match(new RegExp(`^you (?:may|can) (play|cast) ${objectRefWithLimit}\s*$`, 'i'));
     if (m) return { duration: 'during_resolution', permission: m[1] as any, rawClause: normalized.trim() };
   }
 
@@ -4127,6 +4364,41 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
 
       return changed ? { ...ability, steps: upgradedSteps } : ability;
     });
+  }
+
+  // Cross-ParsedAbility reveal-followup merge (conservative):
+  // oracleTextParser can split triggered attack text into a triggered ability plus
+  // a trailing static sentence (e.g. Trepanation Blade).
+  // When a trailing static ability references "revealed this way", merge supported
+  // follow-up steps into the immediately preceding triggered ability.
+  {
+    const merged: OracleIRAbility[] = [];
+    for (let i = 0; i < abilities.length; i++) {
+      const current = abilities[i];
+      const next = abilities[i + 1];
+
+      const canMergeIntoTriggered =
+        current?.type === 'triggered' &&
+        Array.isArray(current.steps) &&
+        current.steps.some((s) => s.kind === 'mill' && s.amount.kind === 'unknown' && /reveal a land card/i.test(String((s.amount as any).raw || '')));
+
+      const nextLooksLikeRevealFollowup =
+        next?.type === 'static' &&
+        /revealed this way/i.test(String(next.effectText || next.text || ''));
+
+      if (!canMergeIntoTriggered || !nextLooksLikeRevealFollowup) {
+        merged.push(current);
+        continue;
+      }
+
+      const followupSteps = (next.steps || []).filter((s) => s.kind !== 'unknown');
+      merged.push({
+        ...current,
+        steps: [...current.steps, ...followupSteps],
+      });
+      i += 1;
+    }
+    abilities = merged;
   }
 
   return {

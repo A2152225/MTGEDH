@@ -794,6 +794,47 @@ describe('Trigger Parsing', () => {
       expect(result.log.some(x => x.includes('intervening-if false'))).toBe(true);
     });
 
+    it('processEventAndExecuteTriggeredOracle rechecks intervening-if from condition fallback when clause field is absent', () => {
+      const start = makeState();
+      const abilities = [
+        {
+          id: 'if-fallback-resolution',
+          sourceId: 'source-if-fallback-resolution',
+          sourceName: 'Intervening If Fallback Source',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.ATTACKS,
+          effect: 'Draw a card.',
+          condition: 'you control an artifact',
+          hasInterveningIf: true,
+        } as any,
+      ];
+
+      const result = processEventAndExecuteTriggeredOracle(
+        start,
+        TriggerEvent.ATTACKS,
+        abilities,
+        {
+          sourceControllerId: 'p1',
+          battlefield: [{ id: 'perm-a', controllerId: 'p1', types: ['Artifact'] }],
+        },
+        {
+          resolutionEventData: {
+            sourceControllerId: 'p1',
+            battlefield: [{ id: 'perm-c', controllerId: 'p1', types: ['Creature'] }],
+          },
+        }
+      );
+
+      const p1 = result.state.players.find(p => p.id === 'p1') as any;
+      expect(result.triggers).toHaveLength(1);
+      expect(result.triggers[0]?.interveningIfClause).toBe('you control an artifact');
+      expect(result.triggers[0]?.interveningIfWasTrueAtTrigger).toBe(true);
+      expect(result.executions).toHaveLength(0);
+      expect(p1.hand || []).toHaveLength(0);
+      expect(result.log.some(x => x.includes('intervening-if false'))).toBe(true);
+    });
+
     it('propagates trigger metadata onto ability stack objects', () => {
       const abilities = [
         {
