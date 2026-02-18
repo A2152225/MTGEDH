@@ -592,6 +592,26 @@ function normalizeControlledClassKey(s: string): string | null {
   if (/^planeswalkers?$/.test(x)) return 'planeswalker';
   if (/^nonland permanents?$/.test(x)) return 'nonland permanent';
   if (/^permanents?$/.test(x)) return 'permanent';
+
+  const singularize = (word: string): string => {
+    const irregular: Record<string, string> = {
+      elves: 'elf',
+      zombies: 'zombie',
+    };
+    if (irregular[word]) return irregular[word];
+    if (word.endsWith('ies') && word.length > 3) return `${word.slice(0, -3)}y`;
+    if (/(?:xes|zes|ches|shes|sses)$/.test(word) && word.length > 4) return word.slice(0, -2);
+    if (word.endsWith('s') && word.length > 2) return word.slice(0, -1);
+    return word;
+  };
+
+  if (/^[a-z][a-z-]*$/.test(x)) {
+    const stopwords = new Set(['card', 'cards', 'spell', 'spells']);
+    if (!stopwords.has(x)) {
+      return singularize(x);
+    }
+  }
+
   return null;
 }
 
@@ -613,6 +633,7 @@ function evaluateModifyPtWhereX(
   whereRaw: string,
   targetCreatureId?: string,
   ctx?: OracleIRExecutionContext,
+  runtime?: { readonly lastRevealedCardCount?: number },
   depth = 0
 ): number | null {
   if (depth > 3) return null;
@@ -630,6 +651,75 @@ function evaluateModifyPtWhereX(
     const id = String(ctx?.selectorContext?.targetPlayerId || ctx?.selectorContext?.targetOpponentId || '').trim();
     if (!id) return null;
     return (state.players || []).find((p: any) => String(p.id || '').trim() === id) || null;
+  };
+
+  const findObjectById = (idRaw: string): any | null => {
+    const id = String(idRaw || '').trim();
+    if (!id) return null;
+
+    const inBattlefield = battlefield.find((p: any) => String((p as any)?.id || '').trim() === id) as any;
+    if (inBattlefield) return inBattlefield;
+
+    const stackRaw = (state as any)?.stack;
+    const stackItems = Array.isArray(stackRaw)
+      ? stackRaw
+      : Array.isArray((stackRaw as any)?.objects)
+        ? (stackRaw as any).objects
+        : [];
+    const inStack = stackItems.find((item: any) => String((item as any)?.id || '').trim() === id) as any;
+    if (inStack) return inStack;
+
+    const zones: readonly ('library' | 'hand' | 'graveyard' | 'exile')[] = ['library', 'hand', 'graveyard', 'exile'];
+    for (const player of (state.players || []) as any[]) {
+      for (const zone of zones) {
+        const cards = Array.isArray((player as any)?.[zone]) ? (player as any)[zone] : [];
+        const found = cards.find((card: any) => String((card as any)?.id || '').trim() === id) as any;
+        if (found) return found;
+      }
+    }
+
+    return null;
+  };
+
+  const isCommanderObject = (obj: any): boolean => {
+    return Boolean(
+      (obj as any)?.isCommander === true ||
+      (obj as any)?.commander === true ||
+      (obj as any)?.card?.isCommander === true
+    );
+  };
+
+  const collectCommandZoneObjects = (): readonly any[] => {
+    const out: any[] = [];
+    const pushResolved = (entry: any): void => {
+      if (!entry) return;
+      if (typeof entry === 'string' || typeof entry === 'number') {
+        const resolved = findObjectById(String(entry));
+        if (resolved) out.push(resolved);
+        return;
+      }
+      out.push(entry);
+    };
+
+    const commandZoneAny = (state as any)?.commandZone ?? (state as any)?.commanderZone;
+    if (!commandZoneAny) return out;
+
+    if (Array.isArray(commandZoneAny)) {
+      commandZoneAny.forEach(pushResolved);
+      return out;
+    }
+
+    if (Array.isArray((commandZoneAny as any)?.objects)) {
+      (commandZoneAny as any).objects.forEach(pushResolved);
+      return out;
+    }
+
+    const byController = (commandZoneAny as any)?.[controllerId];
+    if (Array.isArray(byController)) {
+      byController.forEach(pushResolved);
+    }
+
+    return out;
   };
 
   const countCardsByClasses = (cards: readonly any[], classes: readonly string[]): number => {
@@ -663,6 +753,160 @@ function evaluateModifyPtWhereX(
     }).length;
   };
 
+  const getColorsFromPermanent = (perm: any): readonly string[] => {
+    const normalizeColor = (value: unknown): string | null => {
+      const color = String(value || '').trim().toUpperCase();
+      return ['W', 'U', 'B', 'R', 'G'].includes(color) ? color : null;
+    };
+
+    const fromArray = (value: unknown): readonly string[] => {
+      if (!Array.isArray(value)) return [];
+      const out: string[] = [];
+      for (const item of value) {
+        const normalized = normalizeColor(item);
+        if (normalized && !out.includes(normalized)) out.push(normalized);
+      }
+      return out;
+    };
+
+    const direct = fromArray((perm as any)?.colors);
+    if (direct.length > 0) return direct;
+    const nested = fromArray((perm as any)?.card?.colors);
+    if (nested.length > 0) return nested;
+
+    const colorIdentity = fromArray((perm as any)?.colorIdentity);
+    if (colorIdentity.length > 0) return colorIdentity;
+    const nestedColorIdentity = fromArray((perm as any)?.card?.colorIdentity);
+    if (nestedColorIdentity.length > 0) return nestedColorIdentity;
+
+    const manaCost = String(
+      (perm as any)?.manaCost ||
+      (perm as any)?.mana_cost ||
+      (perm as any)?.card?.manaCost ||
+      (perm as any)?.card?.mana_cost ||
+      ''
+    ).toUpperCase();
+
+    if (!manaCost) return [];
+    const out: string[] = [];
+    for (const symbol of ['W', 'U', 'B', 'R', 'G']) {
+      if (manaCost.includes(symbol)) out.push(symbol);
+    }
+    return out;
+  };
+
+  const normalizeManaColorCode = (value: unknown): string | null => {
+    const rawCode = String(value || '').trim().toLowerCase();
+    if (!rawCode) return null;
+    if (rawCode === 'w' || rawCode === 'white') return 'W';
+    if (rawCode === 'u' || rawCode === 'blue') return 'U';
+    if (rawCode === 'b' || rawCode === 'black') return 'B';
+    if (rawCode === 'r' || rawCode === 'red') return 'R';
+    if (rawCode === 'g' || rawCode === 'green') return 'G';
+    return null;
+  };
+
+  const getColorsOfManaSpent = (obj: any): number | null => {
+    if (!obj) return null;
+
+    const fromArray = (value: unknown): number | null => {
+      if (!Array.isArray(value)) return null;
+      const seen = new Set<string>();
+      for (const item of value) {
+        const normalized = normalizeManaColorCode(item);
+        if (normalized) seen.add(normalized);
+      }
+      return seen.size;
+    };
+
+    const fromRecord = (value: unknown): number | null => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      const rec = value as Record<string, unknown>;
+      const colorKeys: readonly string[] = ['white', 'blue', 'black', 'red', 'green', 'w', 'u', 'b', 'r', 'g'];
+      const seen = new Set<string>();
+      for (const key of colorKeys) {
+        const n = Number(rec[key]);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        const normalized = normalizeManaColorCode(key);
+        if (normalized) seen.add(normalized);
+      }
+      return seen.size > 0 ? seen.size : null;
+    };
+
+    const candidates: unknown[] = [
+      obj?.manaColorsSpent,
+      obj?.card?.manaColorsSpent,
+      obj?.manaSpentColors,
+      obj?.card?.manaSpentColors,
+      obj?.manaPayment,
+      obj?.card?.manaPayment,
+      obj?.manaSpent,
+      obj?.card?.manaSpent,
+    ];
+
+    for (const candidate of candidates) {
+      const fromA = fromArray(candidate);
+      if (fromA !== null) return fromA;
+      const fromR = fromRecord(candidate);
+      if (fromR !== null) return fromR;
+    }
+
+    return null;
+  };
+
+  const getAmountOfManaSpent = (obj: any): number | null => {
+    if (!obj) return null;
+
+    const directNumbers = [
+      obj?.manaSpentTotal,
+      obj?.card?.manaSpentTotal,
+      obj?.totalManaSpent,
+      obj?.card?.totalManaSpent,
+    ];
+    for (const value of directNumbers) {
+      const n = Number(value);
+      if (Number.isFinite(n)) return Math.max(0, n);
+    }
+
+    const sumFromRecord = (value: unknown): number | null => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      const rec = value as Record<string, unknown>;
+      const keys: readonly string[] = ['white', 'blue', 'black', 'red', 'green', 'colorless', 'generic', 'w', 'u', 'b', 'r', 'g', 'c'];
+      let total = 0;
+      let used = false;
+      for (const key of keys) {
+        const n = Number(rec[key]);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        total += n;
+        used = true;
+      }
+      return used ? total : null;
+    };
+
+    const recordCandidates: unknown[] = [
+      obj?.manaPayment,
+      obj?.card?.manaPayment,
+      obj?.manaSpent,
+      obj?.card?.manaSpent,
+    ];
+    for (const candidate of recordCandidates) {
+      const summed = sumFromRecord(candidate);
+      if (summed !== null) return summed;
+    }
+
+    const arrayCandidates: unknown[] = [
+      obj?.manaColorsSpent,
+      obj?.card?.manaColorsSpent,
+      obj?.manaSpentColors,
+      obj?.card?.manaSpentColors,
+    ];
+    for (const candidate of arrayCandidates) {
+      if (Array.isArray(candidate)) return candidate.length;
+    }
+
+    return null;
+  };
+
   const parseCardClassList = (text: string): readonly string[] | null => {
     const normalized = String(text || '')
       .trim()
@@ -689,7 +933,7 @@ function evaluateModifyPtWhereX(
   };
 
   const evaluateInner = (expr: string): number | null => {
-    return evaluateModifyPtWhereX(state, controllerId, `x is ${expr}`, targetCreatureId, ctx, depth + 1);
+    return evaluateModifyPtWhereX(state, controllerId, `x is ${expr}`, targetCreatureId, ctx, runtime, depth + 1);
   };
 
   {
@@ -850,7 +1094,7 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures your opponents control$/i);
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
     if (m) {
       const isOther = Boolean(String(m[1] || '').trim());
       const excludedQualifier = String(m[2] || '').toLowerCase();
@@ -880,7 +1124,7 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) permanents your opponents control$/i);
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
     if (m) {
       const isOther = Boolean(String(m[1] || '').trim());
       const excludedQualifier = String(m[2] || '').toLowerCase();
@@ -939,6 +1183,97 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of other creatures you control$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      return controlled.filter((p: any) => {
+        if (excludedId && String((p as any)?.id || '').trim() === excludedId) return false;
+        return typeLineLower(p).includes('creature');
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of legendary creatures you control$/i);
+    if (m) {
+      return controlled.filter((p: any) => {
+        const tl = typeLineLower(p);
+        return tl.includes('legendary') && tl.includes('creature');
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures you control with defender$/i);
+    if (m) {
+      return controlled.filter((p: any) => {
+        const tl = typeLineLower(p);
+        const keywords = String((p as any)?.keywords || (p as any)?.card?.keywords || '').toLowerCase();
+        return tl.includes('creature') && (tl.includes('defender') || keywords.includes('defender'));
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the total power of creatures you control$/i);
+    if (m) {
+      return controlled.reduce((sum: number, p: any) => {
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) return sum;
+        const n = Number((p as any)?.power);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures you control with power (\d+) or greater$/i);
+    if (m) {
+      const threshold = Math.max(0, parseInt(String(m[1] || '0'), 10) || 0);
+      return controlled.filter((p: any) => {
+        if (!typeLineLower(p).includes('creature')) return false;
+        const n = Number((p as any)?.power);
+        return Number.isFinite(n) && n >= threshold;
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of differently named lands you control$/i);
+    if (m) {
+      const seen = new Set<string>();
+      for (const p of controlled as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('land')) continue;
+        const name = String((p as any)?.name || (p as any)?.card?.name || '').trim().toLowerCase();
+        if (!name) continue;
+        seen.add(name);
+      }
+      return seen.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+)$/i);
+    if (m) {
+      const phrase = String(m[1] || '').toLowerCase();
+      const mentionsAttackingCreatures = /\bcreatures?\b/.test(phrase) && /\battacking\b/.test(phrase);
+      if (mentionsAttackingCreatures) {
+        const isOther = /\bother\b/.test(phrase);
+        const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+        const useOpponents = /\b(?:your opponents control|an opponent controls|you don['’]?t control|you do not control)\b/.test(phrase);
+        const useControlled = /\byou control\b/.test(phrase);
+        const pool = useOpponents ? opponentsControlled : useControlled ? controlled : battlefield;
+        return pool.filter((p: any) => {
+          if (excludedId && String((p as any)?.id || '').trim() === excludedId) return false;
+          if (!typeLineLower(p).includes('creature')) return false;
+          return String((p as any)?.attacking || '').trim().length > 0;
+        }).length;
+      }
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of basic land types among lands you control$/i);
     if (m) {
       const basicLandTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
@@ -951,6 +1286,22 @@ function evaluateModifyPtWhereX(
         }
       }
       return seen.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures in your party$/i);
+    if (m) {
+      const partyRoles = ['cleric', 'rogue', 'warrior', 'wizard'];
+      const filled = new Set<string>();
+      for (const p of controlled as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        for (const role of partyRoles) {
+          if (tl.includes(role)) filled.add(role);
+        }
+      }
+      return filled.size;
     }
   }
 
@@ -981,6 +1332,19 @@ function evaluateModifyPtWhereX(
       }
 
       return devotion;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of colors among permanents you control$/i);
+    if (m) {
+      const seen = new Set<string>();
+      for (const p of controlled as any[]) {
+        for (const color of getColorsFromPermanent(p)) {
+          seen.add(color);
+        }
+      }
+      return seen.size;
     }
   }
 
@@ -1065,6 +1429,216 @@ function evaluateModifyPtWhereX(
         const gy = Array.isArray(p?.graveyard) ? p.graveyard : [];
         return sum + countCardsByClasses(gy, classes);
       }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of card types among cards? in your graveyard$/i);
+    if (m) {
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+      if (!controller) return null;
+      const gy = Array.isArray(controller.graveyard) ? controller.graveyard : [];
+      const seen = new Set<string>();
+      for (const card of gy as any[]) {
+        const types = getCardTypesFromTypeLine(card);
+        if (!types) continue;
+        for (const type of types) {
+          if (type === 'tribal') continue;
+          seen.add(type);
+        }
+      }
+      return seen.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? in all graveyards with the same name as that spell$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      const refName = String(
+        (ref as any)?.cardName ||
+        (ref as any)?.name ||
+        (ref as any)?.card?.name ||
+        (ref as any)?.spell?.cardName ||
+        (ref as any)?.spell?.name ||
+        ''
+      ).trim().toLowerCase();
+      if (!refName) return null;
+      return (state.players || []).reduce((sum, p: any) => {
+        const gy = Array.isArray((p as any)?.graveyard) ? (p as any).graveyard : [];
+        const count = gy.filter((card: any) => String((card as any)?.name || '').trim().toLowerCase() === refName).length;
+        return sum + count;
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the amount of life you gained(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecord = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const n = Number(value[controllerId]);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecord(stateAny.lifeGainedThisTurn),
+        fromRecord(stateAny.lifeGained),
+        fromRecord(stateAny.turnStats?.lifeGained),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return Math.max(0, candidate);
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the amount of life (?:you(?:['’]ve| have)|you) lost(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecord = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const n = Number(value[controllerId]);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecord(stateAny.lifeLostThisTurn),
+        fromRecord(stateAny.lifeLost),
+        fromRecord(stateAny.turnStats?.lifeLost),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return Math.max(0, candidate);
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? (?:you(?:['’]ve| have)|you) discarded this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecord = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const key = String(controllerId);
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          const n = Number(value[key]);
+          return Number.isFinite(n) ? Math.max(0, n) : 0;
+        }
+        return 0;
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecord(stateAny.cardsDiscardedThisTurn),
+        fromRecord(stateAny.cardsDiscarded),
+        fromRecord(stateAny.turnStats?.cardsDiscarded),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? revealed this way$/i);
+    if (m) {
+      const revealed = Number(runtime?.lastRevealedCardCount ?? 0);
+      return Number.isFinite(revealed) ? Math.max(0, revealed) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures that died this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byController = stateAny.creaturesDiedThisTurnByController;
+      if (byController && typeof byController === 'object' && !Array.isArray(byController)) {
+        const values = Object.values(byController as Record<string, unknown>) as unknown[];
+        return values.reduce<number>((sum, value) => {
+          const n = Number(value);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      }
+
+      const boolFallback = Boolean(stateAny.creatureDiedThisTurn);
+      return boolFallback ? 1 : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of permanents (?:you(?:['’]ve| have)|you) sacrificed this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byController = stateAny.permanentsSacrificedThisTurn;
+      if (!byController || typeof byController !== 'object' || Array.isArray(byController)) return null;
+      const n = Number((byController as Record<string, unknown>)[controllerId]);
+      return Number.isFinite(n) ? Math.max(0, n) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the sacrificed creature'?s (power|toughness|mana value)$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+
+      const refCard = (ref as any)?.card || ref;
+      const tl = typeLineLower(refCard);
+      if (!tl.includes('creature')) return null;
+
+      const which = String(m[1] || '').toLowerCase();
+      if (which === 'mana value') {
+        const mv = getCardManaValue(refCard);
+        return mv === null ? null : mv;
+      }
+
+      const rawValue = which === 'power'
+        ? ((refCard as any)?.power ?? (ref as any)?.power)
+        : ((refCard as any)?.toughness ?? (ref as any)?.toughness);
+      const n = Number(rawValue);
+      return Number.isFinite(n) ? n : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the greatest mana value of a commander you own on the battlefield or in the command zone$/i);
+    if (m) {
+      let greatest = 0;
+
+      for (const p of battlefield as any[]) {
+        const ownerId = String((p as any)?.ownerId || (p as any)?.owner || '').trim();
+        if (ownerId && ownerId !== controllerId) continue;
+        if (!isCommanderObject(p)) continue;
+        const mv = getCardManaValue((p as any)?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+
+      for (const obj of collectCommandZoneObjects()) {
+        const ownerId = String((obj as any)?.ownerId || (obj as any)?.owner || '').trim();
+        if (ownerId && ownerId !== controllerId) continue;
+        if (!isCommanderObject(obj)) continue;
+        const mv = getCardManaValue((obj as any)?.card || obj);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+
+      return greatest;
     }
   }
 
@@ -1178,6 +1752,78 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is its mana value$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      const targetId = String(targetCreatureId || '').trim();
+      const refId = sourceId || targetId;
+      if (!refId) return null;
+      const ref = findObjectById(refId);
+      if (!ref) return null;
+      const mv = getCardManaValue(ref);
+      return Number.isFinite(mv as number) ? (mv as number) : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is that spell'?s mana value$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      const mv = getCardManaValue((ref as any)?.spell || (ref as any)?.card || ref);
+      return Number.isFinite(mv as number) ? (mv as number) : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of colors of mana spent to cast (?:this|that) spell$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      return getColorsOfManaSpent(ref);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the amount of mana spent to cast (?:this|that) spell$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      return getAmountOfManaSpent(ref);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is that card'?s mana value$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      const mv = getCardManaValue((ref as any)?.card || ref);
+      return Number.isFinite(mv as number) ? (mv as number) : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (?:the )?(?:mana value of the exiled card|exiled card'?s mana value|revealed card'?s mana value|discarded card'?s mana value)$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      const mv = getCardManaValue((ref as any)?.card || ref);
+      return Number.isFinite(mv as number) ? (mv as number) : null;
+    }
+  }
+
+  {
     const m = raw.match(/^x is (that|this|its) (creature|permanent|artifact|enchantment|planeswalker|card)'?s (power|toughness|mana value)$/i);
     if (m) {
       const refWord = String(m[1] || '').toLowerCase();
@@ -1217,6 +1863,30 @@ function evaluateModifyPtWhereX(
       const rawValue = which === 'power' ? target.power : target.toughness;
       const val = Number(rawValue);
       return Number.isFinite(val) ? val : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of ([+\-\d/]+|[a-z][a-z0-9+\-/ ]*) counters on (?:this|that|it)(?: (creature|artifact|enchantment|planeswalker|permanent|card))?$/i);
+    if (m) {
+      const counterType = String(m[1] || '').toLowerCase().trim();
+      const objectWord = String(m[2] || '').toLowerCase().trim();
+      const sourceId = String(ctx?.sourceId || '').trim();
+      let targetId: string | undefined;
+      if (objectWord === 'creature') {
+        targetId = targetCreatureId || sourceId || undefined;
+      } else if (objectWord) {
+        targetId = sourceId || targetCreatureId || undefined;
+      } else {
+        targetId = targetCreatureId || sourceId || undefined;
+      }
+      if (!targetId || !counterType) return null;
+      const target = battlefield.find((p: any) => String(p?.id || '').trim() === targetId) as any;
+      if (!target) return null;
+      const counters = (target as any)?.counters;
+      if (!counters || typeof counters !== 'object') return 0;
+      const value = Number((counters as any)[counterType]);
+      return Number.isFinite(value) ? Math.max(0, value) : 0;
     }
   }
 
@@ -3723,7 +4393,14 @@ export function applyOracleIRStepsToGameState(
 
         if (step.condition) {
           if (step.condition.kind === 'where') {
-            whereXValue = evaluateModifyPtWhereX(nextState, controllerId, step.condition.raw, targetCreatureId, ctx);
+            whereXValue = evaluateModifyPtWhereX(
+              nextState,
+              controllerId,
+              step.condition.raw,
+              targetCreatureId,
+              ctx,
+              { lastRevealedCardCount },
+            );
             if (whereXValue === null) {
               skippedSteps.push(step);
               log.push(`Skipped P/T modifier (unsupported where-clause): ${step.raw}`);
