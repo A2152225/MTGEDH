@@ -367,7 +367,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     }
 
     const m = workingClause.match(
-      /^(?:then\s+)?(target\s+creature|the\s+creature)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
+      /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|the\s+creature)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
     );
     if (m) {
       const targetRaw = String(m[1] || '').trim().toLowerCase();
@@ -416,7 +416,9 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
         if (!tail || scaler || condition) {
           const step: any = {
             kind: 'modify_pt',
-            target: targetRaw === 'the creature' ? { kind: 'equipped_creature' } : { kind: 'raw', text: 'target creature' },
+            target: targetRaw === 'the creature'
+              ? { kind: 'equipped_creature' }
+              : { kind: 'raw', text: targetRaw },
             power: powerComponent.value,
             toughness: toughnessComponent.value,
             ...(powerComponent.usesX ? { powerUsesX: true } : {}),

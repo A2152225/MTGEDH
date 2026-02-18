@@ -484,6 +484,24 @@ function resolveSingleCreatureTargetId(
     return cardType.includes('creature') || typeLine.includes('creature');
   });
 
+  const controllerId = String(ctx.controllerId || '').trim();
+  const controlledCreatures = creatures.filter(
+    (p: any) => String((p as any)?.controller || '').trim() === controllerId
+  );
+  const opponentsControlledCreatures = creatures.filter(
+    (p: any) => String((p as any)?.controller || '').trim() !== controllerId
+  );
+
+  if (t.includes('target creature you control')) {
+    if (controlledCreatures.length === 1) return controlledCreatures[0].id;
+    return undefined;
+  }
+
+  if (t.includes('target creature your opponents control') || t.includes('target creature an opponent controls')) {
+    if (opponentsControlledCreatures.length === 1) return opponentsControlledCreatures[0].id;
+    return undefined;
+  }
+
   if (t === 'target creature' || t === 'creature' || t.includes('target creature')) {
     if (creatures.length === 1) return creatures[0].id;
     return undefined;
@@ -592,22 +610,1118 @@ function countControlledByClass(
 function evaluateModifyPtWhereX(
   state: GameState,
   controllerId: PlayerID,
-  whereRaw: string
+  whereRaw: string,
+  targetCreatureId?: string,
+  ctx?: OracleIRExecutionContext,
+  depth = 0
 ): number | null {
+  if (depth > 3) return null;
+
   const raw = normalizeOracleText(whereRaw);
-  const m = raw.match(/^x is the number of (.+) you control$/i);
-  if (!m) return null;
-
-  const klass = normalizeControlledClassKey(String(m[1] || ''));
-  if (!klass) return null;
-
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
+  const opponentsControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() !== controllerId);
   const typeLineLower = (p: any): string =>
     String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '')
       .toLowerCase()
       .trim();
-  return countControlledByClass(controlled, klass, typeLineLower);
+
+  const resolveContextPlayer = (): any | null => {
+    const id = String(ctx?.selectorContext?.targetPlayerId || ctx?.selectorContext?.targetOpponentId || '').trim();
+    if (!id) return null;
+    return (state.players || []).find((p: any) => String(p.id || '').trim() === id) || null;
+  };
+
+  const countCardsByClasses = (cards: readonly any[], classes: readonly string[]): number => {
+    return cards.filter((card: any) => {
+      const tl = typeLineLower(card);
+      if (!tl) return false;
+      return classes.some((klass) => {
+        if (klass === 'permanent') {
+          return (
+            tl.includes('artifact') ||
+            tl.includes('battle') ||
+            tl.includes('creature') ||
+            tl.includes('enchantment') ||
+            tl.includes('land') ||
+            tl.includes('planeswalker')
+          );
+        }
+        if (klass === 'nonland permanent') {
+          return (
+            (tl.includes('artifact') ||
+              tl.includes('battle') ||
+              tl.includes('creature') ||
+              tl.includes('enchantment') ||
+              tl.includes('planeswalker')) &&
+            !tl.includes('land')
+          );
+        }
+        if (klass === 'instant' || klass === 'sorcery') return tl.includes(klass);
+        return tl.includes(klass);
+      });
+    }).length;
+  };
+
+  const parseCardClassList = (text: string): readonly string[] | null => {
+    const normalized = String(text || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\bcards?\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return null;
+
+    const parts = normalized
+      .split(/\s*,\s*|\s+and\s+|\s+or\s+/i)
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return null;
+
+    const classes: string[] = [];
+    for (const part of parts) {
+      const direct = normalizeControlledClassKey(part);
+      const mapped = direct || (/^instants?$/.test(part) ? 'instant' : /^sorceries$|^sorcery$/.test(part) ? 'sorcery' : null);
+      if (!mapped) return null;
+      if (!classes.includes(mapped)) classes.push(mapped);
+    }
+    return classes;
+  };
+
+  const evaluateInner = (expr: string): number | null => {
+    return evaluateModifyPtWhereX(state, controllerId, `x is ${expr}`, targetCreatureId, ctx, depth + 1);
+  };
+
+  {
+    const m = raw.match(/^x is (one|\d+) plus (.+)$/i);
+    if (m) {
+      const addend = String(m[1] || '').toLowerCase() === 'one' ? 1 : parseInt(String(m[1] || '0'), 10) || 0;
+      const inner = evaluateInner(String(m[2] || ''));
+      if (inner === null) return null;
+      return inner + addend;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is twice (.+)$/i);
+    if (m) {
+      const inner = evaluateInner(String(m[1] || ''));
+      if (inner === null) return null;
+      return inner * 2;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is half the (.+?)(?:, rounded (up|down))?$/i);
+    if (m) {
+      const expr = String(m[1] || '').trim();
+      let inner = evaluateInner(expr);
+      if (inner === null && !/^the\s+/i.test(expr)) {
+        inner = evaluateInner(`the ${expr}`);
+      }
+      if (inner === null) return null;
+      const mode = String(m[2] || '').toLowerCase();
+      if (mode === 'up') return Math.ceil(inner / 2);
+      return Math.floor(inner / 2);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (.+) minus (one|\d+)$/i);
+    if (m) {
+      const inner = evaluateInner(String(m[1] || ''));
+      if (inner === null) return null;
+      const subtrahend = String(m[2] || '').toLowerCase() === 'one' ? 1 : parseInt(String(m[2] || '0'), 10) || 0;
+      return inner - subtrahend;
+    }
+  }
+
+  const parseClassList = (text: string): readonly string[] | null => {
+    const normalized = String(text || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\bcards?\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return null;
+    const parts = normalized
+      .split(/\s*,\s*|\s+and\s+|\s+or\s+/i)
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return null;
+    const classes: string[] = [];
+    for (const part of parts) {
+      const c = normalizeControlledClassKey(part);
+      if (!c) return null;
+      if (!classes.includes(c)) classes.push(c);
+    }
+    return classes;
+  };
+
+  const countByClasses = (permanents: readonly BattlefieldPermanent[], classes: readonly string[]): number => {
+    return permanents.filter((p: any) => {
+      const tl = typeLineLower(p);
+      return classes.some((klass) => {
+        if (klass === 'permanent') return true;
+        if (klass === 'nonland permanent') return !tl.includes('land');
+        return tl.includes(klass);
+      });
+    }).length;
+  };
+
+  const countNegatedClass = (
+    permanents: readonly BattlefieldPermanent[],
+    base: 'creature' | 'permanent',
+    excludedQualifier: string,
+    excludedId?: string
+  ): number => {
+    return permanents.filter((p: any) => {
+      const id = String((p as any)?.id || '').trim();
+      if (excludedId && id === excludedId) return false;
+      const tl = typeLineLower(p);
+      if (!tl) return false;
+      if (base === 'creature' && !tl.includes('creature')) return false;
+      if (base === 'permanent') {
+        const isPermanent =
+          tl.includes('artifact') ||
+          tl.includes('battle') ||
+          tl.includes('creature') ||
+          tl.includes('enchantment') ||
+          tl.includes('land') ||
+          tl.includes('planeswalker');
+        if (!isPermanent) return false;
+      }
+      return excludedQualifier ? !tl.includes(excludedQualifier) : true;
+    }).length;
+  };
+
+  const leastStatAmongCreatures = (
+    permanents: readonly BattlefieldPermanent[],
+    which: 'power' | 'toughness',
+    opts?: { readonly excludedId?: string; readonly excludedSubtype?: string }
+  ): number => {
+    let least: number | null = null;
+    for (const p of permanents as any[]) {
+      const id = String((p as any)?.id || '').trim();
+      if (opts?.excludedId && id === opts.excludedId) continue;
+      const tl = typeLineLower(p);
+      if (!tl.includes('creature')) continue;
+      if (opts?.excludedSubtype && tl.includes(opts.excludedSubtype)) continue;
+      const n = Number(which === 'power' ? p?.power : p?.toughness);
+      if (!Number.isFinite(n)) continue;
+      least = least === null ? n : Math.min(least, n);
+    }
+    return least ?? 0;
+  };
+
+  const lowestManaValueAmongPermanents = (
+    permanents: readonly BattlefieldPermanent[],
+    opts?: { readonly excludedId?: string; readonly excludedQualifier?: string }
+  ): number => {
+    let least: number | null = null;
+    for (const p of permanents as any[]) {
+      const id = String((p as any)?.id || '').trim();
+      if (opts?.excludedId && id === opts.excludedId) continue;
+      const tl = typeLineLower(p);
+      const isPermanent =
+        tl.includes('artifact') ||
+        tl.includes('battle') ||
+        tl.includes('creature') ||
+        tl.includes('enchantment') ||
+        tl.includes('land') ||
+        tl.includes('planeswalker');
+      if (!isPermanent) continue;
+      if (opts?.excludedQualifier && tl.includes(opts.excludedQualifier)) continue;
+      const mv = getCardManaValue(p?.card || p);
+      if (mv === null) continue;
+      least = least === null ? mv : Math.min(least, mv);
+    }
+    return least ?? 0;
+  };
+
+  {
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures you control$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return countNegatedClass(controlled, 'creature', excludedQualifier, excludedId || undefined);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures your opponents control$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return countNegatedClass(opponentsControlled, 'creature', excludedQualifier, excludedId || undefined);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return countNegatedClass(battlefield, 'creature', excludedQualifier, excludedId || undefined);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) permanents you control$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return countNegatedClass(controlled, 'permanent', excludedQualifier, excludedId || undefined);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) permanents your opponents control$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return countNegatedClass(opponentsControlled, 'permanent', excludedQualifier, excludedId || undefined);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) permanents on (?:the )?battlefield$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return countNegatedClass(battlefield, 'permanent', excludedQualifier, excludedId || undefined);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) you control$/i);
+    if (m) {
+      const classes = parseClassList(String(m[1] || ''));
+      if (classes) {
+        return countByClasses(controlled, classes);
+      }
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) your opponents control$/i);
+    if (m) {
+      const classes = parseClassList(String(m[1] || ''));
+      if (classes) {
+        return countByClasses(opponentsControlled, classes);
+      }
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of opponents you have$/i);
+    if (m) {
+      return Math.max(0, (state.players || []).filter(p => p.id !== controllerId).length);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (tapped|untapped) creatures you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      return controlled.filter((p: any) => {
+        if (!typeLineLower(p).includes('creature')) return false;
+        const tapped = Boolean((p as any)?.tapped);
+        return which === 'tapped' ? tapped : !tapped;
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of basic land types among lands you control$/i);
+    if (m) {
+      const basicLandTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+      const seen = new Set<string>();
+      for (const p of controlled as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('land')) continue;
+        for (const basic of basicLandTypes) {
+          if (tl.includes(basic)) seen.add(basic);
+        }
+      }
+      return seen.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is your devotion to (white|blue|black|red|green)$/i);
+    if (m) {
+      const colorName = String(m[1] || '').toLowerCase();
+      const colorSymbolByName: Record<string, string> = {
+        white: 'W',
+        blue: 'U',
+        black: 'B',
+        red: 'R',
+        green: 'G',
+      };
+      const colorSymbol = colorSymbolByName[colorName];
+      if (!colorSymbol) return null;
+
+      let devotion = 0;
+      for (const p of controlled as any[]) {
+        const manaCost = String((p as any)?.manaCost || (p as any)?.mana_cost || (p as any)?.card?.manaCost || (p as any)?.card?.mana_cost || '').trim();
+        if (!manaCost) continue;
+
+        const symbols = Array.from(manaCost.matchAll(/\{([^}]+)\}/g));
+        for (const sym of symbols) {
+          const inner = String(sym?.[1] || '').toUpperCase();
+          if (inner.includes(colorSymbol)) devotion += 1;
+        }
+      }
+
+      return devotion;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? in your (graveyard|hand|library|exile)$/i);
+    if (m) {
+      const zone = String(m[1] || '').toLowerCase();
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+      if (!controller) return null;
+      if (zone === 'graveyard') return Array.isArray(controller.graveyard) ? controller.graveyard.length : 0;
+      if (zone === 'hand') return Array.isArray(controller.hand) ? controller.hand.length : 0;
+      if (zone === 'library') return Array.isArray(controller.library) ? controller.library.length : 0;
+      if (zone === 'exile') return Array.isArray(controller.exile) ? controller.exile.length : 0;
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? in (?:that player's|their) (graveyard|hand|library|exile)$/i);
+    if (m) {
+      const zone = String(m[1] || '').toLowerCase();
+      const player = resolveContextPlayer();
+      if (!player) return null;
+      if (zone === 'graveyard') return Array.isArray(player.graveyard) ? player.graveyard.length : 0;
+      if (zone === 'hand') return Array.isArray(player.hand) ? player.hand.length : 0;
+      if (zone === 'library') return Array.isArray(player.library) ? player.library.length : 0;
+      if (zone === 'exile') return Array.isArray(player.exile) ? player.exile.length : 0;
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? in all graveyards$/i);
+    if (m) {
+      return (state.players || []).reduce((sum, p: any) => {
+        const gy = Array.isArray(p?.graveyard) ? p.graveyard.length : 0;
+        return sum + gy;
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? in (?:(?:all\s+)?opponents?'?\s+graveyards|your\s+opponents?'?\s+graveyards)$/i);
+    if (m) {
+      return (state.players || []).reduce((sum, p: any) => {
+        const id = String((p as any)?.id || '').trim();
+        if (!id || id === controllerId) return sum;
+        const gy = Array.isArray((p as any)?.graveyard) ? (p as any).graveyard.length : 0;
+        return sum + gy;
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (?:the total number|the number) of cards? in all players'? hands?$/i);
+    if (m) {
+      return (state.players || []).reduce((sum, p: any) => {
+        const hand = Array.isArray(p?.hand) ? p.hand.length : 0;
+        return sum + hand;
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? in (?:(?:all\s+)?opponents?'?\s+hands|your\s+opponents?'?\s+hands)$/i);
+    if (m) {
+      return (state.players || []).reduce((sum, p: any) => {
+        const id = String((p as any)?.id || '').trim();
+        if (!id || id === controllerId) return sum;
+        const hand = Array.isArray((p as any)?.hand) ? (p as any).hand.length : 0;
+        return sum + hand;
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) cards? in all graveyards$/i);
+    if (m) {
+      const classes = parseCardClassList(String(m[1] || ''));
+      if (!classes) return null;
+      return (state.players || []).reduce((sum, p: any) => {
+        const gy = Array.isArray(p?.graveyard) ? p.graveyard : [];
+        return sum + countCardsByClasses(gy, classes);
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is your life total$/i);
+    if (m) {
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+      if (!controller) return null;
+      const life = Number(controller.life);
+      return Number.isFinite(life) ? life : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) cards? in your (graveyard|hand|library|exile)$/i);
+    if (m) {
+      const classes = parseCardClassList(String(m[1] || ''));
+      if (!classes) return null;
+      const zone = String(m[2] || '').toLowerCase();
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+      if (!controller) return null;
+
+      const cards =
+        zone === 'graveyard'
+          ? (Array.isArray(controller.graveyard) ? controller.graveyard : [])
+          : zone === 'hand'
+            ? (Array.isArray(controller.hand) ? controller.hand : [])
+            : zone === 'library'
+              ? (Array.isArray(controller.library) ? controller.library : [])
+              : zone === 'exile'
+                ? (Array.isArray(controller.exile) ? controller.exile : [])
+                : null;
+      if (!cards) return null;
+
+      return countCardsByClasses(cards, classes);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) cards? in (?:that player's|their) (graveyard|hand|library|exile)$/i);
+    if (m) {
+      const classes = parseCardClassList(String(m[1] || ''));
+      if (!classes) return null;
+      const zone = String(m[2] || '').toLowerCase();
+      const player = resolveContextPlayer();
+      if (!player) return null;
+
+      const cards =
+        zone === 'graveyard'
+          ? (Array.isArray(player.graveyard) ? player.graveyard : [])
+          : zone === 'hand'
+            ? (Array.isArray(player.hand) ? player.hand : [])
+            : zone === 'library'
+              ? (Array.isArray(player.library) ? player.library : [])
+              : zone === 'exile'
+                ? (Array.isArray(player.exile) ? player.exile : [])
+                : null;
+      if (!cards) return null;
+
+      return countCardsByClasses(cards, classes);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) on the battlefield$/i);
+    if (m) {
+      const classes = parseClassList(String(m[1] || ''));
+      if (classes) {
+        return countByClasses(battlefield, classes);
+      }
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of other creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      return battlefield.filter((p: any) => {
+        const id = String((p as any)?.id || '').trim();
+        if (!id || id === sourceId) return false;
+        return typeLineLower(p).includes('creature');
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is half your life total(?:, rounded (up|down))?$/i);
+    if (m) {
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+      if (!controller) return null;
+      const life = Number(controller.life);
+      if (!Number.isFinite(life)) return null;
+      const mode = String(m[1] || '').toLowerCase();
+      if (mode === 'down') return Math.floor(life / 2);
+      return Math.ceil(life / 2);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (?:that|this|its) creature'?s (power|toughness)$/i);
+    if (m) {
+      if (!targetCreatureId) return null;
+      const target = battlefield.find((p: any) => p.id === targetCreatureId) as any;
+      if (!target) return null;
+      const which = String(m[1] || '').toLowerCase();
+      const rawValue = which === 'power' ? target.power : target.toughness;
+      const val = Number(rawValue);
+      return Number.isFinite(val) ? val : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (that|this|its) (creature|permanent|artifact|enchantment|planeswalker|card)'?s (power|toughness|mana value)$/i);
+    if (m) {
+      const refWord = String(m[1] || '').toLowerCase();
+      const objectWord = String(m[2] || '').toLowerCase();
+      const statWord = String(m[3] || '').toLowerCase();
+
+      let refId = '';
+      if (refWord === 'that' && objectWord === 'creature' && targetCreatureId) {
+        refId = String(targetCreatureId);
+      } else if ((refWord === 'this' || refWord === 'its') && String(ctx?.sourceId || '').trim()) {
+        refId = String(ctx?.sourceId || '').trim();
+      } else if (targetCreatureId) {
+        refId = String(targetCreatureId);
+      }
+
+      if (!refId) return null;
+      const target = battlefield.find((p: any) => String(p?.id || '').trim() === refId) as any;
+      if (!target) return null;
+
+      if (statWord === 'mana value') {
+        return getCardManaValue(target?.card || target);
+      }
+
+      const rawValue = statWord === 'power' ? target.power : target.toughness;
+      const val = Number(rawValue);
+      return Number.isFinite(val) ? val : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is its (power|toughness)$/i);
+    if (m) {
+      if (!targetCreatureId) return null;
+      const target = battlefield.find((p: any) => p.id === targetCreatureId) as any;
+      if (!target) return null;
+      const which = String(m[1] || '').toLowerCase();
+      const rawValue = which === 'power' ? target.power : target.toughness;
+      const val = Number(rawValue);
+      return Number.isFinite(val) ? val : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of counters on (?:this|that) creature$/i);
+    if (m) {
+      const targetId = targetCreatureId || String(ctx?.sourceId || '').trim() || undefined;
+      if (!targetId) return null;
+      const target = battlefield.find((p: any) => p.id === targetId) as any;
+      if (!target) return null;
+      const counters = (target as any).counters;
+      if (!counters || typeof counters !== 'object') return 0;
+      return (Object.values(counters) as any[]).reduce((sum: number, v: any) => {
+        const n = Number(v);
+        return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      let greatest = 0;
+      for (const p of battlefield as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of battlefield as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents you control$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (excludedQualifier && tl.includes(excludedQualifier)) continue;
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      let greatest = 0;
+      for (const p of opponentsControlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (excludedQualifier && tl.includes(excludedQualifier)) continue;
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents on (?:the )?battlefield$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      let greatest = 0;
+      for (const p of battlefield as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (excludedQualifier && tl.includes(excludedQualifier)) continue;
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among permanents on (?:the )?battlefield$/i);
+    if (m) {
+      let greatest = 0;
+      for (const p of battlefield as any[]) {
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among other permanents on (?:the )?battlefield$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of battlefield as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among other permanents you control$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among other permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of opponentsControlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among permanents you control$/i);
+    if (m) {
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      let greatest = 0;
+      for (const p of opponentsControlled as any[]) {
+        const mv = getCardManaValue(p?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among creatures you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      return leastStatAmongCreatures(controlled, which);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      return leastStatAmongCreatures(opponentsControlled, which);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      return leastStatAmongCreatures(battlefield, which);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among other creatures you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      return leastStatAmongCreatures(controlled, which, { excludedId: excludedId || undefined });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among other creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      return leastStatAmongCreatures(opponentsControlled, which, { excludedId: excludedId || undefined });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among other creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      return leastStatAmongCreatures(battlefield, which, { excludedId: excludedId || undefined });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedSubtype = String(m[3] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return leastStatAmongCreatures(controlled, which, { excludedId: excludedId || undefined, excludedSubtype });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedSubtype = String(m[3] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return leastStatAmongCreatures(opponentsControlled, which, { excludedId: excludedId || undefined, excludedSubtype });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedSubtype = String(m[3] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return leastStatAmongCreatures(battlefield, which, { excludedId: excludedId || undefined, excludedSubtype });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among other permanents you control$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      return lowestManaValueAmongPermanents(controlled, { excludedId: excludedId || undefined });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among other permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      return lowestManaValueAmongPermanents(opponentsControlled, { excludedId: excludedId || undefined });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among other permanents on (?:the )?battlefield$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      return lowestManaValueAmongPermanents(battlefield, { excludedId: excludedId || undefined });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents you control$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return lowestManaValueAmongPermanents(controlled, {
+        excludedId: excludedId || undefined,
+        excludedQualifier,
+      });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return lowestManaValueAmongPermanents(opponentsControlled, {
+        excludedId: excludedId || undefined,
+        excludedQualifier,
+      });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents on (?:the )?battlefield$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedQualifier = String(m[2] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      return lowestManaValueAmongPermanents(battlefield, {
+        excludedId: excludedId || undefined,
+        excludedQualifier,
+      });
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among permanents you control$/i);
+    if (m) {
+      return lowestManaValueAmongPermanents(controlled);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      return lowestManaValueAmongPermanents(opponentsControlled);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among permanents on (?:the )?battlefield$/i);
+    if (m) {
+      return lowestManaValueAmongPermanents(battlefield);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedSubtype = String(m[3] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        if (excludedSubtype && tl.includes(excludedSubtype)) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedSubtype = String(m[3] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      let greatest = 0;
+      for (const p of opponentsControlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        if (excludedSubtype && tl.includes(excludedSubtype)) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures on (?:the )?battlefield$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedSubtype = String(m[3] || '').toLowerCase();
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+      let greatest = 0;
+      for (const p of battlefield as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        if (excludedSubtype && tl.includes(excludedSubtype)) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other creatures you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of opponentsControlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among creatures you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      let greatest = 0;
+      for (const p of opponentsControlled as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? exiled with this (?:permanent|creature|artifact|enchantment|planeswalker|card)?$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      let count = 0;
+      for (const player of state.players as any[]) {
+        const exile = Array.isArray(player?.exile) ? player.exile : [];
+        for (const card of exile) {
+          const exiledBy = String((card as any)?.exiledBy || '').trim();
+          if (exiledBy && exiledBy === sourceId) count++;
+        }
+      }
+      return count;
+    }
+  }
+
+  return null;
 }
 
 function resolvePlayers(
@@ -2609,7 +3723,7 @@ export function applyOracleIRStepsToGameState(
 
         if (step.condition) {
           if (step.condition.kind === 'where') {
-            whereXValue = evaluateModifyPtWhereX(nextState, controllerId, step.condition.raw);
+            whereXValue = evaluateModifyPtWhereX(nextState, controllerId, step.condition.raw, targetCreatureId, ctx);
             if (whereXValue === null) {
               skippedSteps.push(step);
               log.push(`Skipped P/T modifier (unsupported where-clause): ${step.raw}`);

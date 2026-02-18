@@ -17,6 +17,16 @@ import {
 } from '../src/oracleTextParser';
 
 describe('Oracle Text Parser', () => {
+  it('normalizes exact card name references without corrupting containing words', () => {
+    const result = parseOracleText(
+      'Target creature gets +X/+0 until end of turn where X is the greatest power among creatures you control.',
+      'Test'
+    );
+
+    expect(result.abilities[0]?.effect).toContain('greatest power among creatures you control');
+    expect(result.abilities[0]?.effect).not.toContain('greathis permanent');
+  });
+
   describe('parseActivatedAbility', () => {
     it('should parse basic tap mana ability', () => {
       const result = parseActivatedAbility('{T}: Add {G}.');

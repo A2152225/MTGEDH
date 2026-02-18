@@ -13688,9 +13688,3035 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(2);
   });
 
-  it('safely skips modify_pt with unsupported where-clause expression', () => {
+  it('applies X-based modify_pt with where-clause cards-in-graveyard evaluation', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +X/+X until end of turn where X is the number of cards in your graveyard.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'g1' }, { id: 'g2' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+    const ptMod = modifiers.find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('applies X-based modify_pt where X is the number of opponents you have', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+X until end of turn where X is the number of opponents you have.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2,
+          tapped: false, summoningSick: false, counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('applies X-based modify_pt where X is the number of artifacts your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+X until end of turn where X is the number of artifacts your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppa1', ownerId: 'p2', controller: 'p2', name: 'Opp Relic 1', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppa2', ownerId: 'p3', controller: 'p3', name: 'Opp Relic 2', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('applies X-based modify_pt where X is half your life total, rounded up', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is half your life total, rounded up.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 39, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(20);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is that creature\'s power', () => {
+    const ir = parseOracleTextToIR(
+      "Target creature gets +X/+0 until end of turn where X is that creature's power.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 4, toughness: 2,
+          tapped: false, summoningSick: false, counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(4);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of cards exiled with this permanent', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+X until end of turn where X is the number of cards exiled with this permanent.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [],
+          exile: [
+            { id: 'ex1', exiledBy: 'src-where' },
+            { id: 'ex2', exiledBy: 'src-where' },
+            { id: 'ex3', exiledBy: 'other-src' },
+          ],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2,
+          tapped: false, summoningSick: false, counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'src-where' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('applies X-based modify_pt where X is the number of creature cards in your graveyard', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+X until end of turn where X is the number of creature cards in your graveyard.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [
+            { id: 'g1', type_line: 'Creature — Elf' },
+            { id: 'g2', type_line: 'Instant' },
+            { id: 'g3', type_line: 'Creature — Human' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2,
+          tapped: false, summoningSick: false, counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
+  it('applies X-based modify_pt where X is one plus the number of artifacts you control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is one plus the number of artifacts you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'a1', ownerId: 'p1', controller: 'p1', name: 'Relic', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is twice the number of artifacts your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is twice the number of artifacts your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oa1', ownerId: 'p2', controller: 'p2', name: 'Opp Relic 1', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oa2', ownerId: 'p2', controller: 'p2', name: 'Opp Relic 2', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(4);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of artifacts on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the number of artifacts on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'a1', ownerId: 'p2', controller: 'p2', name: 'Relic', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'a2', ownerId: 'p1', controller: 'p1', name: 'Bauble', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of cards in your hand minus 1', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the number of cards in your hand minus 1.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is your life total', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is your life total.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 17, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(17);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the greatest power among creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Big', cardType: 'Creature', power: 5, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifact1', ownerId: 'p1', controller: 'p1', name: 'Relic', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(5);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among permanents your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the greatest mana value among permanents your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppPerm1', ownerId: 'p2', controller: 'p2', name: 'Relic', cardType: 'Artifact', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppPerm2', ownerId: 'p2', controller: 'p2', name: 'Titanic Ward', cardType: 'Enchantment', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest toughness among creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'blade1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'creature1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppCreature1', ownerId: 'p2', controller: 'p2', name: 'Opp One', cardType: 'Creature', power: 3, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppCreature2', ownerId: 'p2', controller: 'p2', name: 'Opp Two', cardType: 'Creature', power: 1, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'blade1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among creatures your opponents control with target creature you control selector', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature you control gets +X/+0 until end of turn where X is the greatest toughness among creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppCreature1', ownerId: 'p2', controller: 'p2', name: 'Opp One', cardType: 'Creature', power: 3, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppCreature2', ownerId: 'p2', controller: 'p2', name: 'Opp Two', cardType: 'Creature', power: 1, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt with target creature your opponents control selector', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature your opponents control gets +X/+0 until end of turn where X is the greatest power among creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'p1Creature1', ownerId: 'p1', controller: 'p1', name: 'Big Ally', cardType: 'Creature', power: 5, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p1Creature2', ownerId: 'p1', controller: 'p1', name: 'Small Ally', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppCreature1', ownerId: 'p2', controller: 'p2', name: 'Target Opponent Creature', cardType: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'oppCreature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(5);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt with target creature an opponent controls selector', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature an opponent controls gets +X/+0 until end of turn where X is the greatest power among creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'p1Creature1', ownerId: 'p1', controller: 'p1', name: 'Big Ally', cardType: 'Creature', power: 6, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppCreature1', ownerId: 'p2', controller: 'p2', name: 'Target Opponent Creature', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'oppCreature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature your opponents control gets +X/+0 until end of turn where X is the greatest power among creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppCreature1', ownerId: 'p2', controller: 'p2', name: 'Opp Big Power', cardType: 'Creature', power: 8, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'oppCreature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among other creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest toughness among other creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eq1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'target1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'ally1', ownerId: 'p1', controller: 'p1', name: 'Ally One', cardType: 'Creature', power: 3, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'ally2', ownerId: 'p1', controller: 'p1', name: 'Ally Two', cardType: 'Creature', power: 1, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eq1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'target1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among other creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest power among other creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOpp1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'oppTarget', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p1Creature1', ownerId: 'p1', controller: 'p1', name: 'Ally', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppTarget', ownerId: 'p2', controller: 'p2', name: 'Target Opponent Creature', cardType: 'Creature', power: 9, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppOther1', ownerId: 'p2', controller: 'p2', name: 'Other Opponent Creature', cardType: 'Creature', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppOther2', ownerId: 'p2', controller: 'p2', name: 'Other Opponent Creature 2', cardType: 'Creature', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqOpp1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'oppTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among other permanents you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among other permanents you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqSelf1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetSelf1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetSelf1', ownerId: 'p1', controller: 'p1', name: 'Target Creature', cardType: 'Creature', manaValue: 9, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyPerm1', ownerId: 'p1', controller: 'p1', name: 'Ally Perm 1', cardType: 'Artifact', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyPerm2', ownerId: 'p1', controller: 'p1', name: 'Ally Perm 2', cardType: 'Enchantment', manaValue: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqSelf1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSelf1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among other permanents your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among other permanents your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOpp2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetOpp2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOpp2', ownerId: 'p2', controller: 'p2', name: 'Target Opponent Creature', cardType: 'Creature', manaValue: 11, power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppPermA', ownerId: 'p2', controller: 'p2', name: 'Opponent Perm A', cardType: 'Artifact', manaValue: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppPermB', ownerId: 'p2', controller: 'p2', name: 'Opponent Perm B', cardType: 'Enchantment', manaValue: 6, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqOpp2',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOpp2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqBattle1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetBattle1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetBattle1', ownerId: 'p1', controller: 'p1', name: 'Target Creature', cardType: 'Creature', manaValue: 9, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyBattle1', ownerId: 'p1', controller: 'p1', name: 'Ally Permanent', cardType: 'Enchantment', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppBattle1', ownerId: 'p2', controller: 'p2', name: 'Opponent Permanent', cardType: 'Artifact', manaValue: 12, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqBattle1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetBattle1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(12);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among other permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among other permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqBattle2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 2, attachedTo: 'targetBattle2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetBattle2', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', manaValue: 15, power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyBattle2', ownerId: 'p1', controller: 'p1', name: 'Ally Permanent', cardType: 'Enchantment', manaValue: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppBattle2', ownerId: 'p2', controller: 'p2', name: 'Opponent Permanent', cardType: 'Artifact', manaValue: 6, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqBattle2',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetBattle2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest power among creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqGlobalPower1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetGlobalPower1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetGlobalPower1', ownerId: 'p1', controller: 'p1', name: 'Target Creature', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyGlobalPower1', ownerId: 'p1', controller: 'p1', name: 'Ally Creature', cardType: 'Creature', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppGlobalPower1', ownerId: 'p2', controller: 'p2', name: 'Opponent Creature', cardType: 'Creature', power: 11, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqGlobalPower1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetGlobalPower1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(11);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among other creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest toughness among other creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqGlobalTough1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetGlobalTough1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetGlobalTough1', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', power: 9, toughness: 13, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyGlobalTough1', ownerId: 'p1', controller: 'p1', name: 'Ally Creature', cardType: 'Creature', power: 4, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppGlobalTough1', ownerId: 'p2', controller: 'p2', name: 'Opponent Creature', cardType: 'Creature', power: 3, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqGlobalTough1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetGlobalTough1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among non-Human creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest power among non-Human creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNH1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNH1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNH1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanBig1', ownerId: 'p1', controller: 'p1', name: 'Non-Human Big', cardType: 'Creature', type_line: 'Creature — Beast', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanBig1', ownerId: 'p1', controller: 'p1', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 10, toughness: 10, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNH1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNH1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among non-Human creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest toughness among non-Human creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNH2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'oppTargetNH1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p1Support1', ownerId: 'p1', controller: 'p1', name: 'Support', cardType: 'Creature', type_line: 'Creature — Elf', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppTargetNH1', ownerId: 'p2', controller: 'p2', name: 'Target Opponent Creature', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonHumanBig1', ownerId: 'p2', controller: 'p2', name: 'Non-Human Big', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHumanBig1', ownerId: 'p2', controller: 'p2', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNH2',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'oppTargetNH1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among other non-Human creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest power among other non-Human creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqONH1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetONH1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetONH1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 9, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanONH1', ownerId: 'p1', controller: 'p1', name: 'Other Non-Human', cardType: 'Creature', type_line: 'Creature — Elf', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanONH1', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 11, toughness: 11, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqONH1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetONH1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among other non-Human creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest toughness among other non-Human creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqONH2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetONH2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetONH2', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanONH2', ownerId: 'p2', controller: 'p2', name: 'Other Non-Human', cardType: 'Creature', type_line: 'Creature — Zombie', power: 2, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanONH2', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqONH2',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetONH2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among nonartifact creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest power among nonartifact creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNA1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNA1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNA1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactCreatureNA1', ownerId: 'p1', controller: 'p1', name: 'Artifact Creature', cardType: 'Artifact Creature', type_line: 'Artifact Creature — Golem', power: 12, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactCreatureNA1', ownerId: 'p1', controller: 'p1', name: 'Nonartifact Creature', cardType: 'Creature', type_line: 'Creature — Beast', power: 7, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNA1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNA1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among other nonland creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest toughness among other nonland creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNL1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNL1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNL1', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 10, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landCreatureNL1', ownerId: 'p1', controller: 'p1', name: 'Land Creature', cardType: 'Land Creature', type_line: 'Land Creature — Dryad', power: 2, toughness: 15, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonLandCreatureNL1', ownerId: 'p2', controller: 'p2', name: 'Nonland Creature', cardType: 'Creature', type_line: 'Creature — Zombie', power: 4, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNL1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNL1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among nonartifact permanents you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among nonartifact permanents you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNAP1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetNAP1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNAP1', ownerId: 'p1', controller: 'p1', name: 'Target Creature', cardType: 'Creature', manaValue: 2, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactNAP1', ownerId: 'p1', controller: 'p1', name: 'Big Artifact', cardType: 'Artifact', manaValue: 12, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactNAP1', ownerId: 'p1', controller: 'p1', name: 'Big Enchantment', cardType: 'Enchantment', manaValue: 8, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNAP1',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNAP1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of nonartifact creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of nonartifact creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqNC1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactCreatureNC1', ownerId: 'p1', controller: 'p1', name: 'Artifact Creature', cardType: 'Artifact Creature', type_line: 'Artifact Creature — Golem', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'plainCreatureNC1', ownerId: 'p1', controller: 'p1', name: 'Plain Creature', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of other nonhuman creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of other nonhuman creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNC2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC2', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanNC2', ownerId: 'p2', controller: 'p2', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanNC2', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC2' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of nonartifact permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of nonartifact permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNC3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC3', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactNC3', ownerId: 'p2', controller: 'p2', name: 'Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactNC3A', ownerId: 'p1', controller: 'p1', name: 'Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactNC3B', ownerId: 'p2', controller: 'p2', name: 'Land', cardType: 'Land', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC3' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC3') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of other nonland creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of other nonland creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNC4', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC4', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC4', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonlandCreatureNC4', ownerId: 'p2', controller: 'p2', name: 'Other Nonland Creature', cardType: 'Creature', type_line: 'Creature — Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landCreatureNC4', ownerId: 'p2', controller: 'p2', name: 'Land Creature', cardType: 'Land Creature', type_line: 'Land Creature — Elemental', power: 8, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC4' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC4') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of other nonartifact permanents you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of other nonartifact permanents you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqNC5', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC5', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC5', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactPermNC5', ownerId: 'p1', controller: 'p1', name: 'Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactPermNC5', ownerId: 'p1', controller: 'p1', name: 'Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC5' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC5') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of other nonartifact permanents your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of other nonartifact permanents your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNC6', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC6', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC6', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppArtifactPermNC6', ownerId: 'p2', controller: 'p2', name: 'Opp Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonArtifactPermNC6', ownerId: 'p2', controller: 'p2', name: 'Opp Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC6' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC6') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X uses hyphenated non-human count wording', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of non-human creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqNC7', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC7', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC7', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanNC7', ownerId: 'p1', controller: 'p1', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanNC7', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC7' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC7') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X uses spaced non human count wording', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of non human creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNC8', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC8', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC8', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanNC8', ownerId: 'p2', controller: 'p2', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanNC8', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC8' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC8') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X uses spaced non artifact permanent wording', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of non artifact permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNC9', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC9', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC9', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactNC9', ownerId: 'p2', controller: 'p2', name: 'Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactNC9A', ownerId: 'p1', controller: 'p1', name: 'Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactNC9B', ownerId: 'p2', controller: 'p2', name: 'Land', cardType: 'Land', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqNC9' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNC9') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the least power among creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the least power among creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqLeast1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 5, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'smallLeast1', ownerId: 'p1', controller: 'p1', name: 'Small', cardType: 'Creature', power: 1, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bigLeast1', ownerId: 'p1', controller: 'p1', name: 'Big', cardType: 'Creature', power: 8, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the least toughness among creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the least toughness among creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast2', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppSmallLeast2', ownerId: 'p2', controller: 'p2', name: 'Opp Small', cardType: 'Creature', power: 7, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppBigLeast2', ownerId: 'p2', controller: 'p2', name: 'Opp Big', cardType: 'Creature', power: 2, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast2' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the least power among creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the least power among creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast3', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 5, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppSmallLeast3', ownerId: 'p2', controller: 'p2', name: 'Opp Small', cardType: 'Creature', power: 0, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppBigLeast3', ownerId: 'p2', controller: 'p2', name: 'Opp Big', cardType: 'Creature', power: 6, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast3' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast3') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(0);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the lowest mana value among permanents you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the lowest mana value among permanents you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqLeast4', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 3, attachedTo: 'targetLeast4', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast4', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 5, power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'permLowLeast4', ownerId: 'p1', controller: 'p1', name: 'Low Perm', cardType: 'Enchantment', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'permHighLeast4', ownerId: 'p1', controller: 'p1', name: 'High Perm', cardType: 'Artifact', manaValue: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast4' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast4') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the lowest mana value among permanents your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the lowest mana value among permanents your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast5', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast5', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast5', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLowLeast5', ownerId: 'p2', controller: 'p2', name: 'Opp Low', cardType: 'Enchantment', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHighLeast5', ownerId: 'p2', controller: 'p2', name: 'Opp High', cardType: 'Artifact', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast5' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast5') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the lowest mana value among permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the lowest mana value among permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast6', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast6', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast6', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 4, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyLeast6', ownerId: 'p1', controller: 'p1', name: 'Ally Perm', cardType: 'Enchantment', manaValue: 6, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLeast6', ownerId: 'p2', controller: 'p2', name: 'Opp Perm', cardType: 'Artifact', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast6' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast6') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the least toughness among other creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the least toughness among other creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqLeast7', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast7', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast7', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'smallLeast7', ownerId: 'p1', controller: 'p1', name: 'Small', cardType: 'Creature', power: 1, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bigLeast7', ownerId: 'p1', controller: 'p1', name: 'Big', cardType: 'Creature', power: 5, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast7' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast7') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the least power among other creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the least power among other creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast8', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast8', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast8', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppSmallLeast8', ownerId: 'p2', controller: 'p2', name: 'Opp Small', cardType: 'Creature', power: 1, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppBigLeast8', ownerId: 'p2', controller: 'p2', name: 'Opp Big', cardType: 'Creature', power: 6, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast8' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast8') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the least power among nonhuman creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the least power among nonhuman creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqLeast9', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast9', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast9', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 7, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanSmallLeast9', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Small', cardType: 'Creature', type_line: 'Creature — Beast', power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanLeast9', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 0, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast9' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast9') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the least toughness among other non-Human creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the least toughness among other non-Human creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast10', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast10', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast10', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 5, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonHumanSmallLeast10', ownerId: 'p2', controller: 'p2', name: 'Opp Nonhuman Small', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHumanLeast10', ownerId: 'p2', controller: 'p2', name: 'Opp Human', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 2, toughness: 0, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast10' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast10') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the lowest mana value among other permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the lowest mana value among other permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast11', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 3, attachedTo: 'targetLeast11', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast11', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 10, power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyLeast11', ownerId: 'p1', controller: 'p1', name: 'Ally Perm', cardType: 'Enchantment', manaValue: 6, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLeast11', ownerId: 'p2', controller: 'p2', name: 'Opp Perm', cardType: 'Artifact', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast11' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast11') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the lowest mana value among nonartifact permanents you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the lowest mana value among nonartifact permanents you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqLeast12', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast12', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast12', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 8, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactLeast12', ownerId: 'p1', controller: 'p1', name: 'Artifact', cardType: 'Artifact', manaValue: 0, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactLeast12A', ownerId: 'p1', controller: 'p1', name: 'Nonartifact A', cardType: 'Enchantment', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactLeast12B', ownerId: 'p1', controller: 'p1', name: 'Nonartifact B', cardType: 'Creature', manaValue: 5, power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast12' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast12') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the lowest mana value among other nonland permanents your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the lowest mana value among other nonland permanents your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast13', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast13', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast13', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', manaValue: 9, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLandLeast13', ownerId: 'p2', controller: 'p2', name: 'Opp Land', cardType: 'Land', manaValue: 0, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonlandLeast13A', ownerId: 'p2', controller: 'p2', name: 'Opp Nonland A', cardType: 'Artifact', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonlandLeast13B', ownerId: 'p2', controller: 'p2', name: 'Opp Nonland B', cardType: 'Enchantment', manaValue: 3, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast13' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast13') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X uses lowest-power synonym among creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the lowest power among creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqLeast14', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast14', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast14', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 7, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'smallLeast14', ownerId: 'p1', controller: 'p1', name: 'Small', cardType: 'Creature', power: 1, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast14' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast14') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is one plus the lowest mana value among permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is one plus the lowest mana value among permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast15', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 3, attachedTo: 'targetLeast15', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast15', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 8, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'lowLeast15', ownerId: 'p2', controller: 'p2', name: 'Low', cardType: 'Artifact', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'highLeast15', ownerId: 'p1', controller: 'p1', name: 'High', cardType: 'Enchantment', manaValue: 6, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast15' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast15') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is twice the least toughness among creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is twice the least toughness among creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast16', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast16', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast16', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLeast16A', ownerId: 'p2', controller: 'p2', name: 'Opp A', cardType: 'Creature', power: 4, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLeast16B', ownerId: 'p2', controller: 'p2', name: 'Opp B', cardType: 'Creature', power: 8, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast16' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast16') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is half the lowest mana value among permanents you control, rounded down', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is half the lowest mana value among permanents you control, rounded down.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqLeast17', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 3, attachedTo: 'targetLeast17', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast17', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 7, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'lowLeast17', ownerId: 'p1', controller: 'p1', name: 'Low', cardType: 'Enchantment', manaValue: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'highLeast17', ownerId: 'p1', controller: 'p1', name: 'High', cardType: 'Artifact', manaValue: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast17' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast17') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is half the least power among creatures on the battlefield, rounded up', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is half the least power among creatures on the battlefield, rounded up.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqLeast18', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast18', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast18', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 8, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'lowLeast18', ownerId: 'p2', controller: 'p2', name: 'Low', cardType: 'Creature', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'highLeast18', ownerId: 'p1', controller: 'p1', name: 'High', cardType: 'Creature', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqLeast18' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetLeast18') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the highest power among creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the highest power among creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqHighest1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetHighest1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetHighest1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bigHighest1', ownerId: 'p1', controller: 'p1', name: 'Big', cardType: 'Creature', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'smallHighest1', ownerId: 'p1', controller: 'p1', name: 'Small', cardType: 'Creature', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqHighest1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetHighest1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is one plus the highest mana value among permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is one plus the highest mana value among permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqHighest2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetHighest2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetHighest2', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 2, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'midHighest2', ownerId: 'p2', controller: 'p2', name: 'Mid', cardType: 'Enchantment', manaValue: 5, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bigHighest2', ownerId: 'p1', controller: 'p1', name: 'Big', cardType: 'Artifact', manaValue: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqHighest2' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetHighest2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(10);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the highest mana value among other nonartifact permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the highest mana value among other nonartifact permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqHighest3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetHighest3', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetHighest3', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', manaValue: 10, power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactHighest3', ownerId: 'p1', controller: 'p1', name: 'Big Artifact', cardType: 'Artifact', manaValue: 15, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'enchantmentHighest3', ownerId: 'p2', controller: 'p2', name: 'Big Enchantment', cardType: 'Enchantment', manaValue: 8, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqHighest3',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetHighest3') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the smallest toughness among creatures your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the smallest toughness among creatures your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqSmallest1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetSmallest1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetSmallest1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppSmallest1A', ownerId: 'p2', controller: 'p2', name: 'Opp A', cardType: 'Creature', power: 6, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppSmallest1B', ownerId: 'p2', controller: 'p2', name: 'Opp B', cardType: 'Creature', power: 4, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqSmallest1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSmallest1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is twice the smallest mana value among permanents you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is twice the smallest mana value among permanents you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqSmallest2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 2, attachedTo: 'targetSmallest2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetSmallest2', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 8, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'lowSmallest2', ownerId: 'p1', controller: 'p1', name: 'Low', cardType: 'Enchantment', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'highSmallest2', ownerId: 'p1', controller: 'p1', name: 'High', cardType: 'Artifact', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqSmallest2' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSmallest2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(4);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the smallest mana value among other nonland permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the smallest mana value among other nonland permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqSmallest3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetSmallest3', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetSmallest3', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', manaValue: 6, power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landSmallest3', ownerId: 'p2', controller: 'p2', name: 'Big Land', cardType: 'Land', manaValue: 0, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'smallestNonland3', ownerId: 'p2', controller: 'p2', name: 'Small Enchantment', cardType: 'Enchantment', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'biggerNonland3', ownerId: 'p1', controller: 'p1', name: 'Big Artifact', cardType: 'Artifact', manaValue: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqSmallest3',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSmallest3') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the highest converted mana cost among permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the highest converted mana cost among permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqCmc1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetCmc1', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetCmc1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 3, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'highCmc1', ownerId: 'p2', controller: 'p2', name: 'High', cardType: 'Enchantment', manaValue: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqCmc1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetCmc1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(9);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is one plus the highest converted mana cost among permanents you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is one plus the highest converted mana cost among permanents you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [
+        { id: 'eqCmc2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetCmc2', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetCmc2', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 4, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'highCmc2', ownerId: 'p1', controller: 'p1', name: 'High', cardType: 'Artifact', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqCmc2' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetCmc2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the smallest converted mana cost among nonartifact permanents your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the smallest converted mana cost among nonartifact permanents your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqCmc3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetCmc3', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetCmc3', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', manaValue: 6, power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppArtifactCmc3', ownerId: 'p2', controller: 'p2', name: 'Artifact', cardType: 'Artifact', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppEnchantmentCmc3', ownerId: 'p2', controller: 'p2', name: 'Enchantment', cardType: 'Enchantment', manaValue: 3, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqCmc3',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetCmc3') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the highest power among creatures you don\'t control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the highest power among creatures you don\'t control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOppAlias1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetOppAlias1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppAlias1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHigh1', ownerId: 'p2', controller: 'p2', name: 'Opp High', cardType: 'Creature', power: 8, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLow1', ownerId: 'p2', controller: 'p2', name: 'Opp Low', cardType: 'Creature', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOppAlias1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppAlias1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the smallest toughness among creatures an opponent controls', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the smallest toughness among creatures an opponent controls.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOppAlias2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetOppAlias2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppAlias2', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppA2', ownerId: 'p2', controller: 'p2', name: 'Opp A', cardType: 'Creature', power: 5, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppB2', ownerId: 'p2', controller: 'p2', name: 'Opp B', cardType: 'Creature', power: 3, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOppAlias2' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppAlias2') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is one plus the highest converted mana cost among permanents you don\'t control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is one plus the highest converted mana cost among permanents you don\'t control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOppAlias3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetOppAlias3', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppAlias3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 4, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHighCmc3', ownerId: 'p2', controller: 'p2', name: 'Opp High', cardType: 'Artifact', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOppAlias3' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppAlias3') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the highest power among creatures you do not control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the highest power among creatures you do not control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOppAlias4', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetOppAlias4', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppAlias4', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHigh4', ownerId: 'p2', controller: 'p2', name: 'Opp High', cardType: 'Creature', power: 9, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOppAlias4' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppAlias4') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(9);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the smallest converted mana cost among permanents you do not control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the smallest converted mana cost among permanents you do not control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOppAlias5', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetOppAlias5', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppAlias5', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', manaValue: 4, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLow5', ownerId: 'p2', controller: 'p2', name: 'Opp Low', cardType: 'Enchantment', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHigh5', ownerId: 'p2', controller: 'p2', name: 'Opp High', cardType: 'Artifact', manaValue: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOppAlias5' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppAlias5') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the highest power among other creatures you do not control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the highest power among other creatures you do not control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOppAlias6', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetOppAlias6', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppAlias6', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', power: 10, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHigh6', ownerId: 'p2', controller: 'p2', name: 'Opp High', cardType: 'Creature', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppLow6', ownerId: 'p2', controller: 'p2', name: 'Opp Low', cardType: 'Creature', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOppAlias6' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppAlias6') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the smallest converted mana cost among other nonartifact permanents an opponent controls', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the smallest converted mana cost among other nonartifact permanents an opponent controls.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOppAlias7', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetOppAlias7', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppAlias7', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', manaValue: 1, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppArtifact7', ownerId: 'p2', controller: 'p2', name: 'Opp Artifact', cardType: 'Artifact', manaValue: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppEnchantment7', ownerId: 'p2', controller: 'p2', name: 'Opp Enchantment', cardType: 'Enchantment', manaValue: 3, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOppAlias7' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppAlias7') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among nonland permanents your opponents control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among nonland permanents your opponents control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNLP1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetNLP1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNLP1', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', manaValue: 3, power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landNLP1', ownerId: 'p2', controller: 'p2', name: 'Big Land', cardType: 'Land', manaValue: 15, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonLandNLP1', ownerId: 'p2', controller: 'p2', name: 'Big Nonland', cardType: 'Artifact', manaValue: 9, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNLP1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNLP1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(9);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest mana value among other nonartifact permanents on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among other nonartifact permanents on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqONAP1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetONAP1', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetONAP1', ownerId: 'p2', controller: 'p2', name: 'Target Creature', cardType: 'Creature', manaValue: 10, power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactONAP1', ownerId: 'p1', controller: 'p1', name: 'Big Artifact', cardType: 'Artifact', manaValue: 14, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactONAP1', ownerId: 'p2', controller: 'p2', name: 'Big Enchantment', cardType: 'Enchantment', manaValue: 8, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqONAP1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetONAP1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest power among nonhuman creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest power among nonhuman creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNH3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNH3', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNH3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanBig3', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Big', cardType: 'Creature', type_line: 'Creature — Beast', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanBig3', ownerId: 'p1', controller: 'p1', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 11, toughness: 11, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNH3',
+      selectorContext: { targetPlayerId: 'p1' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNH3') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the greatest toughness among non-Human creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest toughness among non-Human creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqNH4', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNH4', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNH4', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanBig4', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Big', cardType: 'Creature', type_line: 'Creature — Dragon', power: 4, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanBig4', ownerId: 'p2', controller: 'p2', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 8, toughness: 13, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqNH4',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNH4') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(9);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of creature cards in all graveyards', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the number of creature cards in all graveyards.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'g1', type_line: 'Creature — Elf' }, { id: 'g2', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [{ id: 'g3', type_line: 'Creature — Human' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of cards in that player\'s graveyard', () => {
+    const ir = parseOracleTextToIR(
+      "Target creature gets +X/+0 until end of turn where X is the number of cards in that player's graveyard.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [{ id: 'g1' }, { id: 'g2' }, { id: 'g3' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of creature cards in their graveyard', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the number of creature cards in their graveyard.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [{ id: 'g1', type_line: 'Creature — Elf' }, { id: 'g2', type_line: 'Instant' }, { id: 'g3', type_line: 'Creature — Human' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is this permanent\'s power', () => {
+    const ir = parseOracleTextToIR(
+      "Target creature gets +X/+0 until end of turn where X is this permanent's power.",
+      'Test Creature'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Creature', cardType: 'Creature', power: 4, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'creature1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(4);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt for Consuming Aberration style opponents-graveyards wording', () => {
+    const ir = parseOracleTextToIR(
+      "Target creature gets +X/+X until end of turn where X is the number of cards in your opponents' graveyards.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'self1' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [{ id: 'g1' }, { id: 'g2' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }],
+          hand: [],
+          graveyard: [{ id: 'g3' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(3);
+  });
+
+  it('applies X-based modify_pt where X is the number of cards in all players\' hands', () => {
+    const ir = parseOracleTextToIR(
+      "Target creature gets +X/+0 until end of turn where X is the number of cards in all players' hands.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [{ id: 'h1' }, { id: 'h2' }], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [{ id: 'h3' }], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of cards in your opponents\' hands', () => {
+    const ir = parseOracleTextToIR(
+      "Target creature gets +X/+0 until end of turn where X is the number of cards in your opponents' hands.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [{ id: 'self1' }, { id: 'self2' }], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [{ id: 'opp1' }], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [{ id: 'opp2' }, { id: 'opp3' }], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of other creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the number of other creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'source1', ownerId: 'p1', controller: 'p1', name: 'Source Relic', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifact1', ownerId: 'p1', controller: 'p1', name: 'Relic', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'source1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'target1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of tapped creatures you control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the number of tapped creatures you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: true, summoningSick: false, counters: {} } as any,
+        { id: 'artifact1', ownerId: 'p1', controller: 'p1', name: 'Relic', cardType: 'Artifact', tapped: true, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'target1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(1);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of basic land types among lands you control', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the number of basic land types among lands you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land1', ownerId: 'p1', controller: 'p1', name: 'Tropical', type_line: 'Land — Forest Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land2', ownerId: 'p1', controller: 'p1', name: 'Badlands', type_line: 'Land — Swamp Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land3', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'target1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(5);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is your devotion to blue', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is your devotion to blue.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', manaCost: '{2}{U}', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'perm1', ownerId: 'p1', controller: 'p1', name: 'Mind Relic', cardType: 'Artifact', manaCost: '{1}{U}{U}', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'perm2', ownerId: 'p1', controller: 'p1', name: 'Hybrid Matrix', cardType: 'Artifact', manaCost: '{U/B}{U/B}', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'target1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(5);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is your devotion to black', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is your devotion to black.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', manaCost: '{1}{B}', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'perm1', ownerId: 'p1', controller: 'p1', name: 'Dark Relic', cardType: 'Artifact', manaCost: '{B}{B}', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'perm2', ownerId: 'p1', controller: 'p1', name: 'Hybrid Matrix', cardType: 'Artifact', manaCost: '{U/B}', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'target1') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(4);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('safely skips modify_pt with still-unsupported where expression', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+X until end of turn where X is the number of cards named Forest in your graveyard.',
       'Test'
     );
     const steps = ir.abilities[0]?.steps ?? [];

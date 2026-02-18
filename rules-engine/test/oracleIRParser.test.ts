@@ -605,6 +605,42 @@ describe('Oracle IR Parser', () => {
     expect(pump.scaler).toBeUndefined();
   });
 
+  it('parses controller-qualified target creature text for composable modify_pt', () => {
+    const text = 'Target creature you control gets +X/+0 until end of turn where X is the greatest toughness among creatures your opponents control.';
+    const ir = parseOracleTextToIR(text, 'Test');
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.target).toEqual({ kind: 'raw', text: 'target creature you control' });
+    expect(pump.powerUsesX).toBe(true);
+    expect(pump.condition).toEqual({ kind: 'where', raw: 'X is the greatest toughness among creatures your opponents control' });
+  });
+
+  it('parses opponent-qualified target creature text for composable modify_pt', () => {
+    const text = 'Target creature your opponents control gets +X/+0 until end of turn where X is the greatest power among creatures you control.';
+    const ir = parseOracleTextToIR(text, 'Test');
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.target).toEqual({ kind: 'raw', text: 'target creature your opponents control' });
+    expect(pump.powerUsesX).toBe(true);
+    expect(pump.condition).toEqual({ kind: 'where', raw: 'X is the greatest power among creatures you control' });
+  });
+
+  it('parses singular-opponent target creature text for composable modify_pt', () => {
+    const text = 'Target creature an opponent controls gets +X/+0 until end of turn where X is the greatest power among creatures you control.';
+    const ir = parseOracleTextToIR(text, 'Test');
+    const steps = ir.abilities[0].steps;
+
+    const pump = steps.find(s => s.kind === 'modify_pt') as any;
+    expect(pump).toBeTruthy();
+    expect(pump.target).toEqual({ kind: 'raw', text: 'target creature an opponent controls' });
+    expect(pump.powerUsesX).toBe(true);
+    expect(pump.condition).toEqual({ kind: 'where', raw: 'X is the greatest power among creatures you control' });
+  });
+
   it('parses unsupported for-each tails into unknown modify_pt scaler for future automation', () => {
     const text = 'Target creature gets +1/+1 until end of turn for each opponent you attacked with a creature this combat.';
     const ir = parseOracleTextToIR(text);

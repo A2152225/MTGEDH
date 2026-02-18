@@ -689,10 +689,16 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
   const keywordActions: ParsedKeywordAction[] = [];
   let hasTargets = false;
   let hasModes = false;
+
+  const escapeRegex = (value: string): string => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   
   // Normalize card name references in text
-  const normalizedText = cardName 
-    ? oracleText.replace(new RegExp(cardName, 'gi'), 'this permanent')
+  const normalizedCardName = String(cardName || '').trim();
+  const cardNamePattern = normalizedCardName
+    ? new RegExp(`(^|[^a-z0-9])(${escapeRegex(normalizedCardName)})(?=[^a-z0-9]|$)`, 'gi')
+    : null;
+  const normalizedText = cardNamePattern
+    ? oracleText.replace(cardNamePattern, '$1this permanent')
     : oracleText;
   
   // Split into lines/sentences for parsing.
