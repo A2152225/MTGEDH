@@ -633,12 +633,73 @@ function evaluateModifyPtWhereX(
   whereRaw: string,
   targetCreatureId?: string,
   ctx?: OracleIRExecutionContext,
-  runtime?: { readonly lastRevealedCardCount?: number },
+  runtime?: {
+    readonly lastRevealedCardCount?: number;
+    readonly lastDiscardedCardCount?: number;
+    readonly lastExiledCardCount?: number;
+    readonly lastSacrificedCreaturesPowerTotal?: number;
+    readonly lastExcessDamageDealtThisWay?: number;
+    readonly lastScryLookedAtCount?: number;
+  },
   depth = 0
 ): number | null {
   if (depth > 3) return null;
 
-  const raw = normalizeOracleText(whereRaw);
+  const whereAliases: Record<string, string> = {
+    "x is the mana value of that spell": "x is that spell's mana value",
+    "x is the spell's mana value": "x is that spell's mana value",
+    "x is the mana value of this spell": "x is that spell's mana value",
+    "x is this spell's mana value": "x is that spell's mana value",
+    "x is the mana value of this card": "x is that card's mana value",
+    "x is this card's mana value": "x is that card's mana value",
+    "x is the mana value of that card": "x is that card's mana value",
+    "x is the card's mana value": "x is that card's mana value",
+    "x is the amount of excess damage": "x is the amount of excess damage dealt this way",
+    "x is the excess damage": "x is the excess damage dealt this way",
+    "x is that excess damage": "x is the excess damage dealt this way",
+    "x is the amount of excess damage dealt": "x is the amount of excess damage dealt this way",
+    "x is the excess damage dealt": "x is the excess damage dealt this way",
+    "x is excess damage dealt": "x is the excess damage dealt this way",
+    "x is the power of the exiled card": "x is that card's power",
+    "x is the toughness of the exiled card": "x is that card's toughness",
+    "x is the exiled card's power": "x is that card's power",
+    "x is the exiled card's toughness": "x is that card's toughness",
+    "x is the power of the revealed card": "x is that card's power",
+    "x is the toughness of the revealed card": "x is that card's toughness",
+    "x is the revealed card's power": "x is that card's power",
+    "x is the revealed card's toughness": "x is that card's toughness",
+    "x is the power of the discarded card": "x is that card's power",
+    "x is the toughness of the discarded card": "x is that card's toughness",
+    "x is the amount of life you have gained this turn": "x is the amount of life you gained this turn",
+    "x is the amount of life you've gained this turn": "x is the amount of life you gained this turn",
+    "x is the amount of life you have gained": "x is the amount of life you gained",
+    "x is the amount of life you've gained": "x is the amount of life you gained",
+    "x is the amount of life opponents have gained this turn": "x is the amount of life your opponents have gained this turn",
+    "x is the amount of life opponents gained this turn": "x is the amount of life your opponents gained this turn",
+    "x is the amount of life opponents have gained": "x is the amount of life your opponents have gained",
+    "x is the amount of life opponents gained": "x is the amount of life your opponents gained",
+    "x is the amount of life you have lost this turn": "x is the amount of life you lost this turn",
+    "x is the amount of life you've lost this turn": "x is the amount of life you lost this turn",
+    "x is the amount of life you have lost": "x is the amount of life you lost",
+    "x is the amount of life you've lost": "x is the amount of life you lost",
+    "x is the amount of life opponents have lost this turn": "x is the amount of life your opponents have lost this turn",
+    "x is the amount of life opponents lost this turn": "x is the amount of life your opponents lost this turn",
+    "x is the amount of life opponents have lost": "x is the amount of life your opponents have lost",
+    "x is the amount of life opponents lost": "x is the amount of life your opponents lost",
+    "x is the number of spells opponents have cast this turn": "x is the number of spells your opponents have cast this turn",
+    "x is the number of spells opponents cast this turn": "x is the number of spells your opponents cast this turn",
+    "x is the number of lands opponents have played this turn": "x is the number of lands your opponents have played this turn",
+    "x is the number of lands opponents played this turn": "x is the number of lands your opponents played this turn",
+    "x is the number of cards opponents have drawn this turn": "x is the number of cards your opponents have drawn this turn",
+    "x is the number of cards opponents drew this turn": "x is the number of cards your opponents drew this turn",
+    "x is the number of cards opponents have discarded this turn": "x is the number of cards your opponents have discarded this turn",
+    "x is the number of cards opponents discarded this turn": "x is the number of cards your opponents discarded this turn",
+    "x is the number of permanents opponents have sacrificed this turn": "x is the number of permanents your opponents have sacrificed this turn",
+    "x is the number of permanents opponents sacrificed this turn": "x is the number of permanents your opponents sacrificed this turn",
+  };
+
+  let raw = normalizeOracleText(whereRaw);
+  raw = whereAliases[raw] || raw;
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
   const opponentsControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() !== controllerId);
@@ -646,6 +707,33 @@ function evaluateModifyPtWhereX(
     String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '')
       .toLowerCase()
       .trim();
+  const isAttackingObject = (obj: any): boolean => {
+    const attackingValue = String((obj as any)?.attacking || (obj as any)?.attackingPlayerId || (obj as any)?.defendingPlayerId || '').trim();
+    if (attackingValue.length > 0) return true;
+    if ((obj as any)?.isAttacking === true) return true;
+    return false;
+  };
+  const hasFlyingKeyword = (obj: any): boolean => {
+    const keywordValues: unknown[] = [
+      ...(Array.isArray((obj as any)?.keywords) ? (obj as any).keywords : []),
+      ...(Array.isArray((obj as any)?.card?.keywords) ? (obj as any).card.keywords : []),
+    ];
+    for (const value of keywordValues) {
+      if (String(value || '').trim().toLowerCase() === 'flying') return true;
+    }
+    const textValues: unknown[] = [
+      (obj as any)?.text,
+      (obj as any)?.oracleText,
+      (obj as any)?.card?.text,
+      (obj as any)?.card?.oracleText,
+      (obj as any)?.abilities,
+      (obj as any)?.card?.abilities,
+    ];
+    for (const value of textValues) {
+      if (typeof value === 'string' && /\bflying\b/i.test(value)) return true;
+    }
+    return false;
+  };
 
   const resolveContextPlayer = (): any | null => {
     const id = String(ctx?.selectorContext?.targetPlayerId || ctx?.selectorContext?.targetOpponentId || '').trim();
@@ -675,6 +763,51 @@ function evaluateModifyPtWhereX(
         const cards = Array.isArray((player as any)?.[zone]) ? (player as any)[zone] : [];
         const found = cards.find((card: any) => String((card as any)?.id || '').trim() === id) as any;
         if (found) return found;
+      }
+    }
+
+    return null;
+  };
+
+  const findObjectByName = (nameRaw: string): any | null => {
+    const wanted = normalizeOracleText(String(nameRaw || ''));
+    if (!wanted) return null;
+
+    const getName = (obj: any): string => normalizeOracleText(String((obj as any)?.name || (obj as any)?.card?.name || ''));
+    const namesMatch = (nameValue: string): boolean => {
+      if (!nameValue) return false;
+      if (nameValue === wanted) return true;
+      if (nameValue.startsWith(`${wanted},`)) return true;
+      return false;
+    };
+
+    const sourceId = String(ctx?.sourceId || '').trim();
+    if (sourceId) {
+      const sourceObj = findObjectById(sourceId);
+      if (sourceObj && namesMatch(getName(sourceObj))) return sourceObj;
+    }
+
+    for (const permanent of battlefield as any[]) {
+      if (namesMatch(getName(permanent))) return permanent;
+    }
+
+    const stackRaw = (state as any)?.stack;
+    const stackItems = Array.isArray(stackRaw)
+      ? stackRaw
+      : Array.isArray((stackRaw as any)?.objects)
+        ? (stackRaw as any).objects
+        : [];
+    for (const stackObj of stackItems as any[]) {
+      if (namesMatch(getName(stackObj))) return stackObj;
+    }
+
+    const zones: readonly ('library' | 'hand' | 'graveyard' | 'exile')[] = ['library', 'hand', 'graveyard', 'exile'];
+    for (const player of (state.players || []) as any[]) {
+      for (const zone of zones) {
+        const cards = Array.isArray((player as any)?.[zone]) ? (player as any)[zone] : [];
+        for (const card of cards as any[]) {
+          if (namesMatch(getName(card))) return card;
+        }
       }
     }
 
@@ -1003,6 +1136,7 @@ function evaluateModifyPtWhereX(
       if (symbol === 'G') return 'green';
       if (symbol === 'C') return 'colorless';
       if (symbol === 'S') return 'snow';
+      if (symbol === 'E') return 'energy';
       return null;
     })();
     if (!mapKey) return null;
@@ -1019,6 +1153,11 @@ function evaluateModifyPtWhereX(
       ]);
       if (symbol === 'S') {
         aliases.add('snowmana');
+      } else if (symbol === 'E') {
+        aliases.add('energycounter');
+        aliases.add('energycounters');
+        aliases.add('energyspent');
+        aliases.add('spentenergy');
       }
 
       for (const key of aliases) {
@@ -1037,6 +1176,10 @@ function evaluateModifyPtWhereX(
         if (!color) continue;
         if (symbol === 'S') {
           if (color === 'S' || color === 'SNOW') count += 1;
+          continue;
+        }
+        if (symbol === 'E') {
+          if (color === 'E' || color === 'ENERGY') count += 1;
           continue;
         }
         if (color === symbol || color === mapKey.toUpperCase()) count += 1;
@@ -1424,7 +1567,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       const phrase = String(m[1] || '').toLowerCase();
       const mentionsAttackingCreatures = /\bcreatures?\b/.test(phrase) && /\battacking\b/.test(phrase);
-      if (mentionsAttackingCreatures) {
+      if (mentionsAttackingCreatures && !/\bwith\s+flying\b/.test(phrase)) {
         const isOther = /\bother\b/.test(phrase);
         const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
         const useOpponents = /\b(?:your opponents control|an opponent controls|you don['’]?t control|you do not control)\b/.test(phrase);
@@ -1436,6 +1579,38 @@ function evaluateModifyPtWhereX(
           return String((p as any)?.attacking || '').trim().length > 0;
         }).length;
       }
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of attacking creatures with flying$/i);
+    if (m) {
+      return battlefield.filter((p: any) => {
+        if (!typeLineLower(p).includes('creature')) return false;
+        if (!isAttackingObject(p)) return false;
+        return hasFlyingKeyword(p);
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of players being attacked$/i);
+    if (m) {
+      const playerIds = new Set((state.players || []).map((p: any) => String((p as any)?.id || '').trim()).filter(Boolean));
+      const attacked = new Set<string>();
+      for (const p of battlefield as any[]) {
+        if (!isAttackingObject(p)) continue;
+        const candidates = [
+          (p as any)?.attacking,
+          (p as any)?.attackingPlayerId,
+          (p as any)?.defendingPlayerId,
+        ];
+        for (const value of candidates) {
+          const id = String(value || '').trim();
+          if (id && playerIds.has(id)) attacked.add(id);
+        }
+      }
+      return attacked.size;
     }
   }
 
@@ -2087,6 +2262,46 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of cards? discarded this way$/i);
+    if (m) {
+      const discarded = Number(runtime?.lastDiscardedCardCount ?? 0);
+      return Number.isFinite(discarded) ? Math.max(0, discarded) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? exiled this way$/i);
+    if (m) {
+      const exiled = Number(runtime?.lastExiledCardCount ?? 0);
+      return Number.isFinite(exiled) ? Math.max(0, exiled) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the total power of (?:the )?creatures? sacrificed this way$/i);
+    if (m) {
+      const totalPower = Number(runtime?.lastSacrificedCreaturesPowerTotal ?? 0);
+      return Number.isFinite(totalPower) ? Math.max(0, totalPower) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (?:the )?amount of excess damage dealt this way$|^x is the excess damage dealt this way$/i);
+    if (m) {
+      const excess = Number(runtime?.lastExcessDamageDealtThisWay ?? 0);
+      return Number.isFinite(excess) ? Math.max(0, excess) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? looked at while scrying this way$/i);
+    if (m) {
+      const looked = Number(runtime?.lastScryLookedAtCount ?? 0);
+      return Number.isFinite(looked) ? Math.max(0, looked) : 0;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of creatures that died this turn$/i);
     if (m) {
       const stateAny: any = state as any;
@@ -2555,6 +2770,18 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is this spell'?s intensity$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      const n = Number((ref as any)?.intensity ?? (ref as any)?.intensityValue ?? (ref as any)?.card?.intensity ?? (ref as any)?.card?.intensityValue);
+      return Number.isFinite(n) ? Math.max(0, n) : null;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of colors of mana spent to cast (?:this|that) spell$/i);
     if (m) {
       const sourceId = String(ctx?.sourceId || '').trim();
@@ -2588,13 +2815,26 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the total amount of mana paid this way$/i);
+    const m = raw.match(
+      /^x is the (?:(?:total )?amount of mana paid this way|(?:total )?amount of mana that player paid this way)$/i
+    );
     if (m) {
       const sourceId = String(ctx?.sourceId || '').trim();
       if (!sourceId) return null;
       const ref = findObjectById(sourceId);
       if (!ref) return null;
       return getAmountOfManaSpent(ref);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the amount of \{([wubrgcse])\} paid this way$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      return getAmountOfSpecificManaSymbolSpent(ref, String(m[1] || ''));
     }
   }
 
@@ -2619,6 +2859,47 @@ function evaluateModifyPtWhereX(
       if (!ref) return null;
       const mv = getCardManaValue((ref as any)?.card || ref);
       return Number.isFinite(mv as number) ? (mv as number) : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is ([a-z0-9 ,.'-]+)'s (power|toughness|mana value)$/i);
+    if (m) {
+      const ownerName = String(m[1] || '').trim();
+      const which = String(m[2] || '').toLowerCase();
+      if (!ownerName) return null;
+      const normalizedOwner = normalizeOracleText(ownerName);
+      if (
+        normalizedOwner === 'this' ||
+        normalizedOwner === 'that' ||
+        normalizedOwner === 'its' ||
+        normalizedOwner === 'it' ||
+        normalizedOwner === 'this permanent' ||
+        normalizedOwner === 'that permanent' ||
+        normalizedOwner === 'this creature' ||
+        normalizedOwner === 'that creature' ||
+        normalizedOwner === 'this card' ||
+        normalizedOwner === 'that card' ||
+        normalizedOwner === 'this spell' ||
+        normalizedOwner === 'that spell'
+      ) {
+        // Let dedicated pronoun/antecedent matchers handle these forms.
+      } else {
+        const ref = findObjectByName(ownerName);
+        if (!ref) return null;
+        const refCard = (ref as any)?.card || ref;
+
+        if (which === 'mana value') {
+          const mv = getCardManaValue(refCard);
+          return Number.isFinite(mv as number) ? (mv as number) : null;
+        }
+
+        const rawValue = which === 'power'
+          ? ((refCard as any)?.power ?? (ref as any)?.power)
+          : ((refCard as any)?.toughness ?? (ref as any)?.toughness);
+        const n = Number(rawValue);
+        return Number.isFinite(n) ? n : null;
+      }
     }
   }
 
@@ -3445,6 +3726,35 @@ function addDamageToPermanentLikeCreature(perm: BattlefieldPermanent, amount: nu
   return { ...(perm as any), counters, markedDamage: next, damageMarked: next, damage: next } as any;
 }
 
+function getExcessDamageToPermanent(perm: BattlefieldPermanent, amount: number): number {
+  const n = Math.max(0, amount | 0);
+  if (n <= 0) return 0;
+
+  const typeLine = String((perm as any)?.card?.type_line || (perm as any)?.type_line || (perm as any)?.cardType || '').toLowerCase();
+  if (typeLine.includes('creature')) {
+    const toughness = Number((perm as any)?.toughness ?? (perm as any)?.card?.toughness);
+    if (!Number.isFinite(toughness)) return 0;
+    const marked =
+      Number((perm as any).markedDamage ?? (perm as any).damageMarked ?? (perm as any).damage ?? (perm as any).counters?.damage ?? 0) || 0;
+    const remaining = Math.max(0, toughness - marked);
+    return Math.max(0, n - remaining);
+  }
+
+  if (typeLine.includes('planeswalker')) {
+    const loyalty = Number((perm as any).loyalty ?? (perm as any).counters?.loyalty ?? 0);
+    if (!Number.isFinite(loyalty)) return 0;
+    return Math.max(0, n - Math.max(0, loyalty));
+  }
+
+  if (typeLine.includes('battle')) {
+    const defense = Number((perm as any).counters?.defense ?? 0);
+    if (!Number.isFinite(defense)) return 0;
+    return Math.max(0, n - Math.max(0, defense));
+  }
+
+  return 0;
+}
+
 function removeLoyaltyFromPlaneswalker(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {
   const n = Math.max(0, amount | 0);
   if (n <= 0) return perm;
@@ -3649,20 +3959,20 @@ function discardCardsForPlayer(
   state: GameState,
   playerId: PlayerID,
   count: number
-): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean } {
+): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean; discardedCount: number } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false, needsChoice: false };
+  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false, needsChoice: false, discardedCount: 0 };
 
   const hand = [...((player as any).hand || [])];
   const graveyard = [...((player as any).graveyard || [])];
 
   const n = Math.max(0, count | 0);
-  if (n === 0) return { state, log, applied: true, needsChoice: false };
+  if (n === 0) return { state, log, applied: true, needsChoice: false, discardedCount: 0 };
 
   // Deterministic only when the player has <= N cards, in which case all cards are discarded.
   if (hand.length > n) {
-    return { state, log, applied: false, needsChoice: true };
+    return { state, log, applied: false, needsChoice: true, discardedCount: 0 };
   }
 
   const discarded = hand.splice(0, hand.length);
@@ -3670,7 +3980,7 @@ function discardCardsForPlayer(
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand, graveyard } : p));
   log.push(`${playerId} discards ${discarded.length} card(s)`);
-  return { state: { ...state, players: updatedPlayers as any }, log, applied: true, needsChoice: false };
+  return { state: { ...state, players: updatedPlayers as any }, log, applied: true, needsChoice: false, discardedCount: discarded.length };
 }
 
 function millCardsForPlayer(
@@ -3903,7 +4213,7 @@ function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlef
     if (!permanentControllerId || permanentControllerId === normalizedControllerId) return false;
   }
 
-  const typeLine = String((perm as any)?.card?.type_line || '').toLowerCase();
+  const typeLine = String((perm as any)?.card?.type_line || (perm as any)?.type_line || (perm as any)?.cardType || '').toLowerCase();
   if (sel.types.includes('permanent')) return true;
   if (sel.types.includes('nonland_permanent')) return !typeLine.includes('land');
 
@@ -3928,7 +4238,7 @@ function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlef
 }
 
 function permanentMatchesType(perm: BattlefieldPermanent, type: SimplePermanentType): boolean {
-  const typeLine = String((perm as any)?.card?.type_line || '').toLowerCase();
+  const typeLine = String((perm as any)?.card?.type_line || (perm as any)?.type_line || (perm as any)?.cardType || '').toLowerCase();
   switch (type) {
     case 'permanent':
       return true;
@@ -4875,6 +5185,11 @@ export function applyOracleIRStepsToGameState(
   const skippedSteps: OracleEffectStep[] = [];
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   let lastRevealedCardCount = 0;
+  let lastDiscardedCardCount = 0;
+  let lastExiledCardCount = 0;
+  let lastSacrificedCreaturesPowerTotal = 0;
+  let lastExcessDamageDealtThisWay = 0;
+  let lastScryLookedAtCount = 0;
 
   let nextState = state;
 
@@ -4913,12 +5228,16 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
+        let totalExiled = 0;
         for (const playerId of players) {
           const amount = exileCountByPlayer.get(playerId) ?? 0;
           const r = exileTopCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
+          totalExiled += Math.max(0, r.exiled.length | 0);
           log.push(...r.log);
         }
+
+        lastExiledCardCount = totalExiled;
 
         appliedSteps.push(step);
         break;
@@ -4963,10 +5282,12 @@ export function applyOracleIRStepsToGameState(
         const returnUncastToBottom = shouldReturnUncastExiledToBottom(step as any);
         const shuffleRestIntoLibrary = shouldShuffleRestIntoLibrary(step as any);
 
+        let totalExiled = 0;
         for (const playerId of players) {
           const amount = exileCountByPlayer.get(playerId) ?? 0;
           const r = exileTopCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
+          totalExiled += Math.max(0, r.exiled.length | 0);
           log.push(...r.log);
 
           const markerResult = applyImpulsePermissionMarkers(nextState, playerId, r.exiled, {
@@ -4995,6 +5316,8 @@ export function applyOracleIRStepsToGameState(
             log.push(...bottomResult.log);
           }
         }
+
+        lastExiledCardCount = totalExiled;
 
         appliedSteps.push(step);
         break;
@@ -5060,6 +5383,7 @@ export function applyOracleIRStepsToGameState(
       }
 
       case 'scry': {
+        lastScryLookedAtCount = 0;
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
           skippedSteps.push(step);
@@ -5076,6 +5400,7 @@ export function applyOracleIRStepsToGameState(
 
         // Deterministic no-op cases only.
         if (amount <= 0) {
+          lastScryLookedAtCount = 0;
           log.push(`Scry ${amount} (no-op): ${step.raw}`);
           appliedSteps.push(step);
           break;
@@ -5094,6 +5419,7 @@ export function applyOracleIRStepsToGameState(
         }
 
         log.push(`Scry ${amount} (no cards in library): ${step.raw}`);
+        lastScryLookedAtCount = 0;
         appliedSteps.push(step);
         break;
       }
@@ -5198,7 +5524,14 @@ export function applyOracleIRStepsToGameState(
               step.condition.raw,
               targetCreatureId,
               ctx,
-              { lastRevealedCardCount },
+              {
+                lastRevealedCardCount,
+                lastDiscardedCardCount,
+                lastExiledCardCount,
+                lastSacrificedCreaturesPowerTotal,
+                lastExcessDamageDealtThisWay,
+                lastScryLookedAtCount,
+              },
             );
             if (whereXValue === null) {
               skippedSteps.push(step);
@@ -5321,11 +5654,15 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
+        let totalDiscarded = 0;
         for (const playerId of players) {
           const r = discardCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
+          totalDiscarded += Math.max(0, Number(r.discardedCount) || 0);
           log.push(...r.log);
         }
+
+        lastDiscardedCardCount = totalDiscarded;
 
         appliedSteps.push(step);
         break;
@@ -5389,6 +5726,8 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
+        let excessDamageThisStep = 0;
+
         // Only supports dealing damage to players (no creatures/planeswalkers) and no targeting.
         const players = resolvePlayersFromDamageTarget(nextState, step.target as any, ctx);
         if (players.length > 0) {
@@ -5398,6 +5737,8 @@ export function applyOracleIRStepsToGameState(
             // Override wording to avoid calling this "life loss" in the log.
             log.push(`${playerId} is dealt ${amount} damage`);
           }
+
+          lastExcessDamageDealtThisWay = 0;
 
           appliedSteps.push(step);
           break;
@@ -5435,6 +5776,7 @@ export function applyOracleIRStepsToGameState(
             for (const selector of mixed.selectors) {
               updatedBattlefield = updatedBattlefield.map(p => {
                 if (!permanentMatchesSelector(p as any, selector, ctx)) return p as any;
+                excessDamageThisStep += getExcessDamageToPermanent(p as any, amount);
                 const tl = String((p as any)?.card?.type_line || '').toLowerCase();
                 if (tl.includes('battle')) return removeDefenseCountersFromBattle(p as any, amount);
                 if (tl.includes('creature')) return addDamageToPermanentLikeCreature(p as any, amount);
@@ -5444,6 +5786,7 @@ export function applyOracleIRStepsToGameState(
             }
 
             nextState = { ...(nextState as any), battlefield: updatedBattlefield } as any;
+            lastExcessDamageDealtThisWay = Math.max(0, excessDamageThisStep);
             log.push(`Dealt ${amount} damage to ${rawText}`);
             appliedSteps.push(step);
             break;
@@ -5468,6 +5811,7 @@ export function applyOracleIRStepsToGameState(
 
             const updatedBattlefield = (nextState.battlefield || []).map(p => {
               if (!permanentMatchesSelector(p as any, selector, ctx)) return p as any;
+              excessDamageThisStep += getExcessDamageToPermanent(p as any, amount);
               const tl = String((p as any)?.card?.type_line || '').toLowerCase();
               if (tl.includes('battle')) return removeDefenseCountersFromBattle(p as any, amount);
               if (tl.includes('creature')) return addDamageToPermanentLikeCreature(p as any, amount);
@@ -5476,6 +5820,7 @@ export function applyOracleIRStepsToGameState(
             }) as any;
 
             nextState = { ...(nextState as any), battlefield: updatedBattlefield } as any;
+            lastExcessDamageDealtThisWay = Math.max(0, excessDamageThisStep);
             log.push(`Dealt ${amount} damage to ${normalized}`);
             appliedSteps.push(step);
             break;
@@ -5941,10 +6286,28 @@ export function applyOracleIRStepsToGameState(
           break;
         }
 
+        const getPermanentPower = (perm: any): number | null => {
+          const rawPower = (perm as any)?.power ?? (perm as any)?.card?.power;
+          const n = Number(rawPower);
+          return Number.isFinite(n) ? n : null;
+        };
+
+        const isCreaturePermanent = (perm: any): boolean => {
+          const typeLine = String((perm as any)?.cardType || (perm as any)?.type_line || (perm as any)?.card?.type_line || '').toLowerCase();
+          return typeLine.includes('creature');
+        };
+
+        const sacrificedCreaturesPowerTotal = toRemove.reduce((sum, permanent) => {
+          if (!isCreaturePermanent(permanent)) return sum;
+          const power = getPermanentPower(permanent);
+          return sum + (power ?? 0);
+        }, 0);
+
         const removedIds = new Set<string>(toRemove.map(p => p.id));
         const kept = battlefield.filter(p => !removedIds.has(p.id));
         const r = finalizeBattlefieldRemoval(nextState, toRemove, removedIds, kept, 'graveyard', 'sacrificed');
         nextState = r.state;
+        lastSacrificedCreaturesPowerTotal = Math.max(0, sacrificedCreaturesPowerTotal);
         log.push(...r.log);
         appliedSteps.push(step);
         break;
