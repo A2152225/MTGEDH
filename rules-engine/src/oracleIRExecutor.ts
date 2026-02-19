@@ -681,6 +681,88 @@ function evaluateModifyPtWhereX(
     return null;
   };
 
+
+  {
+    const m = raw.match(/^x is the damage dealt to your opponents this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byPlayer = stateAny?.damageTakenThisTurnByPlayer;
+      if (!byPlayer || typeof byPlayer !== 'object') return null;
+
+      return (state.players || []).reduce((sum: number, p: any) => {
+        const id = String((p as any)?.id || '').trim();
+        if (!id || id === controllerId) return sum;
+        const dealt = Number((byPlayer as Record<string, unknown>)[id]);
+        if (!Number.isFinite(dealt)) return sum;
+        return sum + Math.max(0, dealt);
+      }, 0);
+    }
+  }
+  const normalizeCounterName = (value: string): string => {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/\s+counters?$/, '')
+      .trim();
+  };
+
+  const getCounterCountOnObject = (obj: any, counterNameRaw: string): number | null => {
+    if (!obj) return null;
+    const counterName = normalizeCounterName(counterNameRaw);
+    if (!counterName) return null;
+
+    const counters: unknown = (obj as any)?.counters;
+    if (!counters) return 0;
+
+    if (Array.isArray(counters)) {
+      let total = 0;
+      for (const entry of counters as any[]) {
+        if (!entry) continue;
+        if (typeof entry === 'string') {
+          if (normalizeCounterName(entry) === counterName) total += 1;
+          continue;
+        }
+
+        const keyCandidates = [entry.type, entry.kind, entry.name, entry.counter, entry.id];
+        const key = keyCandidates
+          .map(v => normalizeCounterName(String(v || '')))
+          .find(Boolean);
+        if (!key || key !== counterName) continue;
+
+        const amount = Number(entry.count ?? entry.amount ?? entry.value ?? 1);
+        total += Number.isFinite(amount) ? Math.max(0, amount) : 1;
+      }
+      return total;
+    }
+
+    if (typeof counters === 'object') {
+      let total = 0;
+      for (const [keyRaw, valueRaw] of Object.entries(counters as Record<string, unknown>)) {
+        const key = normalizeCounterName(keyRaw);
+        if (key !== counterName) continue;
+
+        if (typeof valueRaw === 'number') {
+          total += Number.isFinite(valueRaw) ? Math.max(0, valueRaw) : 0;
+          continue;
+        }
+
+        if (valueRaw && typeof valueRaw === 'object') {
+          const nested = valueRaw as Record<string, unknown>;
+          const amount = Number(nested.count ?? nested.amount ?? nested.value ?? 0);
+          if (Number.isFinite(amount)) total += Math.max(0, amount);
+          continue;
+        }
+
+        const amount = Number(valueRaw);
+        if (Number.isFinite(amount)) total += Math.max(0, amount);
+      }
+      return total;
+    }
+
+    return null;
+  };
+
   const isCommanderObject = (obj: any): boolean => {
     return Boolean(
       (obj as any)?.isCommander === true ||
@@ -907,6 +989,80 @@ function evaluateModifyPtWhereX(
     return null;
   };
 
+  const getAmountOfSpecificManaSymbolSpent = (obj: any, symbolRaw: string): number | null => {
+    if (!obj) return null;
+
+    const symbol = String(symbolRaw || '').trim().toUpperCase();
+    if (!symbol) return null;
+
+    const mapKey = (() => {
+      if (symbol === 'W') return 'white';
+      if (symbol === 'U') return 'blue';
+      if (symbol === 'B') return 'black';
+      if (symbol === 'R') return 'red';
+      if (symbol === 'G') return 'green';
+      if (symbol === 'C') return 'colorless';
+      if (symbol === 'S') return 'snow';
+      return null;
+    })();
+    if (!mapKey) return null;
+
+    const fromRecord = (value: unknown): number | null => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      const rec = value as Record<string, unknown>;
+
+      const aliases = new Set<string>([
+        mapKey,
+        mapKey[0],
+        symbol.toLowerCase(),
+        symbol,
+      ]);
+      if (symbol === 'S') {
+        aliases.add('snowmana');
+      }
+
+      for (const key of aliases) {
+        const n = Number(rec[key]);
+        if (Number.isFinite(n)) return Math.max(0, n);
+      }
+
+      return 0;
+    };
+
+    const fromArray = (value: unknown): number | null => {
+      if (!Array.isArray(value)) return null;
+      let count = 0;
+      for (const item of value as any[]) {
+        const color = String(item?.manaColor || item?.color || item || '').trim().toUpperCase();
+        if (!color) continue;
+        if (symbol === 'S') {
+          if (color === 'S' || color === 'SNOW') count += 1;
+          continue;
+        }
+        if (color === symbol || color === mapKey.toUpperCase()) count += 1;
+      }
+      return count;
+    };
+
+    const candidates: unknown[] = [
+      obj?.manaPayment,
+      obj?.card?.manaPayment,
+      obj?.manaSpent,
+      obj?.card?.manaSpent,
+      obj?.manaSpentSymbols,
+      obj?.card?.manaSpentSymbols,
+    ];
+
+    for (const candidate of candidates) {
+      const fromR = fromRecord(candidate);
+      if (fromR !== null) return fromR;
+      const fromA = fromArray(candidate);
+      if (fromA !== null) return fromA;
+    }
+
+    return null;
+  };
+
   const parseCardClassList = (text: string): readonly string[] | null => {
     const normalized = String(text || '')
       .trim()
@@ -943,6 +1099,16 @@ function evaluateModifyPtWhereX(
       const inner = evaluateInner(String(m[2] || ''));
       if (inner === null) return null;
       return inner + addend;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (one|\d+) minus (.+)$/i);
+    if (m) {
+      const minuend = String(m[1] || '').toLowerCase() === 'one' ? 1 : parseInt(String(m[1] || '0'), 10) || 0;
+      const inner = evaluateInner(String(m[2] || ''));
+      if (inner === null) return null;
+      return minuend - inner;
     }
   }
 
@@ -1349,6 +1515,43 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of (.+) counters? on this (creature|artifact|enchantment|land|planeswalker|battle|permanent)$/i);
+    if (m) {
+      const counterName = String(m[1] || '');
+      const expectedType = String(m[2] || '').toLowerCase();
+      const sourceId = String(ctx?.sourceId || '').trim();
+      const sourceObj = sourceId ? findObjectById(sourceId) : null;
+      const targetObj = targetCreatureId ? findObjectById(targetCreatureId) : null;
+
+      const matchesExpectedType = (obj: any): boolean => {
+        if (!obj) return false;
+        if (expectedType === 'permanent') return true;
+        return typeLineLower(obj).includes(expectedType);
+      };
+
+      const objectToRead =
+        (expectedType === 'creature' && matchesExpectedType(targetObj) ? targetObj : null) ||
+        (matchesExpectedType(sourceObj) ? sourceObj : null) ||
+        (matchesExpectedType(targetObj) ? targetObj : null);
+
+      if (!objectToRead) return null;
+      return getCounterCountOnObject(objectToRead, counterName);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) counters? on it$/i);
+    if (m) {
+      const counterName = String(m[1] || '');
+      const targetObj = targetCreatureId ? findObjectById(targetCreatureId) : null;
+      const sourceObj = String(ctx?.sourceId || '').trim() ? findObjectById(String(ctx?.sourceId || '').trim()) : null;
+      const obj = targetObj || sourceObj;
+      if (!obj) return null;
+      return getCounterCountOnObject(obj, counterName);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of cards? in your (graveyard|hand|library|exile)$/i);
     if (m) {
       const zone = String(m[1] || '').toLowerCase();
@@ -1476,6 +1679,45 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the amount of life your opponents(?:['’])?(?: have)? gained(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecordSumOpponents = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+        const players = Array.isArray(state.players) ? state.players : [];
+        if (players.length > 0) {
+          return players.reduce((sum: number, player: any) => {
+            const pid = String((player as any)?.id || '').trim();
+            if (!pid || pid === controllerId) return sum;
+            const n = Number((value as any)[pid]);
+            return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+          }, 0);
+        }
+
+        return Object.entries(value as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+          if (String(pid).trim() === controllerId) return sum;
+          const n = Number(amount);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecordSumOpponents(stateAny.lifeGainedThisTurn),
+        fromRecordSumOpponents(stateAny.lifeGained),
+        fromRecordSumOpponents(stateAny.turnStats?.lifeGained),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the amount of life you gained(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
@@ -1494,6 +1736,45 @@ function evaluateModifyPtWhereX(
 
       for (const candidate of candidates) {
         if (candidate !== null) return Math.max(0, candidate);
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the amount of life your opponents(?:['’])?(?: have)? lost(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecordSumOpponents = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+        const players = Array.isArray(state.players) ? state.players : [];
+        if (players.length > 0) {
+          return players.reduce((sum: number, player: any) => {
+            const pid = String((player as any)?.id || '').trim();
+            if (!pid || pid === controllerId) return sum;
+            const n = Number((value as any)[pid]);
+            return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+          }, 0);
+        }
+
+        return Object.entries(value as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+          if (String(pid).trim() === controllerId) return sum;
+          const n = Number(amount);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecordSumOpponents(stateAny.lifeLostThisTurn),
+        fromRecordSumOpponents(stateAny.lifeLost),
+        fromRecordSumOpponents(stateAny.turnStats?.lifeLost),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
       }
 
       return null;
@@ -1555,6 +1836,249 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of cards? your opponents have discarded this turn$|^x is the number of cards? your opponents discarded this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecordSumOpponents = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+        const players = Array.isArray(state.players) ? state.players : [];
+        if (players.length > 0) {
+          return players.reduce((sum: number, player: any) => {
+            const pid = String((player as any)?.id || '').trim();
+            if (!pid || pid === controllerId) return sum;
+            const n = Number((value as any)[pid]);
+            return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+          }, 0);
+        }
+
+        return Object.entries(value as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+          if (String(pid).trim() === controllerId) return sum;
+          const n = Number(amount);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecordSumOpponents(stateAny.cardsDiscardedThisTurn),
+        fromRecordSumOpponents(stateAny.cardsDiscarded),
+        fromRecordSumOpponents(stateAny.turnStats?.cardsDiscarded),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? (?:you(?:['’]ve| have)|you) drawn this turn$|^x is the number of cards? you drew this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecord = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const key = String(controllerId);
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          const n = Number(value[key]);
+          return Number.isFinite(n) ? Math.max(0, n) : 0;
+        }
+        return 0;
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecord(stateAny.cardsDrawnThisTurn),
+        fromRecord(stateAny.cardsDrawn),
+        fromRecord(stateAny.turnStats?.cardsDrawn),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? your opponents have drawn this turn$|^x is the number of cards? your opponents drew this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecordSumOpponents = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+        const players = Array.isArray(state.players) ? state.players : [];
+        if (players.length > 0) {
+          return players.reduce((sum: number, player: any) => {
+            const pid = String((player as any)?.id || '').trim();
+            if (!pid || pid === controllerId) return sum;
+            const n = Number((value as any)[pid]);
+            return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+          }, 0);
+        }
+
+        return Object.entries(value as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+          if (String(pid).trim() === controllerId) return sum;
+          const n = Number(amount);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecordSumOpponents(stateAny.cardsDrawnThisTurn),
+        fromRecordSumOpponents(stateAny.cardsDrawn),
+        fromRecordSumOpponents(stateAny.turnStats?.cardsDrawn),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of spells? (?:you(?:['’]ve| have)|you) cast this turn$|^x is the number of spells? you cast this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecord = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const key = String(controllerId);
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          const n = Number(value[key]);
+          return Number.isFinite(n) ? Math.max(0, n) : 0;
+        }
+        return 0;
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecord(stateAny.spellsCastThisTurn),
+        fromRecord(stateAny.spellsCast),
+        fromRecord(stateAny.turnStats?.spellsCast),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of spells? your opponents have cast this turn$|^x is the number of spells? your opponents cast this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecordSumOpponents = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+        const players = Array.isArray(state.players) ? state.players : [];
+        if (players.length > 0) {
+          return players.reduce((sum: number, player: any) => {
+            const pid = String((player as any)?.id || '').trim();
+            if (!pid || pid === controllerId) return sum;
+            const n = Number((value as any)[pid]);
+            return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+          }, 0);
+        }
+
+        return Object.entries(value as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+          if (String(pid).trim() === controllerId) return sum;
+          const n = Number(amount);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecordSumOpponents(stateAny.spellsCastThisTurn),
+        fromRecordSumOpponents(stateAny.spellsCast),
+        fromRecordSumOpponents(stateAny.turnStats?.spellsCast),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of lands? (?:you(?:['’]ve| have)|you) played this turn$|^x is the number of lands? you played this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecord = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const key = String(controllerId);
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          const n = Number(value[key]);
+          return Number.isFinite(n) ? Math.max(0, n) : 0;
+        }
+        return 0;
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecord(stateAny.landsPlayedThisTurn),
+        fromRecord(stateAny.landsPlayed),
+        fromRecord(stateAny.turnStats?.landsPlayed),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of lands? your opponents have played this turn$|^x is the number of lands? your opponents played this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecordSumOpponents = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+        const players = Array.isArray(state.players) ? state.players : [];
+        if (players.length > 0) {
+          return players.reduce((sum: number, player: any) => {
+            const pid = String((player as any)?.id || '').trim();
+            if (!pid || pid === controllerId) return sum;
+            const n = Number((value as any)[pid]);
+            return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+          }, 0);
+        }
+
+        return Object.entries(value as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+          if (String(pid).trim() === controllerId) return sum;
+          const n = Number(amount);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecordSumOpponents(stateAny.landsPlayedThisTurn),
+        fromRecordSumOpponents(stateAny.landsPlayed),
+        fromRecordSumOpponents(stateAny.turnStats?.landsPlayed),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of cards? revealed this way$/i);
     if (m) {
       const revealed = Number(runtime?.lastRevealedCardCount ?? 0);
@@ -1581,13 +2105,110 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of permanents (?:you(?:['’]ve| have)|you) sacrificed this turn$/i);
+    const m = raw.match(/^x is the number of creatures that died under your control(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byController = stateAny.creaturesDiedThisTurnByController;
+      if (!byController || typeof byController !== 'object' || Array.isArray(byController)) return null;
+      const n = Number((byController as Record<string, unknown>)[controllerId]);
+      return Number.isFinite(n) ? Math.max(0, n) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures that died under (?:(?:your )?opponents(?:['’])?|an opponent(?:['’]s)?) control(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byController = stateAny.creaturesDiedThisTurnByController;
+      if (!byController || typeof byController !== 'object' || Array.isArray(byController)) return null;
+
+      const players = Array.isArray(state.players) ? state.players : [];
+      if (players.length > 0) {
+        return players.reduce((sum: number, player: any) => {
+          const pid = String((player as any)?.id || '').trim();
+          if (!pid || pid === controllerId) return sum;
+          const n = Number((byController as Record<string, unknown>)[pid]);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      }
+
+      return Object.entries(byController as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+        if (String(pid).trim() === controllerId) return sum;
+        const n = Number(amount);
+        return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures you control that died(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byController = stateAny.creaturesDiedThisTurnByController;
+      if (!byController || typeof byController !== 'object' || Array.isArray(byController)) return null;
+      const n = Number((byController as Record<string, unknown>)[controllerId]);
+      return Number.isFinite(n) ? Math.max(0, n) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures your opponents control that died(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byController = stateAny.creaturesDiedThisTurnByController;
+      if (!byController || typeof byController !== 'object' || Array.isArray(byController)) return null;
+
+      const players = Array.isArray(state.players) ? state.players : [];
+      if (players.length > 0) {
+        return players.reduce((sum: number, player: any) => {
+          const pid = String((player as any)?.id || '').trim();
+          if (!pid || pid === controllerId) return sum;
+          const n = Number((byController as Record<string, unknown>)[pid]);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      }
+
+      return Object.entries(byController as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+        if (String(pid).trim() === controllerId) return sum;
+        const n = Number(amount);
+        return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of permanents (?:you(?:['’]ve| have)|you) sacrificed(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
       const byController = stateAny.permanentsSacrificedThisTurn;
       if (!byController || typeof byController !== 'object' || Array.isArray(byController)) return null;
       const n = Number((byController as Record<string, unknown>)[controllerId]);
       return Number.isFinite(n) ? Math.max(0, n) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of permanents your opponents have sacrificed(?: this turn)?$|^x is the number of permanents your opponents sacrificed(?: this turn)?$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const byController = stateAny.permanentsSacrificedThisTurn;
+      if (!byController || typeof byController !== 'object' || Array.isArray(byController)) return null;
+
+      const players = Array.isArray(state.players) ? state.players : [];
+      if (players.length > 0) {
+        return players.reduce((sum: number, player: any) => {
+          const pid = String((player as any)?.id || '').trim();
+          if (!pid || pid === controllerId) return sum;
+          const n = Number((byController as Record<string, unknown>)[pid]);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      }
+
+      return Object.entries(byController as Record<string, unknown>).reduce((sum, [pid, amount]) => {
+        if (String(pid).trim() === controllerId) return sum;
+        const n = Number(amount);
+        return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+      }, 0);
     }
   }
 
@@ -1643,12 +2264,168 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is your highest commander tax among your commanders$/i);
+    if (m) {
+      const commandZoneAny = (state as any)?.commandZone ?? (state as any)?.commanderZone;
+      if (!commandZoneAny) return null;
+
+      const infoCandidates: any[] = [];
+      const byController = (commandZoneAny as any)?.[controllerId];
+      if (byController && typeof byController === 'object') infoCandidates.push(byController);
+      if ((commandZoneAny as any)?.commanderIds || (commandZoneAny as any)?.taxById) infoCandidates.push(commandZoneAny as any);
+
+      const maxTaxFromInfo = (info: any): number | null => {
+        if (!info || typeof info !== 'object') return null;
+
+        const taxById = info.taxById;
+        if (taxById && typeof taxById === 'object' && !Array.isArray(taxById)) {
+          let highest = 0;
+          let seen = false;
+          for (const value of Object.values(taxById as Record<string, unknown>)) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) continue;
+            highest = Math.max(highest, Math.max(0, n));
+            seen = true;
+          }
+          return seen ? highest : 0;
+        }
+
+        const commanderIds = Array.isArray(info.commanderIds) ? info.commanderIds : [];
+        const totalTax = Number(info.tax);
+        if (commanderIds.length <= 1 && Number.isFinite(totalTax)) {
+          return Math.max(0, totalTax);
+        }
+
+        return null;
+      };
+
+      for (const info of infoCandidates) {
+        const highest = maxTaxFromInfo(info);
+        if (highest !== null) return highest;
+      }
+
+      return null;
+    }
+  }
+
+  {
     const m = raw.match(/^x is your life total$/i);
     if (m) {
       const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
       if (!controller) return null;
       const life = Number(controller.life);
       return Number.isFinite(life) ? life : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is your speed$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+
+      const candidates: unknown[] = [
+        controller?.speed,
+        controller?.playerSpeed,
+        stateAny?.speed?.[controllerId],
+        stateAny?.playerSpeed?.[controllerId],
+        stateAny?.speedByPlayer?.[controllerId],
+      ];
+
+      for (const value of candidates) {
+        const n = Number(value);
+        if (Number.isFinite(n)) return Math.max(0, n);
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of times this creature has mutated$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      const sourceObj = sourceId ? findObjectById(sourceId) : null;
+      const targetObj = targetCreatureId ? findObjectById(targetCreatureId) : null;
+
+      const isCreature = (obj: any): boolean => {
+        return Boolean(obj) && typeLineLower(obj).includes('creature');
+      };
+
+      const host =
+        (isCreature(targetObj) ? targetObj : null) ||
+        (isCreature(sourceObj) ? sourceObj : null);
+
+      if (!host) return null;
+
+      const candidates: unknown[] = [
+        (host as any)?.mutationCount,
+        (host as any)?.timesMutated,
+        (host as any)?.mutateCount,
+      ];
+
+      for (const value of candidates) {
+        const n = Number(value);
+        if (Number.isFinite(n)) return Math.max(0, n);
+      }
+
+      const stack = (host as any)?.mutatedStack;
+      if (Array.isArray(stack)) {
+        return Math.max(0, stack.length - 1);
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of experience counters you have$/i);
+    if (m) {
+      const stateAny: any = state as any;
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+
+      const candidates: unknown[] = [
+        controller?.experienceCounters,
+        controller?.counters?.experience,
+        stateAny?.experienceCounters?.[controllerId],
+        stateAny?.experience?.[controllerId],
+        stateAny?.playerCounters?.experience?.[controllerId],
+      ];
+
+      for (const value of candidates) {
+        const n = Number(value);
+        if (Number.isFinite(n)) return Math.max(0, n);
+      }
+
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the result$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const toFinite = (value: unknown): number | null => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const perPlayer = stateAny?.lastDieRollByPlayer?.[controllerId];
+      const perPlayerResult = toFinite(perPlayer?.result);
+      if (perPlayerResult !== null) return Math.max(0, perPlayerResult);
+
+      const globalLast = toFinite(stateAny?.lastDieRoll?.result);
+      if (globalLast !== null) return Math.max(0, globalLast);
+
+      const turnRollsRaw = stateAny?.dieRollsThisTurn?.[controllerId];
+      const turnRolls = Array.isArray(turnRollsRaw) ? turnRollsRaw : [];
+      for (let i = turnRolls.length - 1; i >= 0; i -= 1) {
+        const result = toFinite((turnRolls[i] as any)?.result);
+        if (result !== null) return Math.max(0, result);
+      }
+
+      return null;
     }
   }
 
@@ -1790,6 +2567,28 @@ function evaluateModifyPtWhereX(
 
   {
     const m = raw.match(/^x is the amount of mana spent to cast (?:this|that) spell$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      return getAmountOfManaSpent(ref);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the amount of \{([wubrgcs])\} spent to cast (?:this|that) spell$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      return getAmountOfSpecificManaSymbolSpent(ref, String(m[1] || ''));
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the total amount of mana paid this way$/i);
     if (m) {
       const sourceId = String(ctx?.sourceId || '').trim();
       if (!sourceId) return null;
