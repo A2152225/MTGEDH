@@ -757,6 +757,28 @@ function evaluateModifyPtWhereX(
     }
     return false;
   };
+  const getCreatureSubtypeKeys = (obj: any): readonly string[] => {
+    const subtypeValues = (obj as any)?.subtypes || (obj as any)?.card?.subtypes;
+    if (Array.isArray(subtypeValues) && subtypeValues.length > 0) {
+      const normalized = subtypeValues
+        .map(v => String(v || '').trim().toLowerCase())
+        .filter(Boolean);
+      if (normalized.length > 0) return normalized;
+    }
+
+    const tl = typeLineLower(obj);
+    if (!tl.includes('creature')) return [];
+    const emDashIdx = tl.indexOf('—');
+    const hyphenDashIdx = tl.indexOf(' - ');
+    const splitIdx = emDashIdx >= 0 ? emDashIdx : hyphenDashIdx;
+    if (splitIdx < 0) return [];
+    const suffix = tl.slice(splitIdx + (emDashIdx >= 0 ? 1 : 3)).trim();
+    if (!suffix) return [];
+    return suffix
+      .split(/\s+/)
+      .map(part => part.replace(/^[^a-z0-9-]+|[^a-z0-9-]+$/g, '').trim())
+      .filter(Boolean);
+  };
 
   const resolveContextPlayer = (): any | null => {
     const id = String(ctx?.selectorContext?.targetPlayerId || ctx?.selectorContext?.targetOpponentId || '').trim();
@@ -3283,6 +3305,38 @@ function evaluateModifyPtWhereX(
         if (excludedId && id === excludedId) continue;
         const mv = getCardManaValue(p?.card || p);
         if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among artifacts you control$/i);
+    if (m) {
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        if (!typeLineLower(p).includes('artifact')) continue;
+        const mv = getCardManaValue((p as any)?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the greatest number of creatures you control that have a creature type in common$/i);
+    if (m) {
+      const subtypeCounts = new Map<string, number>();
+      for (const p of controlled as any[]) {
+        if (!typeLineLower(p).includes('creature')) continue;
+        const subtypeSet = new Set(getCreatureSubtypeKeys(p));
+        for (const subtype of subtypeSet) {
+          subtypeCounts.set(subtype, (subtypeCounts.get(subtype) || 0) + 1);
+        }
+      }
+      let greatest = 0;
+      for (const count of subtypeCounts.values()) {
+        if (count > greatest) greatest = count;
       }
       return greatest;
     }
