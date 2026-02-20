@@ -590,6 +590,7 @@ function normalizeControlledClassKey(s: string): string | null {
   if (/^enchantments?$/.test(x)) return 'enchantment';
   if (/^lands?$/.test(x)) return 'land';
   if (/^planeswalkers?$/.test(x)) return 'planeswalker';
+  if (/^snow permanents?$/.test(x)) return 'snow';
   if (/^nonland permanents?$/.test(x)) return 'nonland permanent';
   if (/^permanents?$/.test(x)) return 'permanent';
 
@@ -664,12 +665,17 @@ function evaluateModifyPtWhereX(
     "x is the toughness of the exiled card": "x is that card's toughness",
     "x is the exiled card's power": "x is that card's power",
     "x is the exiled card's toughness": "x is that card's toughness",
+    "x is the exiled card's mana value": "x is that card's mana value",
     "x is the power of the revealed card": "x is that card's power",
     "x is the toughness of the revealed card": "x is that card's toughness",
     "x is the revealed card's power": "x is that card's power",
     "x is the revealed card's toughness": "x is that card's toughness",
+    "x is the revealed card's mana value": "x is that card's mana value",
     "x is the power of the discarded card": "x is that card's power",
     "x is the toughness of the discarded card": "x is that card's toughness",
+    "x is the discarded card's mana value": "x is that card's mana value",
+    "x is the tapped creature's power": "x is that creature's power",
+    "x is the tapped creature’s power": "x is that creature's power",
     "x is the amount of life you have gained this turn": "x is the amount of life you gained this turn",
     "x is the amount of life you've gained this turn": "x is the amount of life you gained this turn",
     "x is the amount of life you have gained": "x is the amount of life you gained",
@@ -686,6 +692,10 @@ function evaluateModifyPtWhereX(
     "x is the amount of life opponents lost this turn": "x is the amount of life your opponents lost this turn",
     "x is the amount of life opponents have lost": "x is the amount of life your opponents have lost",
     "x is the amount of life opponents lost": "x is the amount of life your opponents lost",
+    "x is the total amount of life your opponents have lost this turn": "x is the amount of life your opponents have lost this turn",
+    "x is the total amount of life your opponents lost this turn": "x is the amount of life your opponents lost this turn",
+    "x is the total amount of life your opponents have lost": "x is the amount of life your opponents have lost",
+    "x is the total amount of life your opponents lost": "x is the amount of life your opponents lost",
     "x is the number of spells opponents have cast this turn": "x is the number of spells your opponents have cast this turn",
     "x is the number of spells opponents cast this turn": "x is the number of spells your opponents cast this turn",
     "x is the number of lands opponents have played this turn": "x is the number of lands your opponents have played this turn",
@@ -696,6 +706,19 @@ function evaluateModifyPtWhereX(
     "x is the number of cards opponents discarded this turn": "x is the number of cards your opponents discarded this turn",
     "x is the number of permanents opponents have sacrificed this turn": "x is the number of permanents your opponents have sacrificed this turn",
     "x is the number of permanents opponents sacrificed this turn": "x is the number of permanents your opponents sacrificed this turn",
+    "x is the amount of mana spent to cast this creature": "x is the amount of mana spent to cast this spell",
+    "x is the amount of mana spent to cast that creature": "x is the amount of mana spent to cast that spell",
+    "x is the number of bobbleheads you control as you activate this ability": "x is the number of bobbleheads you control",
+    "x is the number of cards in target opponent's hand": "x is the number of cards in their hand",
+    "x is the number of cards in target opponent’s hand": "x is the number of cards in their hand",
+    "x is the number of cards in target opponent's graveyard": "x is the number of cards in their graveyard",
+    "x is the number of cards in target opponent’s graveyard": "x is the number of cards in their graveyard",
+    "x is the number of cards in target opponent's library": "x is the number of cards in their library",
+    "x is the number of cards in target opponent’s library": "x is the number of cards in their library",
+    "x is the number of cards in target opponent's exile": "x is the number of cards in their exile",
+    "x is the number of cards in target opponent’s exile": "x is the number of cards in their exile",
+    "x is the number of cards in all graveyards with the same name as the spell": "x is the number of cards in all graveyards with the same name as that spell",
+    "x is the number of cards in all graveyards with the same name as this spell": "x is the number of cards in all graveyards with the same name as that spell",
   };
 
   let raw = normalizeOracleText(whereRaw);
@@ -1211,6 +1234,8 @@ function evaluateModifyPtWhereX(
       .trim()
       .toLowerCase()
       .replace(/\bcards?\b/g, '')
+      .replace(/\band\/or\b/g, 'and')
+      .replace(/\band\s+or\b/g, 'and')
       .replace(/\s+/g, ' ')
       .trim();
     if (!normalized) return null;
@@ -1294,6 +1319,8 @@ function evaluateModifyPtWhereX(
       .trim()
       .toLowerCase()
       .replace(/\bcards?\b/g, '')
+      .replace(/\band\/or\b/g, 'and')
+      .replace(/\band\s+or\b/g, 'and')
       .replace(/\s+/g, ' ')
       .trim();
     if (!normalized) return null;
@@ -1453,6 +1480,21 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of (.+) you control plus (?:the number of )?(.+) cards? in your graveyard$/i);
+    if (m) {
+      const controlledClasses = parseClassList(String(m[1] || ''));
+      const graveyardClasses = parseCardClassList(String(m[2] || ''));
+      if (!controlledClasses || !graveyardClasses) return null;
+
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+      if (!controller) return null;
+      const gy = Array.isArray(controller.graveyard) ? controller.graveyard : [];
+
+      return countByClasses(controlled, controlledClasses) + countCardsByClasses(gy, graveyardClasses);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of (.+) you control$/i);
     if (m) {
       const classes = parseClassList(String(m[1] || ''));
@@ -1473,9 +1515,67 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of (.+) target opponent controls$/i);
+    if (m) {
+      const classes = parseClassList(String(m[1] || ''));
+      if (!classes) return null;
+      const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
+      if (!targetOpponentId) return null;
+      const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
+      return countByClasses(targetControlled, classes);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) (?:the )?defending player controls$/i);
+    if (m) {
+      const classes = parseClassList(String(m[1] || ''));
+      if (!classes) return null;
+      const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
+      if (!targetOpponentId) return null;
+      const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
+      return countByClasses(targetControlled, classes);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) (?:those opponents|all of those opponents|all those opponents|each of those opponents) control$/i);
+    if (m) {
+      const classes = parseClassList(String(m[1] || ''));
+      if (!classes) return null;
+      const ids = Array.isArray(ctx?.selectorContext?.eachOfThoseOpponents)
+        ? (ctx?.selectorContext?.eachOfThoseOpponents || []).map(id => String(id || '').trim()).filter(Boolean)
+        : [];
+      if (ids.length === 0) return null;
+      const idSet = new Set(ids);
+      const pool = battlefield.filter((p: any) => idSet.has(String((p as any)?.controller || '').trim()));
+      return countByClasses(pool, classes);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of opponents you have$/i);
     if (m) {
       return Math.max(0, (state.players || []).filter(p => p.id !== controllerId).length);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (tapped|untapped) (.+) you control$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const classes = parseClassList(String(m[2] || ''));
+      if (!classes) return null;
+      return controlled.filter((p: any) => {
+        const tapped = Boolean((p as any)?.tapped);
+        if (which === 'tapped' ? !tapped : tapped) return false;
+        const tl = typeLineLower(p);
+        return classes.some((klass) => {
+          if (klass === 'permanent') return true;
+          if (klass === 'nonland permanent') return !tl.includes('land');
+          return tl.includes(klass);
+        });
+      }).length;
     }
   }
 
@@ -1567,7 +1667,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       const phrase = String(m[1] || '').toLowerCase();
       const mentionsAttackingCreatures = /\bcreatures?\b/.test(phrase) && /\battacking\b/.test(phrase);
-      if (mentionsAttackingCreatures && !/\bwith\s+flying\b/.test(phrase)) {
+      if (mentionsAttackingCreatures && !/\bwith\s+flying\b/.test(phrase) && !/\battacking\s+you\b/.test(phrase)) {
         const isOther = /\bother\b/.test(phrase);
         const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
         const useOpponents = /\b(?:your opponents control|an opponent controls|you don['’]?t control|you do not control)\b/.test(phrase);
@@ -1579,6 +1679,18 @@ function evaluateModifyPtWhereX(
           return String((p as any)?.attacking || '').trim().length > 0;
         }).length;
       }
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of creatures attacking you$/i);
+    if (m) {
+      return battlefield.filter((p: any) => {
+        if (!typeLineLower(p).includes('creature')) return false;
+        if (!isAttackingObject(p)) return false;
+        const attackedId = String((p as any)?.attacking || (p as any)?.attackingPlayerId || (p as any)?.defendingPlayerId || '').trim();
+        return attackedId === controllerId;
+      }).length;
     }
   }
 
@@ -2662,6 +2774,49 @@ function evaluateModifyPtWhereX(
               ? (Array.isArray(controller.library) ? controller.library : [])
               : zone === 'exile'
                 ? (Array.isArray(controller.exile) ? controller.exile : [])
+                : null;
+      if (!cards) return null;
+
+      return countCardsByClasses(cards, classes);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) cards? in its controller['’]?s graveyard$/i);
+    if (m) {
+      const classes = parseCardClassList(String(m[1] || ''));
+      if (!classes) return null;
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const sourceObj = findObjectById(sourceId);
+      if (!sourceObj) return null;
+      const sourceControllerId = String((sourceObj as any)?.controller || (sourceObj as any)?.controllerId || '').trim();
+      if (!sourceControllerId) return null;
+      const player = (state.players || []).find((p: any) => String(p.id || '').trim() === sourceControllerId) as any;
+      if (!player) return null;
+      const gy = Array.isArray(player.graveyard) ? player.graveyard : [];
+      return countCardsByClasses(gy, classes);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) cards? in target (?:opponent|player)['’]?s (graveyard|hand|library|exile)$/i);
+    if (m) {
+      const classes = parseCardClassList(String(m[1] || ''));
+      if (!classes) return null;
+      const zone = String(m[2] || '').toLowerCase();
+      const player = resolveContextPlayer();
+      if (!player) return null;
+
+      const cards =
+        zone === 'graveyard'
+          ? (Array.isArray(player.graveyard) ? player.graveyard : [])
+          : zone === 'hand'
+            ? (Array.isArray(player.hand) ? player.hand : [])
+            : zone === 'library'
+              ? (Array.isArray(player.library) ? player.library : [])
+              : zone === 'exile'
+                ? (Array.isArray(player.exile) ? player.exile : [])
                 : null;
       if (!cards) return null;
 
