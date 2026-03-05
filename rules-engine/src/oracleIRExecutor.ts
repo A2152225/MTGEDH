@@ -1646,6 +1646,23 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of permanents you control with oil counters on them$/i);
+    if (m) {
+      return controlled.filter((p: any) => {
+        const counters = (p as any)?.counters;
+        if (!counters || typeof counters !== 'object') return false;
+        const entries = Object.entries(counters as Record<string, unknown>);
+        for (const [key, value] of entries) {
+          if (String(key || '').trim().toLowerCase() !== 'oil') continue;
+          const n = Number(value);
+          return Number.isFinite(n) && n > 0;
+        }
+        return false;
+      }).length;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the total power of creatures you control$/i);
     if (m) {
       return controlled.reduce((sum: number, p: any) => {

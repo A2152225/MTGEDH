@@ -20316,6 +20316,37 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('applies X-based modify_pt where X is the number of creatures on the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqBattlefieldCreatures', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetBattlefieldCreatures', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetBattlefieldCreatures', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherCreatureA', ownerId: 'p1', controller: 'p1', name: 'Bear Cub', type_line: 'Creature — Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherCreatureB', ownerId: 'p2', controller: 'p2', name: 'Opponent Goblin', type_line: 'Creature — Goblin', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonCreaturePerm', ownerId: 'p1', controller: 'p1', name: 'Signet', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqBattlefieldCreatures' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetBattlefieldCreatures') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt where X is the number of forests you control', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +X/+0 until end of turn where X is the number of forests you control.',
@@ -20687,6 +20718,37 @@ describe('Oracle IR Executor', () => {
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
     expect(ptMod.power).toBe(5);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of permanents you control with oil counters on them', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the number of permanents you control with oil counters on them.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqOilCounterCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOilCounterCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOilCounterCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature — Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: { oil: 1 } } as any,
+        { id: 'artifactOilTwo', ownerId: 'p1', controller: 'p1', name: 'Oil Relic', type_line: 'Artifact', tapped: false, summoningSick: false, counters: { oil: 2 } } as any,
+        { id: 'landNoOil', ownerId: 'p1', controller: 'p1', name: 'Wastes', type_line: 'Basic Land', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'offColorCounters', ownerId: 'p1', controller: 'p1', name: 'Counter Rock', type_line: 'Artifact', tapped: false, summoningSick: false, counters: { charge: 3 } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqOilCounterCount' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOilCounterCount') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(2);
     expect(ptMod.toughness).toBe(0);
   });
 

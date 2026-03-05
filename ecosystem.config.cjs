@@ -21,7 +21,7 @@ module.exports = {
       name: 'mtgedh-server',
       script: './server/src/index.ts',
       interpreter: 'node',
-      interpreter_args: '--loader tsx/esm --enable-source-maps',
+      interpreter_args: '--import tsx/esm --enable-source-maps',
       cwd: __dirname,
       instances: 1,
       exec_mode: 'fork',
