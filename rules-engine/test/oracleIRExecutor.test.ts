@@ -22096,6 +22096,152 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('applies executor modify_pt where X is 1 plus the number of nonbasic land types among lands that player controls', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is 1 plus the number of nonbasic land types among lands that player controls' },
+        raw: 'The creature gets +X/+0 until end of turn where X is 1 plus the number of nonbasic land types among lands that player controls.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'nonbasicLandTypesSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetNonbasicLandTypesExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNonbasicLandTypesExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nblTypeShock', ownerId: 'p2', controller: 'p2', name: 'Steam Vents', type_line: 'Land — Island Mountain' } as any,
+        { id: 'nblTypeTemple', ownerId: 'p2', controller: 'p2', name: 'Temple Garden', type_line: 'Land — Forest Plains' } as any,
+        { id: 'nblTypeSwamp', ownerId: 'p2', controller: 'p2', name: 'Watery Grave', type_line: 'Land — Island Swamp' } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'nonbasicLandTypesSourceExecutor',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetNonbasicLandTypesExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is 1 plus the exiled creature\'s mana value', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: "X is 1 plus the exiled creature's mana value" },
+        raw: "The creature gets +X/+0 until end of turn where X is 1 plus the exiled creature's mana value.",
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'exiledCreatureMvAliasRef', name: 'Exiled Beast', type_line: 'Creature — Beast', manaValue: 4, manaCost: '{2}{G}{G}' },
+          ],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'exiledCreatureAliasSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetExiledCreatureAliasExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetExiledCreatureAliasExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'exiledCreatureMvAliasRef',
+      selectorContext: { targetCreatureId: 'targetExiledCreatureAliasExecutor' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetExiledCreatureAliasExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(5);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is 2 plus the exiled creature\'s mana value', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: "X is 2 plus the exiled creature's mana value" },
+        raw: "The creature gets +X/+0 until end of turn where X is 2 plus the exiled creature's mana value.",
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'exiledCreatureMvAliasRefTwo', name: 'Exiled Giant', type_line: 'Creature — Giant', manaValue: 5, manaCost: '{3}{G}{G}' },
+          ],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'exiledCreatureAliasSourceExecutorTwo', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetExiledCreatureAliasExecutorTwo', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetExiledCreatureAliasExecutorTwo', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'exiledCreatureMvAliasRefTwo',
+      selectorContext: { targetCreatureId: 'targetExiledCreatureAliasExecutorTwo' as any },
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetExiledCreatureAliasExecutorTwo') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(7);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt where X is the number of colors of mana spent to cast this spell', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +X/+0 until end of turn where X is the number of colors of mana spent to cast this spell.',

@@ -733,6 +733,8 @@ function evaluateModifyPtWhereX(
     "x is the number of cards in all graveyards with the same name as the spell": "x is the number of cards in all graveyards with the same name as that spell",
     "x is the number of cards in all graveyards with the same name as this spell": "x is the number of cards in all graveyards with the same name as that spell",
     "x is the mana value of the sacrificed artifact": "x is the sacrificed artifact's mana value",
+    "x is the exiled creature's mana value": "x is that card's mana value",
+    "x is the mana value of the exiled creature": "x is that card's mana value",
   };
 
   let raw = normalizeOracleText(whereRaw);
@@ -1813,6 +1815,30 @@ function evaluateModifyPtWhereX(
       const basicLandTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
       const seen = new Set<string>();
       for (const p of controlled as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('land')) continue;
+        for (const basic of basicLandTypes) {
+          if (tl.includes(basic)) seen.add(basic);
+        }
+      }
+      return seen.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of nonbasic land types among lands (?:that player controls|they control)$/i);
+    if (m) {
+      const targetPlayerId = String(
+        ctx?.selectorContext?.targetPlayerId ||
+        ctx?.selectorContext?.targetOpponentId ||
+        ''
+      ).trim();
+      if (!targetPlayerId) return null;
+
+      const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetPlayerId);
+      const basicLandTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+      const seen = new Set<string>();
+      for (const p of targetControlled as any[]) {
         const tl = typeLineLower(p);
         if (!tl.includes('land')) continue;
         for (const basic of basicLandTypes) {
