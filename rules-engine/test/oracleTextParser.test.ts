@@ -76,6 +76,14 @@ describe('Oracle Text Parser', () => {
       expect(result?.effect).toBe('Cycling');
     });
 
+    it('should parse sneak ability', () => {
+      const result = parseActivatedAbility('Sneak {2}{U}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}{U}');
+      expect(result?.effect).toBe('Sneak');
+    });
+
     it('should detect optional abilities with "you may"', () => {
       const result = parseActivatedAbility('{T}: You may draw a card.');
       expect(result).not.toBeNull();
@@ -243,6 +251,14 @@ describe('Oracle Text Parser', () => {
 
     it('should detect protection', () => {
       expect(parseKeywords('Protection from red')).toContain('protection');
+    });
+
+    it('should detect sneak keyword', () => {
+      expect(parseKeywords('Sneak {2}{R}')).toContain('sneak');
+    });
+
+    it('should detect disappear ability word', () => {
+      expect(parseKeywords('Disappear — Whenever a permanent leaves the battlefield under your control, draw a card.')).toContain('disappear');
     });
   });
 

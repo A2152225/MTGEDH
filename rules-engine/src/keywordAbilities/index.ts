@@ -76,9 +76,9 @@
  * - Exhaust (702.177), Max Speed (702.178), Start Your Engines! (702.179)
  * - Harmonize (702.180), Mobilize (702.181), Job Select (702.182), Tiered (702.183)
  * 
- * Part 14 (Rules 702.184-702.189): Remaining keyword abilities
+ * Part 14 (Rules 702.184-702.190): Remaining keyword abilities
  * - Station (702.184), Warp (702.185), Infinity (702.186), Mayhem (702.187)
- * - Web-slinging (702.188), Firebending (702.189)
+ * - Web-slinging (702.188), Firebending (702.189), Sneak (702.190)
  */
 
 // Part 1: Export all keyword ability modules
@@ -299,6 +299,7 @@ export * from './infinity';
 export * from './mayhem';
 export * from './webSlinging';
 export * from './firebending';
+export * from './sneak';
 
 /**
  * Union type of all keyword ability types
@@ -501,7 +502,8 @@ export type KeywordAbility =
   | import('./infinity').InfinityAbility
   | import('./mayhem').MayhemAbility
   | import('./webSlinging').WebSlingingAbility
-  | import('./firebending').FirebendingAbility;
+  | import('./firebending').FirebendingAbility
+  | import('./sneak').SneakAbility;
 
 /**
  * Helper function to check if an ability is a specific type

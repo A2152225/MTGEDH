@@ -297,6 +297,7 @@ export enum ArtifactType {
   JUNK = 'Junk',
   LANDER = 'Lander',
   MAP = 'Map',
+  MUTAGEN = 'Mutagen',
   POWERSTONE = 'Powerstone',
   SPACECRAFT = 'Spacecraft',
   STONE = 'Stone',

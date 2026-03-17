@@ -56,7 +56,7 @@ export const CREATURE_TYPES = [
   'Tentacle', 'Tetravite', 'Thalakos', 'Thopter', 'Thrull', 'Tiefling', 'Time Lord',
   'Treefolk', 'Trilobite', 'Triskelavite', 'Troll', 'Turtle', 'Tyranid',
   // U
-  'Unicorn',
+  'Unicorn', 'Utrom',
   // V
   'Vampire', 'Vedalken', 'Viashino', 'Volver',
   // W

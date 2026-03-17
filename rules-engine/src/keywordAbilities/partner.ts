@@ -9,7 +9,7 @@
  * partner ability allows you to designate two legendary cards as your commander rather than one. 
  * Each partner ability has its own requirements for those two commanders. The partner abilities 
  * are: partner, partner—[text], partner with [name], friends forever, choose a Background, and 
- * Doctor's companion.
+ * Doctor's companion. (For 2026 rules, this includes "partner—Character select".)
  * 702.124b Your deck must contain exactly 100 cards, including its two commanders. Both 
  * commanders begin the game in the command zone.
  * 702.124c A rule or effect that refers to your commander's color identity refers to the 
@@ -122,8 +122,16 @@ export function doctorsCompanion(source: string): PartnerAbility {
  * @returns True if they can partner
  */
 export function canPartnerTogether(ability1: PartnerAbility, ability2: PartnerAbility): boolean {
-  // Basic partner can partner with any other basic partner
+  // Basic partner can partner with any other basic partner.
+  // Partner—[text] can partner only with the same Partner—[text].
   if (ability1.partnerType === 'partner' && ability2.partnerType === 'partner') {
+    const req1 = ability1.partnerRequirement?.trim();
+    const req2 = ability2.partnerRequirement?.trim();
+
+    if (req1 || req2) {
+      return Boolean(req1) && Boolean(req2) && req1 === req2;
+    }
+
     return true;
   }
   

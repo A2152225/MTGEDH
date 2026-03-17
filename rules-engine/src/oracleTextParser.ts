@@ -108,7 +108,7 @@ const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*([\s\S]+)$/;
  * Keyword ability with cost pattern (Equip, Cycling, etc.)
  * Captures: keyword (group 1), cost (group 2)
  */
-const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft|Overload|Bestow|Dash|Embalm|Eternalize|Morph|Megamorph|Mutate|Ninjutsu|Prototype|Prowl|Spectacle|Suspend|Transfigure|Transmute|Warp|Blitz|Channel|Disturb|Encore|Madness|Miracle|Outlast|Reconfigure|Reinforce|Scavenge|Squad|Sunburst|Umbra armor|Backup|Bargain|Boast|Buyback|Casualty|Cleave|Conspire|Convoke|Crew|Delve|Demonstrate|Devour|Dredge|Echo|Enlist|Epic|Exploit|Extort|Fabricate|Fading|Fortify|Fuse|Graft|Haunt|Hideaway|Improvise|Incubate|Jump-start|Landfall|Level up|Living weapon|Meld|Modular|Monstrosity|Offering|Overrun|Persist|Phasing|Populate|Proliferate|Radiance|Raid|Ravenous|Replicate|Retrace|Riot|Saga|Soulbond|Splice|Split second|Storm|Strive|Sunburst|Surge|Undying|Unleash|Vanishing)\s+(.+)$/i;
+const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft|Overload|Bestow|Dash|Embalm|Eternalize|Morph|Megamorph|Mutate|Ninjutsu|Prototype|Prowl|Spectacle|Suspend|Transfigure|Transmute|Warp|Blitz|Channel|Disturb|Encore|Madness|Miracle|Outlast|Reconfigure|Reinforce|Scavenge|Squad|Sunburst|Umbra armor|Backup|Bargain|Boast|Buyback|Casualty|Cleave|Conspire|Convoke|Crew|Delve|Demonstrate|Devour|Dredge|Echo|Enlist|Epic|Exploit|Extort|Fabricate|Fading|Fortify|Fuse|Graft|Haunt|Hideaway|Improvise|Incubate|Jump-start|Landfall|Level up|Living weapon|Meld|Modular|Monstrosity|Offering|Overrun|Persist|Phasing|Populate|Proliferate|Radiance|Raid|Ravenous|Replicate|Retrace|Riot|Saga|Sneak|Soulbond|Splice|Split second|Storm|Strive|Sunburst|Surge|Undying|Unleash|Vanishing)\s+(.+)$/i;
 
 /**
  * Parse an activated ability from oracle text line
@@ -636,7 +636,7 @@ export function parseKeywords(oracleText: string): string[] {
     'cipher', 'cleave', 'companion', 'compleated', 'conjure', 'connive', 'conspire', 'convoke',
     'corrupted', 'crew', 'cumulative upkeep', 'cycling', 'dash', 'daybound', 'deathtouch',
     'decayed', 'defender', 'delve', 'demonstrate', 'descend', 'detain', 'devotion', 'devour',
-    'discover', 'disguise', 'disturb', 'domain', 'double strike', 'dredge', 'echo', 'embalm',
+    'discover', 'disguise', 'disappear', 'disturb', 'domain', 'double strike', 'dredge', 'echo', 'embalm',
     'emerge', 'enchant', 'encore', 'enlist', 'enrage', 'entwine', 'equip', 'escalate', 'escape',
     'eternalize', 'evoke', 'evolve', 'exalted', 'exploit', 'explore', 'extort', 'fabricate',
     'fading', 'fear', 'ferocious', 'fight', 'first strike', 'flanking', 'flash', 'flashback',
@@ -652,7 +652,7 @@ export function parseKeywords(oracleText: string): string[] {
     'provoke', 'prowess', 'prowl', 'radiance', 'raid', 'rally', 'rampage', 'reach', 'rebound',
     'reconfigure', 'recover', 'reinforce', 'renown', 'replicate', 'retrace', 'revolt', 'riot',
     'ripple', 'saddle', 'scavenge', 'scry', 'shadow', 'shroud', 'skulk', 'soulbond', 'soulshift',
-    'spectacle', 'splice', 'split second', 'spree', 'squad', 'storm', 'strive', 'sunburst',
+    'spectacle', 'sneak', 'splice', 'split second', 'spree', 'squad', 'storm', 'strive', 'sunburst',
     'support', 'surge', 'surveil', 'suspend', 'swampcycling', 'swampwalk', 'threshold', 'totem armor',
     'trample', 'training', 'transfigure', 'transform', 'transmute', 'treasure', 'tribute', 'undaunted',
     'undergrowth', 'undying', 'unearth', 'unleash', 'vanishing', 'vigilance', 'ward', 'wither',
