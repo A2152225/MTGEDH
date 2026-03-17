@@ -557,10 +557,23 @@ function evaluateModifyPtCondition(
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
 
-  const typeLineLower = (p: any): string =>
-    String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '')
-      .toLowerCase()
-      .trim();
+  const typeLineLower = (p: any): string => {
+    const rawParts = [
+      (p as any)?.cardType,
+      (p as any)?.type_line,
+      (p as any)?.card?.type_line,
+    ]
+      .map(value => String(value || '').toLowerCase().trim())
+      .filter(Boolean);
+
+    if (rawParts.length === 0) return '';
+
+    const uniqueParts: string[] = [];
+    for (const part of rawParts) {
+      if (!uniqueParts.includes(part)) uniqueParts.push(part);
+    }
+    return uniqueParts.join(' ').trim();
+  };
 
   const normalizeClass = (s: string): string | null => normalizeControlledClassKey(s);
   const countByClass = (klass: string): number => countControlledByClass(controlled, klass, typeLineLower);
@@ -1513,6 +1526,35 @@ function evaluateModifyPtWhereX(
       const gy = Array.isArray(controller.graveyard) ? controller.graveyard : [];
 
       return countByClasses(controlled, controlledClasses) + countCardsByClasses(gy, graveyardClasses);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of mounts and vehicles(?: you control)?$/i);
+    if (m) {
+      return countByClasses(controlled, ['mount', 'vehicle']);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (one|\d+) plus the number of opponents who control an? (.+)$/i);
+    if (m) {
+      const addend = String(m[1] || '').toLowerCase() === 'one' ? 1 : parseInt(String(m[1] || '0'), 10) || 0;
+      const classes = parseClassList(String(m[2] || ''));
+      if (!classes) return null;
+
+      const opponentIds = (state.players || [])
+        .map((p: any) => String((p as any)?.id || '').trim())
+        .filter(pid => pid.length > 0 && pid !== controllerId);
+
+      let opponentCount = 0;
+      for (const opponentId of opponentIds) {
+        const oppPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === opponentId);
+        const hasMatchingPermanent = countByClasses(oppPermanents, classes) > 0;
+        if (hasMatchingPermanent) opponentCount += 1;
+      }
+
+      return addend + opponentCount;
     }
   }
 

@@ -1,0 +1,200 @@
+where x is 1 plus the exiled creature's mana value
+where x is 1 plus the number of basic land types among lands you control
+where x is 1 plus the number of cards named ancestral anger in your graveyard
+where x is 1 plus the number of cards named feast of flesh in all graveyards
+where x is 1 plus the number of cards named kjeldoran war cry in all graveyards
+where x is 1 plus the number of nonbasic land types among lands that player controls
+where x is 1 plus the number of spells you've cast from anywhere other than your hand this turn
+where x is 1 plus the sacrificed creature's mana value
+where x is 2 plus the exiled creature's mana value
+where x is 2 plus the number of cards in your graveyard that are instant cards, sorcery cards, and/or have an adventure
+where x is 2 plus the number of cards named flame burst in all graveyards
+where x is 2 plus the number of cards named galvanic bombardment in your graveyard
+where x is 2 plus the number of cards named kindle in all graveyards
+where x is 2 plus the number of creatures and/or spacecraft you control
+where x is 2 plus the number of mounts and vehicles you control
+where x is 2 plus the number of other spells you've cast this turn
+where x is 2 plus the sacrificed creature's mana value
+where x is 3 minus the number of cards in their hand
+where x is 3 plus the amount of damage dealt to this creature this turn by other sources named blazing effigy
+where x is 3 plus the number of artifacts you control
+where x is 3 plus the number of cards named muscle burst in all graveyards
+where x is 3 plus the number of charge counters on lightning storm
+where x is 4 minus the number of cards in their hand
+where x is 7 minus the number of cards in that creature's controller's hand
+where x is a number chosen at random from 0 to 4
+where x is a number from 0 to 5 chosen at random
+where x is a number from 0 to 6 chosen at random
+where x is a number from 1 to 3 chosen at random each time
+where x is a number from 2 to 6 chosen at random
+where x is a number in the sacrificed creature's text box
+where x is agatha's power
+where x is amy rose's power
+where x is arek's intensity
+where x is chittering skullspeaker's intensity
+where x is elenda's power
+where x is fang's power
+where x is fire lord zuko's power
+where x is five minus the number of lands they control
+where x is flavor disaster's power
+where x is halana and alena and gisa and geralf's power
+where x is halana and alena's power
+where x is half the creature's power, rounded down
+where x is half the number of artifacts you control, rounded down
+where x is half the number of creature cards in your graveyard, rounded up
+where x is half the number of forests you control, rounded down, and y is half the number of forests you control, rounded up
+where x is half the number of zombies you control, rounded down
+where x is half this artifact's intensity, rounded down
+where x is half your life total, rounded up
+where x is helga's power
+where x is his power when his last ability resolves
+where x is how far below 0 its power is
+where x is how much less than 0 its power is
+where x is its mana value
+where x is its mana value minus 4
+where x is its power
+where x is its power as that ability resolves
+where x is its power as that effect begins to apply
+where x is its power as the ability resolves
+where x is its power when its second ability resolves
+where x is its toughness
+where x is its toughness as the effect begins to apply
+where x is its toughness minus 1
+where x is jyoti's power
+where x is legion's chant's intensity
+where x is less than or equal to the amount of life you gained
+where x is maelstrom muse's power as this ability resolves
+where x is minthara of the absolute's intensity
+where x is mona lisa's power
+where x is nissa's loyalty
+where x is obuun's power
+where x is one plus the mana value of the sacrificed artifact
+where x is one plus the number of cards exiled with gardens of tranquil repose
+where x is one plus the number of cards named aether burst in all graveyards as you cast this spell
+where x is one plus the number of cards named mind burst in all graveyards
+where x is one plus the number of foods you control
+where x is one plus the number of instant and sorcery spells you've cast this turn
+where x is one plus the number of opponents who control an artifact
+where x is one plus the number of opponents who investigated this way
+where x is one plus the number of spells cast this turn
+where x is one plus the total number of instant and sorcery cards you own in exile and in your graveyard
+where x is paladin elizabeth taggerdy's power
+where x is ratatwotwo's power
+where x is redshift's power
+where x is resilient khenra's power
+where x is sarevok's power
+where x is skanos's power
+where x is syr faren's power
+where x is teysa's intensity
+where x is that artifact's mana value
+where x is that card's mana value
+where x is that creature’s power as rule with an even hand’s last ability resolves
+where x is that creature's mana value
+where x is that creature's power
+where x is that creature's power and y is that creature's toughness when tifa's limit break resolves
+where x is that creature's power as double trouble resolves
+where x is that creature's power as mr
+where x is that creature's power as the skullspore nexus's activated ability resolves
+where x is that creature's power as the triggered ability resolves
+where x is that creature's power when bulk up resolves
+where x is that creature's power when legion leadership resolves
+where x is that creature's toughness
+where x is that creature's toughness as the triggered ability resolves
+where x is that damage
+where x is that enchantment's mana value
+where x is that excess damage
+where x is that result
+where x is that saga's mana value
+where x is that spell's mana value
+where x is the amassed army's power
+where x is the amount of {e} paid this way
+where x is the amount of {e} you have
+where x is the amount of {s} spent to cast this spell
+where x is the amount of {s} spent to cast this spell, then draw three cards
+where x is the amount of damage dealt
+where x is the amount of damage dealt to it this turn
+where x is the amount of damage it dealt to that player
+where x is the amount of damage this creature dealt to that player
+where x is the amount of damage those creatures dealt to that player
+where x is the amount of excess damage dealt this way
+where x is the amount of generic mana in that spell's mana cost
+where x is the amount of life paid with maralen of the mornsong avatar
+where x is the amount of life you gained
+where x is the amount of life you gained this turn
+where x is the amount of life you lost this turn
+where x is the amount of life you've gained this turn
+where x is the amount of life you've lost this turn
+where x is the amount of mana spent to cast her
+where x is the amount of mana spent to cast it
+where x is the amount of mana spent to cast jeleva
+where x is the amount of mana spent to cast that spell
+where x is the amount of mana spent to cast this creature
+where x is the amount of mana spent to cast this spell
+where x is the amount of mana that player paid this way
+where x is the chosen number
+where x is the damage dealt to your opponents this turn
+where x is the devoured creature's power
+where x is the difference
+where x is the difference between its power and toughness
+where x is the difference between the chosen creatures' powers
+where x is the difference between those players' life totals
+where x is the discarded card's mana value
+where x is the excess damage dealt this way
+where x is the exiled card's mana value
+where x is the exiled card's power
+where x is the exiled card's toughness
+where x is the exiled creature card's power and y is its toughness
+where x is the exiled creature's power
+where x is the first chosen result and y is the second
+where x is the greatest amount of damage dealt by a source to a permanent or player this turn
+where x is the greatest mana value among artifacts you control
+where x is the greatest mana value among cards discarded this way
+where x is the greatest mana value among cards exiled this way
+where x is the greatest mana value among cards in your graveyard
+where x is the greatest mana value among elementals you control
+where x is the greatest mana value among instant and sorcery spells you've cast this turn
+where x is the greatest mana value among other artifacts you control
+where x is the greatest mana value among permanents you control
+where x is the greatest mana value among permanents you control, then draw three cards
+where x is the greatest mana value among your commanders
+where x is the greatest mana value of a commander you own on the battlefield or in the command zone
+where x is the greatest number of artifacts an opponent controls
+where x is the greatest number of consecutive nonland, nontoken permanents in a mana curve you control
+where x is the greatest number of creatures you control that have a creature type in common
+where x is the greatest number of stored results on it of the same value
+where x is the greatest power among creature cards exiled this way
+where x is the greatest power among creature cards in all graveyards
+where x is the greatest power among creature cards in your graveyard
+where x is the greatest power among creatures they control
+where x is the greatest power among creatures you control
+where x is the greatest power among creatures you control and creature cards in your graveyard
+where x is the greatest power among creatures you control as you activate this ability
+where x is the greatest power among creatures you control as you cast this spell
+where x is the greatest power among creatures you controlled as you cast this spell
+where x is the greatest power among giants you control
+where x is the greatest power among other attacking creatures
+where x is the greatest power among other creatures you control
+where x is the greatest power among other dragons you control and dragon cards in your graveyard
+where x is the greatest power among tapped creatures your opponents control
+where x is the greatest power among them
+where x is the greatest power among those creatures
+where x is the greatest power among wurms you control
+where x is the greatest power and/or toughness among other creatures you control
+where x is the greatest toughness among creatures you control
+where x is the greatest toughness among other creatures you control
+where x is the highest mana value among creatures you control
+where x is the highest number you noted for cards named lurking automaton
+where x is the highest number you noted for cards named pyretic hunter
+where x is the life paid as this artifact entered
+where x is the mana value of a commander you own on the battlefield or in the command zone
+where x is the mana value of that card
+where x is the mana value of that spell
+where x is the mana value of the exiled card
+where x is the mana value of the exiled creature
+where x is the mana value of the permanent exiled this way
+where x is the mana value of the returned creature
+where x is the mana value of your precious
+where x is the milled card's mana value
+where x is the noted number
+where x is the number of +1/+1 counters on aerith gainsborough
+where x is the number of +1/+1 counters on anim pakal
