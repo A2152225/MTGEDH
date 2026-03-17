@@ -732,6 +732,7 @@ function evaluateModifyPtWhereX(
     "x is the number of cards in target opponent’s exile": "x is the number of cards in their exile",
     "x is the number of cards in all graveyards with the same name as the spell": "x is the number of cards in all graveyards with the same name as that spell",
     "x is the number of cards in all graveyards with the same name as this spell": "x is the number of cards in all graveyards with the same name as that spell",
+    "x is the mana value of the sacrificed artifact": "x is the sacrificed artifact's mana value",
   };
 
   let raw = normalizeOracleText(whereRaw);
@@ -1537,7 +1538,7 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of opponents who control an? (.+)$/i);
+    const m = raw.match(/^x is the number of opponents who control (?:(?:an?|the)\s+)?(.+)$/i);
     if (m) {
       const classes = parseClassList(String(m[1] || ''));
       if (!classes) return null;
@@ -2642,6 +2643,23 @@ function evaluateModifyPtWhereX(
         : ((refCard as any)?.toughness ?? (ref as any)?.toughness);
       const n = Number(rawValue);
       return Number.isFinite(n) ? n : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the sacrificed artifact'?s mana value$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+
+      const refCard = (ref as any)?.card || ref;
+      const tl = typeLineLower(refCard);
+      if (!tl.includes('artifact')) return null;
+
+      const mv = getCardManaValue(refCard);
+      return mv === null ? null : mv;
     }
   }
 

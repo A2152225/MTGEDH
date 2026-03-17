@@ -21865,6 +21865,237 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('applies executor modify_pt where X is the number of opponents who control artifacts', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is the number of opponents who control artifacts' },
+        raw: 'The creature gets +X/+0 until end of turn where X is the number of opponents who control artifacts.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p4', name: 'P4', seat: 3, life: 40, library: [{ id: 'p4l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'oppControllerArtifactsSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppControllerArtifactsExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppControllerArtifactsExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppArtifactsExecA', ownerId: 'p2', controller: 'p2', name: 'Relic A', type_line: 'Artifact' } as any,
+        { id: 'oppArtifactsExecB', ownerId: 'p3', controller: 'p3', name: 'Relic B', type_line: 'Artifact — Equipment' } as any,
+        { id: 'oppNoArtifactsExec', ownerId: 'p4', controller: 'p4', name: 'Elf', type_line: 'Creature — Elf' } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'oppControllerArtifactsSourceExecutor' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppControllerArtifactsExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is one plus the number of opponents who control artifacts and/or enchantments', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is one plus the number of opponents who control artifacts and/or enchantments' },
+        raw: 'The creature gets +X/+0 until end of turn where X is one plus the number of opponents who control artifacts and/or enchantments.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p4', name: 'P4', seat: 3, life: 40, library: [{ id: 'p4l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'oppControllerArtEnchSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppControllerArtEnchExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppControllerArtEnchExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppArtEnchExecA', ownerId: 'p2', controller: 'p2', name: 'Relic A', type_line: 'Artifact' } as any,
+        { id: 'oppArtEnchExecB', ownerId: 'p3', controller: 'p3', name: 'Aura B', type_line: 'Enchantment — Aura' } as any,
+        { id: 'oppNoArtEnchExec', ownerId: 'p4', controller: 'p4', name: 'Elf', type_line: 'Creature — Elf' } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'oppControllerArtEnchSourceExecutor' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppControllerArtEnchExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is 2 plus the sacrificed creature\'s mana value', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: "X is 2 plus the sacrificed creature's mana value" },
+        raw: "The creature gets +X/+0 until end of turn where X is 2 plus the sacrificed creature's mana value.",
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'sacrificedCreaturePlusTwoExec', name: 'Sacrificed Titan', type_line: 'Creature — Giant', power: 6, toughness: 6, manaValue: 4 },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'targetSacManaPlusExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'sacrificedCreaturePlusTwoExec',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSacManaPlusExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(6);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is one plus the mana value of the sacrificed artifact', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is one plus the mana value of the sacrificed artifact' },
+        raw: 'The creature gets +X/+0 until end of turn where X is one plus the mana value of the sacrificed artifact.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'sacArtifactSourceExecutor', name: 'Sac Relic', type_line: 'Artifact', cardType: 'Artifact', manaValue: 4, manaCost: '{4}' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'targetSacArtifactExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'sacArtifactSourceExecutor',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSacArtifactExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(5);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is 1 plus the sacrificed creature\'s mana value', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: "X is 1 plus the sacrificed creature's mana value" },
+        raw: "The creature gets +X/+0 until end of turn where X is 1 plus the sacrificed creature's mana value.",
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'sacCreatureSourceExecutor', name: 'Sac Beast', type_line: 'Creature — Beast', cardType: 'Creature', manaValue: 3, manaCost: '{2}{G}' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'targetSacCreatureExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'sacCreatureSourceExecutor',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSacCreatureExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(4);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt where X is the number of colors of mana spent to cast this spell', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +X/+0 until end of turn where X is the number of colors of mana spent to cast this spell.',
