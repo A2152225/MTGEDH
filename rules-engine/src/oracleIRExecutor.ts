@@ -1537,10 +1537,9 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is (one|\d+) plus the number of opponents who control an? (.+)$/i);
+    const m = raw.match(/^x is the number of opponents who control an? (.+)$/i);
     if (m) {
-      const addend = String(m[1] || '').toLowerCase() === 'one' ? 1 : parseInt(String(m[1] || '0'), 10) || 0;
-      const classes = parseClassList(String(m[2] || ''));
+      const classes = parseClassList(String(m[1] || ''));
       if (!classes) return null;
 
       const opponentIds = (state.players || [])
@@ -1554,7 +1553,7 @@ function evaluateModifyPtWhereX(
         if (hasMatchingPermanent) opponentCount += 1;
       }
 
-      return addend + opponentCount;
+      return opponentCount;
     }
   }
 

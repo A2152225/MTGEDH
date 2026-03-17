@@ -21782,6 +21782,89 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('applies executor modify_pt where X is half the number of zombies you control, rounded down', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is half the number of zombies you control, rounded down' },
+        raw: 'The creature gets +X/+0 until end of turn where X is half the number of zombies you control, rounded down.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'halfZombieSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetHalfZombieExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetHalfZombieExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'halfZombieExecA', ownerId: 'p1', controller: 'p1', name: 'Zombie A', type_line: 'Creature — Zombie' } as any,
+        { id: 'halfZombieExecB', ownerId: 'p1', controller: 'p1', name: 'Zombie B', type_line: 'Creature — Zombie' } as any,
+        { id: 'halfZombieExecC', ownerId: 'p1', controller: 'p1', name: 'Zombie C', type_line: 'Creature — Zombie' } as any,
+        { id: 'halfZombieExecD', ownerId: 'p1', controller: 'p1', name: 'Zombie D', type_line: 'Creature — Zombie' } as any,
+        { id: 'halfZombieExecE', ownerId: 'p1', controller: 'p1', name: 'Zombie E', type_line: 'Creature — Zombie' } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'halfZombieSourceExecutor' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetHalfZombieExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is one plus the number of opponents who control an artifact', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is one plus the number of opponents who control an artifact' },
+        raw: 'Target creature gets +X/+0 until end of turn where X is one plus the number of opponents who control an artifact.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3l1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p4', name: 'P4', seat: 3, life: 40, library: [{ id: 'p4l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'oppControllerArtifactSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppControllerArtifactExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOppControllerArtifactExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppAArtifactExec', ownerId: 'p2', controller: 'p2', name: 'Relic A', type_line: 'Artifact' } as any,
+        { id: 'oppBCreatureOnlyExec', ownerId: 'p3', controller: 'p3', name: 'Elf', type_line: 'Creature — Elf' } as any,
+        { id: 'oppCArtifactExec', ownerId: 'p4', controller: 'p4', name: 'Relic C', type_line: 'Artifact — Equipment' } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'oppControllerArtifactSourceExecutor' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetOppControllerArtifactExecutor') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt where X is the number of colors of mana spent to cast this spell', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +X/+0 until end of turn where X is the number of colors of mana spent to cast this spell.',
