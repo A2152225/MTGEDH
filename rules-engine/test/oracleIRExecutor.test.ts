@@ -22563,6 +22563,70 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.power).toBe(expected);
     expect(ptMod.toughness).toBe(0);
   });
+  it.each([
+    { whereText: "X is one plus Agatha's power", expected: 7, ownerName: 'Agatha', stat: 'power', statValue: 6 },
+    { whereText: "X is 2 plus Amy Rose's power", expected: 7, ownerName: 'Amy Rose', stat: 'power', statValue: 5 },
+    { whereText: "X is 10 minus Agatha's power", expected: 4, ownerName: 'Agatha', stat: 'power', statValue: 6 },
+    { whereText: "X is Agatha's power minus 2", expected: 4, ownerName: 'Agatha', stat: 'power', statValue: 6 },
+    { whereText: "X is twice Vadrik's power", expected: 6, ownerName: 'Vadrik', stat: 'power', statValue: 3 },
+    { whereText: "X is half the Flavor Disaster's power, rounded down", expected: 4, ownerName: 'Flavor Disaster', stat: 'power', statValue: 8 },
+    { whereText: "X is half the Tifa Lockhart's power, rounded up", expected: 5, ownerName: 'Tifa Lockhart', stat: 'power', statValue: 9 },
+    { whereText: "X is one plus Arek's intensity", expected: 5, ownerName: 'Arek', stat: 'intensity', statValue: 4 },
+    { whereText: "X is twice Legion's Chant's intensity", expected: 4, ownerName: "Legion's Chant", stat: 'intensity', statValue: 2 },
+    { whereText: "X is half the Minthara of the Absolute's intensity, rounded down", expected: 2, ownerName: 'Minthara of the Absolute', stat: 'intensity', statValue: 5 },
+    { whereText: "X is half the Minthara of the Absolute's intensity, rounded up", expected: 3, ownerName: 'Minthara of the Absolute', stat: 'intensity', statValue: 5 },
+  ])('applies executor modify_pt owner-stat arithmetic lock: $whereText', ({ whereText, expected, ownerName, stat, statValue }) => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: whereText },
+        raw: 'The creature gets +X/+0 until end of turn where ' + whereText + '.',
+      } as any,
+    ];
+
+    const ownerRef: any = {
+      id: 'ownerStatArithmeticRefObject',
+      ownerId: 'p1',
+      controller: 'p1',
+      name: ownerName,
+      type_line: stat === 'intensity' ? 'Artifact' : 'Creature',
+      cardType: stat === 'intensity' ? 'Artifact' : 'Creature',
+      counters: {},
+    };
+    if (stat === 'power') ownerRef.power = statValue;
+    if (stat === 'intensity') ownerRef.intensity = statValue;
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        ownerRef,
+        { id: 'ownerStatArithmeticEquip', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact - Equipment', type_line: 'Artifact - Equipment', attachedTo: 'ownerStatArithmeticTarget', counters: {} } as any,
+        { id: 'ownerStatArithmeticTarget', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'ownerStatArithmeticEquip',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'ownerStatArithmeticTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(expected);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies executor modify_pt where X is Agatha\'s Soul Cauldron\'s intensity', () => {
     const steps = [
       {
@@ -26098,8 +26162,4 @@ describe('Oracle IR Executor', () => {
     expect(p2.hand).toEqual([]);
   });
 });
-
-
-
-
 
