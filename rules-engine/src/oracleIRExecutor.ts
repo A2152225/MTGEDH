@@ -735,6 +735,7 @@ function evaluateModifyPtWhereX(
     "x is the mana value of the sacrificed artifact": "x is the sacrificed artifact's mana value",
     "x is the exiled creature's mana value": "x is that card's mana value",
     "x is the mana value of the exiled creature": "x is that card's mana value",
+    "x is half the creature's power": "x is half that creature's power",
   };
 
   let raw = normalizeOracleText(whereRaw);
@@ -2073,6 +2074,31 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the number of cards? named ([a-z0-9 ,.'-]+) in all graveyards(?: as you cast this spell)?$/i);
+    if (m) {
+      const wantedName = normalizeOracleText(String(m[1] || ''));
+      if (!wantedName) return null;
+      return (state.players || []).reduce((sum, p: any) => {
+        const gy = Array.isArray((p as any)?.graveyard) ? (p as any).graveyard : [];
+        const count = gy.filter((card: any) => normalizeOracleText(String((card as any)?.name || '')) === wantedName).length;
+        return sum + count;
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? named ([a-z0-9 ,.'-]+) in your graveyard$/i);
+    if (m) {
+      const wantedName = normalizeOracleText(String(m[1] || ''));
+      if (!wantedName) return null;
+      const controller = (state.players || []).find((p: any) => String(p.id || '').trim() === controllerId) as any;
+      if (!controller) return null;
+      const gy = Array.isArray(controller.graveyard) ? controller.graveyard : [];
+      return gy.filter((card: any) => normalizeOracleText(String((card as any)?.name || '')) === wantedName).length;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the amount of life your opponents(?:['’])?(?: have)? gained(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
@@ -3142,7 +3168,7 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is ([a-z0-9 ,.'-]+)'s (power|toughness|mana value)$/i);
+    const m = raw.match(/^x is ([a-z0-9 ,.'-]+)'s (power|toughness|mana value|intensity)$/i);
     if (m) {
       const ownerName = String(m[1] || '').trim();
       const which = String(m[2] || '').toLowerCase();
@@ -3167,6 +3193,11 @@ function evaluateModifyPtWhereX(
         const ref = findObjectByName(ownerName);
         if (!ref) return null;
         const refCard = (ref as any)?.card || ref;
+
+        if (which === 'intensity') {
+          const intensity = Number((ref as any)?.intensity ?? (ref as any)?.intensityValue ?? (refCard as any)?.intensity ?? (refCard as any)?.intensityValue);
+          return Number.isFinite(intensity) ? intensity : null;
+        }
 
         if (which === 'mana value') {
           const mv = getCardManaValue(refCard);

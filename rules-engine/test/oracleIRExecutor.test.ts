@@ -22242,6 +22242,363 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('applies executor modify_pt where X is the number of cards named Lightning Bolt in all graveyards', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is the number of cards named Lightning Bolt in all graveyards' },
+        raw: 'The creature gets +X/+0 until end of turn where X is the number of cards named Lightning Bolt in all graveyards.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'lb1', name: 'Lightning Bolt', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'other1', name: 'Opt', type_line: 'Instant', cardType: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'lb2', name: 'Lightning Bolt', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'lb3', name: 'Lightning Bolt', type_line: 'Instant', cardType: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'targetCardsNamedAllGy', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'targetCardsNamedAllGy' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetCardsNamedAllGy') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is the number of cards named Lightning Bolt in all graveyards as you cast this spell', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is the number of cards named Lightning Bolt in all graveyards as you cast this spell' },
+        raw: 'The creature gets +X/+0 until end of turn where X is the number of cards named Lightning Bolt in all graveyards as you cast this spell.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [{ id: 'lb4', name: 'Lightning Bolt', type_line: 'Instant', cardType: 'Instant' }], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }], hand: [], graveyard: [{ id: 'lb5', name: 'Lightning Bolt', type_line: 'Instant', cardType: 'Instant' }], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'targetCardsNamedAllGyAsCast', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'targetCardsNamedAllGyAsCast' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetCardsNamedAllGyAsCast') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies executor modify_pt where X is the number of cards named Dark Ritual in your graveyard', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is the number of cards named Dark Ritual in your graveyard' },
+        raw: 'The creature gets +X/+0 until end of turn where X is the number of cards named Dark Ritual in your graveyard.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'dr1', name: 'Dark Ritual', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'dr2', name: 'Dark Ritual', type_line: 'Instant', cardType: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }], hand: [], graveyard: [{ id: 'dr3', name: 'Dark Ritual', type_line: 'Instant', cardType: 'Instant' }], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'targetCardsNamedYourGy', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'targetCardsNamedYourGy' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetCardsNamedYourGy') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(0);
+  });
+  it.each([
+    { whereText: 'X is one plus the number of cards named Ancestral Anger in your graveyard', expected: 3 },
+    { whereText: 'X is one plus the number of cards named Feast of Flesh in all graveyards', expected: 4 },
+    { whereText: 'X is one plus the number of cards named Kjeldoran War Cry in all graveyards', expected: 4 },
+    { whereText: 'X is 2 plus the number of cards named Flame Burst in all graveyards', expected: 4 },
+    { whereText: 'X is 2 plus the number of cards named Galvanic Bombardment in your graveyard', expected: 5 },
+    { whereText: 'X is 2 plus the number of cards named Kindle in all graveyards', expected: 3 },
+    { whereText: 'X is 3 plus the number of cards named Muscle Burst in all graveyards', expected: 6 },
+    { whereText: 'X is one plus the number of cards named Mind Burst in all graveyards', expected: 2 },
+    { whereText: 'X is one plus the number of cards named Aether Burst in all graveyards as you cast this spell', expected: 4 },
+    { whereText: 'X is the number of cards named Feast of Flesh in all graveyards', expected: 3 },
+    { whereText: 'X is the number of cards named Galvanic Bombardment in your graveyard', expected: 3 },
+    { whereText: 'X is 5 minus the number of cards named Feast of Flesh in all graveyards', expected: 2 },
+    { whereText: 'X is 4 minus the number of cards named Ancestral Anger in your graveyard', expected: 2 },
+    { whereText: 'X is twice the number of cards named Kindle in all graveyards', expected: 2 },
+    { whereText: 'X is half the number of cards named Feast of Flesh in all graveyards, rounded down', expected: 1 },
+    { whereText: 'X is half the number of cards named Feast of Flesh in all graveyards, rounded up', expected: 2 },
+    { whereText: 'X is half the number of cards named Galvanic Bombardment in your graveyard, rounded down', expected: 1 },
+    { whereText: 'X is one plus the number of cards named Dark Ritual in your graveyard', expected: 1 },
+  ])('applies executor modify_pt cards-named arithmetic lock: $whereText', ({ whereText, expected }) => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: whereText },
+        raw: `The creature gets +X/+0 until end of turn where ${whereText}.`,
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'aa1', name: 'Ancestral Anger', type_line: 'Sorcery', cardType: 'Sorcery' },
+            { id: 'aa2', name: 'Ancestral Anger', type_line: 'Sorcery', cardType: 'Sorcery' },
+            { id: 'gb1', name: 'Galvanic Bombardment', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'gb2', name: 'Galvanic Bombardment', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'gb3', name: 'Galvanic Bombardment', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'ff1', name: 'Feast of Flesh', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'mus1', name: 'Muscle Burst', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'aeb1', name: 'Aether Burst', type_line: 'Instant', cardType: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'ff2', name: 'Feast of Flesh', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'ff3', name: 'Feast of Flesh', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'kwc1', name: 'Kjeldoran War Cry', type_line: 'Sorcery', cardType: 'Sorcery' },
+            { id: 'kwc2', name: 'Kjeldoran War Cry', type_line: 'Sorcery', cardType: 'Sorcery' },
+            { id: 'kwc3', name: 'Kjeldoran War Cry', type_line: 'Sorcery', cardType: 'Sorcery' },
+            { id: 'fb1', name: 'Flame Burst', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'fb2', name: 'Flame Burst', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'k1', name: 'Kindle', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'mus2', name: 'Muscle Burst', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'mus3', name: 'Muscle Burst', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'mind1', name: 'Mind Burst', type_line: 'Sorcery', cardType: 'Sorcery' },
+            { id: 'aeb2', name: 'Aether Burst', type_line: 'Instant', cardType: 'Instant' },
+            { id: 'aeb3', name: 'Aether Burst', type_line: 'Instant', cardType: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'cardsNamedArithmeticTarget', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cardsNamedArithmeticTarget',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'cardsNamedArithmeticTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(expected);
+    expect(ptMod.toughness).toBe(0);
+  });
+  it.each([
+    { whereText: "X is Agatha's power", expected: 6, ownerName: 'Agatha', stat: 'power', statValue: 6 },
+    { whereText: "X is Amy Rose's power", expected: 5, ownerName: 'Amy Rose', stat: 'power', statValue: 5 },
+    { whereText: "X is Elenda's power", expected: 4, ownerName: 'Elenda', stat: 'power', statValue: 4 },
+    { whereText: "X is Fang's power", expected: 3, ownerName: 'Fang', stat: 'power', statValue: 3 },
+    { whereText: "X is Fire Lord Zuko's power", expected: 7, ownerName: 'Fire Lord Zuko', stat: 'power', statValue: 7 },
+    { whereText: "X is Flavor Disaster's power", expected: 8, ownerName: 'Flavor Disaster', stat: 'power', statValue: 8 },
+    { whereText: "X is Halana and Alena's power", expected: 5, ownerName: 'Halana and Alena', stat: 'power', statValue: 5 },
+    { whereText: "X is Halana and Alena and Gisa and Geralf's power", expected: 9, ownerName: 'Halana and Alena and Gisa and Geralf', stat: 'power', statValue: 9 },
+    { whereText: "X is Helga's power", expected: 4, ownerName: 'Helga', stat: 'power', statValue: 4 },
+    { whereText: "X is Jyoti's power", expected: 6, ownerName: 'Jyoti', stat: 'power', statValue: 6 },
+    { whereText: "X is Maelstrom Muse's power", expected: 3, ownerName: 'Maelstrom Muse', stat: 'power', statValue: 3 },
+    { whereText: "X is Mona Lisa's power", expected: 5, ownerName: 'Mona Lisa', stat: 'power', statValue: 5 },
+    { whereText: "X is Obuun's power", expected: 7, ownerName: 'Obuun', stat: 'power', statValue: 7 },
+    { whereText: "X is Paladin Elizabeth Taggerdy's power", expected: 4, ownerName: 'Paladin Elizabeth Taggerdy', stat: 'power', statValue: 4 },
+    { whereText: "X is Ratatwotwo's power", expected: 6, ownerName: 'Ratatwotwo', stat: 'power', statValue: 6 },
+    { whereText: "X is Redshift's power", expected: 5, ownerName: 'Redshift', stat: 'power', statValue: 5 },
+    { whereText: "X is Resilient Khenra's power", expected: 2, ownerName: 'Resilient Khenra', stat: 'power', statValue: 2 },
+    { whereText: "X is Sarevok's power", expected: 8, ownerName: 'Sarevok', stat: 'power', statValue: 8 },
+    { whereText: "X is Syr Faren's power", expected: 2, ownerName: 'Syr Faren', stat: 'power', statValue: 2 },
+    { whereText: "X is Tifa Lockhart's power", expected: 9, ownerName: 'Tifa Lockhart', stat: 'power', statValue: 9 },
+    { whereText: "X is Tomakul Phoenix's power", expected: 4, ownerName: 'Tomakul Phoenix', stat: 'power', statValue: 4 },
+    { whereText: "X is Vadrik's power", expected: 3, ownerName: 'Vadrik', stat: 'power', statValue: 3 },
+    { whereText: "X is Vivi Ornitier's power", expected: 2, ownerName: 'Vivi Ornitier', stat: 'power', statValue: 2 },
+    { whereText: "X is Arek's intensity", expected: 4, ownerName: 'Arek', stat: 'intensity', statValue: 4 },
+    { whereText: "X is Chittering Skullspeaker's intensity", expected: 3, ownerName: 'Chittering Skullspeaker', stat: 'intensity', statValue: 3 },
+    { whereText: "X is Legion's Chant's intensity", expected: 2, ownerName: "Legion's Chant", stat: 'intensity', statValue: 2 },
+    { whereText: "X is Minthara of the Absolute's intensity", expected: 5, ownerName: 'Minthara of the Absolute', stat: 'intensity', statValue: 5 },
+    { whereText: "X is Teysa's intensity", expected: 4, ownerName: 'Teysa', stat: 'intensity', statValue: 4 },
+  ])('applies executor modify_pt owner-stat lock: $whereText', ({ whereText, expected, ownerName, stat, statValue }) => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: whereText },
+        raw: `The creature gets +X/+0 until end of turn where ${whereText}.`,
+      } as any,
+    ];
+
+    const ownerRef: any = {
+      id: 'ownerStatRefObject',
+      ownerId: 'p1',
+      controller: 'p1',
+      name: ownerName,
+      type_line: stat === 'intensity' ? 'Artifact' : 'Creature',
+      cardType: stat === 'intensity' ? 'Artifact' : 'Creature',
+      counters: {},
+    };
+    if (stat === 'power') ownerRef.power = statValue;
+    if (stat === 'intensity') ownerRef.intensity = statValue;
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        ownerRef,
+        { id: 'ownerStatEquip', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact - Equipment', type_line: 'Artifact - Equipment', attachedTo: 'ownerStatTarget', counters: {} } as any,
+        { id: 'ownerStatTarget', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'ownerStatEquip',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'ownerStatTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(expected);
+    expect(ptMod.toughness).toBe(0);
+  });
+  it('applies executor modify_pt where X is Agatha\'s Soul Cauldron\'s intensity', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: "X is Agatha's Soul Cauldron's intensity" },
+        raw: "Target creature gets +X/+0 until end of turn where X is Agatha's Soul Cauldron's intensity.",
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'agathaCauldronRef', ownerId: 'p1', controller: 'p1', name: "Agatha's Soul Cauldron", cardType: 'Artifact', type_line: 'Legendary Artifact', intensity: 3, counters: {} } as any,
+        { id: 'targetAgathaIntensity', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'agathaCauldronRef' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetAgathaIntensity') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt where X is the number of colors of mana spent to cast this spell', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +X/+0 until end of turn where X is the number of colors of mana spent to cast this spell.',
@@ -23118,7 +23475,7 @@ describe('Oracle IR Executor', () => {
 
   it('safely skips modify_pt with still-unsupported where expression', () => {
     const ir = parseOracleTextToIR(
-      'Target creature gets +X/+X until end of turn where X is the number of cards named Forest in your graveyard.',
+      'Target creature gets +X/+X until end of turn where X is the square root of your life total.',
       'Test'
     );
     const steps = ir.abilities[0]?.steps ?? [];
@@ -25741,3 +26098,8 @@ describe('Oracle IR Executor', () => {
     expect(p2.hand).toEqual([]);
   });
 });
+
+
+
+
+
