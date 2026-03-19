@@ -41,6 +41,8 @@ export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
+  readonly targetCreatureId?: string;
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
   /**
@@ -2006,6 +2008,30 @@ function evaluateModifyPtWhereX(
       return getCounterCountOnObject(obj, counterName);
     }
   }
+
+    {
+      const m = raw.match(/^x is the number of (.+) counters? on ([a-z0-9 ,.'-]+)$/i);
+      if (m) {
+        const counterName = String(m[1] || '');
+        const objectName = String(m[2] || '').trim();
+        if (!objectName) return null;
+
+        const normalizedObjectName = normalizeOracleText(objectName);
+        if (
+          normalizedObjectName === 'it' ||
+          normalizedObjectName === 'this' ||
+          normalizedObjectName === 'that' ||
+          /^this\s+/.test(normalizedObjectName) ||
+          /^that\s+/.test(normalizedObjectName)
+        ) {
+          // Let pronoun/antecedent-specific matchers resolve these forms.
+        } else {
+          const obj = findObjectByName(objectName);
+          if (!obj) return null;
+          return getCounterCountOnObject(obj, counterName);
+        }
+      }
+    }
 
   {
     const m = raw.match(/^x is the number of cards? in your (graveyard|hand|library|exile)$/i);
@@ -4238,6 +4264,45 @@ function evaluateModifyPtWhereX(
     }
   }
 
+  // ── Damage dealt to this creature / it this turn ─────────────────────────
+  {
+    const m = raw.match(/^x is the amount of damage dealt to (it|this creature) this turn$/i);
+    if (m) {
+      const refId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      if (!refId) return null;
+      const ref = battlefield.find((p: any) => String((p as any)?.id || '').trim() === refId) as any;
+      if (!ref) return null;
+      const damage = Number(ref?.damage ?? ref?.markedDamage ?? 0);
+      return Number.isFinite(damage) ? Math.max(0, damage) : null;
+    }
+  }
+
+  // ── Damage this creature / it dealt to that player ───────────────────────
+  {
+    const m = raw.match(/^x is the amount of damage (?:this creature|that creature|it) dealt to that player$/i);
+    if (m) {
+      const creatureId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      if (!creatureId) return null;
+
+      const playerId = String(
+        ctx?.selectorContext?.targetPlayerId ||
+        ctx?.selectorContext?.targetOpponentId ||
+        ''
+      ).trim();
+      if (!playerId) return null;
+
+      const stateAny: any = state as any;
+      const byPlayer = stateAny?.creaturesThatDealtDamageToPlayer;
+      if (!byPlayer || typeof byPlayer !== 'object' || Array.isArray(byPlayer)) return null;
+
+      const perPlayer = (byPlayer as Record<string, any>)[playerId];
+      if (!perPlayer || typeof perPlayer !== 'object' || Array.isArray(perPlayer)) return 0;
+
+      const totalDamage = Number(perPlayer?.[creatureId]?.totalDamage ?? 0);
+      return Number.isFinite(totalDamage) ? Math.max(0, totalDamage) : null;
+    }
+  }
+
   // ── How far below 0 its power is (negative power) ────────────────────────
   {
     const m = raw.match(/^x is how (?:far below 0|much less than 0) its power is$/i);
@@ -4252,9 +4317,26 @@ function evaluateModifyPtWhereX(
     }
   }
 
+  // ── Random number from a range ───────────────────────────────────────────
+  {
+    const m =
+      raw.match(/^x is a number from (\d+) to (\d+) chosen at random(?: each time)?$/i) ||
+      raw.match(/^x is a number chosen at random from (\d+) to (\d+)(?: each time)?$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const a = parseInt(String(m[1] || '0'), 10);
+      const b = parseInt(String(m[2] || '0'), 10);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+      const min = Math.min(a, b);
+      const max = Math.max(a, b);
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+  }
+
   // ── Safe-skips (non-deterministic or complex context) ────────────────────
   // Random numbers
-  if (/^x is a number (?:chosen at random|from \d+ to \d+ chosen at random)/i.test(raw)) return null;
+  if (/^x is a number chosen at random$/i.test(raw)) return null;
   // Noted numbers
   if (/^x is the (?:noted number|highest number you noted)/i.test(raw)) return null;
   // Chosen number (player choice)
