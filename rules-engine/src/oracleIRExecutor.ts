@@ -2491,6 +2491,34 @@ function evaluateModifyPtWhereX(
     }
   }
 
+  // ── All-players spells cast this turn (no “you”/“opponents” qualifier) ───────────
+  {
+    const m = raw.match(/^x is the number of spells? cast this turn$/i);
+    if (m) {
+      const stateAny: any = state as any;
+
+      const fromRecordSumAll = (value: any): number | null => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        return Object.values(value as Record<string, unknown>).reduce<number>((sum, amount) => {
+          const n = Number(amount);
+          return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
+        }, 0);
+      };
+
+      const candidates: Array<number | null> = [
+        fromRecordSumAll(stateAny.spellsCastThisTurn),
+        fromRecordSumAll(stateAny.spellsCast),
+        fromRecordSumAll(stateAny.turnStats?.spellsCast),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate !== null) return candidate;
+      }
+
+      return null;
+    }
+  }
+
   {
     const m = raw.match(/^x is the number of lands? (?:you(?:['’]ve| have)|you) played this turn$|^x is the number of lands? you played this turn$/i);
     if (m) {
@@ -3204,6 +3232,30 @@ function evaluateModifyPtWhereX(
     }
   }
 
+  // ── Generic (colorless numeric) mana in that spell’s mana cost ────────────────────
+  {
+    const m = raw.match(/^x is the amount of generic mana in (?:that|this) spell['\u2019]?s mana cost$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      const manaCostStr = String(
+        (ref as any)?.manaCost ||
+        (ref as any)?.mana_cost ||
+        (ref as any)?.card?.manaCost ||
+        (ref as any)?.card?.mana_cost ||
+        ''
+      );
+      if (!manaCostStr) return 0;
+      let generic = 0;
+      for (const mt of manaCostStr.matchAll(/\{(\d+)\}/g)) {
+        generic += Number(mt[1]);
+      }
+      return generic;
+    }
+  }
+
   {
     const m = raw.match(/^x is that card'?s mana value$/i);
     if (m) {
@@ -3872,6 +3924,30 @@ function evaluateModifyPtWhereX(
     }
   }
 
+  // ── Cards exiled by a named permanent ────────────────────────────────────────
+  {
+    const m = raw.match(/^x is the number of cards? exiled with (?!this\b)([a-z][a-z0-9 ,.'\u2019-]*)$/i);
+    if (m) {
+      const wantedName = normalizeOracleText(String(m[1] || ''));
+      if (!wantedName) return null;
+      const namedPermanent = (battlefield as any[]).find((p: any) => {
+        const name = normalizeOracleText(String((p as any)?.name || (p as any)?.card?.name || ''));
+        return Boolean(name && name === wantedName);
+      });
+      const namedId = String((namedPermanent as any)?.id || '').trim();
+      if (!namedId) return null;
+
+      let count = 0;
+      for (const player of state.players as any[]) {
+        const exile = Array.isArray(player?.exile) ? player.exile : [];
+        for (const card of exile) {
+          if (String((card as any)?.exiledBy || '').trim() === namedId) count++;
+        }
+      }
+      return count;
+    }
+  }
+
   // ── Greatest power/toughness among [subtype] you/they control ─────────────
   {
     const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among ([\w]+(?:\s+[\w]+)*?)\s+(?:you control|they control|your opponents control|an opponent controls)$/i);
@@ -4126,6 +4202,28 @@ function evaluateModifyPtWhereX(
       if (!ref) return null;
       const loyalty = Number(ref?.loyalty ?? ref?.card?.loyalty ?? ref?.loyaltyCounters ?? ref?.counters?.loyalty);
       return Number.isFinite(loyalty) ? loyalty : null;
+    }
+  }
+
+  // ── Difference between those players’ life totals ───────────────────────────────────
+  {
+    const m = raw.match(/^x is the difference between those players['’] life totals?$/i);
+    if (m) {
+      const ids: readonly string[] = Array.isArray(ctx?.selectorContext?.eachOfThoseOpponents)
+        ? (ctx?.selectorContext?.eachOfThoseOpponents || []).map(id => String(id || '').trim()).filter(Boolean)
+        : [];
+      if (ids.length < 2) return null;
+
+      const lifes: number[] = [];
+      for (const pid of ids.slice(0, 2)) {
+        const player = (state.players || []).find((p: any) => String((p as any)?.id || '').trim() === pid) as any;
+        if (!player) return null;
+        const life = Number(player?.life ?? player?.lifeTotal ?? 0);
+        if (!Number.isFinite(life)) return null;
+        lifes.push(life);
+      }
+      if (lifes.length < 2) return null;
+      return Math.abs(lifes[0] - lifes[1]);
     }
   }
 
